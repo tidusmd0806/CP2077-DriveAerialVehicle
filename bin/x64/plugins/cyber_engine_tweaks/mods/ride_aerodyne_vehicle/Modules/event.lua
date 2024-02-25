@@ -14,23 +14,16 @@ function Event:new()
 end
 
 function Event:checkInAV()
-    local inVehicule = Game.GetWorkspotSystem():IsActorInWorkspot(Game.GetPlayer())
-    if (inVehicule) then
-        local vehicule = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
-        if(vehicule ~= nil) then
-            local isThiscar = (string.find(string.lower(Game.NameToString(vehicule:GetCurrentAppearanceName())), "excalibur") ~= nil)
+    local inVehicle = Game.GetWorkspotSystem():IsActorInWorkspot(Game.GetPlayer())
+    if (inVehicle) then
+        local vehicle = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
+        if(vehicle ~= nil) then
+            local isThiscar = (string.find(string.lower(Game.NameToString(vehicle:GetCurrentAppearanceName())), "excalibur") ~= nil)
             if isThiscar then
                 if not self.in_av then
                     self.log_obj:record(LogLevel.INFO, "Enter In AV")
                 end
                 self.in_av = true
-                -- local pos = Game.GetPlayer():GetWorldPosition()
-                -- local rot = GetPlayer():GetWorldOrientation():ToEulerAngles()
-                -- print(pos.x)
-                -- print(pos.y)
-                -- print(pos.z)
-                -- Game.GetTeleportationFacility():Teleport(vehicule, Vector4.new(pos.x, pos.y, pos.z + 50,1), EulerAngles.new(rot.roll, rot.pitch, rot.yaw))
-                -- Game.GetPlayer():GetFPPCameraComponent():SetLocalOrientation(GetSingleton('EulerAngles'):ToQuat(EulerAngles.new(rot.roll, 0, 0)))
             end
         else
             if self.in_av then

@@ -13,22 +13,37 @@ function Aerodyne:new()
 	return setmetatable(obj, self)
 end
 
-
-function Aerodyne:spawnAerodyneVehicle(spawn)
+function Aerodyne:spawn(spawn)
+	if self.entityID ~= nil then
+		self.log_obj:record(LogLevel.INFO, "Entity already spawned")
+		return false
+	end
 
 	local entitySystem = Game.GetDynamicEntitySystem()
 
 	spawn.entitySpec.recordID = spawn.path
 	spawn.entitySpec.tags = { "RAV" }
-	spawn.entitySpec.position = self.position_obj:getPosition(5.5, 0.0)
-	spawn.entitySpec.orientation = self.position_obj:getOrientation(90.0)
+	spawn.entitySpec.position = self.position_obj:getPlayerPosition(5.5, 0.0)
+	spawn.entitySpec.orientation = self.position_obj:getPlayerOrientation(90.0)
 	self.entityID = entitySystem:CreateEntity(spawn.entitySpec)
 
+	return true
 end
 
-function Aerodyne:unlockAVDoor()
+function Aerodyne:despawn()
 	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARN, "No entity to change door lock")
+		self.log_obj:record(LogLevel.WARNING, "No entity to despawn")
+		return false
+	end
+	local entitySystem = Game.GetDynamicEntitySystem()
+	entitySystem:DeleteEntity(self.entityID)
+	self.entityID = nil
+	return true
+end
+
+function Aerodyne:unlockDoor()
+	if self.entityID == nil then
+		self.log_obj:record(LogLevel.WARNING, "No entity to change door lock")
 		return false
 	end
 	local entity = Game.FindEntityByID(self.entityID)
@@ -37,9 +52,9 @@ function Aerodyne:unlockAVDoor()
 	return true
 end
 
-function Aerodyne:lockAVDoor()
+function Aerodyne:lockDoor()
 	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARN, "No entity to change door lock")
+		self.log_obj:record(LogLevel.WARNING, "No entity to change door lock")
 		return false
 	end
 	local entity = Game.FindEntityByID(self.entityID)
@@ -50,7 +65,7 @@ end
 
 function Aerodyne:changeDoorState()
 	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARN, "No entity to change door state")
+		self.log_obj:record(LogLevel.WARNING, "No entity to change door state")
 		return false
 	end
 	local entity = Game.FindEntityByID(self.entityID)
@@ -67,9 +82,9 @@ function Aerodyne:changeDoorState()
 	return true
 end
 
-function Aerodyne:mountAV()
+function Aerodyne:mount()
 	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARN, "No entity to mount")
+		self.log_obj:record(LogLevel.WARNING, "No entity to mount")
 		return false
 	end
 	local entity = Game.FindEntityByID(self.entityID)
@@ -97,12 +112,13 @@ function Aerodyne:mountAV()
 	mountEvent.mountData = data
 
 	Game.GetMountingFacility():Mount(mountEvent)
+	
 	return true
 end
 
-function Aerodyne:unmountAV()
+function Aerodyne:unmount()
 	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARN, "No entity to unmount")
+		self.log_obj:record(LogLevel.WARNING, "No entity to unmount")
 		return false
 	end
 	local entity = Game.FindEntityByID(self.entityID)
@@ -129,6 +145,16 @@ function Aerodyne:unmountAV()
 	mountEvent.mountData = data
 	
 	Game.GetMountingFacility():Unmount(mountEvent)
+	return true
+end
+
+function Aerodyne:move()
+	if self.entityID == nil then
+		self.log_obj:record(LogLevel.WARNING, "No entity id to move")
+		return false
+	end
+	self.position_obj:setNextVehiclePosition(0.0, 0.0, -0.1, 0.0, 0.0, 0.0)
+	self.position_obj:changeVehiclePosition()
 	return true
 end
 

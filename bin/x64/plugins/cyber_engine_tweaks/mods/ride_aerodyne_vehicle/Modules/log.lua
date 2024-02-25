@@ -1,7 +1,7 @@
 LogLevel = {
     CRITICAL = 0,
     ERROR = 1,
-    WARN = 2,
+    WARNING = 2,
     INFO = 3,
     TRACE = 4,
     DEBUG = 5,
@@ -41,7 +41,7 @@ function Log:record(level, message)
     elseif level == LogLevel.ERROR then
         spdlog.error(self.setting_file_name .. "[ERROR] " .. message)
     elseif level == LogLevel.WARN then
-        spdlog.warn(self.setting_file_name .. "[WARN] " .. message)
+        spdlog.warning(self.setting_file_name .. "[WARNING] " .. message)
     elseif level == LogLevel.INFO then
         spdlog.info(self.setting_file_name .. "[INFO] " .. message)
     elseif level == LogLevel.TRACE then

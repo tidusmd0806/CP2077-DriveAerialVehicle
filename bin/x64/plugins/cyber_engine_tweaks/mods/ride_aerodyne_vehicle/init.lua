@@ -5,13 +5,13 @@ RAV = {
 }
 
 -- import modules
-Cron = require('External/Cron.lua')
-Event = require('Modules/event.lua')
-Core = require('Modules/core.lua')
+RAV.Cron = require('External/Cron.lua')
+RAV.Event = require('Modules/event.lua')
+RAV.Core = require('Modules/core.lua')
 
 -- create instances
-RAV.event_obj = Event:new()
-RAV.core_obj = Core:new(RAV.event_obj)
+RAV.event_obj = RAV.Event:new()
+RAV.core_obj = RAV.Core:new(RAV.event_obj)
 
 print('RAV is loaded!')
 
@@ -19,6 +19,11 @@ print('RAV is loaded!')
 registerForEvent('onInit', function()
 
     RAV.ready = true
+    local callback = function()
+        RAV.core_obj:operateAV()
+    end
+    RAV.Cron.Every(0.01, callback)
+
 
     -- print on initialize
     print('RAV is initialized!')
@@ -51,7 +56,7 @@ end)
 
 registerForEvent('onUpdate', function(delta)
     -- This is required for Cron to function
-    Cron.Update(delta)
+    RAV.Cron.Update(delta)
     RAV.event_obj:checkInAV()
 end)
 
