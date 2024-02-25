@@ -20,7 +20,7 @@ registerForEvent('onInit', function()
 
     RAV.ready = true
     local callback = function()
-        RAV.core_obj:operateAV()
+        RAV.core_obj:checkAction()
     end
     RAV.Cron.Every(0.01, callback)
 
@@ -52,6 +52,54 @@ end)
 
 registerHotkey('Unmount', 'Unmount (TMP)', function()
     RAV.core_obj:unmount()
+end)
+
+registerInput('Forword', 'Forword', function(keypress)
+    if keypress then
+        RAV.core_obj:setAction(ActionCommandList.Foword)
+    else
+        RAV.core_obj:setAction(ActionCommandList.Nothing)
+    end
+end)
+
+registerInput('Backward', 'Backward', function(keypress)
+    if keypress then
+        RAV.core_obj:setAction(ActionCommandList.Backward)
+    else
+        RAV.core_obj:setAction(ActionCommandList.Nothing)
+    end
+end)
+
+registerInput('Left', 'Left', function(keypress)
+    if keypress then
+        RAV.core_obj:setAction(ActionCommandList.Left)
+    else
+        RAV.core_obj:setAction(ActionCommandList.Nothing)
+    end
+end)
+
+registerInput('Right', 'Right', function(keypress)
+    if keypress then
+        RAV.core_obj:setAction(ActionCommandList.Right)
+    else
+        RAV.core_obj:setAction(ActionCommandList.Nothing)
+    end
+end)
+
+registerInput('Up', 'Up', function(keypress)
+    if keypress then
+        RAV.core_obj:setAction(ActionCommandList.Up)
+    else
+        RAV.core_obj:setAction(ActionCommandList.Nothing)
+    end
+end)
+
+registerInput('Down', 'Down', function(keypress)
+    if keypress then
+        RAV.core_obj:setAction(ActionCommandList.Down)
+    else
+        RAV.core_obj:setAction(ActionCommandList.Nothing)
+    end
 end)
 
 registerForEvent('onUpdate', function(delta)

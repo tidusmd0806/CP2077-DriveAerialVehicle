@@ -18,7 +18,7 @@ function Log:new()
     local obj = {}
     obj.setting_level = LogLevel.INFO
     obj.setting_file_name = "No Settng"
-    return setmetatable(obj, Log)
+    return setmetatable(obj, self)
 end
 
 function Log:setLevel(level, file_name)

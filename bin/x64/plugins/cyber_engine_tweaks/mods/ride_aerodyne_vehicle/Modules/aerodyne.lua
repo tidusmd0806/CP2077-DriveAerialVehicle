@@ -13,19 +13,19 @@ function Aerodyne:new()
 	return setmetatable(obj, self)
 end
 
-function Aerodyne:spawn(spawn)
+function Aerodyne:spawn()
 	if self.entityID ~= nil then
 		self.log_obj:record(LogLevel.INFO, "Entity already spawned")
 		return false
 	end
 
 	local entitySystem = Game.GetDynamicEntitySystem()
-
-	spawn.entitySpec.recordID = spawn.path
-	spawn.entitySpec.tags = { "RAV" }
-	spawn.entitySpec.position = self.position_obj:getPlayerPosition(5.5, 0.0)
-	spawn.entitySpec.orientation = self.position_obj:getPlayerOrientation(90.0)
-	self.entityID = entitySystem:CreateEntity(spawn.entitySpec)
+	local entitySpec = DynamicEntitySpec.new()
+	entitySpec.recordID = "Vehicle.av_rayfield_excalibur"
+	entitySpec.tags = { "RAV_excalibur" }
+	entitySpec.position = self.position_obj:getSpawnPosition(5.5, 0.0, 100.0)
+	entitySpec.orientation = self.position_obj:getSpawnOrientation(90.0)
+	self.entityID = entitySystem:CreateEntity(entitySpec)
 
 	return true
 end
@@ -59,7 +59,7 @@ function Aerodyne:lockDoor()
 	end
 	local entity = Game.FindEntityByID(self.entityID)
 	local vehicle_ps = entity:GetVehiclePS()
-	vehicle_ps:LockAllVehDoors()
+	vehicle_ps:QuestLockAllVehDoors()
 	return true
 end
 
@@ -148,12 +148,17 @@ function Aerodyne:unmount()
 	return true
 end
 
-function Aerodyne:move()
+function Aerodyne:move(x, y, z, roll, pitch, yaw)
 	if self.entityID == nil then
 		self.log_obj:record(LogLevel.WARNING, "No entity id to move")
 		return false
 	end
-	self.position_obj:setNextVehiclePosition(0.0, 0.0, -0.1, 0.0, 0.0, 0.0)
+	if self.position_obj:getUnmountVehicle() == nil then
+		self.position_obj:setUnmountVehicle(Game.FindEntityByID(self.entityID))
+	end
+	if not self.position_obj:setNextVehiclePosition(x, y, z, roll, pitch, yaw) then
+		return false
+	end
 	self.position_obj:changeVehiclePosition()
 	return true
 end
