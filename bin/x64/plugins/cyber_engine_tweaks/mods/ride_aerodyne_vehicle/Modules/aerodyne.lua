@@ -3,72 +3,84 @@ local Log = require("Modules/log.lua")
 local Aerodyne = {}
 Aerodyne.__index = Aerodyne
 
-function Aerodyne:new()
-	local obj = {}
-	obj.position_obj = Position:new()
-	obj.log_obj = Log:new()
-	obj.log_obj:setLevel(LogLevel.INFO, "Aerodyne")
+VehicleModel = {
+	Excalibur = "Vehicle.av_rayfield_excalibur",
+}
 
-	obj.entityID = nil
+function Aerodyne:New(vehicle_model)
+	local obj = {}
+	obj.position_obj = Position:New()
+	obj.log_obj = Log:New()
+	obj.log_obj:SetLevel(LogLevel.Info, "Aerodyne")
+	obj.vehicle_model = vehicle_model or VehicleModel.Excalibur
+
+	-- set default parameters
+	obj.entity_id = nil
 	return setmetatable(obj, self)
 end
 
-function Aerodyne:spawn()
-	if self.entityID ~= nil then
-		self.log_obj:record(LogLevel.INFO, "Entity already spawned")
-		return false
+function Aerodyne:Spawn(high)
+	if self.entity_id ~= nil then
+		self.log_obj:Record(LogLevel.Info, "Entity already spawned")
+		return false, nil
 	end
 
-	local entitySystem = Game.GetDynamicEntitySystem()
-	local entitySpec = DynamicEntitySpec.new()
-	entitySpec.recordID = "Vehicle.av_rayfield_excalibur"
-	entitySpec.tags = { "RAV_excalibur" }
-	entitySpec.position = self.position_obj:getSpawnPosition(5.5, 0.0, 100.0)
-	entitySpec.orientation = self.position_obj:getSpawnOrientation(90.0)
-	self.entityID = entitySystem:CreateEntity(entitySpec)
+	local entity_system = Game.GetDynamicEntitySystem()
+	local entity_spec = DynamicEntitySpec.new()
 
+	entity_spec.persistState = false
+	entity_spec.persistSpawn = false
+	entity_spec.alwaysSpawned = false
+	entity_spec.spawnInView = true
+
+	entity_spec.recordID = self.vehicle_model
+	-- entity_spec.tags = { "RAV_excalibur" }
+	entity_spec.position = self.position_obj:GetSpawnPosition(5.5, 0.0, high)
+	entity_spec.orientation = self.position_obj:GetSpawnOrientation(90.0)
+	self.entity_id = entity_system:CreateEntity(entity_spec)
+
+	return true, entity_spec.position
+end
+
+function Aerodyne:Despawn()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to despawn")
+		return false
+	end
+	local entity_system = Game.GetDynamicEntitySystem()
+	entity_system:DeleteEntity(self.entity_id)
+	self.entity_id = nil
 	return true
 end
 
-function Aerodyne:despawn()
-	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARNING, "No entity to despawn")
+function Aerodyne:UnlockDoor()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
 		return false
 	end
-	local entitySystem = Game.GetDynamicEntitySystem()
-	entitySystem:DeleteEntity(self.entityID)
-	self.entityID = nil
-	return true
-end
-
-function Aerodyne:unlockDoor()
-	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARNING, "No entity to change door lock")
-		return false
-	end
-	local entity = Game.FindEntityByID(self.entityID)
+	local entity = Game.FindEntityByID(self.entity_id)
 	local vehicle_ps = entity:GetVehiclePS()
 	vehicle_ps:UnlockAllVehDoors()
 	return true
 end
 
-function Aerodyne:lockDoor()
-	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARNING, "No entity to change door lock")
+function Aerodyne:LockDoor()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entityID)
+	local entity = Game.FindEntityByID(self.entity_id)
 	local vehicle_ps = entity:GetVehiclePS()
 	vehicle_ps:QuestLockAllVehDoors()
 	return true
 end
 
-function Aerodyne:changeDoorState()
-	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARNING, "No entity to change door state")
+function Aerodyne:ChangeDoorState()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change door state")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entityID)
+	local entity = Game.FindEntityByID(self.entity_id)
 	local vehicle_ps = entity:GetVehiclePS()
 	local state = vehicle_ps:GetDoorState(1).value
 	if state == "Closed" then
@@ -76,90 +88,91 @@ function Aerodyne:changeDoorState()
 	elseif state == "Open" then
 		vehicle_ps:CloseAllVehDoors(false)
 	else
-		self.log_obj:record(LogLevel.ERROR, "Door state is not valid : " .. state)
+		self.log_obj:Record(LogLevel.Error, "Door state is not valid : " .. state)
 		return false
 	end
 	return true
 end
 
-function Aerodyne:mount()
-	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARNING, "No entity to mount")
+function Aerodyne:Mount()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to mount")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entityID)
+	local entity = Game.FindEntityByID(self.entity_id)
 	local player = Game.GetPlayer()
-	local entID = entity:GetEntityID()
+	local ent_id = entity:GetEntityID()
 	local seat = "seat_back_left"
 
 	local data = NewObject('handle:gameMountEventData')
 	data.isInstant = false
 	data.setEntityVisibleWhenMountFinish = false
 	data.slotName = seat
-	data.mountParentEntityId = entID
+	data.mountParentEntityId = ent_id
 	data.entryAnimName = "forcedTransition"
 
-	local slotID = NewObject('gamemountingMountingSlotId')
-	slotID.id = seat
 
-	local mountingInfo = NewObject('gamemountingMountingInfo')
-	mountingInfo.childId = player:GetEntityID()
-	mountingInfo.parentId = entID
-	mountingInfo.slotId = slotID
+	local slot_id = NewObject('gamemountingMountingSlotId')
+	slot_id.id = seat
 
-	local mountEvent = NewObject('handle:gamemountingMountingRequest')
-	mountEvent.lowLevelMountingInfo = mountingInfo
-	mountEvent.mountData = data
+	local mounting_info = NewObject('gamemountingMountingInfo')
+	mounting_info.childId = player:GetEntityID()
+	mounting_info.parentId = ent_id
+	mounting_info.slotId = slot_id
 
-	Game.GetMountingFacility():Mount(mountEvent)
+	local mounting_request = NewObject('handle:gamemountingMountingRequest')
+	mounting_request.lowLevelMountingInfo = mounting_info
+	mounting_request.mountData = data
+
+	Game.GetMountingFacility():Mount(mounting_request)
 	
 	return true
 end
 
-function Aerodyne:unmount()
-	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARNING, "No entity to unmount")
+function Aerodyne:Unmount()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to unmount")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entityID)
+	local entity = Game.FindEntityByID(self.entity_id)
 	local player = Game.GetPlayer()
-	local entID = entity:GetEntityID()
+	local ent_id = entity:GetEntityID()
 	local seat = "seat_back_left"
 							
 	local data = NewObject('handle:gameMountEventData')
 	data.isInstant = true
 	data.slotName = seat
-	data.mountParentEntityId = entID
+	data.mountParentEntityId = ent_id
 	data.entryAnimName = "forcedTransition"
 	
 	local slotID = NewObject('gamemountingMountingSlotId')
 	slotID.id = seat
 	
-	local mountingInfo = NewObject('gamemountingMountingInfo')
-	mountingInfo.childId = player:GetEntityID()
-	mountingInfo.parentId = entID
-	mountingInfo.slotId = slotID
+	local mounting_info = NewObject('gamemountingMountingInfo')
+	mounting_info.childId = player:GetEntityID()
+	mounting_info.parentId = ent_id
+	mounting_info.slotId = slotID
 	
-	local mountEvent = NewObject('handle:gamemountingUnmountingRequest')
-	mountEvent.lowLevelMountingInfo = mountingInfo
-	mountEvent.mountData = data
+	local mount_event = NewObject('handle:gamemountingUnmountingRequest')
+	mount_event.lowLevelMountingInfo = mounting_info
+	mount_event.mountData = data
 	
-	Game.GetMountingFacility():Unmount(mountEvent)
+	Game.GetMountingFacility():Unmount(mount_event)
 	return true
 end
 
-function Aerodyne:move(x, y, z, roll, pitch, yaw)
-	if self.entityID == nil then
-		self.log_obj:record(LogLevel.WARNING, "No entity id to move")
+function Aerodyne:Move(x, y, z, roll, pitch, yaw)
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity id to move")
 		return false
 	end
-	if self.position_obj:getUnmountVehicle() == nil then
-		self.position_obj:setUnmountVehicle(Game.FindEntityByID(self.entityID))
+	if self.position_obj:GetUnmountVehicle() == nil then
+		self.position_obj:SetUnmountVehicle(Game.FindEntityByID(self.entity_id))
 	end
-	if not self.position_obj:setNextVehiclePosition(x, y, z, roll, pitch, yaw) then
+	if not self.position_obj:SetNextVehiclePosition(x, y, z, roll, pitch, yaw) then
 		return false
 	end
-	self.position_obj:changeVehiclePosition()
+	self.position_obj:ChangeVehiclePosition()
 	return true
 end
 

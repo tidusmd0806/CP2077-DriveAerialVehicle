@@ -1,28 +1,28 @@
 LogLevel = {
-    CRITICAL = 0,
-    ERROR = 1,
-    WARNING = 2,
-    INFO = 3,
-    TRACE = 4,
-    DEBUG = 5,
-    NOTSET = 6,
+    Critical = 0,
+    Error = 1,
+    Warning = 2,
+    Info = 3,
+    Trace = 4,
+    Debug = 5,
+    Nothing = 6
 }
 
 -- Force the log level to be the same for all instances
-LogMasterLevel = LogLevel.NOTSET
+LogMasterLevel = LogLevel.Nothing
 
 local Log = {}
 Log.__index = Log
 
-function Log:new()
+function Log:New()
     local obj = {}
     obj.setting_level = LogLevel.INFO
     obj.setting_file_name = "No Settng"
     return setmetatable(obj, self)
 end
 
-function Log:setLevel(level, file_name)
-    if level < 0 or level > 5 or LogMasterLevel ~= LogLevel.NOTSET then
+function Log:SetLevel(level, file_name)
+    if level < 0 or level > 5 or LogMasterLevel ~= LogLevel.Nothing then
         self.setting_level = LogMasterLevel
         return false
     else
@@ -32,21 +32,21 @@ function Log:setLevel(level, file_name)
     end
 end
 
-function Log:record(level, message)
+function Log:Record(level, message)
     if level > self.setting_level then
         return
     end
-    if level == LogLevel.CRITICAL then
+    if level == LogLevel.Critical then
         spdlog.critical(self.setting_file_name .. "[CRITICAL] " .. message)
-    elseif level == LogLevel.ERROR then
+    elseif level == LogLevel.Error then
         spdlog.error(self.setting_file_name .. "[ERROR] " .. message)
-    elseif level == LogLevel.WARN then
+    elseif level == LogLevel.Warning then
         spdlog.warning(self.setting_file_name .. "[WARNING] " .. message)
-    elseif level == LogLevel.INFO then
+    elseif level == LogLevel.Info then
         spdlog.info(self.setting_file_name .. "[INFO] " .. message)
-    elseif level == LogLevel.TRACE then
+    elseif level == LogLevel.Trace then
         spdlog.trace(self.setting_file_name .. "[TRACE] " .. message)
-    elseif level == LogLevel.DEBUG then
+    elseif level == LogLevel.Debug then
         spdlog.debug(self.setting_file_name .. "[DEBUG] " .. message)
     else
         return
