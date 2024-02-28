@@ -1,17 +1,20 @@
 RAV = {
 	description = "RideAerodyneVehicele",
 	version = "0.1",
-    ready = false
+    ready = false,
+    is_debug_mode = true
 }
 
 -- import modules
 RAV.Cron = require('External/Cron.lua')
 RAV.Event = require('Modules/event.lua')
 RAV.Core = require('Modules/core.lua')
+RAV.Debug = require('Debug/debug.lua')
 
 -- create instances
 RAV.event_obj = RAV.Event:New()
 RAV.core_obj = RAV.Core:New(RAV.event_obj)
+RAV.debug_obj = RAV.Debug:New()
 
 print('RAV is loaded!')
 
@@ -19,15 +22,32 @@ print('RAV is loaded!')
 registerForEvent('onInit', function()
 
     RAV.ready = true
-    local callback = function()
-        RAV.core_obj:CheckAction()
+    RAV.Cron.Every(0.01, function()
+        RAV.core_obj:ExcutePriodicalTask()
+    end)
+
+    -- Observe player action
+    Observe("PlayerPuppet", "OnAction", function(self, action)
+        local action_name = Game.NameToString(action:GetName(action))
+		local action_type = action:GetType(action).value
+        local action_value = action:GetValue(action)
+
+        if RAV.is_debug_mode then
+            RAV.debug_obj:CheckAction(action_name, action_type, action_value)
+        end
+
+        RAV.core_obj:StorePlayerAction(action_name, action_type, action_value)
+
+    end)
+
+    print('-------------- RAV is initialized! --------------')
+end)
+
+-- Debug Window
+registerForEvent("onDraw", function()
+    if RAV.is_debug_mode then
+        RAV.debug_obj:Init()
     end
-    RAV.Cron.Every(0.01, callback)
-
-
-    -- print on initialize
-    print('RAV is initialized!')
-
 end)
 
 registerHotkey('CallAerodyneVehicle', 'Call Aerodyne Vehicle', function()
@@ -52,54 +72,6 @@ end)
 
 registerHotkey('Unmount', 'Unmount (TMP)', function()
     RAV.core_obj:Unmount()
-end)
-
-registerInput('Forword', 'Forword', function(keypress)
-    if keypress then
-        RAV.core_obj:SetAction(ActionCommandList.Foword)
-    else
-        RAV.core_obj:SetAction(ActionCommandList.Nothing)
-    end
-end)
-
-registerInput('Backward', 'Backward', function(keypress)
-    if keypress then
-        RAV.core_obj:SetAction(ActionCommandList.Backward)
-    else
-        RAV.core_obj:SetAction(ActionCommandList.Nothing)
-    end
-end)
-
-registerInput('Left', 'Left', function(keypress)
-    if keypress then
-        RAV.core_obj:SetAction(ActionCommandList.Left)
-    else
-        RAV.core_obj:SetAction(ActionCommandList.Nothing)
-    end
-end)
-
-registerInput('Right', 'Right', function(keypress)
-    if keypress then
-        RAV.core_obj:SetAction(ActionCommandList.Right)
-    else
-        RAV.core_obj:SetAction(ActionCommandList.Nothing)
-    end
-end)
-
-registerInput('Up', 'Up', function(keypress)
-    if keypress then
-        RAV.core_obj:SetAction(ActionCommandList.Up)
-    else
-        RAV.core_obj:SetAction(ActionCommandList.Nothing)
-    end
-end)
-
-registerInput('Down', 'Down', function(keypress)
-    if keypress then
-        RAV.core_obj:SetAction(ActionCommandList.Down)
-    else
-        RAV.core_obj:SetAction(ActionCommandList.Nothing)
-    end
 end)
 
 registerForEvent('onUpdate', function(delta)

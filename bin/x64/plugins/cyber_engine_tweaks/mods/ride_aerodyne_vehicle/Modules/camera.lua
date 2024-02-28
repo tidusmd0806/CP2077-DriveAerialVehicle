@@ -31,7 +31,7 @@ end
 
 function Camera:SetVehiclePosition()
     self.target = Game.GetPlayer()
-    self.camera_vector = Vector4.new(0, -10, 2.0, 0)
+    self.camera_vector = Vector4.new(0, -10, 2.0, 1.0)
     self.pitchMax = 80
     self.pitchMin = -80
     self.yawMaxRight = -360

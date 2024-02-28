@@ -1,15 +1,17 @@
 local Aerodyne = require("Modules/aerodyne.lua")
 local Camera = require("Modules/camera.lua")
+local Queue = require("Modules/queue.lua")
 
-ActionCommandList = {
+ActionList = {
     Nothing = 0,
-    Foword = 1,
-    Backward = 2,
-    Left = 3,
+    Up = 1,
+    Forward = 2,
+    Backward = 3,
     Right = 4,
-    Up = 5,
-    Down = 6,
-    Stop = 7,
+    Left = 5,
+    TurnRight = 6,
+    TurnLeft = 7,
+    Hover = 8,
 }
 
 local Core = {}
@@ -18,41 +20,62 @@ Core.__index = Core
 function Core:New(event_obj)
     local obj = {}
     obj.event_obj= event_obj
-    obj.av_obj = Aerodyne:New()
+    obj.av_obj = Aerodyne:New(VehicleModel.Excalibur)
     obj.camera_obj = Camera:New()
+    obj.queue_obj = Queue:New()
 
-    -- set default parameters
-    obj.action_command = ActionCommandList.Nothing
-    obj.dummy_av_spawn_high = 50
     return setmetatable(obj, self)
 end
 
-function Core:SetAction(action)
-    self.action_command = action
+function Core:StorePlayerAction(action_name, action_type, action_value)
+    local cmd = self:ConvertActionList(action_name, action_type, action_value)
+    if cmd > 0 then
+        self.queue_obj:Enqueue(cmd)
+    end
 end
 
-function Core:CheckAction()
-    if self.action_command == ActionCommandList.Nothing then
+function Core:ConvertActionList(action_name, action_type, action_value)
+    local action_command = ActionList.Nothing
+    if action_name == "UI_Skip" and action_type == "BUTTON_PRESSED" and action_value == 1 then
+        action_command = ActionList.Up
+    elseif action_name == "LeftY_Axis" and action_type == "AXIS_CHANGE" and action_value > 0 then
+        action_command = ActionList.Forward
+    elseif action_name == "LeftY_Axis" and action_type == "AXIS_CHANGE" and action_value < 0 then
+        action_command = ActionList.Backward
+    elseif action_name == "LeftX_Axis" and action_type == "AXIS_CHANGE" and action_value > 0 then
+        action_command = ActionList.Right
+    elseif action_name == "LeftX_Axis" and action_type == "AXIS_CHANGE" and action_value < 0 then
+        action_command = ActionList.Left
+    elseif action_name == "character_preview_rotate" and action_type == "AXIS_CHANGE" and action_value > 0 then
+        action_command = ActionList.TurnRight
+    elseif action_name == "character_preview_rotate" and action_type == "AXIS_CHANGE" and action_value < 0 then
+        action_command = ActionList.TurnLeft
+    else
+        action_command = ActionList.Nothing
+    end
+    return action_command
+end
+
+function Core:ExcutePriodicalTask()
+    if self.queue_obj:IsEmpty() then
         return
     else
+        self.action_command = self.queue_obj:Dequeue()
         self:OperateAerodyneVehicle()
         return
     end
 end
 
 function Core:CallAerodyneVehicle()
-    local dummy_av_obj = Aerodyne:New()
-    local res, pos = dummy_av_obj:Spawn(self.dummy_av_spawn_high)
+    self.av_obj:SpawnToSky()
+    local times = 150
     RAV.Cron.Every(0.01, { tick = 1 }, function(timer)
         timer.tick = timer.tick + 1
-        if timer.tick > 50 then
-            if not dummy_av_obj:Move(0.0, 0.0, -0.2, 0.0, 0.0, 0.0) then
-                self.av_obj:Spawn(dummy_av_obj.position_obj.next_vehicle_vector.z - (pos.z - self.dummy_av_spawn_high))
-                RAV.Cron.After(0.5, function()
-                    self.av_obj:LockDoor()
-                    dummy_av_obj:Despawn()
-                end)
-                RAV.Cron.Halt(timer)
+        if timer.tick == times then
+            self.av_obj:LockDoor()
+        elseif timer.tick > times then
+            if not self.av_obj:Move(0.0, 0.0, -1.0, 0.0, 0.0, 0.0) then
+            RAV.Cron.Halt(timer)
             end
         end
     end)
@@ -64,7 +87,7 @@ end
 
 function Core:LockAerodyneDoor()
     self.av_obj:LockDoor()
-    self.av_obj:Despawn()
+    -- self.av_obj:Despawn()
 end
 
 function Core:UnlockAerodyneDoor()
@@ -83,20 +106,20 @@ end
 
 function Core:OperateAerodyneVehicle()
     if self.event_obj.in_av == true then
-        if self.action_command == ActionCommandList.Foword then
-            self.av_obj:Move(0.1, 0.0, 0.0, 0.0, 0.0, 0.0)
-        elseif self.action_command == ActionCommandList.Backward then
-            self.av_obj:Move(-0.1, 0.0, 0.0, 0.0, 0.0, 0.0)
-        elseif self.action_command == ActionCommandList.Left then
-            self.av_obj:Move(0.0, 0.1, 0.0, 0.0, 0.0, 0.0)
-        elseif self.action_command == ActionCommandList.Right then
-            self.av_obj:Move(0.0, -0.1, 0.0, 0.0, 0.0, 0.0)
-        elseif self.action_command == ActionCommandList.Up then
-            self.av_obj:Move(0.0, 0.0, 0.1, 0.0, 0.0, 0.0)
-        elseif self.action_command == ActionCommandList.Down then
-            self.av_obj:Move(0.0, 0.0, -0.1, 0.0, 0.0, 0.0)
-        elseif self.action_command == ActionCommandList.Stop then
-            self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        if self.action_command == ActionList.Up then
+            self.av_obj:Move(0.0, 0.0, 0.3, 0.0, 0.0, 0.0)
+        elseif self.action_command == ActionList.Forward then
+            self.av_obj:Move(0.0, 0.0, 0.0, 15.0, 0.0, 0.0)
+        elseif self.action_command == ActionList.Backward then
+            self.av_obj:Move(0.0, 0.0, 0.0, -15.0, 0.0, 0.0)
+        elseif self.action_command == ActionList.Right then
+            self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 15.0, 0.0)
+        elseif self.action_command == ActionList.Left then
+            self.av_obj:Move(0.0, 0.0, 0.1, 0.0, -15.0, 0.0)
+        elseif self.action_command == ActionList.TurnRight then
+            self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 0.0, 15.0)
+        elseif self.action_command == ActionList.TurnLeft then
+            self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 0.0, -15.0)
         end
     end
 end

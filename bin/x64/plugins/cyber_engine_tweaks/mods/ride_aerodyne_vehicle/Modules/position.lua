@@ -5,18 +5,24 @@ Position.__index = Position
 function Position:New()
     local obj = {}
     obj.log_obj = Log:New()
-    obj.log_obj:SetLevel(LogLevel.Info, "Position")
-    obj.unmount_vehicle_obj = nil
-    obj.next_vehicle_vector = nil
+    obj.log_obj:SetLevel(LogLevel.Debug, "Position")
+    obj.av_obj = nil
+    obj.next_position = nil
+    obj.next_angle = nil
 
     return setmetatable(obj, self)
 end
-function Position:GetUnmountVehicle()
-    return self.unmount_vehicle_obj
+
+function Position:SetEntityId(entity_id)
+    self.av_obj = Game.FindEntityByID(entity_id)
 end
 
-function Position:SetUnmountVehicle(obj)
-    self.unmount_vehicle_obj = obj
+function Position:GetPosition()
+    return self.av_obj:GetWorldPosition()
+end
+
+function Position:GetEulerAngles()
+    return self.av_obj:GetWorldOrientation():ToEulerAngles()
 end
 
 function Position:GetPlayerDirection(angle)
@@ -34,29 +40,33 @@ function Position:GetSpawnOrientation(angle)
 end
 
 function Position:SetNextVehiclePosition(x, y, z, roll, pitch, yaw)
-    if self.game_obj == nil then
-        self.game_obj = Game['GetMountedVehicle;GameObject'](Game.GetPlayer()) or self.unmount_vehicle_obj
+    local mount_obj = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
+    if self.av_obj == nil then
+        self.log_obj:Record(LogLevel.Error, "No vehicle entity")
+        return false
+    elseif mount_obj ~= nil then
+        self.av_obj = mount_obj
     end
-    local pos = self.game_obj:GetWorldPosition()
-    self.next_vehicle_vector = Vector4.new(pos.x + x, pos.y + y, pos.z + z, 1.0)
-    if self:CheckVehicleCollision(pos, self.next_vehicle_vector) then
+    local pos = self:GetPosition()
+    self.next_position = Vector4.new(pos.x + x, pos.y + y, pos.z + z, 1.0)
+    if self:CheckVehicleCollision(pos, self.next_position) then
         self.log_obj:Record(LogLevel.Debug, "Collision Detected")
-        self.next_vehicle_vector = Vector4.new(pos.x, pos.y, pos.z, 1.0)
+        self.next_position = Vector4.new(pos.x, pos.y, pos.z, 1.0)
         return false
     end
-    local rot = self.game_obj:GetWorldOrientation():ToEulerAngles()
-    self.next_vehicle_angle = EulerAngles.new(rot.roll + roll, rot.pitch + pitch, rot.yaw + yaw)
+    local rot = self:GetEulerAngles()
+    self.next_angle = EulerAngles.new(rot.roll + roll, rot.pitch + pitch, rot.yaw + yaw)
     return true
 end
 
 function Position:ChangeVehiclePosition()
-    Game.GetTeleportationFacility():Teleport(self.game_obj, self.next_vehicle_vector, self.next_vehicle_angle)
+    Game.GetTeleportationFacility():Teleport(self.av_obj, self.next_position, self.next_angle)
 end
 
-function Position:CheckVehicleCollision(current_vector, next_vector)
+function Position:CheckVehicleCollision(current_pos, next_pos)
     local filters = {'Static', 'Terrain'}
     for _, filter in ipairs(filters) do
-        local success, result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_vector, next_vector, filter, false, false)
+        local success, result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_pos, next_pos, filter, false, false)
         if success then
             return true
         end

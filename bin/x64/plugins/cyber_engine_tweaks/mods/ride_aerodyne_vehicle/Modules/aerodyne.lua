@@ -1,4 +1,5 @@
 local Position = require("Modules/position.lua")
+local Engine = require("Modules/engine.lua")
 local Log = require("Modules/log.lua")
 local Aerodyne = {}
 Aerodyne.__index = Aerodyne
@@ -10,36 +11,43 @@ VehicleModel = {
 function Aerodyne:New(vehicle_model)
 	local obj = {}
 	obj.position_obj = Position:New()
+	obj.engine_obj = Engine:New()
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "Aerodyne")
-	obj.vehicle_model = vehicle_model or VehicleModel.Excalibur
 
 	-- set default parameters
 	obj.entity_id = nil
+	obj.vehicle_model = vehicle_model or VehicleModel.Excalibur
 	return setmetatable(obj, self)
 end
 
-function Aerodyne:Spawn(high)
+function Aerodyne:Spawn(position, angle)
 	if self.entity_id ~= nil then
 		self.log_obj:Record(LogLevel.Info, "Entity already spawned")
-		return false, nil
+		return false
 	end
 
 	local entity_system = Game.GetDynamicEntitySystem()
 	local entity_spec = DynamicEntitySpec.new()
 
-	entity_spec.persistState = false
-	entity_spec.persistSpawn = false
-	entity_spec.alwaysSpawned = false
-	entity_spec.spawnInView = true
-
 	entity_spec.recordID = self.vehicle_model
-	-- entity_spec.tags = { "RAV_excalibur" }
-	entity_spec.position = self.position_obj:GetSpawnPosition(5.5, 0.0, high)
-	entity_spec.orientation = self.position_obj:GetSpawnOrientation(90.0)
+	entity_spec.position = position
+	entity_spec.orientation = angle
+	entity_spec.persistState = false
 	self.entity_id = entity_system:CreateEntity(entity_spec)
 
-	return true, entity_spec.position
+	-- set entity id to position object
+	RAV.Cron.After(0.1, function()
+		self.position_obj:SetEntityId(self.entity_id)
+	end)
+
+	return true
+end
+
+function Aerodyne:SpawnToSky()
+	local position = self.position_obj:GetSpawnPosition(5.5, 0.0, 100.0)
+	local angle = self.position_obj:GetSpawnOrientation(90.0)
+	self:Spawn(position, angle)
 end
 
 function Aerodyne:Despawn()
@@ -124,7 +132,12 @@ function Aerodyne:Mount()
 	mounting_request.lowLevelMountingInfo = mounting_info
 	mounting_request.mountData = data
 
+	local pos = self.position_obj:GetPosition()
+	local rot = self.position_obj:GetEulerAngles()
+	self.position_obj:SetNextVehiclePosition(pos.x, pos.y, pos.z, rot.roll, rot.pitch, rot.yaw)
+
 	Game.GetMountingFacility():Mount(mounting_request)
+	self.position_obj:ChangeVehiclePosition()
 	
 	return true
 end
@@ -165,9 +178,6 @@ function Aerodyne:Move(x, y, z, roll, pitch, yaw)
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity id to move")
 		return false
-	end
-	if self.position_obj:GetUnmountVehicle() == nil then
-		self.position_obj:SetUnmountVehicle(Game.FindEntityByID(self.entity_id))
 	end
 	if not self.position_obj:SetNextVehiclePosition(x, y, z, roll, pitch, yaw) then
 		return false
