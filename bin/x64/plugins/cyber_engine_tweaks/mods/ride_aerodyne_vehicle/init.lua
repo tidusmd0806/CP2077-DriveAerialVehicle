@@ -47,6 +47,7 @@ end)
 registerForEvent("onDraw", function()
     if RAV.is_debug_mode then
         RAV.debug_obj:Init()
+        RAV.debug_obj:SelectParameter()
     end
 end)
 

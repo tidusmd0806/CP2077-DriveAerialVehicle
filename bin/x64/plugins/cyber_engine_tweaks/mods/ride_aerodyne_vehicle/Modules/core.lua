@@ -114,13 +114,13 @@ function Core:OperateAerodyneVehicle(actions)
             if action_command == ActionList.Up then
                 self.av_obj:Move(0.0, 0.0, 0.3, 0.0, 0.0, 0.0)
             elseif action_command == ActionList.Forward then
-                self.av_obj:Move(0.0, 0.0, 0.0, 1.0, 0.0, 0.0)
-            elseif action_command == ActionList.Backward then
-                self.av_obj:Move(0.0, 0.0, 0.0, -1.0, 0.0, 0.0)
-            elseif action_command == ActionList.Right then
                 self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+            elseif action_command == ActionList.Backward then
+                self.av_obj:Move(0.0, 0.0, 0.0, 0.0, -1.0, 0.0)
+            elseif action_command == ActionList.Right then
+                self.av_obj:Move(0.0, 0.0, 0.0, 1.0, 0.0, 0.0)
             elseif action_command == ActionList.Left then
-                self.av_obj:Move(0.0, 0.0, 0.1, 0.0, -1.0, 0.0)
+                self.av_obj:Move(0.0, 0.0, 0.1, -1.0, 0.0, 0.0)
             elseif action_command == ActionList.TurnRight then
                 self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
             elseif action_command == ActionList.TurnLeft then
