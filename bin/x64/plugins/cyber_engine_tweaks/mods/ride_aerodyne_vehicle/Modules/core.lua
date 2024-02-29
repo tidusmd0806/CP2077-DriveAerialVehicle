@@ -60,9 +60,13 @@ function Core:ExcutePriodicalTask()
     if self.queue_obj:IsEmpty() then
         return
     else
-        self.action_command = self.queue_obj:Dequeue()
-        self:OperateAerodyneVehicle()
-        return
+        local actions = {}
+        while not self.queue_obj:IsEmpty() do
+            local action = self.queue_obj:Dequeue()
+            table.insert(actions, action)
+        end
+            self:OperateAerodyneVehicle(actions)
+            return
     end
 end
 
@@ -104,22 +108,24 @@ function Core:Unmount()
     self.camera_obj:SetDefaultPosition()
 end
 
-function Core:OperateAerodyneVehicle()
+function Core:OperateAerodyneVehicle(actions)
     if self.event_obj.in_av == true then
-        if self.action_command == ActionList.Up then
-            self.av_obj:Move(0.0, 0.0, 0.3, 0.0, 0.0, 0.0)
-        elseif self.action_command == ActionList.Forward then
-            self.av_obj:Move(0.0, 0.0, 0.0, 15.0, 0.0, 0.0)
-        elseif self.action_command == ActionList.Backward then
-            self.av_obj:Move(0.0, 0.0, 0.0, -15.0, 0.0, 0.0)
-        elseif self.action_command == ActionList.Right then
-            self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 15.0, 0.0)
-        elseif self.action_command == ActionList.Left then
-            self.av_obj:Move(0.0, 0.0, 0.1, 0.0, -15.0, 0.0)
-        elseif self.action_command == ActionList.TurnRight then
-            self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 0.0, 15.0)
-        elseif self.action_command == ActionList.TurnLeft then
-            self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 0.0, -15.0)
+        for _, action_command in ipairs(actions) do
+            if action_command == ActionList.Up then
+                self.av_obj:Move(0.0, 0.0, 0.3, 0.0, 0.0, 0.0)
+            elseif action_command == ActionList.Forward then
+                self.av_obj:Move(0.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+            elseif action_command == ActionList.Backward then
+                self.av_obj:Move(0.0, 0.0, 0.0, -1.0, 0.0, 0.0)
+            elseif action_command == ActionList.Right then
+                self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+            elseif action_command == ActionList.Left then
+                self.av_obj:Move(0.0, 0.0, 0.1, 0.0, -1.0, 0.0)
+            elseif action_command == ActionList.TurnRight then
+                self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+            elseif action_command == ActionList.TurnLeft then
+                self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 0.0, -1.0)
+            end
         end
     end
 end

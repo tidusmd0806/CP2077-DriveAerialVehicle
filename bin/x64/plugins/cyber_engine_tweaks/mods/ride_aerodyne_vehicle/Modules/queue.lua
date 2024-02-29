@@ -1,7 +1,6 @@
 local Queue = {}
 Queue.__index = Queue
 
--- Create a new queue
 function Queue:New()
     local obj = {}
     obj._data = {}

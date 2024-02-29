@@ -5,7 +5,7 @@ function Debug:New()
     local obj = {}
 
     -- set parameters
-    obj.print_debug_mode = false
+    obj.print_command = false
     return setmetatable(obj, self)
 end
 
@@ -16,8 +16,16 @@ function Debug:Init()
     ImGui.Text("Debug Mode : On")
 end
 
+function Debug:SelectParameter()
+    self.print_command = ImGui.Checkbox("Print Command", self.print_command)
+end
+
+function Debug:End()
+    ImGui.End()
+end
+
 function Debug:CheckAction(action_name, action_type, action_value)
-    if self.print_debug_mode then
+    if self.print_command then
         print("Action Name : " .. action_name .. ", Action Type : " .. action_type, ", Action Value : " .. action_value)
     end
 end
