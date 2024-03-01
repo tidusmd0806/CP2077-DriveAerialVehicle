@@ -1,6 +1,8 @@
 local Aerodyne = require("Modules/aerodyne.lua")
 local Camera = require("Modules/camera.lua")
 local Queue = require("Modules/queue.lua")
+local Utils = require("Modules/utils.lua")
+local Key = require("Config/key.lua")
 
 ActionList = {
     Nothing = 0,
@@ -28,7 +30,17 @@ function Core:New(event_obj)
 end
 
 function Core:StorePlayerAction(action_name, action_type, action_value)
-    local cmd = self:ConvertActionList(action_name, action_type, action_value)
+    local action_value_type = "ZERO"
+    if action_value > 0 then
+        action_value_type = "POSITIVE"
+    elseif action_value < 0 then
+        action_value_type = "NEGATIVE"
+    else
+        action_value_type = "ZERO"
+    end
+
+    local cmd = self:ConvertActionList(action_name, action_type, action_value_type)
+
     if cmd > 0 then
         self.queue_obj:Enqueue(cmd)
     end
@@ -36,7 +48,8 @@ end
 
 function Core:ConvertActionList(action_name, action_type, action_value)
     local action_command = ActionList.Nothing
-    if action_name == "UI_Skip" and action_type == "BUTTON_PRESSED" and action_value == 1 then
+    local action_dist = {name = action_name, type = action_type, value = action_value}
+    if Utils:IsTablesAreEqual(action_dist, Key.KEY_SPACE_PRESS_IN_AV) then
         action_command = ActionList.Up
     elseif action_name == "LeftY_Axis" and action_type == "AXIS_CHANGE" and action_value > 0 then
         action_command = ActionList.Forward
@@ -114,13 +127,13 @@ function Core:OperateAerodyneVehicle(actions)
             if action_command == ActionList.Up then
                 self.av_obj:Move(0.0, 0.0, 0.3, 0.0, 0.0, 0.0)
             elseif action_command == ActionList.Forward then
-                self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
-            elseif action_command == ActionList.Backward then
                 self.av_obj:Move(0.0, 0.0, 0.0, 0.0, -1.0, 0.0)
+            elseif action_command == ActionList.Backward then
+                self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
             elseif action_command == ActionList.Right then
                 self.av_obj:Move(0.0, 0.0, 0.0, 1.0, 0.0, 0.0)
             elseif action_command == ActionList.Left then
-                self.av_obj:Move(0.0, 0.0, 0.1, -1.0, 0.0, 0.0)
+                self.av_obj:Move(0.0, 0.0, 0.0, -1.0, 0.0, 0.0)
             elseif action_command == ActionList.TurnRight then
                 self.av_obj:Move(0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
             elseif action_command == ActionList.TurnLeft then

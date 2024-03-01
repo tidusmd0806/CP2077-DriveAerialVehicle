@@ -5,7 +5,7 @@ function Debug:New()
     local obj = {}
 
     -- set parameters
-    obj.print_command = false
+    obj.is_print_command = false
     return setmetatable(obj, self)
 end
 
@@ -17,7 +17,7 @@ function Debug:Init()
 end
 
 function Debug:SelectParameter()
-    self.print_command = ImGui.Checkbox("Print Command", self.print_command)
+    self.is_print_command = ImGui.Checkbox("Print Command", self.is_print_command)
 end
 
 function Debug:End()
@@ -25,7 +25,7 @@ function Debug:End()
 end
 
 function Debug:CheckAction(action_name, action_type, action_value)
-    if self.print_command then
+    if self.is_print_command then
         print("Action Name : " .. action_name .. ", Action Type : " .. action_type, ", Action Value : " .. action_value)
     end
 end

@@ -5,7 +5,7 @@ Position.__index = Position
 function Position:New()
     local obj = {}
     obj.log_obj = Log:New()
-    obj.log_obj:SetLevel(LogLevel.Debug, "Position")
+    obj.log_obj:SetLevel(LogLevel.Info, "Position")
     obj.av_obj = nil
     obj.next_position = nil
     obj.next_angle = nil
