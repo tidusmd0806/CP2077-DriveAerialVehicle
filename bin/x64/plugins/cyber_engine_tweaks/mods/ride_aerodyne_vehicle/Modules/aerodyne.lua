@@ -8,6 +8,19 @@ VehicleModel = {
 	Excalibur = "Vehicle.av_rayfield_excalibur",
 }
 
+ActionList = {
+    Nothing = 0,
+    Up = 1,
+    Down = 2,
+    Forward = 3,
+    Backward = 4,
+    Right = 5,
+    Left = 6,
+    TurnRight = 7,
+    TurnLeft = 8,
+    Hover = 9
+}
+
 function Aerodyne:New(vehicle_model)
 	local obj = {}
 	obj.position_obj = Position:New()
@@ -45,7 +58,7 @@ function Aerodyne:Spawn(position, angle)
 end
 
 function Aerodyne:SpawnToSky()
-	local position = self.position_obj:GetSpawnPosition(5.5, 0.0, 100.0)
+	local position = self.position_obj:GetSpawnPosition(5.5, 0.0, 50.0)
 	local angle = self.position_obj:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
 end
@@ -138,7 +151,7 @@ function Aerodyne:Mount()
 
 	Game.GetMountingFacility():Mount(mounting_request)
 	self.position_obj:ChangeVehiclePosition()
-	
+
 	return true
 end
 
@@ -151,25 +164,25 @@ function Aerodyne:Unmount()
 	local player = Game.GetPlayer()
 	local ent_id = entity:GetEntityID()
 	local seat = "seat_back_left"
-							
+
 	local data = NewObject('handle:gameMountEventData')
 	data.isInstant = true
 	data.slotName = seat
 	data.mountParentEntityId = ent_id
 	data.entryAnimName = "forcedTransition"
-	
+
 	local slotID = NewObject('gamemountingMountingSlotId')
 	slotID.id = seat
-	
+
 	local mounting_info = NewObject('gamemountingMountingInfo')
 	mounting_info.childId = player:GetEntityID()
 	mounting_info.parentId = ent_id
 	mounting_info.slotId = slotID
-	
+
 	local mount_event = NewObject('handle:gamemountingUnmountingRequest')
 	mount_event.lowLevelMountingInfo = mounting_info
 	mount_event.mountData = data
-	
+
 	Game.GetMountingFacility():Unmount(mount_event)
 	return true
 end
@@ -180,6 +193,25 @@ function Aerodyne:Move(x, y, z, roll, pitch, yaw)
 		return false
 	end
 	if not self.position_obj:SetNextVehiclePosition(x, y, z, roll, pitch, yaw) then
+		return false
+	end
+	self.position_obj:ChangeVehiclePosition()
+	return true
+end
+
+function Aerodyne:Operate(action_command)
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity id to move")
+		return false
+	end
+
+	local indicate = self.engine_obj:CalcurateIndication(action_command)
+
+	local x = 0
+	local y = 0
+	local z = 0
+
+	if not self.position_obj:SetNextVehiclePosition(x, y, z, indicate["roll"], indicate["pitch"], indicate["yaw"]) then
 		return false
 	end
 	self.position_obj:ChangeVehiclePosition()

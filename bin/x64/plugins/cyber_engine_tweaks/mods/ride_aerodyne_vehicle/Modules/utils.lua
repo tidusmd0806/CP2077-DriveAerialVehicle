@@ -6,7 +6,7 @@ function Utils:New()
     return setmetatable(obj, self)
 end
 
-function Utils:IsTablesAreEqual(table1, table2)
+function Utils:IsTablesEqual(table1, table2)
     for key, value in pairs(table1) do
        if value ~= table2[key] then
           return false

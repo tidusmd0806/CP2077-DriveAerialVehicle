@@ -18,7 +18,6 @@ RAV.debug_obj = RAV.Debug:New()
 
 print('RAV is loaded!')
 
--- onInit event
 registerForEvent('onInit', function()
 
     RAV.ready = true
