@@ -9,7 +9,7 @@ LogLevel = {
 }
 
 -- Force the log level to be the same for all instances
-LogMasterLevel = LogLevel.Nothing
+MasterLogLevel = LogLevel.Debug
 
 local Log = {}
 Log.__index = Log
@@ -22,8 +22,8 @@ function Log:New()
 end
 
 function Log:SetLevel(level, file_name)
-    if level < 0 or level > 5 or LogMasterLevel ~= LogLevel.Nothing then
-        self.setting_level = LogMasterLevel
+    if level < 0 or level > 5 or MasterLogLevel ~= LogLevel.Nothing then
+        self.setting_level = MasterLogLevel
         return false
     else
         self.setting_level = level

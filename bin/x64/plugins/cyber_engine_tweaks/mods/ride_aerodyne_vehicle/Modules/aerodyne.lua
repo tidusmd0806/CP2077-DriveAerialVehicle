@@ -24,7 +24,7 @@ ActionList = {
 function Aerodyne:New(vehicle_model)
 	local obj = {}
 	obj.position_obj = Position:New()
-	obj.engine_obj = Engine:New()
+	obj.engine_obj = Engine:New(obj.position_obj)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "Aerodyne")
 
@@ -50,15 +50,21 @@ function Aerodyne:Spawn(position, angle)
 	self.entity_id = entity_system:CreateEntity(entity_spec)
 
 	-- set entity id to position object
-	RAV.Cron.After(0.1, function()
-		self.position_obj:SetEntityId(self.entity_id)
+	RAV.Cron.Every(0.1, {tick = 1}, function(timer)
+		local entity = Game.FindEntityByID(self.entity_id)
+		if entity ~= nil then
+			self.position_obj:SetEntity(entity)
+			self.engine_obj:Init()
+			RAV.Cron.Halt(timer)
+		end
 	end)
 
 	return true
 end
 
 function Aerodyne:SpawnToSky()
-	local position = self.position_obj:GetSpawnPosition(5.5, 0.0, 50.0)
+	local position = self.position_obj:GetSpawnPosition(5.5, 0.0)
+	position.z = position.z + 50.0
 	local angle = self.position_obj:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
 end
@@ -145,12 +151,18 @@ function Aerodyne:Mount()
 	mounting_request.lowLevelMountingInfo = mounting_info
 	mounting_request.mountData = data
 
-	local pos = self.position_obj:GetPosition()
-	local rot = self.position_obj:GetEulerAngles()
-	self.position_obj:SetNextVehiclePosition(pos.x, pos.y, pos.z, rot.roll, rot.pitch, rot.yaw)
-
 	Game.GetMountingFacility():Mount(mounting_request)
-	self.position_obj:ChangeVehiclePosition()
+
+	self.position_obj:ChangePosition()
+
+	-- return position near mounted vehicle	
+	RAV.Cron.Every(0.1, {tick = 1}, function(timer)
+		local entity = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
+		if entity ~= nil then
+			self.position_obj:SetEntity(entity)
+			RAV.Cron.Halt(timer)
+		end
+	end)
 
 	return true
 end
@@ -184,37 +196,45 @@ function Aerodyne:Unmount()
 	mount_event.mountData = data
 
 	Game.GetMountingFacility():Unmount(mount_event)
+
+		-- set entity id to position object
+	RAV.Cron.Every(0.1, {tick = 1}, function(timer)
+		local entity = Game.FindEntityByID(self.entity_id)
+		if entity ~= nil then
+			self.position_obj:SetEntity(entity)
+			RAV.Cron.Halt(timer)
+		end
+	end)
+
 	return true
 end
 
 function Aerodyne:Move(x, y, z, roll, pitch, yaw)
-	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity id to move")
+	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) then
 		return false
 	end
-	if not self.position_obj:SetNextVehiclePosition(x, y, z, roll, pitch, yaw) then
-		return false
-	end
-	self.position_obj:ChangeVehiclePosition()
+	self.position_obj:ChangePosition()
 	return true
 end
 
 function Aerodyne:Operate(action_command)
-	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity id to move")
+
+	if action_command ~= ActionList.Nothing then
+		self.log_obj:Record(LogLevel.Debug, "Operate Aerodyne Vehicle : " .. action_command)
+	end
+	local delta = self.engine_obj:CalcurateIndication(action_command)
+
+	local x, y = self.engine_obj:CalcurateHorizenalMovement(action_command)
+	local z = self.engine_obj:CalcurateVerticalMovement(action_command)
+
+	-- need to manage flags
+	self.engine_obj:SetState(action_command)
+
+	if not self.position_obj:SetNextPosition(x, y, z, delta["roll"], delta["pitch"], delta["yaw"]) then
+		self.engine_obj:Init()
 		return false
 	end
-
-	local indicate = self.engine_obj:CalcurateIndication(action_command)
-
-	local x = 0
-	local y = 0
-	local z = 0
-
-	if not self.position_obj:SetNextVehiclePosition(x, y, z, indicate["roll"], indicate["pitch"], indicate["yaw"]) then
-		return false
-	end
-	self.position_obj:ChangeVehiclePosition()
+	self.position_obj:ChangePosition()
 	return true
 end
 

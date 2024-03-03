@@ -29,9 +29,8 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
 
     local cmd = self:ConvertActionList(action_name, action_type, action_value_type)
 
-    if cmd > 0 then
-        self.queue_obj:Enqueue(cmd)
-    end
+    self.queue_obj:Enqueue(cmd)
+
 end
 
 function Core:ConvertActionList(action_name, action_type, action_value)
@@ -62,17 +61,17 @@ function Core:ConvertActionList(action_name, action_type, action_value)
 end
 
 function Core:ExcutePriodicalTask()
+    local actions = {}
     if self.queue_obj:IsEmpty() then
-        return
+        local action = ActionList.Nothing
+        table.insert(actions, action)
     else
-        local actions = {}
         while not self.queue_obj:IsEmpty() do
             local action = self.queue_obj:Dequeue()
             table.insert(actions, action)
         end
-            self:OperateAerodyneVehicle(actions)
-            return
     end
+    self:OperateAerodyneVehicle(actions)
 end
 
 function Core:CallAerodyneVehicle()
@@ -96,7 +95,7 @@ end
 
 function Core:LockAerodyneDoor()
     self.av_obj:LockDoor()
-    -- self.av_obj:Despawn()
+    self.av_obj:Despawn()
     local audioEvent = SoundPlayEvent.new()
 
     audioEvent.soundName = StringToName("v_av_rayfield_excalibur_traffic_engine_01_av_dplr_01")

@@ -2,10 +2,11 @@ RAV = {
 	description = "RideAerodyneVehicele",
 	version = "0.1",
     ready = false,
-    is_debug_mode = true
+    is_debug_mode = true,
 }
 
 -- import modules
+RAV.Log = require('Modules/log.lua')
 RAV.Cron = require('External/Cron.lua')
 RAV.Event = require('Modules/event.lua')
 RAV.Core = require('Modules/core.lua')
@@ -14,9 +15,7 @@ RAV.Debug = require('Debug/debug.lua')
 -- create instances
 RAV.event_obj = RAV.Event:New()
 RAV.core_obj = RAV.Core:New(RAV.event_obj)
-RAV.debug_obj = RAV.Debug:New()
-
-print('RAV is loaded!')
+RAV.debug_obj = RAV.Debug:New(RAV.core_obj)
 
 registerForEvent('onInit', function()
 
@@ -32,21 +31,20 @@ registerForEvent('onInit', function()
         local action_value = action:GetValue(action)
 
         if RAV.is_debug_mode then
-            RAV.debug_obj:CheckAction(action_name, action_type, action_value)
+            RAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
         end
 
         RAV.core_obj:StorePlayerAction(action_name, action_type, action_value)
 
     end)
 
-    print('-------------- RAV is initialized! --------------')
+    print('[RAV] This Mod is Initialized!')
 end)
 
 -- Debug Window
 registerForEvent("onDraw", function()
     if RAV.is_debug_mode then
-        RAV.debug_obj:Init()
-        RAV.debug_obj:SelectParameter()
+        RAV.debug_obj:ImGuiMain()
     end
 end)
 

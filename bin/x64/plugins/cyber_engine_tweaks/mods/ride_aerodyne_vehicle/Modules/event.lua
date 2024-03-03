@@ -14,12 +14,12 @@ function Event:New()
 end
 
 function Event:CheckInAV()
-    local inVehicle = Game.GetWorkspotSystem():IsActorInWorkspot(Game.GetPlayer())
-    if (inVehicle) then
+    local in_vehicle = Game.GetWorkspotSystem():IsActorInWorkspot(Game.GetPlayer())
+    if in_vehicle then
         local vehicle = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
-        if(vehicle ~= nil) then
-            local isThiscar = (string.find(string.lower(Game.NameToString(vehicle:GetCurrentAppearanceName())), "excalibur") ~= nil)
-            if isThiscar then
+        if vehicle ~= nil then
+            local is_this_car = (string.find(string.lower(Game.NameToString(vehicle:GetCurrentAppearanceName())), "excalibur") ~= nil)
+            if is_this_car then
                 if not self.in_av then
                     self.log_obj:Record(LogLevel.Info, "Enter In AV")
                 end
