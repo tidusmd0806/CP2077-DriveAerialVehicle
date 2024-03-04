@@ -3,6 +3,7 @@ RAV = {
 	version = "0.1",
     ready = false,
     is_debug_mode = true,
+    time_resolution = 0.01,
 }
 
 -- import modules
@@ -20,7 +21,7 @@ RAV.debug_obj = RAV.Debug:New(RAV.core_obj)
 registerForEvent('onInit', function()
 
     RAV.ready = true
-    RAV.Cron.Every(0.01, function()
+    RAV.Cron.Every(RAV.time_resolution, function()
         RAV.core_obj:ExcutePriodicalTask()
     end)
 
@@ -38,7 +39,7 @@ registerForEvent('onInit', function()
 
     end)
 
-    print('[RAV] This Mod is Initialized!')
+    print('[RAV] Initialization is completed')
 end)
 
 -- Debug Window

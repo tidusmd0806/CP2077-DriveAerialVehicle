@@ -29,7 +29,9 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
 
     local cmd = self:ConvertActionList(action_name, action_type, action_value_type)
 
-    self.queue_obj:Enqueue(cmd)
+    if cmd ~= ActionList.Nothing then
+        self.queue_obj:Enqueue(cmd)
+    end
 
 end
 

@@ -222,16 +222,13 @@ function Aerodyne:Operate(action_command)
 	if action_command ~= ActionList.Nothing then
 		self.log_obj:Record(LogLevel.Debug, "Operate Aerodyne Vehicle : " .. action_command)
 	end
-	local delta = self.engine_obj:CalcurateIndication(action_command)
 
-	local x, y = self.engine_obj:CalcurateHorizenalMovement(action_command)
-	local z = self.engine_obj:CalcurateVerticalMovement(action_command)
+	local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
 
-	-- need to manage flags
-	self.engine_obj:SetState(action_command)
-
-	if not self.position_obj:SetNextPosition(x, y, z, delta["roll"], delta["pitch"], delta["yaw"]) then
-		self.engine_obj:Init()
+	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) then
+		self.engine_obj.horizenal_x_speed = self.engine_obj.horizenal_x_speed * -1
+		self.engine_obj.horizenal_y_speed = self.engine_obj.horizenal_y_speed * -1
+		self.engine_obj.vertical_speed = self.engine_obj.vertical_speed * -1
 		return false
 	end
 	self.position_obj:ChangePosition()
