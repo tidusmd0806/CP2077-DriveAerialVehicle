@@ -70,6 +70,7 @@ function Engine:Init()
     self.horizenal_y_speed = 0
     self.vertical_speed = 0
     self.clock = 0
+    self.clock_tmp_store = 0
 end
 
 function Engine:GetNextPosition(movement)
@@ -173,19 +174,24 @@ function Engine:CalcuratePower(movement)
     if movement == Movement.Up or self.is_power_on then
         if not self.is_power_on then
             self.clock = 0
+            self.clock_tmp_store = self.clock     
         end
-        self:GetPowerUpCurve(self.clock)
+        self:SetPowerUpCurve(self.clock - self.clock_tmp_store)
+        self.clock_tmp_store = self.clock
+
     elseif movement == Movement.Down or not self.is_power_on then
         if self.is_power_on then
             self.clock = 0
+            self.clock_tmp_store = self.clock
         end
-        self:GetPowerDownCurve(self.clock)
+        self:SetPowerDownCurve(self.clock_tmp_store - self.clock)
+        self.clock_tmp_store = self.clock
     end
 end
 
-function Engine:GetPowerUpCurve(time)
+function Engine:SetPowerUpCurve(time)
     if time < self.time_to_max then
-        self.lift_power = self.min_lift_force + (self.max_lift_force - self.min_lift_force) * (time / self.time_to_max)
+        self.lift_power = self.lift_force + (self.max_lift_force - self.min_lift_force) * (time / self.time_to_max)
         if self.lift_power > self.max_lift_force then
             self.lift_power = self.max_lift_force
         end
@@ -194,9 +200,9 @@ function Engine:GetPowerUpCurve(time)
     end
 end
 
-function Engine:GetPowerDownCurve(time)
+function Engine:SetPowerDownCurve(time)
     if time < self.time_to_min then
-        self.lift_power = self.max_lift_force - (self.max_lift_force - self.min_lift_force) * (time / self.time_to_min)
+        self.lift_power = self.lift_force - (self.max_lift_force - self.min_lift_force) * (time / self.time_to_min)
         if self.lift_power < self.min_lift_force then
             self.lift_power = self.min_lift_force
         end
