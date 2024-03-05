@@ -1,4 +1,5 @@
 local Log = require("Modules/log.lua")
+local Utils = require("Modules/utils.lua")
 Engine = {}
 Engine.__index = Engine
 
@@ -34,9 +35,9 @@ function Engine:New(position_obj)
 
     obj.mess = 2000
     obj.gravity_constant = 9.8
-    obj.air_resistance_constant = 100
-    obj.max_lift_force = 20000
-    obj.min_lift_force = obj.mess * obj.gravity_constant - 50
+    obj.air_resistance_constant = 1000
+    obj.max_lift_force = obj.mess * obj.gravity_constant + 5000
+    obj.min_lift_force = obj.mess * obj.gravity_constant - 1000
     obj.lift_force = obj.min_lift_force
     obj.time_to_max = 5
     obj.time_to_min = 5
@@ -51,7 +52,7 @@ function Engine:New(position_obj)
     obj.horizenal_y_speed = 0
     obj.vertical_speed = 0
     obj.clock = 0
-    obj.clock_tmp_store = 0
+    obj.dynamic_lift_force = obj.min_lift_force
 
     return setmetatable(obj, self)
 end
@@ -70,22 +71,23 @@ function Engine:Init()
     self.horizenal_y_speed = 0
     self.vertical_speed = 0
     self.clock = 0
-    self.clock_tmp_store = 0
+    self.clock_prev = 0
 end
 
 function Engine:GetNextPosition(movement)
+    -- wait for init
+    if not self.is_finished_init then
+        return 0, 0, 0, 0, 0, 0
+    end
 
     local roll, pitch, yaw = self:CalcurateIndication(movement)
-    local x, y, z = self:CalcureteVelocity(movement)
+    self:CalcuratePower(movement)
+    local x, y, z = self:CalcureteVelocity()
 
     return x, y, z, roll, pitch, yaw
 end
 
 function Engine:CalcurateIndication(movement)
-
-    if not self.is_finished_init then
-        return 0, 0, 0
-    end
 
     local actually_indication = self.position_obj:GetEulerAngles()
     self.next_indication["roll"] = actually_indication.roll
@@ -151,76 +153,66 @@ function Engine:CalcurateIndication(movement)
 
 end
 
-function Engine:CalcureteVelocity(movement)
-    local foword_vector = self.position_obj:GetFoword()
-    local angle = self.position_obj:GetEulerAngles()
-    -- Normalizing the direction vector
-    local norm = math.sqrt(foword_vector.x * foword_vector.x + foword_vector.y * foword_vector.y)
-    local unit_vector_x = foword_vector.x / norm
-    local unit_vector_y = foword_vector.y / norm
-
-    -- Calcurate power
-    self:CalcuratePower(movement)
-
-    self.horizenal_x_speed = self.horizenal_x_speed + (RAV.time_resolution / self.mess) * (self.lift_power * math.sin(angle.pitch) * unit_vector_x - self.air_resistance_constant * self.horizenal_x_speed)
-    self.horizenal_y_speed = self.horizenal_y_speed + (RAV.time_resolution / self.mess) * (self.lift_power * math.sin(angle.roll) * unit_vector_y - self.air_resistance_constant * self.horizenal_y_speed)
-    self.vertical_speed = self.vertical_speed + (RAV.time_resolution / self.mess) * (self.lift_power * math.sqrt( math.cos(angle.pitch) * math.cos(angle.pitch) * unit_vector_x * unit_vector_x + math.cos(angle.roll) * math.cos(angle.roll) * unit_vector_y * unit_vector_y) / norm - self.mess * self.gravity_constant - self.air_resistance_constant * self.vertical_speed)
-    self.SetState(movement)
-
-    return self.horizenal_x_speed * RAV.time_resolution, self.horizenal_y_speed * RAV.time_resolution, self.vertical_speed * RAV.time_resolution
-end
-
 function Engine:CalcuratePower(movement)
-    if movement == Movement.Up or self.is_power_on then
+    if movement == Movement.Down then
+        self.log_obj:Record(LogLevel.Trace, "Change Power Off")
+        self.clock = 0
+        self.dynamic_lift_force = self.lift_force
+        self.is_power_on = false
+    elseif movement == Movement.Up or self.is_power_on then
         if not self.is_power_on then
+            self.log_obj:Record(LogLevel.Trace, "Change Power On")
             self.clock = 0
-            self.clock_tmp_store = self.clock     
+            self.dynamic_lift_force = self.lift_force
+            self.is_power_on = true
+            self.is_hover = false
+        else
+            self:SetPowerUpCurve(self.clock)
         end
-        self:SetPowerUpCurve(self.clock - self.clock_tmp_store)
-        self.clock_tmp_store = self.clock
-
-    elseif movement == Movement.Down or not self.is_power_on then
-        if self.is_power_on then
-            self.clock = 0
-            self.clock_tmp_store = self.clock
-        end
-        self:SetPowerDownCurve(self.clock_tmp_store - self.clock)
-        self.clock_tmp_store = self.clock
+    elseif not self.is_power_on then
+        self:SetPowerDownCurve(self.clock)
+    elseif movement == Movement.Hover then
+        self.is_hover = true
     end
 end
 
 function Engine:SetPowerUpCurve(time)
-    if time < self.time_to_max then
-        self.lift_power = self.lift_force + (self.max_lift_force - self.min_lift_force) * (time / self.time_to_max)
-        if self.lift_power > self.max_lift_force then
-            self.lift_power = self.max_lift_force
+    if time <= self.time_to_max then
+        self.lift_force = self.dynamic_lift_force + (self.max_lift_force - self.min_lift_force) * (time / self.time_to_max)
+        if self.lift_force > self.max_lift_force then
+            self.lift_force = self.max_lift_force
         end
     else
-        self.lift_power = self.max_lift_force
+        self.lift_force = self.max_lift_force
     end
 end
 
 function Engine:SetPowerDownCurve(time)
-    if time < self.time_to_min then
-        self.lift_power = self.lift_force - (self.max_lift_force - self.min_lift_force) * (time / self.time_to_min)
-        if self.lift_power < self.min_lift_force then
-            self.lift_power = self.min_lift_force
+    if time <= self.time_to_min then
+        self.lift_force = self.dynamic_lift_force - (self.max_lift_force - self.min_lift_force) * (time / self.time_to_min)
+        if self.lift_force < self.min_lift_force then
+            self.lift_force = self.min_lift_force
         end
     else
-        self.lift_power = self.min_lift_force
+        self.lift_force = self.min_lift_force
     end
 end
 
-function Engine:SetState(movement)
-    if movement == Movement.Up then
-        self.is_power_on = true
-        self.is_hover = false
-    elseif movement == Movement.Down then
-        self.is_power_on = false
-    elseif movement == Movement.Hover then
-        self.is_hover = true
-    end
+function Engine:CalcureteVelocity()
+    local quot = self.position_obj:GetQuaternion()
+    local force_local = {x = 0, y = 0, z = self.lift_force}
 
+    -- calculate vertical list force of av in world coordinate
+    local force_quat = {r = 0, i = force_local.x, j = force_local.y, k = force_local.z}
+    local q_conj = Utils:QuaternionConjugate(quot)
+    local temp = Utils:QuaternionMultiply(quot, force_quat)
+    local force_world = Utils:QuaternionMultiply(temp, q_conj)
+
+    self.horizenal_x_speed = self.horizenal_x_speed + (RAV.time_resolution / self.mess) * (force_world.i - self.air_resistance_constant * self.horizenal_x_speed)
+    self.horizenal_y_speed = self.horizenal_y_speed + (RAV.time_resolution / self.mess) * (force_world.j - self.air_resistance_constant * self.horizenal_y_speed)
+    self.vertical_speed = self.vertical_speed + (RAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.air_resistance_constant * self.vertical_speed)
+
+    return self.horizenal_x_speed * RAV.time_resolution, self.horizenal_y_speed * RAV.time_resolution, self.vertical_speed * RAV.time_resolution
 end
 
 return Engine

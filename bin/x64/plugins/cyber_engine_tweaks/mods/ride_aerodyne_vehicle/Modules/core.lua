@@ -39,9 +39,9 @@ function Core:ConvertActionList(action_name, action_type, action_value)
     local action_command = ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value}
 
-    if Utils:IsTablesEqual(action_dist, Key.KEY_SPACE_PRESS_IN_AV) then
+    if Utils:IsTablesEqual(action_dist, Key.KEY_CLICK_HOLD_IN_AV) then
         action_command = ActionList.Up
-    elseif Utils:IsTablesEqual(action_dist, Key.KEY_SPACE_RELEASE_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, Key.KEY_CLICK_RELEASE_IN_AV) then
         action_command = ActionList.Down
     elseif Utils:IsTablesEqual(action_dist, Key.KEY_W_PRESS_IN_AV) then
         action_command = ActionList.Forward

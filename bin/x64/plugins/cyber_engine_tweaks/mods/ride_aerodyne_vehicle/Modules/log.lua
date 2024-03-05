@@ -17,13 +17,14 @@ Log.__index = Log
 function Log:New()
     local obj = {}
     obj.setting_level = LogLevel.INFO
-    obj.setting_file_name = "No Settng"
+    obj.setting_file_name = "No Setting"
     return setmetatable(obj, self)
 end
 
 function Log:SetLevel(level, file_name)
     if level < 0 or level > 5 or MasterLogLevel ~= LogLevel.Nothing then
         self.setting_level = MasterLogLevel
+        self.setting_file_name = "[" .. file_name .. "]"
         return false
     else
         self.setting_level = level

@@ -1,6 +1,9 @@
 return {
     KEY_SPACE_PRESS_IN_AV = {name = "UI_Skip", type = "BUTTON_PRESSED", value = "POSITIVE"},
     KEY_SPACE_RELEASE_IN_AV = {name = "UI_Skip", type = "BUTTON_RELEASED", value = "ZERO"},
+    KEY_CLICK_PRESS_IN_AV = {name = "click_hold", type = "BUTTON_PRESSED", value = "POSITIVE"},
+    KEY_CLICK_HOLD_IN_AV = {name = "click_hold", type = "BUTTON_HOLD_PROGRESS", value = "POSITIVE"},
+    KEY_CLICK_RELEASE_IN_AV = {name = "click_hold", type = "BUTTON_RELEASED", value = "ZERO"},
     KEY_W_PRESS_IN_AV = {name = "LeftY_Axis", type = "AXIS_CHANGE", value = "POSITIVE"},
     KEY_W_RELEASE_IN_AV = {name = "LeftY_Axis", type = "AXIS_CHANGE", value = "ZERO"},
     KEY_S_PRESS_IN_AV = {name = "LeftY_Axis", type = "AXIS_CHANGE", value = "NEGATIVE"},

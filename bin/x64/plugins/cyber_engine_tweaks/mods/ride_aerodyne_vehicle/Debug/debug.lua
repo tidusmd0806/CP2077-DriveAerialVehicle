@@ -8,13 +8,16 @@ function Debug:New(core_obj)
     -- set parameters
     obj.is_print_command = false
     obj.is_im_gui_player_position = false
+    obj.is_im_gui_player_angle = false
     obj.is_im_gui_av_position = false
+    obj.is_im_gui_av_angle = false
+    obj.is_im_gui_lift_force = false
     return setmetatable(obj, self)
 end
 
 function Debug:Init()
     ImGui.SetNextWindowPos(100, 500, ImGuiCond.FirstUseEver) -- set window position x, y
-    ImGui.SetNextWindowSize(500, 600, ImGuiCond.Appearing) -- set window size w, h
+    ImGui.SetNextWindowSize(800, 1000, ImGuiCond.Appearing) -- set window size w, h
     ImGui.Begin("RAV DEBUG WINDOW")
     ImGui.Text("Debug Mode : On")
 end
@@ -23,29 +26,54 @@ function Debug:End()
     ImGui.End()
 end
 
-function Debug:SelectParameter()
+function Debug:SelectPrint()
     self.is_print_command = ImGui.Checkbox("[Print] Action Command", self.is_print_command)
-    self.is_im_gui_player_position = ImGui.Checkbox("[ImGui]  Player Position", self.is_im_gui_player_position)
-    self.is_im_gui_av_position = ImGui.Checkbox("[ImGui]  AV Position", self.is_im_gui_av_position)
 end
 
 function Debug:ImGuiMain()
     self:Init()
-    self:SelectParameter()
+    self:SelectPrint()
     self:ImGuiPlayerPosition()
+    self:ImGuiPlayerAngle()
     self:ImGuiAvPosition()
+    self:ImGuiAvAngle()
+    self:ImGuiLiftForce()
 end
 
 function Debug:ImGuiPlayerPosition()
+    self.is_im_gui_player_position = ImGui.Checkbox("[ImGui]  Player Position", self.is_im_gui_player_position)
     if self.is_im_gui_player_position then
         ImGui.Text("Player X:" .. Game.GetPlayer():GetWorldPosition().x .. ", Y:" .. Game.GetPlayer():GetWorldPosition().y .. ", Z:" .. Game.GetPlayer():GetWorldPosition().z)
     end
 end
 
+function Debug:ImGuiPlayerAngle()
+    self.is_im_gui_player_angle = ImGui.Checkbox("[ImGui]  Player Angle", self.is_im_gui_player_angle)
+    if self.is_im_gui_player_angle then
+        ImGui.Text("Player Roll:" .. Game.GetPlayer():GetWorldOrientation():ToEulerAngles().roll .. ", Pitch:" .. Game.GetPlayer():GetWorldOrientation():ToEulerAngles().pitch .. ", Yaw:" .. Game.GetPlayer():GetWorldOrientation():ToEulerAngles().yaw)
+    end
+end
+
 function Debug:ImGuiAvPosition()
+    self.is_im_gui_av_position = ImGui.Checkbox("[ImGui]  AV Position", self.is_im_gui_av_position)
     if self.is_im_gui_av_position then
         ImGui.Text("AV X:" .. self.core_obj.av_obj.position_obj:GetPosition().x .. ", Y:" .. self.core_obj.av_obj.position_obj:GetPosition().y .. ", Z:" .. self.core_obj.av_obj.position_obj:GetPosition().z)
     end
+end
+
+function Debug:ImGuiAvAngle()
+    self.is_im_gui_av_angle = ImGui.Checkbox("[ImGui]  AV Angle", self.is_im_gui_av_angle)
+    if self.is_im_gui_av_angle then
+        ImGui.Text("AV Roll:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().roll .. ", Pitch:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().pitch .. ", Yaw:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)
+    end
+end
+
+function Debug:ImGuiLiftForce()
+    self.is_im_gui_lift_force = ImGui.Checkbox("[ImGui]  Lift Force", self.is_im_gui_lift_force)
+    if self.is_im_gui_lift_force then
+        ImGui.Text("Lift Force : " .. self.core_obj.av_obj.engine_obj.lift_force)
+    end
+
 end
 
 function Debug:PrintActionCommand(action_name, action_type, action_value)

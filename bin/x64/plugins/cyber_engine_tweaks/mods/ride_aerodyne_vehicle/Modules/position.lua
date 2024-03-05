@@ -30,10 +30,18 @@ end
 
 function Position:GetFoword()
     if self.entity == nil then
-        self.log_obj:Record(LogLevel.Error, "No vehicle entity for GetPosition")
+        self.log_obj:Record(LogLevel.Error, "No vehicle entity for GetFoword")
         return Vector4.new(0, 0, 0, 1.0)
     end
     return self.entity:GetWorldForward()
+end
+
+function Position:GetQuaternion()
+    if self.entity == nil then
+        self.log_obj:Record(LogLevel.Error, "No vehicle entity for GetQuaternion")
+        return Quaternion.new(0, 0, 0, 1.0)
+    end
+    return self.entity:GetWorldOrientation()
 end
 
 function Position:GetEulerAngles()

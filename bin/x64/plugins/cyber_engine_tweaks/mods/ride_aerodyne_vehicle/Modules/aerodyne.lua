@@ -28,6 +28,12 @@ function Aerodyne:New(vehicle_model)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "Aerodyne")
 
+	for key, value in pairs(Movement) do
+		if ActionList[key] ~= value then
+			obj.log_obj:Record(LogLevel.Critical, "ActionList is not equal to Movement /" .. key .. " : " .. value)
+		end
+	end
+
 	-- set default parameters
 	obj.entity_id = nil
 	obj.vehicle_model = vehicle_model or VehicleModel.Excalibur
@@ -226,9 +232,7 @@ function Aerodyne:Operate(action_command)
 	local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
 
 	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) then
-		self.engine_obj.horizenal_x_speed = self.engine_obj.horizenal_x_speed * -1
-		self.engine_obj.horizenal_y_speed = self.engine_obj.horizenal_y_speed * -1
-		self.engine_obj.vertical_speed = self.engine_obj.vertical_speed * -1
+		self.engine_obj:Init()
 		return false
 	end
 	self.position_obj:ChangePosition()
