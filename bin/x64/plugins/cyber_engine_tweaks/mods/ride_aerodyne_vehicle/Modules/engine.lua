@@ -1,5 +1,4 @@
 local Log = require("Modules/log.lua")
-local Utils = require("Modules/utils.lua")
 Engine = {}
 Engine.__index = Engine
 
@@ -52,6 +51,7 @@ function Engine:New(position_obj)
     obj.horizenal_y_speed = 0
     obj.vertical_speed = 0
     obj.clock = 0
+    obj.clock_tmp_store = 0
 
     return setmetatable(obj, self)
 end
