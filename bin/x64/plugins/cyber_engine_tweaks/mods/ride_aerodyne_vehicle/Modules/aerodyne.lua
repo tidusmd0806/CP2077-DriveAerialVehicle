@@ -1,6 +1,6 @@
 local Position = require("Modules/position.lua")
 local Engine = require("Modules/engine.lua")
-local Log = require("Modules/log.lua")
+local Log = require("Tools/log.lua")
 local Aerodyne = {}
 Aerodyne.__index = Aerodyne
 
@@ -230,6 +230,10 @@ function Aerodyne:Operate(action_command)
 	end
 
 	local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
+
+	if x == 0 and y == 0 and z == 0 and roll == 0 and pitch == 0 and yaw == 0 then
+		return false
+	end
 
 	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) then
 		self.engine_obj:Init()

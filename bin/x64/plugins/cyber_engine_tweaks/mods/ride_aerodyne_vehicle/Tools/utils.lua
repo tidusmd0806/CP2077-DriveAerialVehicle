@@ -34,4 +34,11 @@ function Utils:QuaternionConjugate(q)
    return {r = q.r, i = -q.i, j = -q.j, k = -q.k}
 end
 
+function Utils:RotateVectorByQuaternion(v, q)
+   local q_conj = self:QuaternionConjugate(q)
+   local temp = self:QuaternionMultiply({r = 0, i = v.x, j = v.y, k = v.z}, q_conj)
+   local result = self:QuaternionMultiply(q, temp)
+   return {x = result.i, y = result.j, z = result.k}
+end
+
 return Utils

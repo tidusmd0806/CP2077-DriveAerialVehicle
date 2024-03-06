@@ -37,43 +37,45 @@ function Debug:ImGuiMain()
     self:ImGuiPlayerAngle()
     self:ImGuiAVPosition()
     self:ImGuiAVAngle()
-    self:ImGuiLiftForce()
+    self:ImGuiLiftForceAndSpped()
 end
 
 function Debug:ImGuiPlayerPosition()
-    self.is_im_gui_player_position = ImGui.Checkbox("[ImGui]  Player Position", self.is_im_gui_player_position)
+    self.is_im_gui_player_position = ImGui.Checkbox("[ImGui] Player Position", self.is_im_gui_player_position)
     if self.is_im_gui_player_position then
         ImGui.Text("Player X:" .. Game.GetPlayer():GetWorldPosition().x .. ", Y:" .. Game.GetPlayer():GetWorldPosition().y .. ", Z:" .. Game.GetPlayer():GetWorldPosition().z)
     end
 end
 
 function Debug:ImGuiPlayerAngle()
-    self.is_im_gui_player_angle = ImGui.Checkbox("[ImGui]  Player Angle", self.is_im_gui_player_angle)
+    self.is_im_gui_player_angle = ImGui.Checkbox("[ImGui] Player Angle", self.is_im_gui_player_angle)
     if self.is_im_gui_player_angle then
         ImGui.Text("Player Roll:" .. Game.GetPlayer():GetWorldOrientation():ToEulerAngles().roll .. ", Pitch:" .. Game.GetPlayer():GetWorldOrientation():ToEulerAngles().pitch .. ", Yaw:" .. Game.GetPlayer():GetWorldOrientation():ToEulerAngles().yaw)
     end
 end
 
 function Debug:ImGuiAVPosition()
-    self.is_im_gui_av_position = ImGui.Checkbox("[ImGui]  AV Position", self.is_im_gui_av_position)
+    self.is_im_gui_av_position = ImGui.Checkbox("[ImGui] AV Position", self.is_im_gui_av_position)
     if self.is_im_gui_av_position then
         ImGui.Text("AV X:" .. self.core_obj.av_obj.position_obj:GetPosition().x .. ", Y:" .. self.core_obj.av_obj.position_obj:GetPosition().y .. ", Z:" .. self.core_obj.av_obj.position_obj:GetPosition().z)
     end
 end
 
 function Debug:ImGuiAVAngle()
-    self.is_im_gui_av_angle = ImGui.Checkbox("[ImGui]  AV Angle", self.is_im_gui_av_angle)
+    self.is_im_gui_av_angle = ImGui.Checkbox("[ImGui] AV Angle", self.is_im_gui_av_angle)
     if self.is_im_gui_av_angle then
         ImGui.Text("AV Roll:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().roll .. ", Pitch:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().pitch .. ", Yaw:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)
     end
 end
 
-function Debug:ImGuiLiftForce()
-    self.is_im_gui_lift_force = ImGui.Checkbox("[ImGui]  Lift Force", self.is_im_gui_lift_force)
+function Debug:ImGuiLiftForceAndSpped()
+    self.is_im_gui_lift_force = ImGui.Checkbox("[ImGui] Lift Force And Speed", self.is_im_gui_lift_force)
     if self.is_im_gui_lift_force then
-        ImGui.Text("Lift Force : " .. self.core_obj.av_obj.engine_obj.lift_force)
+        local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
+        local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
+        local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
+        ImGui.Text("F: " .. self.core_obj.av_obj.engine_obj.lift_force .. ", v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z)
     end
-
 end
 
 function Debug:PrintActionCommand(action_name, action_type, action_value)

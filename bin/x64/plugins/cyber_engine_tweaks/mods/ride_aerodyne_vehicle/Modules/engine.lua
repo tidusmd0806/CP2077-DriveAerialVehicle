@@ -1,5 +1,5 @@
-local Log = require("Modules/log.lua")
-local Utils = require("Modules/utils.lua")
+local Log = require("Tools/log.lua")
+local Utils = require("Tools/utils.lua")
 Engine = {}
 Engine.__index = Engine
 
@@ -23,11 +23,11 @@ function Engine:New(position_obj)
     obj.position_obj = position_obj
 
     -- set pyhsical parameters
-    obj.roll_speed = 1
-    obj.pitch_speed = 1
-    obj.yaw_speed = 1
-    obj.roll_restore_speed = 0.05
-    obj.pitch_restore_speed = 0.05
+    obj.roll_speed = 0.8
+    obj.pitch_speed = 0.8
+    obj.yaw_speed = 0.8
+    obj.roll_restore_speed = 0.1
+    obj.pitch_restore_speed = 0.1
     obj.max_roll = 30
     obj.min_roll = -30
     obj.max_pitch = 30
@@ -41,6 +41,8 @@ function Engine:New(position_obj)
     obj.lift_force = obj.min_lift_force
     obj.time_to_max = 5
     obj.time_to_min = 5
+    obj.max_speed = 100000
+    obj.min_speed = 10
 
     -- set default parameters
     obj.next_indication = {roll = 0, pitch = 0, yaw = 0}
@@ -71,7 +73,6 @@ function Engine:Init()
     self.horizenal_y_speed = 0
     self.vertical_speed = 0
     self.clock = 0
-    self.clock_prev = 0
 end
 
 function Engine:GetNextPosition(movement)
@@ -212,6 +213,16 @@ function Engine:CalcureteVelocity()
     self.horizenal_y_speed = self.horizenal_y_speed + (RAV.time_resolution / self.mess) * (force_world.j - self.air_resistance_constant * self.horizenal_y_speed)
     self.vertical_speed = self.vertical_speed + (RAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.air_resistance_constant * self.vertical_speed)
 
+    -- local speed = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed + self.vertical_speed * self.vertical_speed)
+    -- if speed < self.min_speed then
+    --     self.horizenal_x_speed = 0
+    --     self.horizenal_y_speed = 0
+    --     self.vertical_speed = 0
+    -- elseif speed > self.max_speed then
+    --     self.horizenal_x_speed = self.horizenal_x_speed * self.max_speed / speed
+    --     self.horizenal_y_speed = self.horizenal_y_speed * self.max_speed / speed
+    --     self.vertical_speed = self.vertical_speed * self.max_speed / speed
+    -- end
     return self.horizenal_x_speed * RAV.time_resolution, self.horizenal_y_speed * RAV.time_resolution, self.vertical_speed * RAV.time_resolution
 end
 

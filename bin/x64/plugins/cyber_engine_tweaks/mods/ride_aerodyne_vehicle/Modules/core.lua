@@ -1,9 +1,9 @@
 local Aerodyne = require("Modules/aerodyne.lua")
 local Event = require("Modules/event.lua")
-local Key = require("Config/key.lua")
-local Log = require("Modules/log.lua")
-local Queue = require("Modules/queue.lua")
-local Utils = require("Modules/utils.lua")
+local Key = require("Data/key.lua")
+local Log = require("Tools/log.lua")
+local Queue = require("Tools/queue.lua")
+local Utils = require("Tools/utils.lua")
 
 local Core = {}
 Core.__index = Core
@@ -29,9 +29,9 @@ end
 
 function Core:StorePlayerAction(action_name, action_type, action_value)
     local action_value_type = "ZERO"
-    if action_value > 0 then
+    if action_value > 0.1 then
         action_value_type = "POSITIVE"
-    elseif action_value < 0 then
+    elseif action_value < -0.1 then
         action_value_type = "NEGATIVE"
     else
         action_value_type = "ZERO"

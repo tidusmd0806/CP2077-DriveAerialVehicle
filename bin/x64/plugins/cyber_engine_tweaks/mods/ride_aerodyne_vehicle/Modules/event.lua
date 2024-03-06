@@ -1,4 +1,4 @@
-local Log = require("Modules/log.lua")
+local Log = require("Tools/log.lua")
 local Camera = require("Modules/camera.lua")
 local Event = {}
 Event.__index = Event
