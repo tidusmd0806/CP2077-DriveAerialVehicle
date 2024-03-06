@@ -35,8 +35,8 @@ function Debug:ImGuiMain()
     self:SelectPrint()
     self:ImGuiPlayerPosition()
     self:ImGuiPlayerAngle()
-    self:ImGuiAvPosition()
-    self:ImGuiAvAngle()
+    self:ImGuiAVPosition()
+    self:ImGuiAVAngle()
     self:ImGuiLiftForce()
 end
 
@@ -54,14 +54,14 @@ function Debug:ImGuiPlayerAngle()
     end
 end
 
-function Debug:ImGuiAvPosition()
+function Debug:ImGuiAVPosition()
     self.is_im_gui_av_position = ImGui.Checkbox("[ImGui]  AV Position", self.is_im_gui_av_position)
     if self.is_im_gui_av_position then
         ImGui.Text("AV X:" .. self.core_obj.av_obj.position_obj:GetPosition().x .. ", Y:" .. self.core_obj.av_obj.position_obj:GetPosition().y .. ", Z:" .. self.core_obj.av_obj.position_obj:GetPosition().z)
     end
 end
 
-function Debug:ImGuiAvAngle()
+function Debug:ImGuiAVAngle()
     self.is_im_gui_av_angle = ImGui.Checkbox("[ImGui]  AV Angle", self.is_im_gui_av_angle)
     if self.is_im_gui_av_angle then
         ImGui.Text("AV Roll:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().roll .. ", Pitch:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().pitch .. ", Yaw:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)

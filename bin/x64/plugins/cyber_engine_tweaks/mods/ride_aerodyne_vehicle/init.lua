@@ -7,23 +7,17 @@ RAV = {
 }
 
 -- import modules
-RAV.Log = require('Modules/log.lua')
 RAV.Cron = require('External/Cron.lua')
-RAV.Event = require('Modules/event.lua')
 RAV.Core = require('Modules/core.lua')
 RAV.Debug = require('Debug/debug.lua')
 
 -- create instances
-RAV.event_obj = RAV.Event:New()
-RAV.core_obj = RAV.Core:New(RAV.event_obj)
+RAV.core_obj = RAV.Core:New()
 RAV.debug_obj = RAV.Debug:New(RAV.core_obj)
 
 registerForEvent('onInit', function()
 
-    RAV.ready = true
-    RAV.Cron.Every(RAV.time_resolution, function()
-        RAV.core_obj:ExcutePriodicalTask()
-    end)
+    RAV.core_obj:Init()
 
     -- Observe player action
     Observe("PlayerPuppet", "OnAction", function(self, action)
@@ -39,6 +33,7 @@ registerForEvent('onInit', function()
 
     end)
 
+    RAV.ready = true
     print('[RAV] Initialization is completed')
 end)
 
@@ -76,8 +71,6 @@ end)
 registerForEvent('onUpdate', function(delta)
     -- This is required for Cron to function
     RAV.Cron.Update(delta)
-    RAV.event_obj:CheckInAV()
 end)
 
--- for communication between mods
 return RAV

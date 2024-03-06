@@ -1,5 +1,5 @@
 local Utils = {}
-Utils.__index = Util
+Utils.__index = Utils
 
 function Utils:New()
     local obj = {}

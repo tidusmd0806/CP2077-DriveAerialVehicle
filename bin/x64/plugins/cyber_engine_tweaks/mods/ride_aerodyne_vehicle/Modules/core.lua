@@ -1,20 +1,30 @@
 local Aerodyne = require("Modules/aerodyne.lua")
-local Camera = require("Modules/camera.lua")
+local Event = require("Modules/event.lua")
+local Key = require("Config/key.lua")
+local Log = require("Modules/log.lua")
 local Queue = require("Modules/queue.lua")
 local Utils = require("Modules/utils.lua")
-local Key = require("Config/key.lua")
 
 local Core = {}
 Core.__index = Core
 
-function Core:New(event_obj)
+function Core:New()
     local obj = {}
-    obj.event_obj= event_obj
     obj.av_obj = Aerodyne:New(VehicleModel.Excalibur)
-    obj.camera_obj = Camera:New()
+    obj.event_obj = Event:New(obj.av_obj)
+    obj.log_obj = Log:New()
+    obj.log_obj:SetLevel(LogLevel.Info, "Core")
     obj.queue_obj = Queue:New()
 
     return setmetatable(obj, self)
+end
+
+function Core:Init()
+
+    RAV.Cron.Every(RAV.time_resolution, function()
+        self.event_obj:CheckAllEvents()
+        self:ExcutePriodicalTask()
+    end)
 end
 
 function Core:StorePlayerAction(action_name, action_type, action_value)
@@ -111,16 +121,14 @@ end
 
 function Core:Mount()
     self.av_obj:Mount()
-    self.camera_obj:SetVehiclePosition()
 end
 
 function Core:Unmount()
     self.av_obj:Unmount()
-    self.camera_obj:SetDefaultPosition()
 end
 
 function Core:OperateAerodyneVehicle(actions)
-    if self.event_obj.in_av == true then
+    if self.event_obj:IsInAV() then
         for _, action_command in ipairs(actions) do
             self.av_obj:Operate(action_command)
         end
