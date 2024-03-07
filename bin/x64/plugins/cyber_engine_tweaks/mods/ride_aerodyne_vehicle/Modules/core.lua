@@ -1,6 +1,6 @@
 local Aerodyne = require("Modules/aerodyne.lua")
 local Event = require("Modules/event.lua")
-local Key = require("Data/key.lua")
+local Input = require("Data/input.lua")
 local Log = require("Tools/log.lua")
 local Queue = require("Tools/queue.lua")
 local Utils = require("Tools/utils.lua")
@@ -49,21 +49,21 @@ function Core:ConvertActionList(action_name, action_type, action_value)
     local action_command = ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value}
 
-    if Utils:IsTablesEqual(action_dist, Key.KEY_CLICK_HOLD_IN_AV) then
+    if Utils:IsTablesEqual(action_dist, Input.KEY_CLICK_HOLD_IN_AV) then
         action_command = ActionList.Up
-    elseif Utils:IsTablesEqual(action_dist, Key.KEY_CLICK_RELEASE_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, Input.KEY_CLICK_RELEASE_IN_AV) then
         action_command = ActionList.Down
-    elseif Utils:IsTablesEqual(action_dist, Key.KEY_W_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, Input.KEY_W_PRESS_IN_AV) then
         action_command = ActionList.Forward
-    elseif Utils:IsTablesEqual(action_dist, Key.KEY_S_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, Input.KEY_S_PRESS_IN_AV) then
         action_command = ActionList.Backward
-    elseif Utils:IsTablesEqual(action_dist, Key.KEY_D_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, Input.KEY_D_PRESS_IN_AV) then
         action_command = ActionList.Right
-    elseif Utils:IsTablesEqual(action_dist, Key.KEY_A_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, Input.KEY_A_PRESS_IN_AV) then
         action_command = ActionList.Left
-    elseif Utils:IsTablesEqual(action_dist, Key.KEY_E_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, Input.KEY_E_PRESS_IN_AV) then
         action_command = ActionList.TurnRight
-    elseif Utils:IsTablesEqual(action_dist, Key.KEY_Q_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, Input.KEY_Q_PRESS_IN_AV) then
         action_command = ActionList.TurnLeft
     else
         action_command = ActionList.Nothing

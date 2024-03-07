@@ -57,6 +57,9 @@ end
 function Debug:ImGuiAVPosition()
     self.is_im_gui_av_position = ImGui.Checkbox("[ImGui] AV Position", self.is_im_gui_av_position)
     if self.is_im_gui_av_position then
+        if self.core_obj.av_obj.position_obj.entity == nil then
+            return
+        end
         ImGui.Text("AV X:" .. self.core_obj.av_obj.position_obj:GetPosition().x .. ", Y:" .. self.core_obj.av_obj.position_obj:GetPosition().y .. ", Z:" .. self.core_obj.av_obj.position_obj:GetPosition().z)
     end
 end
@@ -64,6 +67,9 @@ end
 function Debug:ImGuiAVAngle()
     self.is_im_gui_av_angle = ImGui.Checkbox("[ImGui] AV Angle", self.is_im_gui_av_angle)
     if self.is_im_gui_av_angle then
+        if self.core_obj.av_obj.position_obj.entity == nil then
+            return
+        end
         ImGui.Text("AV Roll:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().roll .. ", Pitch:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().pitch .. ", Yaw:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)
     end
 end
@@ -71,6 +77,9 @@ end
 function Debug:ImGuiLiftForceAndSpped()
     self.is_im_gui_lift_force = ImGui.Checkbox("[ImGui] Lift Force And Speed", self.is_im_gui_lift_force)
     if self.is_im_gui_lift_force then
+        if self.core_obj.av_obj.position_obj.entity == nil then
+            return
+        end
         local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
         local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
         local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)

@@ -42,7 +42,7 @@ function Engine:New(position_obj)
     obj.time_to_max = 5
     obj.time_to_min = 5
 
-    obj.rebound_constant = 0.1
+    obj.rebound_constant = 0.5
 
     -- set default parameters
     obj.next_indication = {roll = 0, pitch = 0, yaw = 0}

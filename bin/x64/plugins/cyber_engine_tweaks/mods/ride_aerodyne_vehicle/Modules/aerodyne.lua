@@ -137,12 +137,15 @@ function Aerodyne:Mount()
 	local ent_id = entity:GetEntityID()
 	local seat = "seat_back_left"
 
+	local transform = Transform.new().Create(Vector4.new(0, 0, 0, 1.0), Quaternion.new(0, 0, 0, 1.0))
+
+
 	local data = NewObject('handle:gameMountEventData')
 	data.isInstant = false
-	data.setEntityVisibleWhenMountFinish = false
 	data.slotName = seat
 	data.mountParentEntityId = ent_id
 	data.entryAnimName = "forcedTransition"
+	data.initialTransformLS = transform
 
 
 	local slot_id = NewObject('gamemountingMountingSlotId')
@@ -216,10 +219,11 @@ function Aerodyne:Unmount()
 end
 
 function Aerodyne:Move(x, y, z, roll, pitch, yaw)
+
 	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) then
 		return false
 	end
-	self.position_obj:ChangePosition()
+
 	return true
 end
 
@@ -239,7 +243,7 @@ function Aerodyne:Operate(action_command)
 		self.engine_obj:SetSpeedAfterRebound()
 		return false
 	end
-	self.position_obj:ChangePosition()
+
 	return true
 end
 
