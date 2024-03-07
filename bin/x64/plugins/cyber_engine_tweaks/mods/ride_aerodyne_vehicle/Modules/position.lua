@@ -24,6 +24,7 @@ function Position:New()
         { x=-half_width, y=-half_height, z=-half_depth },
     }
     self.corners = {}
+    self.min_direction_norm = 0.5 -- NOT Change this value
 
     return setmetatable(obj, self)
 end
@@ -125,7 +126,13 @@ function Position:CheckCollision(current_pos, next_pos)
     local filters = {'Static', 'Terrain'}
 
     self:SetCorners()
+
+    -- Conjecture Direction Norm for Detect Collision
     local direction = {x = next_pos.x - current_pos.x, y = next_pos.y - current_pos.y, z = next_pos.z - current_pos.z}
+    local direction_norm = math.sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z)
+    if direction_norm < self.min_direction_norm then
+        direction = {x = direction.x * self.min_direction_norm / direction_norm, y = direction.y * self.min_direction_norm / direction_norm, z = direction.z * self.min_direction_norm / direction_norm}
+    end
 
     for _, corner in ipairs(self.corners) do
         local current_corner = Vector4.new(corner.x, corner.y, corner.z, 1.0)

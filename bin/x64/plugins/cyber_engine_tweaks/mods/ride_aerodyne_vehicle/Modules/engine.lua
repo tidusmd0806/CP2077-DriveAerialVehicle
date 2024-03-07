@@ -41,8 +41,8 @@ function Engine:New(position_obj)
     obj.lift_force = obj.min_lift_force
     obj.time_to_max = 5
     obj.time_to_min = 5
-    obj.max_speed = 100000
-    obj.min_speed = 10
+
+    obj.rebound_constant = 0.1
 
     -- set default parameters
     obj.next_indication = {roll = 0, pitch = 0, yaw = 0}
@@ -64,15 +64,15 @@ function Engine:Init()
         RAV.Cron.Every(1, {tick = 1}, function(timer)
             self.clock = self.clock + 1
         end)
+        self.base_angle = self.position_obj:GetEulerAngles()
     end
-    self.base_angle = self.position_obj:GetEulerAngles()
-    self.is_finished_init = true
     self.is_power_on = false
     self.is_hover = false
     self.horizenal_x_speed = 0
     self.horizenal_y_speed = 0
     self.vertical_speed = 0
     self.clock = 0
+    self.is_finished_init = true
 end
 
 function Engine:GetNextPosition(movement)
@@ -213,17 +213,15 @@ function Engine:CalcureteVelocity()
     self.horizenal_y_speed = self.horizenal_y_speed + (RAV.time_resolution / self.mess) * (force_world.j - self.air_resistance_constant * self.horizenal_y_speed)
     self.vertical_speed = self.vertical_speed + (RAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.air_resistance_constant * self.vertical_speed)
 
-    -- local speed = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed + self.vertical_speed * self.vertical_speed)
-    -- if speed < self.min_speed then
-    --     self.horizenal_x_speed = 0
-    --     self.horizenal_y_speed = 0
-    --     self.vertical_speed = 0
-    -- elseif speed > self.max_speed then
-    --     self.horizenal_x_speed = self.horizenal_x_speed * self.max_speed / speed
-    --     self.horizenal_y_speed = self.horizenal_y_speed * self.max_speed / speed
-    --     self.vertical_speed = self.vertical_speed * self.max_speed / speed
-    -- end
-    return self.horizenal_x_speed * RAV.time_resolution, self.horizenal_y_speed * RAV.time_resolution, self.vertical_speed * RAV.time_resolution
+    local x, y, z = self.horizenal_x_speed * RAV.time_resolution, self.horizenal_y_speed * RAV.time_resolution, self.vertical_speed * RAV.time_resolution
+
+    return x, y, z
+end
+
+function Engine:SetSpeedAfterRebound()
+    self.horizenal_x_speed = -self.horizenal_x_speed * self.rebound_constant
+    self.horizenal_y_speed = -self.horizenal_y_speed * self.rebound_constant
+    self.vertical_speed = -self.vertical_speed * self.rebound_constant
 end
 
 return Engine

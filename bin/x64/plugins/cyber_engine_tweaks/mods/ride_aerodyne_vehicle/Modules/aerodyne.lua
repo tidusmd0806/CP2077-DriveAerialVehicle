@@ -236,7 +236,7 @@ function Aerodyne:Operate(action_command)
 	end
 
 	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) then
-		self.engine_obj:Init()
+		self.engine_obj:SetSpeedAfterRebound()
 		return false
 	end
 	self.position_obj:ChangePosition()
