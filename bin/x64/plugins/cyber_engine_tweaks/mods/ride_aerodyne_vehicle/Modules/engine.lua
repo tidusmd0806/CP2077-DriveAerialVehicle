@@ -160,6 +160,7 @@ function Engine:CalcuratePower(movement)
         self.clock = 0
         self.dynamic_lift_force = self.lift_force
         self.is_power_on = false
+        self.position_obj:SetEngineState(self.is_power_on)
     elseif movement == Movement.Up or self.is_power_on then
         if not self.is_power_on then
             self.log_obj:Record(LogLevel.Trace, "Change Power On")
@@ -167,6 +168,7 @@ function Engine:CalcuratePower(movement)
             self.dynamic_lift_force = self.lift_force
             self.is_power_on = true
             self.is_hover = false
+            self.position_obj:SetEngineState(self.is_power_on)
         else
             self:SetPowerUpCurve(self.clock)
         end

@@ -55,6 +55,7 @@ function Position:New()
     self.corners = {}
     self.min_direction_norm = 0.5 -- NOT Change this value
     self.collision_max_count = 50
+    self.dividing_rate = 0.2
 
     -- set default parameters
     obj.collision_count = 0
@@ -199,6 +200,7 @@ end
 
 function Position:AvoidStacking()
 
+    local pos = self:GetPosition()
     local angle = self:GetEulerAngles()
 
     if not self.is_power_on then
@@ -207,21 +209,21 @@ function Position:AvoidStacking()
     self.log_obj:Record(LogLevel.Debug, "Avoid Stacking")
 
     if self.stack_corner_num == 1 then
-        self.next_position = Vector4.new(self.corners[8].x, self.corners[8].y, self.corners[8].z, 1.0)
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[8].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[8].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[8].z + (1 - self.dividing_rate) * pos.z, 1.0)
     elseif self.stack_corner_num == 2 then
-        self.next_position = Vector4.new(self.corners[7].x, self.corners[7].y, self.corners[7].z, 1.0)
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[7].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[7].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[7].z + (1 - self.dividing_rate) * pos.z, 1.0)
     elseif self.stack_corner_num == 3 then
-        self.next_position = Vector4.new(self.corners[6].x, self.corners[6].y, self.corners[6].z, 1.0)
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[6].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[6].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[6].z + (1 - self.dividing_rate) * pos.z, 1.0)
     elseif self.stack_corner_num == 4 then
-        self.next_position = Vector4.new(self.corners[5].x, self.corners[5].y, self.corners[5].z, 1.0)
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[5].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[5].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[5].z + (1 - self.dividing_rate) * pos.z, 1.0)
     elseif self.stack_corner_num == 5 then
-        self.next_position = Vector4.new(self.corners[4].x, self.corners[4].y, self.corners[4].z, 1.0)
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[4].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[4].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[4].z + (1 - self.dividing_rate) * pos.z, 1.0)
     elseif self.stack_corner_num == 6 then
-        self.next_position = Vector4.new(self.corners[3].x, self.corners[3].y, self.corners[3].z, 1.0)
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[3].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[3].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[3].z + (1 - self.dividing_rate) * pos.z, 1.0)
     elseif self.stack_corner_num == 7 then
-        self.next_position = Vector4.new(self.corners[2].x, self.corners[2].y, self.corners[2].z, 1.0)
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[2].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[2].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[2].z + (1 - self.dividing_rate) * pos.z, 1.0)
     elseif self.stack_corner_num == 8 then
-        self.next_position = Vector4.new(self.corners[1].x, self.corners[1].y, self.corners[1].z, 1.0)
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[1].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[1].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[1].z + (1 - self.dividing_rate) * pos.z, 1.0)
     end
 
     self.next_angle = EulerAngles.new(0, 0, angle.yaw)

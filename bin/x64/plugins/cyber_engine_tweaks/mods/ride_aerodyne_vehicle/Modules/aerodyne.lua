@@ -6,6 +6,8 @@ Aerodyne.__index = Aerodyne
 
 VehicleModel = {
 	Excalibur = "Vehicle.av_rayfield_excalibur",
+	Manticore = "Vehicle.av_militech_manticore",
+	Atlus = "Vehicle.av_zetatech_atlus"
 }
 
 ActionList = {
@@ -115,15 +117,21 @@ function Aerodyne:ChangeDoorState()
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	local vehicle_ps = entity:GetVehiclePS()
-	local state = vehicle_ps:GetDoorState(1).value
+	local state = vehicle_ps:GetDoorState(0).value -- front left door: 0 / front right door: 1
+	local door_event = nil
 	if state == "Closed" then
-		vehicle_ps:OpenAllRegularVehDoors(false)
+		door_event = VehicleDoorOpen.new()
+		-- vehicle_ps:OpenAllRegularVehDoors(false)
 	elseif state == "Open" then
-		vehicle_ps:CloseAllVehDoors(false)
+		door_event = VehicleDoorClose.new()
+		-- vehicle_ps:CloseAllVehDoors(false)
 	else
 		self.log_obj:Record(LogLevel.Error, "Door state is not valid : " .. state)
 		return false
 	end
+	door_event.slotID = "seat_front_left"
+	door_event.forceScene = false
+	vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
 	return true
 end
 
