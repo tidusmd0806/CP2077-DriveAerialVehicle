@@ -54,7 +54,7 @@ return {
         time_to_max = 5, -- seconds
         time_to_min = 5, -- seconds
         mess = 2721000, -- kg
-        air_resistance_constant = 1000000, -- Newton second per meter
+        air_resistance_constant = 500000, -- Newton second per meter
         rebound_constant = 0.5, -- rate of rebound
         shape = {
             A = {x= 1.5, y= 3.0, z= 1.5},
@@ -66,5 +66,16 @@ return {
             G = {x=-2.0, y=-4.0, z= 2.0},
             H = {x=-2.0, y=-4.0, z=-0.5},
         },
+        entry_area = {
+            A = {x = 1.5, y = 3.0, z = 1.5},
+            B = {x = 1.5, y = 3.0, z = -0.5},
+            C = {x = 2.0, y = -6.0, z = 2.0},
+            D = {x = 2.0, y = -6.0, z = -0.5},
+            E = {x = -1.5, y = 3.0, z = 1.5},
+            F = {x = -1.5, y = 3.0, z = -0.5},
+            G = {x = -2.0, y = -4.0, z = 2.0},
+            H = {x = -2.0, y = -4.0, z = -0.5},
+        },
+        exit_point = {x = 0, y = 0, z = 0},
     },
 }

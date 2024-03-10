@@ -133,10 +133,8 @@ function Aerodyne:ChangeDoorState(door_number)
 	local door_event = nil
 	if state == "Closed" then
 		door_event = VehicleDoorOpen.new()
-		-- vehicle_ps:OpenAllRegularVehDoors(false)
 	elseif state == "Open" then
 		door_event = VehicleDoorClose.new()
-		-- vehicle_ps:CloseAllVehDoors(false)
 	else
 		self.log_obj:Record(LogLevel.Error, "Door state is not valid : " .. state)
 		return false

@@ -4,10 +4,14 @@ DAV = {
     ready = false,
     is_debug_mode = true,
     time_resolution = 0.01,
+    ui_choice_hub = nil,
+    ui_choice_handler = nil
 }
 
 -- import modules
 DAV.Cron = require('External/Cron.lua')
+DAV.GameUI = require('External/GameUI.lua')
+DAV.GameHUD = require('External/GameHUD.lua')
 DAV.Core = require('Modules/core.lua')
 DAV.Debug = require('Debug/debug.lua')
 
@@ -17,6 +21,7 @@ DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
 
 registerForEvent('onInit', function()
 
+    DAV.GameHUD.Initialize()
     DAV.core_obj:Init()
 
     -- Observe player action
@@ -31,6 +36,23 @@ registerForEvent('onInit', function()
 
         DAV.core_obj:StorePlayerAction(action_name, action_type, action_value)
 
+    end)
+
+    -- Overside choice ui (refer to https://www.nexusmods.com/cyberpunk2077/mods/7299)
+    Override("InteractionUIBase", "OnDialogsData", function (_, value, wrapped_method)
+        local data = FromVariant(value)
+        local hubs = data.choiceHubs
+        table.insert(hubs, DAV.ui_choice_hub)
+        data.choiceHubs = hubs
+        wrapped_method(ToVariant(data))
+    end)
+
+    Observe("InteractionUIBase", "OnDialogsData", function(self)
+        DAV.ui_choice_handler = self
+    end)
+
+    Observe("InteractionUIBase", "OnInitialize", function(self)
+        DAV.ui_choice_handler = self
     end)
 
     DAV.ready = true

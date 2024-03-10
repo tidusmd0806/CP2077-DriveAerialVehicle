@@ -120,38 +120,46 @@ function Core:LockAerodyneDoor()
 end
 
 function Core:UnlockAerodyneDoor()
-    self.av_obj:UnlockDoor()
-    self.player_obj:StopPose()
-    -- Game.GetStatusEffectSystem():ApplyStatusEffect(GetPlayer():GetEntityID(), "GameplayRestriction.NoCombat", GetPlayer():GetRecordID(), GetPlayer():GetEntityID())
-    -- Game.GetStatusEffectSystem():ApplyStatusEffect(GetPlayer():GetEntityID(), "GameplayRestriction.NoPhotoMode", GetPlayer():GetRecordID(), GetPlayer():GetEntityID())
-    -- Game.GetStatusEffectSystem():ApplyStatusEffect(GetPlayer():GetEntityID(), "GameplayRestriction.MetroRide", GetPlayer():GetRecordID(), GetPlayer():GetEntityID())
-    SaveLocksManager.RequestSaveLockAdd("PersonalLink")
-    if SaveLocksManager.IsSavingLocked() then
-        print("locked")
-    else
-        print("unlocked")
-    end
-    -- GetPlayer():GetPocketRadio().isRestrictionOverwritten = true
-    -- -- Set camera roll, yaw and position to match entry animation. Pitch has to be done differently
-    -- local currentPitch = Vector4.new(-Game.GetCameraSystem():GetActiveCameraForward().x, -Game.GetCameraSystem():GetActiveCameraForward().y, -Game.GetCameraSystem():GetActiveCameraForward().z, -Game.GetCameraSystem():GetActiveCameraForward().w):ToRotation().pitch
-    -- GetPlayer():GetFPPCameraComponent():ResetPitch() -- Animation doesnt like cam pitch
-    -- GetPlayer():GetFPPCameraComponent():SetLocalOrientation(EulerAngles.new(0, currentPitch, 0):ToQuat()) -- Transfer pitch to camera component
-    -- local devicePath = "sit_anywhere\\devices\\bench_lap.ent"
-    -- local transform = WorldTransform.new()
-    -- local pos = Game.GetPlayer():GetWorldPosition()
-    -- transform:SetPosition(Vector4.new(pos.x + 3, pos.y, pos.z, pos.w))
-    -- transform:SetOrientationEuler(Game.GetPlayer():GetWorldOrientation():ToEulerAngles())
-    -- local entityID = exEntitySpawner.Spawn(devicePath, transform)
-    -- print(entityID)
-    -- local device = Game.FindEntityByID(entityID)
-    -- GetPlayer():GetFPPCameraComponent():SetLocalOrientation(EulerAngles.new(0, 0, 0):ToQuat()) -- Reset cam, animation takes over
-    -- GetPlayer():GetFPPCameraComponent():SetLocalPosition(Vector4.new(0, 0, 0, 0)) -- Reset cam, animation takes over
-    -- if Game.GetWorkspotSystem():PlayInDevice(device, GetPlayer(), "lockedCamera", "sitWorkspot", 0) then
-    --     print("sit")
+    -- self.av_obj:UnlockDoor()
+    -- SaveLocksManager.RequestSaveLockAdd("PersonalLink")
+    -- if SaveLocksManager.IsSavingLocked() then
+    --     print("locked")
     -- else
-    --     print("not sit")
+    --     print("unlocked")
     -- end
-    
+    -- local choice = interaction.createChoice("Choice", TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceIcons.SitIcon"))
+    -- self.hub = interaction.createHub(self.name, {choice})
+    -- interaction.setupHub(self.hub)
+    -- interaction.callbacks[1] = function()
+    --     interaction.hideHub()
+    --     print("unlock")
+    -- end
+    -- interaction.showHub()
+    local choice = gameinteractionsvisListChoiceData.new()
+    choice.localizedName = "Choice"
+    choice.inputActionName = "None"
+
+    local part = gameinteractionsChoiceCaption.new()
+    part:AddPartFromRecord(TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceIcons.SitIcon"))
+    choice.captionParts = part
+
+    local hub = gameinteractionsvisListChoiceHubData.new()
+    hub.title = "Title"
+    hub.choices = {choice}
+    hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
+    hub.hubPriority = -1
+    hub.id = 69420 + math.random(99999)
+
+    DAV.ui_choice_hub = hub
+
+    local ib = Game.GetBlackboardSystem():Get(GetAllBlackboardDefs().UIInteractions);
+    local ibd = GetAllBlackboardDefs().UIInteractions;
+
+    local data = ib:GetVariant(ibd.DialogChoiceHubs)
+    DAV.ui_choice_handler:OnDialogsData(data)
+
+    DAV.GameHUD.ShowMessage("Test")
+
 end
 
 function Core:Mount()
