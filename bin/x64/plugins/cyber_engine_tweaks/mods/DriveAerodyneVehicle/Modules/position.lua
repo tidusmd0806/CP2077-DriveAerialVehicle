@@ -4,7 +4,7 @@ local Collision = require("Data/collision.lua")
 local Position = {}
 Position.__index = Position
 
-function Position:New()
+function Position:New(vehicle_model)
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Position")
@@ -12,44 +12,15 @@ function Position:New()
     obj.next_position = nil
     obj.next_angle = nil
 
-    local shape = {
-        A = {x=1.5, y=3, z=1.5},
-        B = {x=1.5, y=3, z=-0.5},
-        C = {x=2, y=-6, z=2},
-        D = {x=2, y=-6, z=-0.5},
-        E = {x=-1.5, y=3, z=1.5},
-        F = {x=-1.5, y=3, z=-0.5},
-        G = {x=-2, y=-4, z=2},
-        H = {x=-2, y=-4, z=-0.5},
-    }
-
-    --[[
-        This is the diagram of the vehicle's local corners
-               E-----A
-              /|    /|
-             / |   / |
-            G-----C  |
-            |  F--|--B
-            | /   | /
-            |/    |/       
-            H-----D
-
-            ABFE is the front face
-            CDHG is the back face
-            EFHG is the left face
-            ABDC is the right face
-            ACGE is the top face
-            BDHF is the bottom face           
-    ]]
     self.local_corners = {
-        { x = shape.A.x, y = shape.A.y, z = shape.A.z },
-        { x = shape.B.x, y = shape.B.y, z = shape.B.z },
-        { x = shape.C.x, y = shape.C.y, z = shape.C.z },
-        { x = shape.D.x, y = shape.D.y, z = shape.D.z },
-        { x = shape.E.x, y = shape.E.y, z = shape.E.z },
-        { x = shape.F.x, y = shape.F.y, z = shape.F.z },
-        { x = shape.G.x, y = shape.G.y, z = shape.G.z },
-        { x = shape.H.x, y = shape.H.y, z = shape.H.z },
+        { x = vehicle_model.shape.A.x, y = vehicle_model.shape.A.y, z = vehicle_model.shape.A.z },
+        { x = vehicle_model.shape.B.x, y = vehicle_model.shape.B.y, z = vehicle_model.shape.B.z },
+        { x = vehicle_model.shape.C.x, y = vehicle_model.shape.C.y, z = vehicle_model.shape.C.z },
+        { x = vehicle_model.shape.D.x, y = vehicle_model.shape.D.y, z = vehicle_model.shape.D.z },
+        { x = vehicle_model.shape.E.x, y = vehicle_model.shape.E.y, z = vehicle_model.shape.E.z },
+        { x = vehicle_model.shape.F.x, y = vehicle_model.shape.F.y, z = vehicle_model.shape.F.z },
+        { x = vehicle_model.shape.G.x, y = vehicle_model.shape.G.y, z = vehicle_model.shape.G.z },
+        { x = vehicle_model.shape.H.x, y = vehicle_model.shape.H.y, z = vehicle_model.shape.H.z },
     }
 
     self.corners = {}

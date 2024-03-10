@@ -3,6 +3,7 @@ local Player = require("Modules/player.lua")
 local Event = require("Modules/event.lua")
 local Input = require("Data/input.lua")
 local Log = require("Tools/log.lua")
+local Model = require("Data/model.lua")
 local Queue = require("Tools/queue.lua")
 local Utils = require("Tools/utils.lua")
 
@@ -11,7 +12,7 @@ Core.__index = Core
 
 function Core:New()
     local obj = {}
-    obj.av_obj = Aerodyne:New(VehicleModel.Excalibur)
+    obj.av_obj = Aerodyne:New(Model.Excalibur)
     obj.event_obj = Event:New(obj.av_obj)
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Core")
@@ -105,7 +106,7 @@ function Core:CallAerodyneVehicle()
 end
 
 function Core:ChangeAerodyneDoor()
-    self.av_obj:ChangeDoorState()
+    self.av_obj:ChangeDoorState(1)
 end
 
 function Core:LockAerodyneDoor()
@@ -154,8 +155,9 @@ function Core:UnlockAerodyneDoor()
 end
 
 function Core:Mount()
+    self.player_obj:Init()
     self.av_obj:TakeOn(self.player_obj)
-    self.av_obj:Mount()
+    self.av_obj:Mount(3)
 end
 
 function Core:Unmount()

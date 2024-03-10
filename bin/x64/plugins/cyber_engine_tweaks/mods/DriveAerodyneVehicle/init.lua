@@ -34,7 +34,7 @@ registerForEvent('onInit', function()
     end)
 
     DAV.ready = true
-    print('[RAV] Initialization is completed')
+    print('Drive an Aerodyne Vehicle Mod is ready!')
 end)
 
 -- Debug Window
@@ -49,7 +49,7 @@ registerHotkey('CallAerodyneVehicle', 'Call Aerodyne Vehicle', function()
 end)
 
 registerHotkey('ChangeAerodyneDoor', 'Change Door (TMP)', function()
-    DAV.core_obj:ChangeAerodyneDoor()
+    DAV.core_obj:ChangeAerodyneDoor(1)
 end)
 
 registerHotkey('LockAerodyneDoor', 'Lock (TMP)', function()
@@ -61,7 +61,7 @@ registerHotkey('UnlockAerodyneDoor', 'Unlock (TMP)', function()
 end)
 
 registerHotkey('Mount', 'Mount (TMP)', function()
-    DAV.core_obj:Mount()
+    DAV.core_obj:Mount(3)
 end)
 
 registerHotkey('Unmount', 'Unmount (TMP)', function()

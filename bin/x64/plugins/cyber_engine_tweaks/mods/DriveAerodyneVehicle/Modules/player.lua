@@ -1,5 +1,4 @@
 local Log = require("Tools/log.lua")
-local Utils = require("Tools/utils.lua")
 Player = {}
 Player.__index = Player
 
@@ -9,18 +8,26 @@ function Player:New(player)
     obj.log_obj:SetLevel(LogLevel.Info, "Player")
 
     obj.player = player
+
+    --require archive file
     obj.workspot_resorce_component_name = "av_seat_workspot"
     obj.workspot_entity_path = "base\\dav\\dummy_seat.ent"
 
     -- set default parameters
     obj.dummy_entity_id = nil
-    obj.player_position_in_vehicle = Vector4.new(0, 0, 0, 1.0)
+    obj.player_position_in_vehicle = nil
+    obj.gender = nil
 
     return setmetatable(obj, self)
 end
 
-function Player:SetPositionInVehicle(cordinate)
-    self.player_position_in_vehicle = Vector4.new(cordinate.x, cordinate.y, cordinate.z, 1.0)
+function Player:Init()
+    local gender_string = Game.GetPlayer():GetResolvedGenderName()
+    if string.find(tostring(gender_string), "Female") then
+        self.gender = "Famale"
+    else
+        self.gender = "Male"
+    end
 end
 
 function Player:PlayPose(pose_name)
@@ -33,7 +40,7 @@ function Player:PlayPose(pose_name)
 
     self.dummy_entity_id = exEntitySpawner.Spawn(self.workspot_entity_path, transform, '')
     -- local anim_name = "sit_chair_lean180__2h_on_lap__01"
- 
+
     DAV.Cron.Every(0.1, {tick = 1}, function(timer)
         local dummy_entity = Game.FindEntityByID(self.dummy_entity_id)
         if dummy_entity ~= nil then
@@ -62,5 +69,79 @@ function Player:StopPose()
     end
 end
 
+-- refer to https://github.com/MaximiliumM/appearancemenumod for changing head when tpp or fpp
+function Player:ActivateTPPHead(is_tpp)
+    local player = Game.GetPlayer()
+    local head_type = nil
+    if self.gender == "Famale" then
+        head_type = "Items.CharacterCustomizationWaHead"
+    else
+        head_type = "Items.CharacterCustomizationMaHead"
+    end
+
+    local transcation_system = Game.GetTransactionSystem()
+    local head_solt = TweakDBID.new("AttachmentSlots.TppHead")
+    local head_id = ItemID.FromTDBID(TweakDBID.new(head_type))
+
+    local fpp_head_id = ItemID.FromTDBID(TweakDBID.new("Items.PlayerFppHead"))
+
+    if not transcation_system:HasItem(Game.GetPlayer(), head_id) then
+        self.log_obj:Record(LogLevel.Trace, "No head item found")
+
+        local equip_request = EquipRequest.new()
+        Game.GetTransactionSystem():GiveItem(player, head_id, 1)
+        equip_request.owner = player
+        Game.GetScriptableSystemsContainer():Get("EquipmentSystem"):QueueRequest(equip_request)
+    end
+
+    if is_tpp then
+        transcation_system:ChangeItemAppearanceByName(player, head_id, "default&FPP")
+    end
+
+    transcation_system:RemoveItemFromSlot(player, head_solt, true, true, true)
+
+    if is_tpp then
+        DAV.Cron.Every(0.001, { tick = 1 }, function(timer)
+            timer.tick = timer.tick + 1
+
+            if timer.tick > 10 then
+                DAV.Cron.Halt(timer)
+            end
+            DAV.Cron.After(0.001, function()
+                transcation_system:RemoveItemFromSlot(player, head_solt, true, true, true)
+            end)
+
+            DAV.Cron.After(0.1, function()
+                if transcation_system:GetItemInSlot(player, head_solt) == nil then
+                    transcation_system:AddItemToSlot(player, head_solt, head_id)
+                end
+            end)
+
+        end)
+    else
+        DAV.Cron.Every(0.001, { tick = 1 }, function(timer)
+            timer.tick = timer.tick + 1
+
+            transcation_system:ChangeItemAppearanceByName(player, head_id, "default&FPP")
+
+            if timer.tick > 30 then
+                DAV.Cron.Halt(timer)
+            end
+            DAV.Cron.After(0.001, function()
+                transcation_system:RemoveItemFromSlot(player, head_solt, true, true, true)
+            end)
+
+            DAV.Cron.After(0.1, function()
+                if transcation_system:GetItemInSlot(player, head_solt) == nil then
+                    transcation_system:AddItemToSlot(player, head_solt, fpp_head_id)
+                    transcation_system:ChangeItemAppearanceByName(player, fpp_head_id, "default&FPP")
+                end
+            end)
+
+        end)
+    end
+
+
+end
 
 return Player

@@ -26,8 +26,8 @@ ActionList = {
 
 function Aerodyne:New(vehicle_model)
 	local obj = {}
-	obj.position_obj = Position:New()
-	obj.engine_obj = Engine:New(obj.position_obj)
+	obj.position_obj = Position:New(vehicle_model)
+	obj.engine_obj = Engine:New(obj.position_obj, vehicle_model)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "Aerodyne")
 	obj.player_obj = nil
@@ -40,12 +40,19 @@ function Aerodyne:New(vehicle_model)
 
 	-- set default parameters
 	obj.entity_id = nil
-	obj.vehicle_model = vehicle_model or VehicleModel.Excalibur
+	obj.vehicle_model_name = vehicle_model.name
+	obj.vehicle_model_type = vehicle_model.type
 	obj.is_player_in = false
+	obj.is_default_mount = vehicle_model.is_default_mount
+	obj.is_default_seat_position = vehicle_model.is_default_seat_position
+	obj.sit_pose = vehicle_model.sit_pose
+	obj.seat_position = vehicle_model.seat_position
+	obj.active_seat = vehicle_model.active_seat
+	obj.active_door = vehicle_model.active_door
 	return setmetatable(obj, self)
 end
 
-function Aerodyne:Spawn(position, angle)
+function Aerodyne:Spawn(position, angle, type_number)
 	if self.entity_id ~= nil then
 		self.log_obj:Record(LogLevel.Info, "Entity already spawned")
 		return false
@@ -54,7 +61,7 @@ function Aerodyne:Spawn(position, angle)
 	local entity_system = Game.GetDynamicEntitySystem()
 	local entity_spec = DynamicEntitySpec.new()
 
-	entity_spec.recordID = self.vehicle_model
+	entity_spec.recordID = self.vehicle_model_name
 	entity_spec.position = position
 	entity_spec.orientation = angle
 	entity_spec.persistState = false
@@ -65,6 +72,8 @@ function Aerodyne:Spawn(position, angle)
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
+			entity:PrefetchAppearanceChange(self.vehicle_model_type[type_number])
+			entity:ScheduleAppearanceChange(self.vehicle_model_type[type_number])
 			self.engine_obj:Init()
 			DAV.Cron.Halt(timer)
 		end
@@ -77,7 +86,7 @@ function Aerodyne:SpawnToSky()
 	local position = self.position_obj:GetSpawnPosition(5.5, 0.0)
 	position.z = position.z + 50.0
 	local angle = self.position_obj:GetSpawnOrientation(90.0)
-	self:Spawn(position, angle)
+	self:Spawn(position, angle, 1)
 end
 
 function Aerodyne:Despawn()
@@ -113,7 +122,7 @@ function Aerodyne:LockDoor()
 	return true
 end
 
-function Aerodyne:ChangeDoorState()
+function Aerodyne:ChangeDoorState(door_number)
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change door state")
 		return false
@@ -132,13 +141,13 @@ function Aerodyne:ChangeDoorState()
 		self.log_obj:Record(LogLevel.Error, "Door state is not valid : " .. state)
 		return false
 	end
-	door_event.slotID = "seat_front_left"
+	door_event.slotID = self.active_door[door_number]
 	door_event.forceScene = false
 	vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
 	return true
 end
 
-function Aerodyne:Mount()
+function Aerodyne:Mount(seat_number)
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to mount")
 		return false
@@ -146,7 +155,7 @@ function Aerodyne:Mount()
 	local entity = Game.FindEntityByID(self.entity_id)
 	local player = Game.GetPlayer()
 	local ent_id = entity:GetEntityID()
-	local seat = "seat_back_left"
+	local seat = self.active_seat[seat_number]
 	-- local seat = "passenger_seat_e"
 
 
@@ -178,7 +187,11 @@ function Aerodyne:Mount()
 		local entity = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
-			self:SitCorrectPosition()
+			if not self.is_default_seat_position then
+				self:SitCorrectPosition(3)
+			end
+			self.is_player_in = true
+			self.player_obj:ActivateTPPHead(true)
 			DAV.Cron.Halt(timer)
 		end
 	end)
@@ -221,6 +234,8 @@ function Aerodyne:Unmount()
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
+			self.is_player_in = false
+			self.player_obj:ActivateTPPHead(false)
 			DAV.Cron.Halt(timer)
 		end
 	end)
@@ -237,22 +252,24 @@ function Aerodyne:TakeOn(player_obj)
 	return true
 end
 
-function Aerodyne:SitCorrectPosition()
-	self.player_obj:PlayPose("sit_chair_lean180__2h_on_lap__01")
-	local left_seat_cordinate = Vector4.new(-0.35, -1.12, -0.38, 1.0)
+function Aerodyne:SitCorrectPosition(seat_number)
+	if self.player_obj.gender == "famale" then
+		self.player_obj:PlayPose(self.sit_pose.famele)
+	else
+		self.player_obj:PlayPose(self.sit_pose.male)
+	end
+	local left_seat_cordinate = Vector4.new(self.seat_position[seat_number].x, self.seat_position[seat_number].y, self.seat_position[seat_number].z, 1.0)
 	local pos = self.position_obj:GetPosition()
 	local foward = self.position_obj:GetFoword()
 	local Backward = Vector4.RotateAxis(foward ,Vector4.new(0, 0, 1, 0), 180 / 180.0 * Pi())
 	local rot = self.position_obj:GetQuaternion()
 
-	-- local left_seat_cordinate = Vector4.new(-0.5, 1.0, 5.5, 1.0)
 	local rotated = Utils:RotateVectorByQuaternion(left_seat_cordinate, rot)
 
 	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
         local dummy_entity = Game.FindEntityByID(self.player_obj.dummy_entity_id)
         if dummy_entity ~= nil then
             Game.GetTeleportationFacility():Teleport(dummy_entity, Vector4.new(pos.x + rotated.x, pos.y + rotated.y, pos.z + rotated.z, 1.0), Vector4.ToRotation(Backward))
-            self.is_player_in = true
 			DAV.Cron.Halt(timer)
         end
     end)

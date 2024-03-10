@@ -16,33 +16,32 @@ Movement = {
     Hover = 9
 }
 
-function Engine:New(position_obj)
+function Engine:New(position_obj, vehicle_model)
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Engine")
     obj.position_obj = position_obj
 
     -- set pyhsical parameters
-    obj.roll_speed = 0.8
-    obj.pitch_speed = 0.8
-    obj.yaw_speed = 0.8
-    obj.roll_restore_speed = 0.1
-    obj.pitch_restore_speed = 0.1
-    obj.max_roll = 30
-    obj.min_roll = -30
-    obj.max_pitch = 30
-    obj.min_pitch = -30
+    obj.roll_speed = vehicle_model.roll_speed
+    obj.pitch_speed = vehicle_model.pitch_speed
+    obj.yaw_speed = vehicle_model.yaw_speed
+    obj.roll_restore_speed = vehicle_model.roll_restore_speed
+    obj.pitch_restore_speed = vehicle_model.pitch_restore_speed
+    obj.max_roll = vehicle_model.max_roll
+    obj.min_roll = vehicle_model.min_roll
+    obj.max_pitch = vehicle_model.max_pitch
+    obj.min_pitch = vehicle_model.min_pitch
 
-    obj.mess = 2000
     obj.gravity_constant = 9.8
-    obj.air_resistance_constant = 1000
-    obj.max_lift_force = obj.mess * obj.gravity_constant + 5000
-    obj.min_lift_force = obj.mess * obj.gravity_constant - 1000
+    obj.mess = vehicle_model.mess
+    obj.air_resistance_constant = vehicle_model.air_resistance_constant
+    obj.max_lift_force = obj.mess * obj.gravity_constant + vehicle_model.max_lift_force
+    obj.min_lift_force = obj.mess * obj.gravity_constant - vehicle_model.min_lift_force
     obj.lift_force = obj.min_lift_force
-    obj.time_to_max = 5
-    obj.time_to_min = 5
-
-    obj.rebound_constant = 0.5
+    obj.time_to_max = vehicle_model.time_to_max
+    obj.time_to_min = vehicle_model.time_to_min
+    obj.rebound_constant = vehicle_model.rebound_constant
 
     -- set default parameters
     obj.next_indication = {roll = 0, pitch = 0, yaw = 0}
