@@ -1,6 +1,7 @@
 local Position = require("Modules/position.lua")
 local Engine = require("Modules/engine.lua")
 local Log = require("Tools/log.lua")
+local Utils = require("Tools/utils.lua")
 local Aerodyne = {}
 Aerodyne.__index = Aerodyne
 
@@ -29,6 +30,7 @@ function Aerodyne:New(vehicle_model)
 	obj.engine_obj = Engine:New(obj.position_obj)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "Aerodyne")
+	obj.player_obj = nil
 
 	for key, value in pairs(Movement) do
 		if ActionList[key] ~= value then
@@ -39,6 +41,7 @@ function Aerodyne:New(vehicle_model)
 	-- set default parameters
 	obj.entity_id = nil
 	obj.vehicle_model = vehicle_model or VehicleModel.Excalibur
+	obj.is_player_in = false
 	return setmetatable(obj, self)
 end
 
@@ -58,12 +61,12 @@ function Aerodyne:Spawn(position, angle)
 	self.entity_id = entity_system:CreateEntity(entity_spec)
 
 	-- set entity id to position object
-	RAV.Cron.Every(0.1, {tick = 1}, function(timer)
+	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
 			self.engine_obj:Init()
-			RAV.Cron.Halt(timer)
+			DAV.Cron.Halt(timer)
 		end
 	end)
 
@@ -144,8 +147,7 @@ function Aerodyne:Mount()
 	local player = Game.GetPlayer()
 	local ent_id = entity:GetEntityID()
 	local seat = "seat_back_left"
-
-	local transform = Transform.new().Create(Vector4.new(0, 0, 0, 1.0), Quaternion.new(0, 0, 0, 1.0))
+	-- local seat = "passenger_seat_e"
 
 
 	local data = NewObject('handle:gameMountEventData')
@@ -153,7 +155,6 @@ function Aerodyne:Mount()
 	data.slotName = seat
 	data.mountParentEntityId = ent_id
 	data.entryAnimName = "forcedTransition"
-	data.initialTransformLS = transform
 
 
 	local slot_id = NewObject('gamemountingMountingSlotId')
@@ -173,11 +174,12 @@ function Aerodyne:Mount()
 	self.position_obj:ChangePosition()
 
 	-- return position near mounted vehicle	
-	RAV.Cron.Every(0.1, {tick = 1}, function(timer)
+	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
 		local entity = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
-			RAV.Cron.Halt(timer)
+			self:SitCorrectPosition()
+			DAV.Cron.Halt(timer)
 		end
 	end)
 
@@ -215,14 +217,45 @@ function Aerodyne:Unmount()
 	Game.GetMountingFacility():Unmount(mount_event)
 
 		-- set entity id to position object
-	RAV.Cron.Every(0.1, {tick = 1}, function(timer)
+	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
-			RAV.Cron.Halt(timer)
+			DAV.Cron.Halt(timer)
 		end
 	end)
 
+	return true
+end
+
+function Aerodyne:TakeOn(player_obj)
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to take on")
+		return false
+	end
+	self.player_obj = player_obj
+	return true
+end
+
+function Aerodyne:SitCorrectPosition()
+	self.player_obj:PlayPose("sit_chair_lean180__2h_on_lap__01")
+	local left_seat_cordinate = Vector4.new(-0.35, -1.12, -0.38, 1.0)
+	local pos = self.position_obj:GetPosition()
+	local foward = self.position_obj:GetFoword()
+	local Backward = Vector4.RotateAxis(foward ,Vector4.new(0, 0, 1, 0), 180 / 180.0 * Pi())
+	local rot = self.position_obj:GetQuaternion()
+
+	-- local left_seat_cordinate = Vector4.new(-0.5, 1.0, 5.5, 1.0)
+	local rotated = Utils:RotateVectorByQuaternion(left_seat_cordinate, rot)
+
+	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
+        local dummy_entity = Game.FindEntityByID(self.player_obj.dummy_entity_id)
+        if dummy_entity ~= nil then
+            Game.GetTeleportationFacility():Teleport(dummy_entity, Vector4.new(pos.x + rotated.x, pos.y + rotated.y, pos.z + rotated.z, 1.0), Vector4.ToRotation(Backward))
+            self.is_player_in = true
+			DAV.Cron.Halt(timer)
+        end
+    end)
 	return true
 end
 

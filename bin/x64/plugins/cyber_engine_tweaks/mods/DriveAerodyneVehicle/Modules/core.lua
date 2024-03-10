@@ -1,4 +1,5 @@
 local Aerodyne = require("Modules/aerodyne.lua")
+local Player = require("Modules/player.lua")
 local Event = require("Modules/event.lua")
 local Input = require("Data/input.lua")
 local Log = require("Tools/log.lua")
@@ -15,13 +16,15 @@ function Core:New()
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Core")
     obj.queue_obj = Queue:New()
+    self.player_obj = nil
 
     return setmetatable(obj, self)
 end
 
 function Core:Init()
+    self.player_obj = Player:New(Game.GetPlayer())
 
-    RAV.Cron.Every(RAV.time_resolution, function()
+    DAV.Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
         self:ExcutePriodicalTask()
     end)
@@ -89,13 +92,13 @@ end
 function Core:CallAerodyneVehicle()
     self.av_obj:SpawnToSky()
     local times = 150
-    RAV.Cron.Every(0.01, { tick = 1 }, function(timer)
+    DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
         timer.tick = timer.tick + 1
         if timer.tick == times then
             self.av_obj:LockDoor()
         elseif timer.tick > times then
             if not self.av_obj:Move(0.0, 0.0, -0.5, 0.0, 0.0, 0.0) then
-            RAV.Cron.Halt(timer)
+            DAV.Cron.Halt(timer)
             end
         end
     end)
@@ -117,9 +120,41 @@ end
 
 function Core:UnlockAerodyneDoor()
     self.av_obj:UnlockDoor()
+    self.player_obj:StopPose()
+    -- Game.GetStatusEffectSystem():ApplyStatusEffect(GetPlayer():GetEntityID(), "GameplayRestriction.NoCombat", GetPlayer():GetRecordID(), GetPlayer():GetEntityID())
+    -- Game.GetStatusEffectSystem():ApplyStatusEffect(GetPlayer():GetEntityID(), "GameplayRestriction.NoPhotoMode", GetPlayer():GetRecordID(), GetPlayer():GetEntityID())
+    -- Game.GetStatusEffectSystem():ApplyStatusEffect(GetPlayer():GetEntityID(), "GameplayRestriction.MetroRide", GetPlayer():GetRecordID(), GetPlayer():GetEntityID())
+    SaveLocksManager.RequestSaveLockAdd("PersonalLink")
+    if SaveLocksManager.IsSavingLocked() then
+        print("locked")
+    else
+        print("unlocked")
+    end
+    -- GetPlayer():GetPocketRadio().isRestrictionOverwritten = true
+    -- -- Set camera roll, yaw and position to match entry animation. Pitch has to be done differently
+    -- local currentPitch = Vector4.new(-Game.GetCameraSystem():GetActiveCameraForward().x, -Game.GetCameraSystem():GetActiveCameraForward().y, -Game.GetCameraSystem():GetActiveCameraForward().z, -Game.GetCameraSystem():GetActiveCameraForward().w):ToRotation().pitch
+    -- GetPlayer():GetFPPCameraComponent():ResetPitch() -- Animation doesnt like cam pitch
+    -- GetPlayer():GetFPPCameraComponent():SetLocalOrientation(EulerAngles.new(0, currentPitch, 0):ToQuat()) -- Transfer pitch to camera component
+    -- local devicePath = "sit_anywhere\\devices\\bench_lap.ent"
+    -- local transform = WorldTransform.new()
+    -- local pos = Game.GetPlayer():GetWorldPosition()
+    -- transform:SetPosition(Vector4.new(pos.x + 3, pos.y, pos.z, pos.w))
+    -- transform:SetOrientationEuler(Game.GetPlayer():GetWorldOrientation():ToEulerAngles())
+    -- local entityID = exEntitySpawner.Spawn(devicePath, transform)
+    -- print(entityID)
+    -- local device = Game.FindEntityByID(entityID)
+    -- GetPlayer():GetFPPCameraComponent():SetLocalOrientation(EulerAngles.new(0, 0, 0):ToQuat()) -- Reset cam, animation takes over
+    -- GetPlayer():GetFPPCameraComponent():SetLocalPosition(Vector4.new(0, 0, 0, 0)) -- Reset cam, animation takes over
+    -- if Game.GetWorkspotSystem():PlayInDevice(device, GetPlayer(), "lockedCamera", "sitWorkspot", 0) then
+    --     print("sit")
+    -- else
+    --     print("not sit")
+    -- end
+    
 end
 
 function Core:Mount()
+    self.av_obj:TakeOn(self.player_obj)
     self.av_obj:Mount()
 end
 

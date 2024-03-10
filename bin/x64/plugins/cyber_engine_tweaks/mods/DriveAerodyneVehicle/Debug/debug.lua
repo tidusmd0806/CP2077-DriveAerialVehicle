@@ -1,3 +1,4 @@
+local Utils = require("Tools/utils.lua")
 local Debug = {}
 Debug.__index = Debug
 
@@ -44,6 +45,11 @@ function Debug:ImGuiPlayerPosition()
     self.is_im_gui_player_position = ImGui.Checkbox("[ImGui] Player Position", self.is_im_gui_player_position)
     if self.is_im_gui_player_position then
         ImGui.Text("Player X:" .. Game.GetPlayer():GetWorldPosition().x .. ", Y:" .. Game.GetPlayer():GetWorldPosition().y .. ", Z:" .. Game.GetPlayer():GetWorldPosition().z)
+        if self.core_obj.av_obj.position_obj.entity == nil then
+            return
+        end
+        local absolute_position = Utils:WorldToBodyCoordinates(Game.GetPlayer():GetWorldPosition(), self.core_obj.av_obj.position_obj:GetPosition(), self.core_obj.av_obj.position_obj:GetQuaternion())
+        ImGui.Text("Player IN AV X" .. absolute_position.x .. ", Y:" .. absolute_position.y .. ", Z:" .. absolute_position.z)
     end
 end
 

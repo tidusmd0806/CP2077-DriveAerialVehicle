@@ -41,4 +41,16 @@ function Utils:RotateVectorByQuaternion(v, q)
    return {x = result.i, y = result.j, z = result.k}
 end
 
+function Utils:WorldToBodyCoordinates(world_coordinates, body_world_coordinates, body_quaternion)
+   
+   local relative_coordinates = {x = world_coordinates.x - body_world_coordinates.x, y = world_coordinates.y - body_world_coordinates.y, z = world_coordinates.z - body_world_coordinates.z}
+   
+   local q_conj = self:QuaternionConjugate(body_quaternion)
+   
+   local temp = self:QuaternionMultiply({r = 0, i = relative_coordinates.x, j = relative_coordinates.y, k = relative_coordinates.z}, q_conj)
+   local result = self:QuaternionMultiply(body_quaternion, temp)
+   
+   return {x = result.i, y = result.j, z = result.k}
+end
+
 return Utils

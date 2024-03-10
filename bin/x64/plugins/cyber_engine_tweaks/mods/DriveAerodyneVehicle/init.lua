@@ -1,5 +1,5 @@
-RAV = {
-	description = "RideAerodyneVehicele",
+DAV = {
+	description = "Drive an Aerodyne Vehicele",
 	version = "0.1",
     ready = false,
     is_debug_mode = true,
@@ -7,17 +7,17 @@ RAV = {
 }
 
 -- import modules
-RAV.Cron = require('External/Cron.lua')
-RAV.Core = require('Modules/core.lua')
-RAV.Debug = require('Debug/debug.lua')
+DAV.Cron = require('External/Cron.lua')
+DAV.Core = require('Modules/core.lua')
+DAV.Debug = require('Debug/debug.lua')
 
 -- create instances
-RAV.core_obj = RAV.Core:New()
-RAV.debug_obj = RAV.Debug:New(RAV.core_obj)
+DAV.core_obj = DAV.Core:New()
+DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
 
 registerForEvent('onInit', function()
 
-    RAV.core_obj:Init()
+    DAV.core_obj:Init()
 
     -- Observe player action
     Observe("PlayerPuppet", "OnAction", function(self, action)
@@ -25,52 +25,52 @@ registerForEvent('onInit', function()
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
 
-        if RAV.is_debug_mode then
-            RAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
+        if DAV.is_debug_mode then
+            DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
         end
 
-        RAV.core_obj:StorePlayerAction(action_name, action_type, action_value)
+        DAV.core_obj:StorePlayerAction(action_name, action_type, action_value)
 
     end)
 
-    RAV.ready = true
+    DAV.ready = true
     print('[RAV] Initialization is completed')
 end)
 
 -- Debug Window
 registerForEvent("onDraw", function()
-    if RAV.is_debug_mode then
-        RAV.debug_obj:ImGuiMain()
+    if DAV.is_debug_mode then
+        DAV.debug_obj:ImGuiMain()
     end
 end)
 
 registerHotkey('CallAerodyneVehicle', 'Call Aerodyne Vehicle', function()
-    RAV.core_obj:CallAerodyneVehicle()
+    DAV.core_obj:CallAerodyneVehicle()
 end)
 
 registerHotkey('ChangeAerodyneDoor', 'Change Door (TMP)', function()
-    RAV.core_obj:ChangeAerodyneDoor()
+    DAV.core_obj:ChangeAerodyneDoor()
 end)
 
 registerHotkey('LockAerodyneDoor', 'Lock (TMP)', function()
-    RAV.core_obj:LockAerodyneDoor()
+    DAV.core_obj:LockAerodyneDoor()
 end)
 
 registerHotkey('UnlockAerodyneDoor', 'Unlock (TMP)', function()
-    RAV.core_obj:UnlockAerodyneDoor()
+    DAV.core_obj:UnlockAerodyneDoor()
 end)
 
 registerHotkey('Mount', 'Mount (TMP)', function()
-    RAV.core_obj:Mount()
+    DAV.core_obj:Mount()
 end)
 
 registerHotkey('Unmount', 'Unmount (TMP)', function()
-    RAV.core_obj:Unmount()
+    DAV.core_obj:Unmount()
 end)
 
 registerForEvent('onUpdate', function(delta)
     -- This is required for Cron to function
-    RAV.Cron.Update(delta)
+    DAV.Cron.Update(delta)
 end)
 
-return RAV
+return DAV

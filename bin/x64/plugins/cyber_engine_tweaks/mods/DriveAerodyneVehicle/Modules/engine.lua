@@ -61,7 +61,7 @@ end
 
 function Engine:Init()
     if not self.is_finished_init then
-        RAV.Cron.Every(1, {tick = 1}, function(timer)
+        DAV.Cron.Every(1, {tick = 1}, function(timer)
             self.clock = self.clock + 1
         end)
         self.base_angle = self.position_obj:GetEulerAngles()
@@ -211,11 +211,11 @@ function Engine:CalcureteVelocity()
     local temp = Utils:QuaternionMultiply(quot, force_quat)
     local force_world = Utils:QuaternionMultiply(temp, q_conj)
 
-    self.horizenal_x_speed = self.horizenal_x_speed + (RAV.time_resolution / self.mess) * (force_world.i - self.air_resistance_constant * self.horizenal_x_speed)
-    self.horizenal_y_speed = self.horizenal_y_speed + (RAV.time_resolution / self.mess) * (force_world.j - self.air_resistance_constant * self.horizenal_y_speed)
-    self.vertical_speed = self.vertical_speed + (RAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.air_resistance_constant * self.vertical_speed)
+    self.horizenal_x_speed = self.horizenal_x_speed + (DAV.time_resolution / self.mess) * (force_world.i - self.air_resistance_constant * self.horizenal_x_speed)
+    self.horizenal_y_speed = self.horizenal_y_speed + (DAV.time_resolution / self.mess) * (force_world.j - self.air_resistance_constant * self.horizenal_y_speed)
+    self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.air_resistance_constant * self.vertical_speed)
 
-    local x, y, z = self.horizenal_x_speed * RAV.time_resolution, self.horizenal_y_speed * RAV.time_resolution, self.vertical_speed * RAV.time_resolution
+    local x, y, z = self.horizenal_x_speed * DAV.time_resolution, self.horizenal_y_speed * DAV.time_resolution, self.vertical_speed * DAV.time_resolution
 
     return x, y, z
 end
