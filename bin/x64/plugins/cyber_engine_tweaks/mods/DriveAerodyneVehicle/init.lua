@@ -5,7 +5,8 @@ DAV = {
     is_debug_mode = true,
     time_resolution = 0.01,
     ui_choice_hub = nil,
-    ui_choice_handler = nil
+    ui_choice_handler = nil,
+    is_ui_choice_custom = false
 }
 
 -- import modules
@@ -39,7 +40,7 @@ registerForEvent('onInit', function()
     end)
 
     -- Overside choice ui (refer to https://www.nexusmods.com/cyberpunk2077/mods/7299)
-    Override("InteractionUIBase", "OnDialogsData", function (_, value, wrapped_method)
+    Override("InteractionUIBase", "OnDialogsData", function(_, value, wrapped_method)
         local data = FromVariant(value)
         local hubs = data.choiceHubs
         table.insert(hubs, DAV.ui_choice_hub)
@@ -47,12 +48,48 @@ registerForEvent('onInit', function()
         wrapped_method(ToVariant(data))
     end)
 
-    Observe("InteractionUIBase", "OnDialogsData", function(self)
-        DAV.ui_choice_handler = self
-    end)
+    -- Observe("InteractionUIBase", "OnDialogsData", function(self)
+    --     DAV.ui_choice_handler = self
+    -- end)
 
     Observe("InteractionUIBase", "OnInitialize", function(self)
         DAV.ui_choice_handler = self
+    end)
+
+    -- Device interactions causing UI flickering
+    Override("InteractionUIBase", "OnInteractionData", function(_, value, wrapped_method)
+        if DAV.is_ui_choice_custom then return end
+        wrapped_method(value)
+    end)
+
+    Override("UISystem", "QueueEvent", function(_, value, wrapped_method)
+        local name = value:ToString()
+        print(name)
+        if name == "gameuiUpdateInputHintEvent" then
+            print("--------")
+            print(value.data.action.value)
+            print(value.data.source.value)
+            print(value.targetHintContainer.value)
+            print("--------")
+        end
+        if name == "UIVendorAttachedEvent" then
+            local ib = Game.GetBlackboardSystem():Get(GetAllBlackboardDefs().UI_Vendor)
+            local ibd = GetAllBlackboardDefs().UI_Vendor
+            print("--------")
+            print(value.vendorID)
+            print(value.vendorObject)
+            print("--------")
+        end
+        wrapped_method(value)
+    end)
+
+    Override("OpenVendorUI", "CreateInteraction", function(self, value_1, value_2, value_3, wrapped_method)
+        print(self:GetActionName().value)
+        if self:GetActionName().value == "vehicle_door_quest_locked" then
+            print("OpenVendorUI")
+            return
+        end
+        wrapped_method(value_1, value_2, value_3)
     end)
 
     DAV.ready = true

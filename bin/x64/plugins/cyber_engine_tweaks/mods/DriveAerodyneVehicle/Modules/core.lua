@@ -127,39 +127,82 @@ function Core:UnlockAerodyneDoor()
     -- else
     --     print("unlocked")
     -- end
-    -- local choice = interaction.createChoice("Choice", TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceIcons.SitIcon"))
-    -- self.hub = interaction.createHub(self.name, {choice})
-    -- interaction.setupHub(self.hub)
-    -- interaction.callbacks[1] = function()
-    --     interaction.hideHub()
-    --     print("unlock")
-    -- end
-    -- interaction.showHub()
-    local choice = gameinteractionsvisListChoiceData.new()
-    choice.localizedName = "Choice"
-    choice.inputActionName = "None"
 
-    local part = gameinteractionsChoiceCaption.new()
-    part:AddPartFromRecord(TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceIcons.SitIcon"))
-    choice.captionParts = part
+    -- local choice = gameinteractionsvisListChoiceData.new()
+    -- choice.localizedName = "Choice"
+    -- choice.inputActionName = "None"
 
-    local hub = gameinteractionsvisListChoiceHubData.new()
-    hub.title = "Title"
-    hub.choices = {choice}
-    hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
-    hub.hubPriority = -1
-    hub.id = 69420 + math.random(99999)
+    -- local part = gameinteractionsChoiceCaption.new()
+    -- part:AddPartFromRecord(TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceIcons.SitIcon"))
+    -- choice.captionParts = part
 
-    DAV.ui_choice_hub = hub
+    -- local hub = gameinteractionsvisListChoiceHubData.new()
+    -- hub.title = "Title"
+    -- hub.choices = {choice}
+    -- hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
+    -- hub.hubPriority = -1
+    -- hub.id = 100000 + math.random(99999)
 
-    local ib = Game.GetBlackboardSystem():Get(GetAllBlackboardDefs().UIInteractions);
-    local ibd = GetAllBlackboardDefs().UIInteractions;
+    -- DAV.ui_choice_hub = hub
 
-    local data = ib:GetVariant(ibd.DialogChoiceHubs)
-    DAV.ui_choice_handler:OnDialogsData(data)
+    -- local ib = Game.GetBlackboardSystem():Get(GetAllBlackboardDefs().UIInteractions);
+    -- local ibd = GetAllBlackboardDefs().UIInteractions;
 
-    DAV.GameHUD.ShowMessage("Test")
+    -- ib:SetInt(ibd.ActiveChoiceHubID, hub.id)
+    -- local data = ib:GetVariant(ibd.DialogChoiceHubs)
+    -- DAV.ui_choice_handler:OnDialogsData(data)
+    -- DAV.is_ui_choice_custom = true
 
+    -- DAV.GameHUD.ShowMessage("Test")
+
+    -- local ink_system = Game.GetInkSystem()
+    -- local layers = ink_system:GetLayers()
+
+    -- DAV.Cron.After(1, function()
+    --     for _, layer in ipairs(layers) do
+    --         print(layer:GetLayerName())
+    --         for _, controller in ipairs(layer:GetGameControllers()) do
+    --             print(controller:GetClassName())
+    --         end
+    --     end
+    -- end)
+
+    -- local hud_root = ink_system:GetLayer("inkHUDLayer"):GetVirtualWindow()
+
+    -- local hello = inkText.new()
+    -- hello:SetText("Hello World")
+    -- hello:SetFontFamily("base\\gameplay\\gui\\fonts\\orbitron\\orbitron.inkfontfamily")
+    -- hello:SetFontStyle("Bold")
+    -- hello:SetFontSize(200)
+    -- hello:SetTintColor(HDRColor.new(1.1761, 0.3809, 0.3476, 1.0))
+    -- hello:SetAnchor(inkEAnchor.Centered)
+    -- hello:SetAnchorPoint(0.5, 0.5)
+    -- hello:Reparent(hud_root)
+    local ui_system = Game.GetUISystem()
+    local event = UpdateInputHintMultipleEvent.new()
+    event.targetHintContainer = CName.new("GameplayInputHelper")
+
+    local data = InputHintData.new()
+    data.source = CName.new("IK_G")
+    data.action = CName.new("Forward")
+    data.holdIndicationType = inkInputHintHoldIndicationType.FromInputConfig
+    data.sortingPriority = 0
+    data.enableHoldAnimation = false
+    data.localizedLabel = GetLocalizedTextByKey("Input-Hint-Enable-Flight")
+    if string.len(data.localizedLabel) == 0 then
+        data.localizedLabel = tostring("Input-Hint-Enable-Flight")
+      end
+
+    event:AddInputHint(data, true)
+    ui_system:QueueEvent(event)
+
+    local choice = InteractionSetChoicesEvent.new()
+    local in_cho = InteractionChoice.new()
+    in_cho.caption = "Test"
+    choice.choices = {in_cho}
+    choice.layer = CName.new("inkHUDLayer")
+
+    ui_system:QueueEvent(choice)
 end
 
 function Core:Mount()
