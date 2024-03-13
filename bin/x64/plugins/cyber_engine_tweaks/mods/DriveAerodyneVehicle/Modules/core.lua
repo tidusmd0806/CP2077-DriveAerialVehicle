@@ -110,27 +110,26 @@ function Core:ChangeAerodyneDoor()
 end
 
 function Core:LockAerodyneDoor()
-    self.av_obj:LockDoor()
-    self.av_obj:Despawn()
-    local audioEvent = SoundPlayEvent.new()
+    -- self.av_obj:LockDoor()
+    -- self.av_obj:Despawn()
+    -- local audioEvent = SoundPlayEvent.new()
 
-    audioEvent.soundName = StringToName("v_av_rayfield_excalibur_traffic_engine_01_av_dplr_01")
-    print("sound")
-    Game.GetPlayer():QueueEvent(audioEvent)
+    -- audioEvent.soundName = StringToName("v_av_rayfield_excalibur_traffic_engine_01_av_dplr_01")
+    -- print("sound")
+    -- Game.GetPlayer():QueueEvent(audioEvent)
+
+    DAV.hudCarController:HideRequest()
+    DAV.hudCarController:OnCameraModeChanged(false)
 end
 
 function Core:UnlockAerodyneDoor()
     -- self.av_obj:UnlockDoor()
-    -- SaveLocksManager.RequestSaveLockAdd("PersonalLink")
-    -- if SaveLocksManager.IsSavingLocked() then
-    --     print("locked")
-    -- else
-    --     print("unlocked")
-    -- end
+
+    SaveLocksManager.RequestSaveLockAdd("PersonalLink")
 
     -- local choice = gameinteractionsvisListChoiceData.new()
     -- choice.localizedName = "Choice"
-    -- choice.inputActionName = "None"
+    -- choice.inputActionName = CName.new("Forward")
 
     -- local part = gameinteractionsChoiceCaption.new()
     -- part:AddPartFromRecord(TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceIcons.SitIcon"))
@@ -196,13 +195,16 @@ function Core:UnlockAerodyneDoor()
     event:AddInputHint(data, true)
     ui_system:QueueEvent(event)
 
-    local choice = InteractionSetChoicesEvent.new()
-    local in_cho = InteractionChoice.new()
-    in_cho.caption = "Test"
-    choice.choices = {in_cho}
-    choice.layer = CName.new("inkHUDLayer")
+    DAV.hudCarController:ShowRequest()
+    DAV.hudCarController:OnInitialize()
+    DAV.hudCarController:OnCameraModeChanged(true)
+    DAV.Cron.Every(1, function()
+        local rand = math.random(0,7)
+        DAV.hudCarController:OnSpeedValueChanged(rand)
+        DAV.hudCarController:OnRpmValueChanged(rand)
+        DAV.hudCarController:EvaluateRPMMeterWidget(rand)
+    end)
 
-    ui_system:QueueEvent(choice)
 end
 
 function Core:Mount()

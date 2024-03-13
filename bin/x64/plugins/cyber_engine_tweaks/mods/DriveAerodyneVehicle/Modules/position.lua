@@ -118,7 +118,11 @@ function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
 
     if self:CheckCollision(pos, self.next_position) then
         self.log_obj:Record(LogLevel.Debug, "Collision Detected")
-        self.collision_count = self.collision_count + 1
+        if self.is_power_on then
+            self.collision_count = self.collision_count + 1
+        else
+            self.collision_count = 0
+        end
         self.next_position = Vector4.new(pos.x, pos.y, pos.z, 1.0)
         self.next_angle = EulerAngles.new(rot.roll, rot.pitch, rot.yaw)
         self:ChangePosition()
@@ -174,9 +178,6 @@ function Position:AvoidStacking()
     local pos = self:GetPosition()
     local angle = self:GetEulerAngles()
 
-    if not self.is_power_on then
-        return
-    end
     self.log_obj:Record(LogLevel.Debug, "Avoid Stacking")
 
     if self.stack_corner_num == 1 then
