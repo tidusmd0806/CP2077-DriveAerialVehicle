@@ -23,7 +23,9 @@ function Core:New()
 end
 
 function Core:Init()
+
     self.player_obj = Player:New(Game.GetPlayer())
+    self.event_obj:Init()
 
     DAV.Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
@@ -111,7 +113,7 @@ end
 
 function Core:LockAerodyneDoor()
     -- self.av_obj:LockDoor()
-    -- self.av_obj:Despawn()
+    self.av_obj:Despawn()
     -- local audioEvent = SoundPlayEvent.new()
 
     -- audioEvent.soundName = StringToName("v_av_rayfield_excalibur_traffic_engine_01_av_dplr_01")
@@ -127,30 +129,30 @@ function Core:UnlockAerodyneDoor()
 
     SaveLocksManager.RequestSaveLockAdd("PersonalLink")
 
-    -- local choice = gameinteractionsvisListChoiceData.new()
-    -- choice.localizedName = "Choice"
-    -- choice.inputActionName = CName.new("Forward")
+    local choice = gameinteractionsvisListChoiceData.new()
+    choice.localizedName = "Choice"
+    choice.inputActionName = CName.new("Forward")
 
-    -- local part = gameinteractionsChoiceCaption.new()
-    -- part:AddPartFromRecord(TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceIcons.SitIcon"))
-    -- choice.captionParts = part
+    local part = gameinteractionsChoiceCaption.new()
+    part:AddPartFromRecord(TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceIcons.SitIcon"))
+    choice.captionParts = part
 
-    -- local hub = gameinteractionsvisListChoiceHubData.new()
-    -- hub.title = "Title"
-    -- hub.choices = {choice}
-    -- hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
-    -- hub.hubPriority = -1
-    -- hub.id = 100000 + math.random(99999)
+    local hub = gameinteractionsvisListChoiceHubData.new()
+    hub.title = "Title"
+    hub.choices = {choice}
+    hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
+    hub.hubPriority = 1
+    hub.id = 100000 + math.random(99999)
 
-    -- DAV.ui_choice_hub = hub
+    DAV.ui_choice_hub = hub
 
-    -- local ib = Game.GetBlackboardSystem():Get(GetAllBlackboardDefs().UIInteractions);
-    -- local ibd = GetAllBlackboardDefs().UIInteractions;
+    local ib = Game.GetBlackboardSystem():Get(GetAllBlackboardDefs().UIInteractions);
+    local ibd = GetAllBlackboardDefs().UIInteractions;
 
-    -- ib:SetInt(ibd.ActiveChoiceHubID, hub.id)
-    -- local data = ib:GetVariant(ibd.DialogChoiceHubs)
-    -- DAV.ui_choice_handler:OnDialogsData(data)
-    -- DAV.is_ui_choice_custom = true
+    ib:SetInt(ibd.ActiveChoiceHubID, hub.id)
+    local data = ib:GetVariant(ibd.DialogChoiceHubs)
+    DAV.ui_choice_handler:OnDialogsData(data)
+    DAV.is_ui_choice_custom = true
 
     -- DAV.GameHUD.ShowMessage("Test")
 
@@ -204,7 +206,6 @@ function Core:UnlockAerodyneDoor()
         DAV.hudCarController:OnRpmValueChanged(rand)
         DAV.hudCarController:EvaluateRPMMeterWidget(rand)
     end)
-
 end
 
 function Core:Mount()

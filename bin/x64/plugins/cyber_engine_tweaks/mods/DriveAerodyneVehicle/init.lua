@@ -11,8 +11,6 @@ DAV = {
 
 -- import modules
 DAV.Cron = require('External/Cron.lua')
-DAV.GameUI = require('External/GameUI.lua')
-DAV.GameHUD = require('External/GameHUD.lua')
 DAV.Core = require('Modules/core.lua')
 DAV.Debug = require('Debug/debug.lua')
 
@@ -22,7 +20,6 @@ DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
 
 registerForEvent('onInit', function()
 
-    DAV.GameHUD.Initialize()
     DAV.core_obj:Init()
 
     -- Observe player action
@@ -66,7 +63,7 @@ registerForEvent('onInit', function()
         local name = value:ToString()
         -- print(name)
         if name == "gameuiUpdateInputHintEvent" then
-            -- print("--------")
+            print("--------")
             -- print(value.data.action.value)
             -- print(value.data.source.value)
             -- print(value.targetHintContainer.value)
@@ -91,155 +88,29 @@ registerForEvent('onInit', function()
         end
         wrapped_method(value_1, value_2, value_3)
     end)
-    
+
     Observe("hudCarController", "OnInitialize", function(self)
         print("OnInitialize")
         DAV.hudCarController = self
         return true
     end)
 
-    -- Observe("hudCarController", "OnLeanAngleChanged", function(self)
-    --     print("OnLeanAngleChanged")
-    --     return true
-    -- end)
-    
-    -- Override("hudCarController", "OnMountingEvent", function(self, e, f)
-    --     print("OnMountingEvent")
-    --     print(e.relationship.otherMountableSubType)
-    --     print(e.relationship.otherMountableType)
-    --     print(e.relationship.otherObject:GetName())
-    --     print(e.relationship.relationshipType)
-    --     print(e.relationship.slotId.id)
+    ----------------------------------------
+
+    Observe("VehiclesManagerListItemController", "OnSelected", function(self)
+        print("OnSelected")
+    end)
+
+    -- Override("VehiclesManagerListItemController", "QueueEvent", function(self, e, f)
+    --     print("QueueEvent")
+    --     print(e:ToString())
     --     f(e)
     -- end)
-    
-    -- Observe("hudCarController", "OnPlayerAttach", function(self)
-    --     print("OnPlayerAttach")
-    --     return true
-    -- end)
-    
-    -- Observe("hudCarController", "OnPlayerDetach", function(self)
-    --     print("OnPlayerDetach")
-    --     return true
-    -- end)
-    
-    -- Observe("hudCarController", "OnRpmMaxChanged", function(self)
-    --     print("OnRpmMaxChanged")
-    --     return true
-    -- end)
-    
-    -- Observe("hudCarController", "OnRpmValueChanged", function(self, value, f)
-    --     print(value)
-    --     f(value)
-    -- end)
-    
-    -- Override("hudCarController", "OnSpeedValueChanged", function(self, value, f)
-    --     print(value)
-    --     f(value)
-    -- end)
-    
-    -- Observe("hudCarController", "OnUninitialize", function(self)
-    --     print("OnUninitialize")
-    --     return true
-    -- end)
-    
-    -- Observe("hudCarController", "OnUnmountingEvent", function(self)
-    --     print("OnUnmountingEvent")
-    --     return true
-    -- end)
-    
-    -- Observe("hudCarController", "OnZoomChange", function(self)
-    --     print("OnZoomChange")
-    --     return true
-    -- end)
-    
-    -- Observe("hudCarController", "SetMeasurementUnits", function(self)
-    --     print("SetMeasurementUnits")
-    -- end)
-    
-    -- Observe("hudCarController", "CheckIfInTPP", function(self)
-    --     print("CheckIfInTPP")
-    --     return true
-    -- end)
-    
-    -- Observe("hudCarController", "EvaluateRPMMeterWidget", function(self, value, f)
-    --     print(value)
-    --     -- f(30)
-    --     f(value)
-    -- end)
-    
-    -- Observe("hudCarController", "RegisterToVehicle", function(self)
-    --     print("RegisterToVehicle")
-    -- end)
-    
-    -- Observe("hudCarController", "RegisterUserSettingsListener", function(self)
-    --     print("RegisterUserSettingsListener")
-    -- end)
-    
-    -- Observe("hudCarController", "Reset", function(self)
-    --     print("Reset")
-    -- end)
-    
-    -- Observe("hudCarController", "UpdateChunkVisibility", function(self)
-    --     print("UpdateChunkVisibility")
-    -- end)
-    
-    -- Observe("hudCarController", "UpdateMeasurementUnits", function(self)
-    --     print("UpdateMeasurementUnits")
-    -- end)
 
-    -- Observe("hudCarController", "GetIntroAnimation", function(self)
-    --     print("GetIntroAnimation")
-    --     -- ここに処理を書く
-    --     return nil -- ここで適切な値を返す必要があります
-    -- end)
-    
-    -- Observe("hudCarController", "GetOutroAnimation", function(self)
-    --     print("GetOutroAnimation")
-    --     -- ここに処理を書く
-    --     return nil -- ここで適切な値を返す必要があります
-    -- end)
-    
-    -- Observe("hudCarController", "ToggleVisibility", function(self)
-    --     print("ToggleVisibility")
-    -- end)
-    
-    -- Observe("hudCarController", "UpdateRequired", function(self)
-    --     print("UpdateRequired")
-    -- end)
-    
-    -- Observe("hudCarController", "HideRequest", function(self)
-    --     print("HideRequest")
-    -- end)
-    
-    -- Observe("hudCarController", "IsPlayingMultiplayer", function(self)
-    --     print("IsPlayingMultiplayer")
-    --     return true
-    -- end)
-    
-    -- Observe("hudCarController", "OnHideAnimationFinished", function(self)
-    --     print("OnHideAnimationFinished")
-    --     return true
-    -- end)
-    
-    -- Observe("hudCarController", "OnPlayInitFoldingAnimFinished", function(self)
-    --     print("OnPlayInitFoldingAnimFinished")
-    --     return true
-    -- end)
-    
-    -- Observe("hudCarController", "PlayInitFoldingAnim", function(self)
-    --     print("PlayInitFoldingAnim")
-    -- end)
-    
-    -- Observe("hudCarController", "ShowRequest", function(self)
-    --     print("ShowRequest")
-    -- end)
-    
-    -- Observe("hudCarController", "CreateContextChangeAnimations", function(self)
-    --     print("CreateContextChangeAnimations")
-    -- end)
+    Observe("VehiclesManagerListItemController", "GetController", function(self)
+        print("GetController")
+    end)
 
-    
     DAV.ready = true
     print('Drive an Aerodyne Vehicle Mod is ready!')
 end)
