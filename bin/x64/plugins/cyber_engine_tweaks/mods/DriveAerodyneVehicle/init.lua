@@ -64,10 +64,10 @@ registerForEvent('onInit', function()
         -- print(name)
         if name == "gameuiUpdateInputHintEvent" then
             print("--------")
-            -- print(value.data.action.value)
-            -- print(value.data.source.value)
-            -- print(value.targetHintContainer.value)
-            -- print("--------")
+            print(value.data.action.value)
+            print(value.data.source.value)
+            print(value.targetHintContainer.value)
+            print("--------")
         end
         if name == "UIVendorAttachedEvent" then
             local ib = Game.GetBlackboardSystem():Get(GetAllBlackboardDefs().UI_Vendor)
@@ -97,8 +97,8 @@ registerForEvent('onInit', function()
 
     ----------------------------------------
 
-    Observe("VehiclesManagerListItemController", "OnSelected", function(self)
-        print("OnSelected")
+    Observe("VehicleSystem", "OnVehicleSystemAttach", function(self)
+        print("OnVehicleSystemAttach")
     end)
 
     -- Override("VehiclesManagerListItemController", "QueueEvent", function(self, e, f)
@@ -107,8 +107,8 @@ registerForEvent('onInit', function()
     --     f(e)
     -- end)
 
-    Observe("VehiclesManagerListItemController", "GetController", function(self)
-        print("GetController")
+    Observe("VehicleSystem", "ToggleSummonMode", function(self)
+        print("ToggleSummonMode")
     end)
 
     DAV.ready = true

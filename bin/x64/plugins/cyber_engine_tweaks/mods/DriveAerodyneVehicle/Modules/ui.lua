@@ -11,19 +11,17 @@ function Ui:New()
 
     -- set default value
     obj.dummy_vehicle_record_hash = nil
-    obj.is_vehicle_call = true
+    obj.is_vehicle_call = false
 
     return setmetatable(obj, self)
 end
 
 function Ui:Init()
-    -- self:SetTweekDB()
-    -- self:SetOverrideFunc()
+    self:SetTweekDB()
+    self:SetOverrideFunc()
 end
 
 function Ui:SetTweekDB()
-    TweakDB:CloneRecord("Vehicle.RayfieldExcalibur", "Vehicle.Type66")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.AV_Rayfield.enumName"), "RayfieldExcalibur")
 
     TweakDB:CloneRecord("UIIcon.dav_av_rayfield_logos", "UIIcon.quadra_type66__bulleat")
     TweakDB:SetFlat(TweakDBID.new("UIIcon.dav_av_rayfield_logos.atlasPartName"), "rayfield")
@@ -45,21 +43,21 @@ end
 function Ui:SetOverrideFunc()
     Override("VehicleSystem", "SpawnPlayerVehicle", function(self, arg_1, wrapped_method)
 
-        print("CALL")
-
         local record_hash = self:GetActivePlayerVehicle().recordID.hash
 
         if record_hash == self.dummy_vehicle_record_hash then
             self.log_obj:record(LogLevel.Trace, "Vehicle call detected")
             self.is_vehicle_call = true
-            return
+            return true
         else
+            local res = false
             if arg_1 == nil then
-                wrapped_method()
+                res = wrapped_method()
             else
-                wrapped_method(arg_1)
+                res = wrapped_method(arg_1)
             end
             self.is_vehicle_call = false
+            return res
         end
     end)
 end

@@ -22,13 +22,13 @@ end
 
 function Event:Init()
     self.ui_obj:Init()
-    -- GameSession.OnStart(function()
-    --     self.ui_obj:ActivateAVSummon(true)
-    -- end)
+    GameSession.OnStart(function()
+        self.ui_obj:ActivateAVSummon(true)
+    end)
 
-    -- GameSession.OnEnd(function()
-    --     self.ui_obj:ActivateAVSummon(false)
-    -- end)
+    GameSession.OnEnd(function()
+        self.ui_obj:ActivateAVSummon(false)
+    end)
 
 end
 
