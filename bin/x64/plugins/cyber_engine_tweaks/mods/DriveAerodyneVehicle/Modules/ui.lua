@@ -1,4 +1,5 @@
 local Log = require("Tools/log.lua")
+local GameSession = require('External/GameSession')
 local Ui = {}
 Ui.__index = Ui
 
@@ -19,6 +20,12 @@ end
 function Ui:Init()
     self:SetTweekDB()
     self:SetOverrideFunc()
+    GameSession.OnStart(function()
+        self:ActivateAVSummon(true)
+    end)
+    GameSession.OnEnd(function()
+        self:ActivateAVSummon(false)
+    end)
 end
 
 function Ui:SetTweekDB()
@@ -41,14 +48,14 @@ function Ui:SetTweekDB()
 end
 
 function Ui:SetOverrideFunc()
-    Override("VehicleSystem", "SpawnPlayerVehicle", function(self, arg_1, wrapped_method)
+    Override("VehicleSystem", "SpawnPlayerVehicle", function(this, arg_1, wrapped_method)
 
-        local record_hash = self:GetActivePlayerVehicle().recordID.hash
+        local record_hash = this:GetActivePlayerVehicle().recordID.hash
 
         if record_hash == self.dummy_vehicle_record_hash then
-            self.log_obj:record(LogLevel.Trace, "Vehicle call detected")
+            self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")        
             self.is_vehicle_call = true
-            return true
+            return false
         else
             local res = false
             if arg_1 == nil then
@@ -63,7 +70,7 @@ function Ui:SetOverrideFunc()
 end
 
 function Ui:ActivateAVSummon(is_avtive)
-    Game.GetVehicleSystem():EnablePlayerVehicle(self.dummy_vehicle, is_avtive, false)
+    Game.GetVehicleSystem():EnablePlayerVehicle(self.dummy_vehicle, is_avtive, true)
 end
 
 function Ui:GetCallStatus()

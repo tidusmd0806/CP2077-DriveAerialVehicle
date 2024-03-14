@@ -1,7 +1,6 @@
 local Log = require("Tools/log.lua")
 local Camera = require("Modules/camera.lua")
 local Ui = require("Modules/ui.lua")
-local GameSession = require('External/GameSession')
 local Event = {}
 Event.__index = Event
 
@@ -22,14 +21,6 @@ end
 
 function Event:Init()
     self.ui_obj:Init()
-    GameSession.OnStart(function()
-        self.ui_obj:ActivateAVSummon(true)
-    end)
-
-    GameSession.OnEnd(function()
-        self.ui_obj:ActivateAVSummon(false)
-    end)
-
 end
 
 function Event:CheckAllEvents()
@@ -41,18 +32,7 @@ end
 function Event:CheckCallVehicle()
     if self.ui_obj:GetCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
-        self.av_obj:SpawnToSky()
-        local times = 150
-        DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
-            timer.tick = timer.tick + 1
-            if timer.tick == times then
-                self.av_obj:LockDoor()
-            elseif timer.tick > times then
-                if not self.av_obj:Move(0.0, 0.0, -0.5, 0.0, 0.0, 0.0) then
-                DAV.Cron.Halt(timer)
-                end
-            end
-        end)
+        self.av_obj:SpawnToSky(5.5, 50)
     end
 end
 

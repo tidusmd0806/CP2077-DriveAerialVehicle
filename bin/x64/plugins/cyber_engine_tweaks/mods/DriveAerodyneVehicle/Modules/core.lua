@@ -206,6 +206,14 @@ function Core:UnlockAerodyneDoor()
         DAV.hudCarController:OnRpmValueChanged(rand)
         DAV.hudCarController:EvaluateRPMMeterWidget(rand)
     end)
+
+    local file = io.open("Data/default_model.json", "r")
+    if file then
+        local contents = file:read( "*a" )
+            local data = json.decode(contents)
+            print(data.name)
+        file:close()
+    end
 end
 
 function Core:Mount()

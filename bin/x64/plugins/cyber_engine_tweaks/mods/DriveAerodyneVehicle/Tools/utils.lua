@@ -22,6 +22,10 @@ function Utils:IsTablesEqual(table1, table2)
     return true
 end
 
+function Utils:CalculationQuadraticFuncSlope(a, b, x)
+   return 2*b*(x - a)/(a * a)
+end
+
 function Utils:QuaternionMultiply(q1, q2)
    local r = q1.r*q2.r - q1.i*q2.i - q1.j*q2.j - q1.k*q2.k
    local i = q1.r*q2.i + q1.i*q2.r + q1.j*q2.k - q1.k*q2.j

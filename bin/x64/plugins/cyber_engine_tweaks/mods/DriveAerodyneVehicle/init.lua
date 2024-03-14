@@ -95,22 +95,6 @@ registerForEvent('onInit', function()
         return true
     end)
 
-    ----------------------------------------
-
-    Observe("VehicleSystem", "OnVehicleSystemAttach", function(self)
-        print("OnVehicleSystemAttach")
-    end)
-
-    -- Override("VehiclesManagerListItemController", "QueueEvent", function(self, e, f)
-    --     print("QueueEvent")
-    --     print(e:ToString())
-    --     f(e)
-    -- end)
-
-    Observe("VehicleSystem", "ToggleSummonMode", function(self)
-        print("ToggleSummonMode")
-    end)
-
     DAV.ready = true
     print('Drive an Aerodyne Vehicle Mod is ready!')
 end)

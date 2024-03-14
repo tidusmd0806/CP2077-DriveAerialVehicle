@@ -38,6 +38,11 @@ function Aerodyne:New(vehicle_model)
 		end
 	end
 
+	obj.spawn_distance = 5.5
+	obj.spawn_high = 50
+	obj.spawn_wait_count = 150
+	obj.down_time_count = 300
+
 	-- set default parameters
 	obj.entity_id = nil
 	obj.vehicle_model_name = vehicle_model.name
@@ -62,6 +67,7 @@ function Aerodyne:Spawn(position, angle, type_number)
 	local entity_spec = DynamicEntitySpec.new()
 
 	entity_spec.recordID = self.vehicle_model_name
+	entity_spec.appearanceName = self.vehicle_model_type[type_number]
 	entity_spec.position = position
 	entity_spec.orientation = angle
 	entity_spec.persistState = false
@@ -72,8 +78,6 @@ function Aerodyne:Spawn(position, angle, type_number)
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
-			entity:PrefetchAppearanceChange(self.vehicle_model_type[type_number])
-			entity:ScheduleAppearanceChange(self.vehicle_model_type[type_number])
 			self.engine_obj:Init()
 			DAV.Cron.Halt(timer)
 		end
@@ -83,10 +87,22 @@ function Aerodyne:Spawn(position, angle, type_number)
 end
 
 function Aerodyne:SpawnToSky()
-	local position = self.position_obj:GetSpawnPosition(5.5, 0.0)
-	position.z = position.z + 50.0
+	local position = self.position_obj:GetSpawnPosition(self.spawn_distance, 0.0)
+	position.z = position.z + self.spawn_high
 	local angle = self.position_obj:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle, 1)
+	DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
+		timer.tick = timer.tick + 1
+		if timer.tick == self.spawn_wait_count then
+			self:LockDoor()
+		elseif timer.tick > self.spawn_wait_count then
+			if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
+				DAV.Cron.Halt(timer)
+			elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
+				DAV.Cron.Halt(timer)
+			end
+		end
+	end)
 end
 
 function Aerodyne:Despawn()
@@ -180,25 +196,10 @@ function Aerodyne:Mount(seat_number)
 
 	self.position_obj:ChangePosition()
 
-	-- local mounting_event = NewObject('handle:gamemountingMountingEvent')
-	-- local mounting_relationship = NewObject('gamemountingMountingRelationshipType')
-	-- local mounting_obj_sub = NewObject('gamemountingMountableSubType')
-	-- local mounting_obj = NewObject('gamemountingMountableType')
-	-- mounting_event.relationship.otherMountableSubType = mounting_obj_sub.Car
-	-- mounting_event.relationship.otherMountableType = mounting_obj.Vehicle
-	-- mounting_event.relationship.relationshipType = mounting_relationship.Parent
-	-- mounting_event.relationship.slotId = slot_id
-	-- mounting_event.request = mounting_request
-
 	-- return position near mounted vehicle	
 	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
 		local entity = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
 		if entity ~= nil then
-			-- DAV.hudCarController:OnInitialize()
-			-- DAV.hudCarController:OnPlayerAttach(player)
-			-- DAV.hudCarController:OnMountingEvent(moounting_event)
-			-- DAV.hudCarController:RegisterToVehicle(true)
-			-- DAV.hudCarController:Reset()
 			self.position_obj:SetEntity(entity)
 			if not self.is_default_seat_position then
 				self:SitCorrectPosition(3)
@@ -243,21 +244,7 @@ function Aerodyne:Unmount()
 
 	Game.GetMountingFacility():Unmount(mount_event)
 
-	local mounting_event__ = NewObject('handle:gamemountingMountingEvent')
-	local mounting_relationship = NewObject('gamemountingMountingRelationshipType')
-	local mounting_obj_sub = NewObject('gamemountingMountableSubType')
-	local mounting_obj = NewObject('gamemountingMountableType')
-	mounting_event__.relationship.otherMountableSubType = mounting_obj_sub.Car
-	mounting_event__.relationship.otherMountableType = mounting_obj.Vehicle
-	mounting_event__.relationship.relationshipType = mounting_relationship.Parent
-	mounting_event__.relationship.slotId = slot_id
-	mounting_event__.request = mount_event
-
-
-	-- DAV.hudCarController:OnUnmountingEvent(mounting_event__)
-	-- DAV.hudCarController:RegisterToVehicle(false)
-
-		-- set entity id to position object
+	-- set entity id to position object
 	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
