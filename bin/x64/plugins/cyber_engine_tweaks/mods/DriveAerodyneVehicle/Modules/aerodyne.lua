@@ -24,10 +24,10 @@ ActionList = {
     Hover = 9
 }
 
-function Aerodyne:New(vehicle_model)
+function Aerodyne:New(all_models)
 	local obj = {}
-	obj.position_obj = Position:New(vehicle_model)
-	obj.engine_obj = Engine:New(obj.position_obj, vehicle_model)
+	obj.position_obj = Position:New(all_models)
+	obj.engine_obj = Engine:New(obj.position_obj, all_models)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "Aerodyne")
 	obj.player_obj = nil
@@ -37,27 +37,44 @@ function Aerodyne:New(vehicle_model)
 			obj.log_obj:Record(LogLevel.Critical, "ActionList is not equal to Movement /" .. key .. " : " .. value)
 		end
 	end
-
+	obj.all_models = all_models
 	obj.spawn_distance = 5.5
 	obj.spawn_high = 50
 	obj.spawn_wait_count = 150
 	obj.down_time_count = 300
+	obj.land_offset = - 1.0
 
 	-- set default parameters
 	obj.entity_id = nil
-	obj.vehicle_model_name = vehicle_model.name
-	obj.vehicle_model_type = vehicle_model.type
+	obj.vehicle_model_tweakdb_id = nil
+	obj.vehicle_model_type = nil
 	obj.is_player_in = false
-	obj.is_default_mount = vehicle_model.is_default_mount
-	obj.is_default_seat_position = vehicle_model.is_default_seat_position
-	obj.sit_pose = vehicle_model.sit_pose
-	obj.seat_position = vehicle_model.seat_position
-	obj.active_seat = vehicle_model.active_seat
-	obj.active_door = vehicle_model.active_door
+	obj.is_default_mount = nil
+	obj.is_default_seat_position = nil
+	obj.sit_pose = nil
+	obj.seat_position = nil
+	obj.active_seat = nil
+	obj.active_door = nil
+
 	return setmetatable(obj, self)
 end
 
-function Aerodyne:Spawn(position, angle, type_number)
+function Aerodyne:SetModel(list)
+	local index = list[1]
+	local type_number = list[2]
+	self.vehicle_model_tweakdb_id = self.all_models[index].tweakdb_id
+	self.vehicle_model_type = self.all_models[index].type[type_number]
+	self.is_default_mount = self.all_models[index].is_default_mount
+	self.is_default_seat_position = self.all_models[index].is_default_seat_position
+	self.sit_pose = self.all_models[index].sit_pose
+	self.seat_position = self.all_models[index].seat_position
+	self.active_seat = self.all_models[index].active_seat
+	self.active_door = self.all_models[index].active_door
+	self.engine_obj:SetModel(index)
+	self.position_obj:SetModel(index)
+end
+
+function Aerodyne:Spawn(position, angle)
 	if self.entity_id ~= nil then
 		self.log_obj:Record(LogLevel.Info, "Entity already spawned")
 		return false
@@ -66,8 +83,8 @@ function Aerodyne:Spawn(position, angle, type_number)
 	local entity_system = Game.GetDynamicEntitySystem()
 	local entity_spec = DynamicEntitySpec.new()
 
-	entity_spec.recordID = self.vehicle_model_name
-	entity_spec.appearanceName = self.vehicle_model_type[type_number]
+	entity_spec.recordID = self.vehicle_model_tweakdb_id
+	entity_spec.appearanceName = self.vehicle_model_type
 	entity_spec.position = position
 	entity_spec.orientation = angle
 	entity_spec.persistState = false
@@ -90,13 +107,13 @@ function Aerodyne:SpawnToSky()
 	local position = self.position_obj:GetSpawnPosition(self.spawn_distance, 0.0)
 	position.z = position.z + self.spawn_high
 	local angle = self.position_obj:GetSpawnOrientation(90.0)
-	self:Spawn(position, angle, 1)
+	self:Spawn(position, angle)
 	DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
 		timer.tick = timer.tick + 1
 		if timer.tick == self.spawn_wait_count then
 			self:LockDoor()
 		elseif timer.tick > self.spawn_wait_count then
-			if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
+			if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
 				DAV.Cron.Halt(timer)
 			elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
 				DAV.Cron.Halt(timer)

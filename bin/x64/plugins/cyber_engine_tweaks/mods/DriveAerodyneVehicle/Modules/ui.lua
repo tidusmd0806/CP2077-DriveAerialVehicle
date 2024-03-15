@@ -8,7 +8,8 @@ function Ui:New()
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Ui")
 
-    obj.dummy_vehicle = "Vehicle.av_dav_dummy"
+    obj.dummy_vehicle_record = "Vehicle.av_dav_dummy"
+    obj.dummy_logo_record = "UIIcon.av_davr_logo"
 
     -- set default value
     obj.dummy_vehicle_record_hash = nil
@@ -17,8 +18,8 @@ function Ui:New()
     return setmetatable(obj, self)
 end
 
-function Ui:Init()
-    self:SetTweekDB()
+function Ui:Init(display_name_lockey, logo_inkatlas_path, logo_inkatlas_part_name)
+    self:SetTweekDB(display_name_lockey, logo_inkatlas_path, logo_inkatlas_part_name)
     self:SetOverrideFunc()
     GameSession.OnStart(function()
         self:ActivateAVSummon(true)
@@ -28,23 +29,23 @@ function Ui:Init()
     end)
 end
 
-function Ui:SetTweekDB()
+function Ui:SetTweekDB(display_name_lockey, logo_inkatlas_path, logo_inkatlas_part_name)
+    local lockey = display_name_lockey or "Story-base-gameplay-gui-quests-q103-q103_rogue-_localizationString47"
 
-    TweakDB:CloneRecord("UIIcon.dav_av_rayfield_logos", "UIIcon.quadra_type66__bulleat")
-    TweakDB:SetFlat(TweakDBID.new("UIIcon.dav_av_rayfield_logos.atlasPartName"), "rayfield")
-    TweakDB:SetFlat(TweakDBID.new("UIIcon.dav_av_rayfield_logos.atlasResourcePath"), "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas")
+    TweakDB:CloneRecord(self.dummy_logo_record, "UIIcon.quadra_type66__bulleat")
+    TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasPartName"), logo_inkatlas_part_name)
+    TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasResourcePath"), logo_inkatlas_path)
 
-    TweakDB:CloneRecord(self.dummy_vehicle, "Vehicle.v_sport2_quadra_type66_02_player")
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle .. ".entityTemplatePath"), "base\\vehicles\\special\\av_dav_dummy_99.ent")
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle .. ".displayName"), LocKey(77051))
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle .. ".icon"), "UIIcon.dav_av_rayfield_logos")
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle .. ".model"), "Vehicle.RayfieldExcalibur")
+    TweakDB:CloneRecord(self.dummy_vehicle_record, "Vehicle.v_sport2_quadra_type66_02_player")
+    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".entityTemplatePath"), "base\\vehicles\\special\\av_dav_dummy_99.ent")  
+    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".displayName"), LocKey(lockey))
+    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".icon"), self.dummy_logo_record)
 
     local vehicle_list = TweakDB:GetFlat(TweakDBID.new('Vehicle.vehicle_list.list'))
-    table.insert(vehicle_list, TweakDBID.new(self.dummy_vehicle))
+    table.insert(vehicle_list, TweakDBID.new(self.dummy_vehicle_record))
     TweakDB:SetFlat(TweakDBID.new('Vehicle.vehicle_list.list'), vehicle_list)
-    self.dummy_vehicle_record_hash = TweakDBID.new(self.dummy_vehicle).hash
 
+    self.dummy_vehicle_record_hash = TweakDBID.new(self.dummy_vehicle_record).hash
 end
 
 function Ui:SetOverrideFunc()

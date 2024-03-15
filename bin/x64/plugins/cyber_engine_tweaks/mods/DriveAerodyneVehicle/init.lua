@@ -95,6 +95,13 @@ registerForEvent('onInit', function()
         return true
     end)
 
+    ----------------------------
+    Observe("VehiclesManagerListItemController", "GetVehicleData", function(self)
+        print("GetVehicleData")
+    end)
+
+    ----------------------------
+
     DAV.ready = true
     print('Drive an Aerodyne Vehicle Mod is ready!')
 end)

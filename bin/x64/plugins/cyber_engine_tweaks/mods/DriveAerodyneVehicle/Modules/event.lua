@@ -4,6 +4,14 @@ local Ui = require("Modules/ui.lua")
 local Event = {}
 Event.__index = Event
 
+Situation = {
+    Normal = 0,
+    Landing = 1,
+    Waiting = 2,
+    InVehicle = 3,
+    TalkingOff = 4,
+}
+
 function Event:New(av_obj)
     local obj = {}
     obj.log_obj = Log:New()
@@ -12,64 +20,119 @@ function Event:New(av_obj)
     obj.av_obj = av_obj
     obj.camera_obj = Camera:New()
 
-    -- set flag
-    obj.in_av = false -- player is in AV or not
-    obj.camera_mode = CameraDistanceLevel.Fpp
+    -- set default parameters
+    obj.current_situation = Situation.Normal
 
     return setmetatable(obj, self)
 end
 
-function Event:Init()
-    self.ui_obj:Init()
+function Event:Init(index)
+    local display_name_lockey = self.av_obj.all_models[index].display_name_lockey
+    local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
+    local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
+    self.ui_obj:Init(display_name_lockey, logo_inkatlas_path, logo_inkatlas_part_name)
+end
+
+function Event:SetSituation(situation)
+    if self.current_situation == Situation.Normal and situation == Situation.Landing then
+        self.log_obj:Record(LogLevel.Info, "Landing detected")
+        self.current_situation = Situation.Landing
+        return true
+    elseif self.current_situation == Situation.Landing and situation == Situation.Waiting then
+        self.log_obj:Record(LogLevel.Info, "Waiting detected")
+        self.current_situation = Situation.Waiting
+        return true
+    elseif (self.current_situation == Situation.Waiting and situation == Situation.InVehicle) then
+        self.log_obj:Record(LogLevel.Info, "InVehicle detected")
+        self.current_situation = Situation.InVehicle
+        return true
+    elseif (self.current_situation == Situation.Waiting and situation == Situation.TalkingOff) then
+        self.log_obj:Record(LogLevel.Info, "TalkingOff detected")
+        self.current_situation = Situation.TalkingOff
+        return true
+    elseif (self.current_situation == Situation.InVehicle and situation == Situation.Waiting) then
+        self.log_obj:Record(LogLevel.Info, "Waiting detected")
+        self.current_situation = Situation.Waiting
+        return true
+    elseif (self.current_situation == Situation.TalkingOff and situation == Situation.Normal) then
+        self.log_obj:Record(LogLevel.Info, "Normal detected")
+        self.current_situation = Situation.Normal
+        return true
+    else
+        self.log_obj:Record(LogLevel.Critical, "Invalid situation detected")
+        return false
+    end
 end
 
 function Event:CheckAllEvents()
-    self:CheckCameraMode()
-    self:CheckInAV()
-    self:CheckCallVehicle()
+    if self.current_situation == Situation.Normal then
+        self:CheckCallVehicle()
+    elseif self.current_situation == Situation.Landing then
+        self:CheckLanded()
+    elseif self.current_situation == Situation.Waiting then
+        self:CheckInEntryArea()
+        self:CheckInAV()
+    elseif self.current_situation == Situation.InVehicle then
+        print("InVehicle")
+    elseif self.current_situation == Situation.TalkingOff then
+        print("TalkingOff")
+    else
+        self.log_obj:Record(LogLevel.Critical, "Invalid situation detected")
+    end
 end
 
 function Event:CheckCallVehicle()
     if self.ui_obj:GetCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
+        self:SetSituation(Situation.Landing)
         self.av_obj:SpawnToSky(5.5, 50)
+    end
+end
+
+function Event:CheckLanded()
+    if self.av_obj.position_obj:IsCollision() then
+        self.log_obj:Record(LogLevel.Trace, "Landed detected")
+        self:SetSituation(Situation.Waiting)
+    end
+end
+
+function Event:CheckInEntryArea()
+    if self.av_obj.position_obj:IsPlayerInEntryArea() then
+        self.log_obj:Record(LogLevel.Trace, "InEntryArea detected")
+        print("InEntryArea")
     end
 end
 
 function Event:CheckInAV()
     if self.av_obj.is_player_in then
         -- when player take on AV
-        if not self.in_av then
+        if self.current_situation == Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
+            self:SetSituation(Situation.InVehicle)
             self:ChangeCamera()
         end
-        self.in_av = true
     else
         -- when player take off from AV
-        if self.in_av then
+        if self.current_situation == Situation.InVehicle then
             self.log_obj:Record(LogLevel.Info, "Exit AV")
+            self:SetSituation(Situation.Waiting)
             self:ChangeCamera()
         end
-        self.in_av = false
     end
 end
 
-function Event:CheckCameraMode()
-    self.camera_mode = self.camera_obj.camera_mode
-end
-
-function Event:IsInAV()
-    return self.in_av
-end
-
-function Event:IsCameraMode()
-    return self.camera_mode
+function Event:IsInVehicle()
+    if self.current_situation == Situation.InVehicle then
+        return true
+    else
+        return false
+    end
 end
 
 function Event:ChangeCamera()
-    if self.camera_mode == CameraDistanceLevel.Fpp then
+    if self.current_situation == Situation.InVehicle then
         self.camera_obj:SetCameraPosition(CameraDistanceLevel.TppClose)
-    elseif self.camera_mode >= CameraDistanceLevel.TppClose then
+    elseif self.current_situation == Situation.Waiting then
         self.camera_obj:SetCameraPosition(CameraDistanceLevel.Fpp)
     end
 end

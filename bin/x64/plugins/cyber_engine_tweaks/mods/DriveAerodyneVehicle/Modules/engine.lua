@@ -16,32 +16,31 @@ Movement = {
     Hover = 9
 }
 
-function Engine:New(position_obj, vehicle_model)
+function Engine:New(position_obj, all_models)
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Engine")
     obj.position_obj = position_obj
+    obj.all_models = all_models
+    obj.model_index = 1
 
-    -- set pyhsical parameters
-    obj.roll_speed = vehicle_model.roll_speed
-    obj.pitch_speed = vehicle_model.pitch_speed
-    obj.yaw_speed = vehicle_model.yaw_speed
-    obj.roll_restore_speed = vehicle_model.roll_restore_speed
-    obj.pitch_restore_speed = vehicle_model.pitch_restore_speed
-    obj.max_roll = vehicle_model.max_roll
-    obj.min_roll = vehicle_model.min_roll
-    obj.max_pitch = vehicle_model.max_pitch
-    obj.min_pitch = vehicle_model.min_pitch
-
+    obj.roll_speed = nil
+    obj.pitch_speed = nil
+    obj.yaw_speed = nil
+    obj.roll_restore_speed = nil
+    obj.pitch_restore_speed = nil
+    obj.max_roll = nil
+    obj.min_roll = nil
+    obj.max_pitch = nil
+    obj.min_pitch = nil
+    obj.max_lift_force = nil
+    obj.min_lift_force = nil
+    obj.time_to_max = nil
+    obj.time_to_min = nil
+    obj.mess = nil
     obj.gravity_constant = 9.8
-    obj.mess = vehicle_model.mess
-    obj.air_resistance_constant = vehicle_model.air_resistance_constant
-    obj.max_lift_force = obj.mess * obj.gravity_constant + vehicle_model.max_lift_force
-    obj.min_lift_force = obj.mess * obj.gravity_constant - vehicle_model.min_lift_force
-    obj.lift_force = obj.min_lift_force
-    obj.time_to_max = vehicle_model.time_to_max
-    obj.time_to_min = vehicle_model.time_to_min
-    obj.rebound_constant = vehicle_model.rebound_constant
+    obj.air_resistance_constant = nil
+    obj.rebound_constant = nil
 
     -- set default parameters
     obj.next_indication = {roll = 0, pitch = 0, yaw = 0}
@@ -56,6 +55,29 @@ function Engine:New(position_obj, vehicle_model)
     obj.dynamic_lift_force = obj.min_lift_force
 
     return setmetatable(obj, self)
+end
+
+function Engine:SetModel(index)
+    -- set pyhsical parameters
+    self.roll_speed = self.all_models[index].roll_speed
+    self.pitch_speed = self.all_models[index].pitch_speed
+    self.yaw_speed = self.all_models[index].yaw_speed
+    self.roll_restore_speed = self.all_models[index].roll_restore_speed
+    self.pitch_restore_speed = self.all_models[index].pitch_restore_speed
+    self.max_roll = self.all_models[index].max_roll
+    self.min_roll = self.all_models[index].min_roll
+    self.max_pitch = self.all_models[index].max_pitch
+    self.min_pitch = self.all_models[index].min_pitch
+
+    
+    self.mess = self.all_models[index].mess
+    self.air_resistance_constant = self.all_models[index].air_resistance_constant
+    self.max_lift_force = self.mess * self.gravity_constant + self.all_models[index].max_lift_force
+    self.min_lift_force = self.mess * self.gravity_constant - self.all_models[index].min_lift_force
+    self.lift_force = self.min_lift_force
+    self.time_to_max = self.all_models[index].time_to_max
+    self.time_to_min = self.all_models[index].time_to_min
+    self.rebound_constant = self.all_models[index].rebound_constant
 end
 
 function Engine:Init()

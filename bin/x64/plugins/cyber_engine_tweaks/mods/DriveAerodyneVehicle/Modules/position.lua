@@ -1,38 +1,76 @@
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
-local Collision = require("Data/collision.lua")
 local Position = {}
 Position.__index = Position
 
-function Position:New(vehicle_model)
+function Position:New(all_models)
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Position")
     obj.entity = nil
     obj.next_position = nil
     obj.next_angle = nil
+    obj.all_models = all_models
+    obj.model_index = 1
 
-    self.local_corners = {
-        { x = vehicle_model.shape.A.x, y = vehicle_model.shape.A.y, z = vehicle_model.shape.A.z },
-        { x = vehicle_model.shape.B.x, y = vehicle_model.shape.B.y, z = vehicle_model.shape.B.z },
-        { x = vehicle_model.shape.C.x, y = vehicle_model.shape.C.y, z = vehicle_model.shape.C.z },
-        { x = vehicle_model.shape.D.x, y = vehicle_model.shape.D.y, z = vehicle_model.shape.D.z },
-        { x = vehicle_model.shape.E.x, y = vehicle_model.shape.E.y, z = vehicle_model.shape.E.z },
-        { x = vehicle_model.shape.F.x, y = vehicle_model.shape.F.y, z = vehicle_model.shape.F.z },
-        { x = vehicle_model.shape.G.x, y = vehicle_model.shape.G.y, z = vehicle_model.shape.G.z },
-        { x = vehicle_model.shape.H.x, y = vehicle_model.shape.H.y, z = vehicle_model.shape.H.z },
-    }
+    obj.local_corners = {}
+    obj.corners = {}
+    obj.local_entry_area = {}
+    obj.entry_area = {}
+    obj.min_direction_norm = 0.5 -- NOT Change this value
+    obj.collision_max_count = 50
+    obj.dividing_rate = 0.2
 
-    self.corners = {}
-    self.min_direction_norm = 0.5 -- NOT Change this value
-    self.collision_max_count = 50
-    self.dividing_rate = 0.2
+    obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
 
     -- set default parameters
     obj.collision_count = 0
-    self.is_power_on = false
+    obj.is_collision = false
+    obj.is_power_on = false
 
     return setmetatable(obj, self)
+end
+
+--[[
+        This is the diagram of the vehicle's local corners
+               E-----A
+              /|    /|
+             / |   / |
+            G-----C  |
+            |  F--|--B
+            | /   | /
+            |/    |/       
+            H-----D
+
+            ABFE is the front face
+            CDHG is the back face
+            EFHG is the left face
+            ABDC is the right face
+            ACGE is the top face
+            BDHF is the bottom face           
+    ]]
+
+function Position:SetModel(index)
+    self.local_corners = {
+        { x = self.all_models[index].shape.A.x, y = self.all_models[index].shape.A.y, z = self.all_models[index].shape.A.z },
+        { x = self.all_models[index].shape.B.x, y = self.all_models[index].shape.B.y, z = self.all_models[index].shape.B.z },
+        { x = self.all_models[index].shape.C.x, y = self.all_models[index].shape.C.y, z = self.all_models[index].shape.C.z },
+        { x = self.all_models[index].shape.D.x, y = self.all_models[index].shape.D.y, z = self.all_models[index].shape.D.z },
+        { x = self.all_models[index].shape.E.x, y = self.all_models[index].shape.E.y, z = self.all_models[index].shape.E.z },
+        { x = self.all_models[index].shape.F.x, y = self.all_models[index].shape.F.y, z = self.all_models[index].shape.F.z },
+        { x = self.all_models[index].shape.G.x, y = self.all_models[index].shape.G.y, z = self.all_models[index].shape.G.z },
+        { x = self.all_models[index].shape.H.x, y = self.all_models[index].shape.H.y, z = self.all_models[index].shape.H.z },
+    }
+    self.local_entry_area = {
+        { x = self.all_models[index].entry_area.A.x, y = self.all_models[index].entry_area.A.y, z = self.all_models[index].entry_area.A.z },
+        { x = self.all_models[index].entry_area.B.x, y = self.all_models[index].entry_area.B.y, z = self.all_models[index].entry_area.B.z },
+        { x = self.all_models[index].entry_area.C.x, y = self.all_models[index].entry_area.C.y, z = self.all_models[index].entry_area.C.z },
+        { x = self.all_models[index].entry_area.D.x, y = self.all_models[index].entry_area.D.y, z = self.all_models[index].entry_area.D.z },
+        { x = self.all_models[index].entry_area.E.x, y = self.all_models[index].entry_area.E.y, z = self.all_models[index].entry_area.E.z },
+        { x = self.all_models[index].entry_area.F.x, y = self.all_models[index].entry_area.F.y, z = self.all_models[index].entry_area.F.z },
+        { x = self.all_models[index].entry_area.G.x, y = self.all_models[index].entry_area.G.y, z = self.all_models[index].entry_area.G.z },
+        { x = self.all_models[index].entry_area.H.x, y = self.all_models[index].entry_area.H.y, z = self.all_models[index].entry_area.H.z },
+    }
 end
 
 function Position:SetEntity(entity)
@@ -52,6 +90,15 @@ function Position:SetCorners()
     for i, corner in ipairs(self.local_corners) do
         local rotated = Utils:RotateVectorByQuaternion(corner, quaternion)
         self.corners[i] = {x = rotated.x + vector.x, y = rotated.y + vector.y, z = rotated.z + vector.z}
+    end
+end
+
+function Position:SetEntryArea()
+    local vector = self:GetPosition()
+    local quaternion = self:GetQuaternion()
+    for i, corner in ipairs(self.local_entry_area) do
+        local rotated = Utils:RotateVectorByQuaternion(corner, quaternion)
+        self.entry_area[i] = {x = rotated.x + vector.x, y = rotated.y + vector.y, z = rotated.z + vector.z}
     end
 end
 
@@ -161,16 +208,47 @@ function Position:CheckCollision(current_pos, next_pos)
     for i, corner in ipairs(self.corners) do
         local current_corner = Vector4.new(corner.x, corner.y, corner.z, 1.0)
         local next_corner = Vector4.new(corner.x + direction.x, corner.y + direction.y, corner.z + direction.z, 1.0)
-        for _, filter in ipairs(Collision.Filters) do
+        for _, filter in ipairs(self.collision_filters) do
             local success, result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_corner, next_corner, filter, false, false)
             if success then
                 self.stack_corner_num = i
+                self.is_collision = true
                 return true
             end
         end
     end
 
     return false
+end
+
+function Position:IsCollision()
+    local collision_status = self.is_collision
+    self.is_collision = false
+    return collision_status
+end
+
+function Position:IsPlayerInEntryArea()
+    self:SetEntryArea()
+    local player_pos = Game.GetPlayer():GetWorldPosition()
+    local player_vector = {x = player_pos.x, y = player_pos.y, z = player_pos.z}
+
+    local planes = {
+        {A = self.entry_area[1], B = self.entry_area[2], C = self.entry_area[5]},  -- front face
+        {A = self.entry_area[3], B = self.entry_area[4], C = self.entry_area[7]},  -- back face
+        {A = self.entry_area[5], B = self.entry_area[6], C = self.entry_area[8]},  -- left face
+        {A = self.entry_area[2], B = self.entry_area[4], C = self.entry_area[3]},  -- right face
+        {A = self.entry_area[1], B = self.entry_area[3], C = self.entry_area[5]},  -- top face
+        {A = self.entry_area[2], B = self.entry_area[4], C = self.entry_area[6]}   -- bottom face
+    }
+
+    local firstDistance = Utils:DistanceFromPlane(player_vector, planes[1])
+    print(firstDistance)
+    for i = 2, #planes do
+        if Utils:DistanceFromPlane(player_vector, planes[i]) * firstDistance < 0 then
+            return false
+        end
+    end
+    return true
 end
 
 function Position:AvoidStacking()

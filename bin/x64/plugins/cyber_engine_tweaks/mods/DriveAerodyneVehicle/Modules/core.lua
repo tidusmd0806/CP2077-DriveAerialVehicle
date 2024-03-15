@@ -1,9 +1,7 @@
 local Aerodyne = require("Modules/aerodyne.lua")
 local Player = require("Modules/player.lua")
 local Event = require("Modules/event.lua")
-local Input = require("Data/input.lua")
 local Log = require("Tools/log.lua")
-local Model = require("Data/model.lua")
 local Queue = require("Tools/queue.lua")
 local Utils = require("Tools/utils.lua")
 
@@ -12,25 +10,62 @@ Core.__index = Core
 
 function Core:New()
     local obj = {}
-    obj.av_obj = Aerodyne:New(Model.Excalibur)
-    obj.event_obj = Event:New(obj.av_obj)
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Core")
     obj.queue_obj = Queue:New()
-    self.player_obj = nil
+    obj.av_obj = nil
+    obj.player_obj = nil
+    obj.event_obj = nil
+
+    obj.av_model_path = "Data/default_model.json"
+    obj.input_path = "Data/input.json"
+
+    -- set default parameters
+    obj.input_table = {}
 
     return setmetatable(obj, self)
 end
 
 function Core:Init()
 
+    local model_info = {1, 1}
+    local all_models = self:GetAllModel()
+    self.input_table = self:GetInputTable(self.input_path)
+
+    if all_models == nil then
+        self.log_obj:Record(LogLevel.Error, "Model is nil")
+        return
+    end
+
     self.player_obj = Player:New(Game.GetPlayer())
-    self.event_obj:Init()
+    self.av_obj = Aerodyne:New(all_models)
+    self.event_obj = Event:New(self.av_obj)
+
+    self.av_obj:SetModel(model_info)
+    self.event_obj:Init(model_info[1])
 
     DAV.Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
         self:ExcutePriodicalTask()
     end)
+end
+
+function Core:GetAllModel()
+    local model = Utils:ReadJson(self.av_model_path)
+    if model == nil then
+        self.log_obj:Record(LogLevel.Error, "Default Model is nil")
+        return nil
+    end
+    return model
+end
+
+function Core:GetInputTable(input_path)
+    local input = Utils:ReadJson(input_path)
+    if input == nil then
+        self.log_obj:Record(LogLevel.Error, "Input is nil")
+        return nil
+    end
+    return input
 end
 
 function Core:StorePlayerAction(action_name, action_type, action_value)
@@ -55,21 +90,21 @@ function Core:ConvertActionList(action_name, action_type, action_value)
     local action_command = ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value}
 
-    if Utils:IsTablesEqual(action_dist, Input.KEY_CLICK_HOLD_IN_AV) then
+    if Utils:IsTablesEqual(action_dist, self.input_table.KEY_CLICK_HOLD_IN_AV) then
         action_command = ActionList.Up
-    elseif Utils:IsTablesEqual(action_dist, Input.KEY_CLICK_RELEASE_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_CLICK_RELEASE_IN_AV) then
         action_command = ActionList.Down
-    elseif Utils:IsTablesEqual(action_dist, Input.KEY_W_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_W_PRESS_IN_AV) then
         action_command = ActionList.Forward
-    elseif Utils:IsTablesEqual(action_dist, Input.KEY_S_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_S_PRESS_IN_AV) then
         action_command = ActionList.Backward
-    elseif Utils:IsTablesEqual(action_dist, Input.KEY_D_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_D_PRESS_IN_AV) then
         action_command = ActionList.Right
-    elseif Utils:IsTablesEqual(action_dist, Input.KEY_A_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_A_PRESS_IN_AV) then
         action_command = ActionList.Left
-    elseif Utils:IsTablesEqual(action_dist, Input.KEY_E_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_E_PRESS_IN_AV) then
         action_command = ActionList.TurnRight
-    elseif Utils:IsTablesEqual(action_dist, Input.KEY_Q_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_Q_PRESS_IN_AV) then
         action_command = ActionList.TurnLeft
     else
         action_command = ActionList.Nothing
@@ -207,13 +242,6 @@ function Core:UnlockAerodyneDoor()
         DAV.hudCarController:EvaluateRPMMeterWidget(rand)
     end)
 
-    local file = io.open("Data/default_model.json", "r")
-    if file then
-        local contents = file:read( "*a" )
-            local data = json.decode(contents)
-            print(data.name)
-        file:close()
-    end
 end
 
 function Core:Mount()
@@ -227,7 +255,7 @@ function Core:Unmount()
 end
 
 function Core:OperateAerodyneVehicle(actions)
-    if self.event_obj:IsInAV() then
+    if self.event_obj:IsInVehicle() then
         for _, action_command in ipairs(actions) do
             self.av_obj:Operate(action_command)
         end
