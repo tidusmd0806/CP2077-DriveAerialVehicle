@@ -83,5 +83,10 @@
         "name": "character_preview_rotate",
         "type": "AXIS_CHANGE",
         "value": "ZERO"
+    },
+    "KEY_F_PRESS_IN_WORLD": {
+        "name": "click",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
     }
 }

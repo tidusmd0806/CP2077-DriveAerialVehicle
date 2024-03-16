@@ -21,7 +21,13 @@ ActionList = {
     Left = 6,
     TurnRight = 7,
     TurnLeft = 8,
-    Hover = 9
+    Hover = 9,
+	---------
+	Enter = 100,
+	Exit = 101,
+	---------
+	ChangeDoor = 200,
+	ChangeCamera = 201,
 }
 
 function Aerodyne:New(all_models)
@@ -72,6 +78,10 @@ function Aerodyne:SetModel(list)
 	self.active_door = self.all_models[index].active_door
 	self.engine_obj:SetModel(index)
 	self.position_obj:SetModel(index)
+end
+
+function Aerodyne:IsPlayerIn()
+	return self.is_player_in
 end
 
 function Aerodyne:Spawn(position, angle)
@@ -179,6 +189,8 @@ function Aerodyne:ChangeDoorState(door_number)
 end
 
 function Aerodyne:Mount(seat_number)
+
+	self.log_obj:Record(LogLevel.Debug, "Mount Aerodyne Vehicle : " .. seat_number)
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to mount")
 		return false
@@ -228,6 +240,7 @@ function Aerodyne:Mount(seat_number)
 	end)
 
 	return true
+	
 end
 
 function Aerodyne:Unmount()

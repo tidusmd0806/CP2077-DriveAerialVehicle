@@ -13,10 +13,6 @@ function Position:New(all_models)
     obj.all_models = all_models
     obj.model_index = 1
 
-    obj.local_corners = {}
-    obj.corners = {}
-    obj.local_entry_area = {}
-    obj.entry_area = {}
     obj.min_direction_norm = 0.5 -- NOT Change this value
     obj.collision_max_count = 50
     obj.dividing_rate = 0.2
@@ -27,6 +23,11 @@ function Position:New(all_models)
     obj.collision_count = 0
     obj.is_collision = false
     obj.is_power_on = false
+
+    obj.local_corners = {}
+    obj.corners = {}
+    obj.entry_point = {}
+    obj.entry_area_radius = 0
 
     return setmetatable(obj, self)
 end
@@ -61,16 +62,8 @@ function Position:SetModel(index)
         { x = self.all_models[index].shape.G.x, y = self.all_models[index].shape.G.y, z = self.all_models[index].shape.G.z },
         { x = self.all_models[index].shape.H.x, y = self.all_models[index].shape.H.y, z = self.all_models[index].shape.H.z },
     }
-    self.local_entry_area = {
-        { x = self.all_models[index].entry_area.A.x, y = self.all_models[index].entry_area.A.y, z = self.all_models[index].entry_area.A.z },
-        { x = self.all_models[index].entry_area.B.x, y = self.all_models[index].entry_area.B.y, z = self.all_models[index].entry_area.B.z },
-        { x = self.all_models[index].entry_area.C.x, y = self.all_models[index].entry_area.C.y, z = self.all_models[index].entry_area.C.z },
-        { x = self.all_models[index].entry_area.D.x, y = self.all_models[index].entry_area.D.y, z = self.all_models[index].entry_area.D.z },
-        { x = self.all_models[index].entry_area.E.x, y = self.all_models[index].entry_area.E.y, z = self.all_models[index].entry_area.E.z },
-        { x = self.all_models[index].entry_area.F.x, y = self.all_models[index].entry_area.F.y, z = self.all_models[index].entry_area.F.z },
-        { x = self.all_models[index].entry_area.G.x, y = self.all_models[index].entry_area.G.y, z = self.all_models[index].entry_area.G.z },
-        { x = self.all_models[index].entry_area.H.x, y = self.all_models[index].entry_area.H.y, z = self.all_models[index].entry_area.H.z },
-    }
+    self.entry_point = { x = self.all_models[index].entry_point.x, y = self.all_models[index].entry_point.y, z = self.all_models[index].entry_point.z }
+    self.entry_area_radius = self.all_models[index].entry_area_radius
 end
 
 function Position:SetEntity(entity)
@@ -84,13 +77,15 @@ function Position:SetEngineState(is_power_on)
     self.is_power_on = is_power_on
 end
 
-function Position:SetCorners()
+function Position:ChangeWorldCordinate(point_list)
     local vector = self:GetPosition()
     local quaternion = self:GetQuaternion()
-    for i, corner in ipairs(self.local_corners) do
+    local result_list = {}
+    for i, corner in ipairs(point_list) do
         local rotated = Utils:RotateVectorByQuaternion(corner, quaternion)
-        self.corners[i] = {x = rotated.x + vector.x, y = rotated.y + vector.y, z = rotated.z + vector.z}
+        result_list[i] = {x = rotated.x + vector.x, y = rotated.y + vector.y, z = rotated.z + vector.z}
     end
+    return result_list
 end
 
 function Position:SetEntryArea()
@@ -196,7 +191,7 @@ end
 
 function Position:CheckCollision(current_pos, next_pos)
 
-    self:SetCorners()
+    self.corners = self:ChangeWorldCordinate(self.local_corners)
 
     -- Conjecture Direction Norm for Detect Collision
     local direction = {x = next_pos.x - current_pos.x, y = next_pos.y - current_pos.y, z = next_pos.z - current_pos.z}
@@ -228,27 +223,16 @@ function Position:IsCollision()
 end
 
 function Position:IsPlayerInEntryArea()
-    self:SetEntryArea()
+    local world_entry_point = self:ChangeWorldCordinate({self.entry_point})
     local player_pos = Game.GetPlayer():GetWorldPosition()
     local player_vector = {x = player_pos.x, y = player_pos.y, z = player_pos.z}
 
-    local planes = {
-        {A = self.entry_area[1], B = self.entry_area[2], C = self.entry_area[5]},  -- front face
-        {A = self.entry_area[3], B = self.entry_area[4], C = self.entry_area[7]},  -- back face
-        {A = self.entry_area[5], B = self.entry_area[6], C = self.entry_area[8]},  -- left face
-        {A = self.entry_area[2], B = self.entry_area[4], C = self.entry_area[3]},  -- right face
-        {A = self.entry_area[1], B = self.entry_area[3], C = self.entry_area[5]},  -- top face
-        {A = self.entry_area[2], B = self.entry_area[4], C = self.entry_area[6]}   -- bottom face
-    }
-
-    local firstDistance = Utils:DistanceFromPlane(player_vector, planes[1])
-    print(firstDistance)
-    for i = 2, #planes do
-        if Utils:DistanceFromPlane(player_vector, planes[i]) * firstDistance < 0 then
-            return false
-        end
+    local norm = math.sqrt((player_vector.x - world_entry_point[1].x) * (player_vector.x - world_entry_point[1].x) + (player_vector.y - world_entry_point[1].y) * (player_vector.y - world_entry_point[1].y) + (player_vector.z - world_entry_point[1].z) * (player_vector.z - world_entry_point[1].z))
+    if norm <= self.entry_area_radius then
+        return true
+    else
+        return false
     end
-    return true
 end
 
 function Position:AvoidStacking()

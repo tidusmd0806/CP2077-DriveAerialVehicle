@@ -38,15 +38,17 @@ function Core:Init()
     end
 
     self.player_obj = Player:New(Game.GetPlayer())
-    self.av_obj = Aerodyne:New(all_models)
-    self.event_obj = Event:New(self.av_obj)
+    self.player_obj:Init()
 
+    self.av_obj = Aerodyne:New(all_models)
     self.av_obj:SetModel(model_info)
+
+    self.event_obj = Event:New(self.av_obj)
     self.event_obj:Init(model_info[1])
 
     DAV.Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
-        self:ExcutePriodicalTask()
+        self:GetActions()
     end)
 end
 
@@ -106,6 +108,8 @@ function Core:ConvertActionList(action_name, action_type, action_value)
         action_command = ActionList.TurnRight
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_Q_PRESS_IN_AV) then
         action_command = ActionList.TurnLeft
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_F_PRESS_IN_WORLD) then
+        action_command = ActionList.Enter
     else
         action_command = ActionList.Nothing
     end
@@ -113,7 +117,7 @@ function Core:ConvertActionList(action_name, action_type, action_value)
     return action_command
 end
 
-function Core:ExcutePriodicalTask()
+function Core:GetActions()
     local actions = {}
     if self.queue_obj:IsEmpty() then
         local action = ActionList.Nothing
@@ -121,8 +125,16 @@ function Core:ExcutePriodicalTask()
     else
         while not self.queue_obj:IsEmpty() do
             local action = self.queue_obj:Dequeue()
-            table.insert(actions, action)
+            if action >= ActionList.Enter then
+                self:SetEvent(action)
+            else
+                table.insert(actions, action)
+            end
         end
+    end
+    if actions == {} then
+        local action = ActionList.Nothing
+        table.insert(actions, action)
     end
     self:OperateAerodyneVehicle(actions)
 end
@@ -164,56 +176,6 @@ function Core:UnlockAerodyneDoor()
 
     SaveLocksManager.RequestSaveLockAdd("PersonalLink")
 
-    local choice = gameinteractionsvisListChoiceData.new()
-    choice.localizedName = "Choice"
-    choice.inputActionName = CName.new("Forward")
-
-    local part = gameinteractionsChoiceCaption.new()
-    part:AddPartFromRecord(TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceIcons.SitIcon"))
-    choice.captionParts = part
-
-    local hub = gameinteractionsvisListChoiceHubData.new()
-    hub.title = "Title"
-    hub.choices = {choice}
-    hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
-    hub.hubPriority = 1
-    hub.id = 100000 + math.random(99999)
-
-    DAV.ui_choice_hub = hub
-
-    local ib = Game.GetBlackboardSystem():Get(GetAllBlackboardDefs().UIInteractions);
-    local ibd = GetAllBlackboardDefs().UIInteractions;
-
-    ib:SetInt(ibd.ActiveChoiceHubID, hub.id)
-    local data = ib:GetVariant(ibd.DialogChoiceHubs)
-    DAV.ui_choice_handler:OnDialogsData(data)
-    DAV.is_ui_choice_custom = true
-
-    -- DAV.GameHUD.ShowMessage("Test")
-
-    -- local ink_system = Game.GetInkSystem()
-    -- local layers = ink_system:GetLayers()
-
-    -- DAV.Cron.After(1, function()
-    --     for _, layer in ipairs(layers) do
-    --         print(layer:GetLayerName())
-    --         for _, controller in ipairs(layer:GetGameControllers()) do
-    --             print(controller:GetClassName())
-    --         end
-    --     end
-    -- end)
-
-    -- local hud_root = ink_system:GetLayer("inkHUDLayer"):GetVirtualWindow()
-
-    -- local hello = inkText.new()
-    -- hello:SetText("Hello World")
-    -- hello:SetFontFamily("base\\gameplay\\gui\\fonts\\orbitron\\orbitron.inkfontfamily")
-    -- hello:SetFontStyle("Bold")
-    -- hello:SetFontSize(200)
-    -- hello:SetTintColor(HDRColor.new(1.1761, 0.3809, 0.3476, 1.0))
-    -- hello:SetAnchor(inkEAnchor.Centered)
-    -- hello:SetAnchorPoint(0.5, 0.5)
-    -- hello:Reparent(hud_root)
     local ui_system = Game.GetUISystem()
     local event = UpdateInputHintMultipleEvent.new()
     event.targetHintContainer = CName.new("GameplayInputHelper")
@@ -245,7 +207,6 @@ function Core:UnlockAerodyneDoor()
 end
 
 function Core:Mount()
-    self.player_obj:Init()
     self.av_obj:TakeOn(self.player_obj)
     self.av_obj:Mount(3)
 end
@@ -259,6 +220,12 @@ function Core:OperateAerodyneVehicle(actions)
         for _, action_command in ipairs(actions) do
             self.av_obj:Operate(action_command)
         end
+    end
+end
+
+function Core:SetEvent(action)
+    if action == ActionList.Enter then
+        self.event_obj:EnterVehicle(self.player_obj)
     end
 end
 

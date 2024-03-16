@@ -1,5 +1,6 @@
 local Log = require("Tools/log.lua")
 local Camera = require("Modules/camera.lua")
+local Hud = require("Modules/hud.lua")
 local Ui = require("Modules/ui.lua")
 local Event = {}
 Event.__index = Event
@@ -16,6 +17,7 @@ function Event:New(av_obj)
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Event")
+    obj.hud_obj = Hud:New()
     obj.ui_obj = Ui:New()
     obj.av_obj = av_obj
     obj.camera_obj = Camera:New()
@@ -30,7 +32,10 @@ function Event:Init(index)
     local display_name_lockey = self.av_obj.all_models[index].display_name_lockey
     local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
     local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
+    local choice_title = self.av_obj.all_models[index].name
+
     self.ui_obj:Init(display_name_lockey, logo_inkatlas_path, logo_inkatlas_part_name)
+    self.hud_obj:Init(choice_title)
 end
 
 function Event:SetSituation(situation)
@@ -59,7 +64,7 @@ function Event:SetSituation(situation)
         self.current_situation = Situation.Normal
         return true
     else
-        self.log_obj:Record(LogLevel.Critical, "Invalid situation detected")
+        self.log_obj:Record(LogLevel.Critical, "Invalid translating situation")
         return false
     end
 end
@@ -73,7 +78,7 @@ function Event:CheckAllEvents()
         self:CheckInEntryArea()
         self:CheckInAV()
     elseif self.current_situation == Situation.InVehicle then
-        print("InVehicle")
+        self:CheckInAV()
     elseif self.current_situation == Situation.TalkingOff then
         print("TalkingOff")
     else
@@ -99,16 +104,19 @@ end
 function Event:CheckInEntryArea()
     if self.av_obj.position_obj:IsPlayerInEntryArea() then
         self.log_obj:Record(LogLevel.Trace, "InEntryArea detected")
-        print("InEntryArea")
+        self.hud_obj:ShowChoice()
+    else
+        self.hud_obj:HideChoice()
     end
 end
 
 function Event:CheckInAV()
-    if self.av_obj.is_player_in then
+    if self.av_obj:IsPlayerIn() then
         -- when player take on AV
         if self.current_situation == Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
             self:SetSituation(Situation.InVehicle)
+            self.hud_obj:HideChoice()
             self:ChangeCamera()
         end
     else
@@ -121,8 +129,16 @@ function Event:CheckInAV()
     end
 end
 
+function Event:IsInEntryArea()
+    if self.current_situation == Situation.Waiting and self.av_obj.position_obj:IsPlayerInEntryArea() then
+        return true
+    else
+        return false
+    end
+end
+
 function Event:IsInVehicle()
-    if self.current_situation == Situation.InVehicle then
+    if self.current_situation == Situation.InVehicle and self.av_obj:IsPlayerIn() then
         return true
     else
         return false
@@ -134,6 +150,13 @@ function Event:ChangeCamera()
         self.camera_obj:SetCameraPosition(CameraDistanceLevel.TppClose)
     elseif self.current_situation == Situation.Waiting then
         self.camera_obj:SetCameraPosition(CameraDistanceLevel.Fpp)
+    end
+end
+
+function Event:EnterVehicle(player)
+    if self:IsInEntryArea() then
+        self.av_obj:TakeOn(player)
+        self.av_obj:Mount(3)
     end
 end
 

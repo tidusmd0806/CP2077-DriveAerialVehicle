@@ -8,6 +8,7 @@ function Debug:New(core_obj)
 
     -- set parameters
     obj.is_print_command = false
+    obj.is_im_gui_situation = false
     obj.is_im_gui_player_position = false
     obj.is_im_gui_player_angle = false
     obj.is_im_gui_av_position = false
@@ -34,11 +35,19 @@ end
 function Debug:ImGuiMain()
     self:Init()
     self:SelectPrint()
+    self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiPlayerAngle()
     self:ImGuiAVPosition()
     self:ImGuiAVAngle()
     self:ImGuiLiftForceAndSpped()
+end
+
+function Debug:ImGuiSituation()
+    self.is_im_gui_situation = ImGui.Checkbox("[ImGui] Current Situation", self.is_im_gui_situation)
+    if self.is_im_gui_situation then
+        ImGui.Text("Current Situation : " .. self.core_obj.event_obj.current_situation)
+    end
 end
 
 function Debug:ImGuiPlayerPosition()
