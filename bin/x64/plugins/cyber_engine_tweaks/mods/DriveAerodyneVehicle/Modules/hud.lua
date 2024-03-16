@@ -70,7 +70,7 @@ function Hud:ShowChoice()
 
     local choice = gameinteractionsvisListChoiceData.new()
     choice.localizedName = GetLocalizedText("LocKey#81569")
-    choice.inputActionName = CName.new("Forward")
+    choice.inputActionName = CName.new("click")
 
     local hub = gameinteractionsvisListChoiceHubData.new()
     hub.title = self.choice_title

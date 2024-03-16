@@ -58,29 +58,6 @@ function Utils:WorldToBodyCoordinates(world_coordinates, body_world_coordinates,
    return {x = result.i, y = result.j, z = result.k}
 end
 
--- Function to calculate the dot product of two vectors
-function Utils:DotProduct(v1, v2)
-   return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z
-end
-
--- Function to calculate the cross product of two vectors
-function Utils:CrossProduct(v1, v2)
-   return {
-       x = v1.y * v2.z - v1.z * v2.y,
-       y = v1.z * v2.x - v1.x * v2.z,
-       z = v1.x * v2.y - v1.y * v2.x
-   }
-end
-
--- Function to calculate the distance from a point to a plane
-function Utils:DistanceFromPlane(point, plane)
-   local normal = self:CrossProduct(
-       {x = plane.B.x - plane.A.x, y = plane.B.y - plane.A.y, z = plane.B.z - plane.A.z},
-       {x = plane.C.x - plane.A.x, y = plane.C.y - plane.A.y, z = plane.C.z - plane.A.z}
-   )
-   return self:DotProduct(normal, {x = point.x - plane.A.x, y = point.y - plane.A.y, z = point.z - plane.A.z})
-end
-
 function Utils:ReadJson(fill_path)
    local file = io.open(fill_path, "r")
    if file then

@@ -92,9 +92,9 @@ function Core:ConvertActionList(action_name, action_type, action_value)
     local action_command = ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value}
 
-    if Utils:IsTablesEqual(action_dist, self.input_table.KEY_CLICK_HOLD_IN_AV) then
+    if Utils:IsTablesEqual(action_dist, self.input_table.KEY_RIGHT_CLICK_PRESS_IN_AV) then
         action_command = ActionList.Up
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_CLICK_RELEASE_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_RIGHT_CLICK_RELEASE_IN_AV) then
         action_command = ActionList.Down
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_W_PRESS_IN_AV) then
         action_command = ActionList.Forward
@@ -109,7 +109,7 @@ function Core:ConvertActionList(action_name, action_type, action_value)
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_Q_PRESS_IN_AV) then
         action_command = ActionList.TurnLeft
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_F_PRESS_IN_WORLD) then
-        action_command = ActionList.Enter
+        action_command = ActionList.EnterOrExit
     else
         action_command = ActionList.Nothing
     end
@@ -125,7 +125,7 @@ function Core:GetActions()
     else
         while not self.queue_obj:IsEmpty() do
             local action = self.queue_obj:Dequeue()
-            if action >= ActionList.Enter then
+            if action >= ActionList.EnterOrExit then
                 self:SetEvent(action)
             else
                 table.insert(actions, action)
@@ -224,8 +224,8 @@ function Core:OperateAerodyneVehicle(actions)
 end
 
 function Core:SetEvent(action)
-    if action == ActionList.Enter then
-        self.event_obj:EnterVehicle(self.player_obj)
+    if action == ActionList.EnterOrExit then
+        self.event_obj:EnterOrExitVehicle(self.player_obj)
     end
 end
 

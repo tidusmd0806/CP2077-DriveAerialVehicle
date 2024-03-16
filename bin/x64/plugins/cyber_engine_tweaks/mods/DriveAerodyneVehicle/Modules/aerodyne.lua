@@ -23,11 +23,9 @@ ActionList = {
     TurnLeft = 8,
     Hover = 9,
 	---------
-	Enter = 100,
-	Exit = 101,
-	---------
-	ChangeDoor = 200,
-	ChangeCamera = 201,
+	EnterOrExit= 100,
+	ChangeDoor = 101,
+	ChangeCamera = 102,
 }
 
 function Aerodyne:New(all_models)
@@ -230,17 +228,19 @@ function Aerodyne:Mount(seat_number)
 		local entity = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
-			if not self.is_default_seat_position then
-				self:SitCorrectPosition(3)
-			end
-			self.is_player_in = true
-			self.player_obj:ActivateTPPHead(true)
+			DAV.Cron.After(0.5, function()
+				if not self.is_default_seat_position then
+					self:SitCorrectPosition(3)
+				end
+				self.player_obj:ActivateTPPHead(true)
+				self.is_player_in = true
+			end)
 			DAV.Cron.Halt(timer)
 		end
 	end)
 
 	return true
-	
+
 end
 
 function Aerodyne:Unmount()
@@ -271,16 +271,20 @@ function Aerodyne:Unmount()
 	mount_event.lowLevelMountingInfo = mounting_info
 	mount_event.mountData = data
 
-
 	Game.GetMountingFacility():Unmount(mount_event)
 
 	-- set entity id to position object
 	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
+			local angle = player:GetWorldOrientation():ToEulerAngles()
+			local position = self.position_obj:GetExitPosition()
 			self.position_obj:SetEntity(entity)
+			Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
+			DAV.Cron.After(3, function()
+				self.player_obj:ActivateTPPHead(false)
+			end)
 			self.is_player_in = false
-			self.player_obj:ActivateTPPHead(false)
 			DAV.Cron.Halt(timer)
 		end
 	end)
@@ -294,6 +298,15 @@ function Aerodyne:TakeOn(player_obj)
 		return false
 	end
 	self.player_obj = player_obj
+	return true
+end
+
+function Aerodyne:TakeOff()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to take on")
+		return false
+	end
+	self.player_obj = nil
 	return true
 end
 

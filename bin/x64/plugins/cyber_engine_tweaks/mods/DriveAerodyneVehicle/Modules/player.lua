@@ -39,7 +39,6 @@ function Player:PlayPose(pose_name)
     transform:SetOrientationEuler(EulerAngles.new(0, 0, angles.yaw))
 
     self.dummy_entity_id = exEntitySpawner.Spawn(self.workspot_entity_path, transform, '')
-    -- local anim_name = "sit_chair_lean180__2h_on_lap__01"
 
     DAV.Cron.Every(0.1, {tick = 1}, function(timer)
         local dummy_entity = Game.FindEntityByID(self.dummy_entity_id)

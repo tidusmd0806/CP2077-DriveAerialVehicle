@@ -124,7 +124,10 @@ function Event:CheckInAV()
         if self.current_situation == Situation.InVehicle then
             self.log_obj:Record(LogLevel.Info, "Exit AV")
             self:SetSituation(Situation.Waiting)
-            self:ChangeCamera()
+            DAV.Cron.After(5, function()
+                self:ChangeCamera()
+            end)
+            -- self:ChangeCamera()
         end
     end
 end
@@ -153,10 +156,13 @@ function Event:ChangeCamera()
     end
 end
 
-function Event:EnterVehicle(player)
+function Event:EnterOrExitVehicle(player)
     if self:IsInEntryArea() then
         self.av_obj:TakeOn(player)
         self.av_obj:Mount(3)
+    elseif self:IsInVehicle() then
+        self.av_obj:Unmount()
+        self.av_obj:TakeOff()
     end
 end
 

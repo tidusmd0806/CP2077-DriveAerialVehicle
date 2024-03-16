@@ -64,6 +64,7 @@ function Position:SetModel(index)
     }
     self.entry_point = { x = self.all_models[index].entry_point.x, y = self.all_models[index].entry_point.y, z = self.all_models[index].entry_point.z }
     self.entry_area_radius = self.all_models[index].entry_area_radius
+    self.exit_point = { x = self.all_models[index].exit_point.x, y = self.all_models[index].exit_point.y, z = self.all_models[index].exit_point.z }
 end
 
 function Position:SetEntity(entity)
@@ -262,6 +263,10 @@ function Position:AvoidStacking()
 
     self.next_angle = EulerAngles.new(0, 0, angle.yaw)
     self:ChangePosition()
+end
+
+function Position:GetExitPosition()
+    return self:ChangeWorldCordinate({self.exit_point})[1]
 end
 
 return Position

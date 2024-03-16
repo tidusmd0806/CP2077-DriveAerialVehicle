@@ -9,6 +9,16 @@
         "type": "BUTTON_RELEASED",
         "value": "ZERO"
     },
+    "KEY_RIGHT_CLICK_PRESS_IN_AV": {
+        "name": "UI_Cancel",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    },
+    "KEY_RIGHT_CLICK_RELEASE_IN_AV": {
+        "name": "UI_Cancel",
+        "type": "BUTTON_RELEASED",
+        "value": "ZERO"
+    },
     "KEY_CLICK_PRESS_IN_AV": {
         "name": "click_hold",
         "type": "BUTTON_PRESSED",
@@ -88,5 +98,10 @@
         "name": "click",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
-    }
+    },
+    "KEY_CALL_Vehicle": {
+        "name": "CallVehicle",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    },
 }

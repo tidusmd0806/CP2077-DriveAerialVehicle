@@ -1,5 +1,5 @@
 local Log = require("Tools/log.lua")
-local GameSession = require('External/GameSession')
+local GameUI = require('External/GameUI.lua')
 local Ui = {}
 Ui.__index = Ui
 
@@ -22,10 +22,14 @@ end
 function Ui:Init(display_name_lockey, logo_inkatlas_path, logo_inkatlas_part_name)
     self:SetTweekDB(display_name_lockey, logo_inkatlas_path, logo_inkatlas_part_name)
     self:SetOverride()
-    GameSession.OnStart(function()
-        self:ActivateAVSummon(true)
+
+    GameUI.Observe("SessionStart", function()
+        DAV.Cron.After(1, function()
+            self:ActivateAVSummon(true)
+        end)
     end)
-    GameSession.OnEnd(function()
+
+    GameUI.Observe("SessionEnd", function()
         self:ActivateAVSummon(false)
     end)
 end
@@ -72,7 +76,7 @@ function Ui:SetOverride()
 end
 
 function Ui:ActivateAVSummon(is_avtive)
-    Game.GetVehicleSystem():EnablePlayerVehicle(self.dummy_vehicle, is_avtive, true)
+    Game.GetVehicleSystem():EnablePlayerVehicle(self.dummy_vehicle_record, is_avtive, true)
 end
 
 function Ui:GetCallStatus()

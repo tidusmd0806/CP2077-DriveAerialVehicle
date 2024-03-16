@@ -10,9 +10,7 @@ function Debug:New(core_obj)
     obj.is_print_command = false
     obj.is_im_gui_situation = false
     obj.is_im_gui_player_position = false
-    obj.is_im_gui_player_angle = false
     obj.is_im_gui_av_position = false
-    obj.is_im_gui_av_angle = false
     obj.is_im_gui_lift_force = false
     return setmetatable(obj, self)
 end
@@ -37,9 +35,7 @@ function Debug:ImGuiMain()
     self:SelectPrint()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
-    self:ImGuiPlayerAngle()
     self:ImGuiAVPosition()
-    self:ImGuiAVAngle()
     self:ImGuiLiftForceAndSpped()
 end
 
@@ -51,41 +47,41 @@ function Debug:ImGuiSituation()
 end
 
 function Debug:ImGuiPlayerPosition()
-    self.is_im_gui_player_position = ImGui.Checkbox("[ImGui] Player Position", self.is_im_gui_player_position)
+    self.is_im_gui_player_position = ImGui.Checkbox("[ImGui] Player Position Angle", self.is_im_gui_player_position)
     if self.is_im_gui_player_position then
-        ImGui.Text("Player X:" .. Game.GetPlayer():GetWorldPosition().x .. ", Y:" .. Game.GetPlayer():GetWorldPosition().y .. ", Z:" .. Game.GetPlayer():GetWorldPosition().z)
+        local x = string.format("%.2f", Game.GetPlayer():GetWorldPosition().x)
+        local y = string.format("%.2f", Game.GetPlayer():GetWorldPosition().y)
+        local z = string.format("%.2f", Game.GetPlayer():GetWorldPosition().z)
+        ImGui.Text("[world]X:" .. x .. ", Y:" .. y .. ", Z:" .. z)
+        local roll = string.format("%.2f", Game.GetPlayer():GetWorldOrientation():ToEulerAngles().roll)
+        local pitch = string.format("%.2f", Game.GetPlayer():GetWorldOrientation():ToEulerAngles().pitch)
+        local yaw = string.format("%.2f", Game.GetPlayer():GetWorldOrientation():ToEulerAngles().yaw)
+        ImGui.Text("[world]Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
         if self.core_obj.av_obj.position_obj.entity == nil then
             return
         end
         local absolute_position = Utils:WorldToBodyCoordinates(Game.GetPlayer():GetWorldPosition(), self.core_obj.av_obj.position_obj:GetPosition(), self.core_obj.av_obj.position_obj:GetQuaternion())
-        ImGui.Text("Player IN AV X" .. absolute_position.x .. ", Y:" .. absolute_position.y .. ", Z:" .. absolute_position.z)
-    end
-end
-
-function Debug:ImGuiPlayerAngle()
-    self.is_im_gui_player_angle = ImGui.Checkbox("[ImGui] Player Angle", self.is_im_gui_player_angle)
-    if self.is_im_gui_player_angle then
-        ImGui.Text("Player Roll:" .. Game.GetPlayer():GetWorldOrientation():ToEulerAngles().roll .. ", Pitch:" .. Game.GetPlayer():GetWorldOrientation():ToEulerAngles().pitch .. ", Yaw:" .. Game.GetPlayer():GetWorldOrientation():ToEulerAngles().yaw)
+        local absolute_position_x = string.format("%.2f", absolute_position.x)
+        local absolute_position_y = string.format("%.2f", absolute_position.y)
+        local absolute_position_z = string.format("%.2f", absolute_position.z)
+        ImGui.Text("[local]X:" .. absolute_position_x .. ", Y:" .. absolute_position_y .. ", Z:" .. absolute_position_z)
     end
 end
 
 function Debug:ImGuiAVPosition()
-    self.is_im_gui_av_position = ImGui.Checkbox("[ImGui] AV Position", self.is_im_gui_av_position)
+    self.is_im_gui_av_position = ImGui.Checkbox("[ImGui] AV Position Angle", self.is_im_gui_av_position)
     if self.is_im_gui_av_position then
         if self.core_obj.av_obj.position_obj.entity == nil then
             return
         end
-        ImGui.Text("AV X:" .. self.core_obj.av_obj.position_obj:GetPosition().x .. ", Y:" .. self.core_obj.av_obj.position_obj:GetPosition().y .. ", Z:" .. self.core_obj.av_obj.position_obj:GetPosition().z)
-    end
-end
-
-function Debug:ImGuiAVAngle()
-    self.is_im_gui_av_angle = ImGui.Checkbox("[ImGui] AV Angle", self.is_im_gui_av_angle)
-    if self.is_im_gui_av_angle then
-        if self.core_obj.av_obj.position_obj.entity == nil then
-            return
-        end
-        ImGui.Text("AV Roll:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().roll .. ", Pitch:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().pitch .. ", Yaw:" .. self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)
+        local x = string.format("%.2f", self.core_obj.av_obj.position_obj:GetPosition().x)
+        local y = string.format("%.2f", self.core_obj.av_obj.position_obj:GetPosition().y)
+        local z = string.format("%.2f", self.core_obj.av_obj.position_obj:GetPosition().z)
+        local roll = string.format("%.2f", self.core_obj.av_obj.position_obj:GetEulerAngles().roll)
+        local pitch = string.format("%.2f", self.core_obj.av_obj.position_obj:GetEulerAngles().pitch)
+        local yaw = string.format("%.2f", self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)
+        ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
+        ImGui.Text("Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
     end
 end
 

@@ -34,6 +34,7 @@ function Camera:ChangePosition()
     fpp_component.yawMaxRight = self.yawMaxRight
     fpp_component.yawMaxLeft = self.yawMaxLeft
     fpp_component:SetLocalPosition(self.camera_vector)
+    fpp_component:ResetPitch()
 end
 
 function Camera:SetCameraPosition(level)
@@ -45,7 +46,7 @@ function Camera:SetCameraPosition(level)
         self.yawMaxLeft = 360
         self.current_camera_mode = CameraDistanceLevel.Fpp
     elseif level == CameraDistanceLevel.TppClose then
-        self.camera_vector = Vector4.new(0.0, -10.0, 2.0, 1.0)
+        self.camera_vector = Vector4.new(0.0, -7.5, 1.5, 1.0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360
