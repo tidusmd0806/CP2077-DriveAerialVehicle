@@ -47,7 +47,7 @@ function Player:PlayPose(pose_name)
             Game.GetWorkspotSystem():SendJumpToAnimEnt(player, pose_name, false)
 
             -- for some reason, the pose is not played at the first time, so we need to play it again
-            DAV.Cron.After(1, function()
+            DAV.Cron.After(1.0, function()
                 Game.GetWorkspotSystem():PlayInDeviceSimple(dummy_entity, player, true, self.workspot_resorce_component_name, nil, nil, 0, 1, nil)
                 Game.GetWorkspotSystem():SendJumpToAnimEnt(player, pose_name, false)
             end)
@@ -93,9 +93,9 @@ function Player:ActivateTPPHead(is_tpp)
         Game.GetScriptableSystemsContainer():Get("EquipmentSystem"):QueueRequest(equip_request)
     end
 
-    if is_tpp then
-        transcation_system:ChangeItemAppearanceByName(player, head_id, "default&FPP")
-    end
+    -- if is_tpp then
+        -- transcation_system:ChangeItemAppearanceByName(player, head_id, "default&FPP")
+    -- end
 
     transcation_system:RemoveItemFromSlot(player, head_solt, true, true, true)
 
@@ -103,7 +103,7 @@ function Player:ActivateTPPHead(is_tpp)
         DAV.Cron.Every(0.001, { tick = 1 }, function(timer)
             timer.tick = timer.tick + 1
 
-            if timer.tick > 10 then
+            if timer.tick > 20 then
                 DAV.Cron.Halt(timer)
             end
             DAV.Cron.After(0.001, function()
@@ -118,12 +118,13 @@ function Player:ActivateTPPHead(is_tpp)
 
         end)
     else
+        Game.GetScriptableSystemsContainer():Get(CName.new('TakeOverControlSystem')):EnablePlayerTPPRepresenation(false)
         DAV.Cron.Every(0.001, { tick = 1 }, function(timer)
             timer.tick = timer.tick + 1
 
             transcation_system:ChangeItemAppearanceByName(player, head_id, "default&FPP")
 
-            if timer.tick > 30 then
+            if timer.tick > 20 then
                 DAV.Cron.Halt(timer)
             end
             DAV.Cron.After(0.001, function()

@@ -20,10 +20,14 @@ registerForEvent('onInit', function()
     DAV.core_obj:Init()
 
     -- Observe player action
-    Observe("PlayerPuppet", "OnAction", function(this, action)
+    Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
         local action_name = Game.NameToString(action:GetName(action))
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
+
+        if DAV.core_obj.event_obj:IsInVehicle() and string.find("Exit", action_name) then
+            consumer:Consume()
+        end
 
         if DAV.is_debug_mode then
             DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)

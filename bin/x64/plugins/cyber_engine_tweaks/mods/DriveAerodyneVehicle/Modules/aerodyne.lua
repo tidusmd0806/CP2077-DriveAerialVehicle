@@ -1,32 +1,10 @@
 local Position = require("Modules/position.lua")
+local Def = require("Modules/def.lua")
 local Engine = require("Modules/engine.lua")
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Aerodyne = {}
 Aerodyne.__index = Aerodyne
-
-VehicleModel = {
-	Excalibur = "Vehicle.av_rayfield_excalibur",
-	Manticore = "Vehicle.av_militech_manticore",
-	Atlus = "Vehicle.av_zetatech_atlus"
-}
-
-ActionList = {
-    Nothing = 0,
-    Up = 1,
-    Down = 2,
-    Forward = 3,
-    Backward = 4,
-    Right = 5,
-    Left = 6,
-    TurnRight = 7,
-    TurnLeft = 8,
-    Hover = 9,
-	---------
-	EnterOrExit= 100,
-	ChangeDoor = 101,
-	ChangeCamera = 102,
-}
 
 function Aerodyne:New(all_models)
 	local obj = {}
@@ -36,11 +14,6 @@ function Aerodyne:New(all_models)
 	obj.log_obj:SetLevel(LogLevel.Info, "Aerodyne")
 	obj.player_obj = nil
 
-	for key, value in pairs(Movement) do
-		if ActionList[key] ~= value then
-			obj.log_obj:Record(LogLevel.Critical, "ActionList is not equal to Movement /" .. key .. " : " .. value)
-		end
-	end
 	obj.all_models = all_models
 	obj.spawn_distance = 5.5
 	obj.spawn_high = 50
@@ -141,6 +114,21 @@ function Aerodyne:Despawn()
 	return true
 end
 
+function Aerodyne:DespawnFromGround()
+	DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
+		timer.tick = timer.tick + 1
+
+		if timer.tick > self.spawn_wait_count then
+			self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1 + self.down_time_count), 0.0, 0.0, 0.0)
+			if timer.tick >= self.spawn_wait_count + self.down_time_count then
+				self:Despawn()
+				DAV.Cron.Halt(timer)
+			end
+		end
+	end)
+end
+
+
 function Aerodyne:UnlockDoor()
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
@@ -163,18 +151,24 @@ function Aerodyne:LockDoor()
 	return true
 end
 
-function Aerodyne:ChangeDoorState(door_number)
+function Aerodyne:ChangeDoorState(door_number, door_state)
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change door state")
 		return false
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	local vehicle_ps = entity:GetVehiclePS()
-	local state = vehicle_ps:GetDoorState(0).value -- front left door: 0 / front right door: 1
+	local state = vehicle_ps:GetDoorState(door_number - 1).value -- front left door: 0 / front right door: 1
 	local door_event = nil
 	if state == "Closed" then
+		if door_state == Def.DoorOperation.Close then
+			return false
+		end
 		door_event = VehicleDoorOpen.new()
 	elseif state == "Open" then
+		if door_state == Def.DoorOperation.Open then
+			return false
+		end
 		door_event = VehicleDoorClose.new()
 	else
 		self.log_obj:Record(LogLevel.Error, "Door state is not valid : " .. state)
@@ -228,7 +222,7 @@ function Aerodyne:Mount(seat_number)
 		local entity = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
-			DAV.Cron.After(0.5, function()
+			DAV.Cron.After(0.2, function()
 				if not self.is_default_seat_position then
 					self:SitCorrectPosition(3)
 				end
@@ -271,6 +265,8 @@ function Aerodyne:Unmount()
 	mount_event.lowLevelMountingInfo = mounting_info
 	mount_event.mountData = data
 
+	self.player_obj:ActivateTPPHead(false)
+
 	Game.GetMountingFacility():Unmount(mount_event)
 
 	-- set entity id to position object
@@ -281,9 +277,6 @@ function Aerodyne:Unmount()
 			local position = self.position_obj:GetExitPosition()
 			self.position_obj:SetEntity(entity)
 			Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
-			DAV.Cron.After(3, function()
-				self.player_obj:ActivateTPPHead(false)
-			end)
 			self.is_player_in = false
 			DAV.Cron.Halt(timer)
 		end
@@ -345,7 +338,7 @@ end
 
 function Aerodyne:Operate(action_command)
 
-	if action_command ~= ActionList.Nothing then
+	if action_command ~= Def.ActionList.Nothing then
 		self.log_obj:Record(LogLevel.Debug, "Operate Aerodyne Vehicle : " .. action_command)
 	end
 

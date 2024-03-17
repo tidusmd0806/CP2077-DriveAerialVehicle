@@ -99,9 +99,25 @@
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
+    "KEY_F_PRESS_IN_AV": {
+        "name": "Exit",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    },
     "KEY_CALL_Vehicle": {
         "name": "CallVehicle",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
+    "KEY_CAMERA_CHANGE": {
+        "name": "secondaryAction",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    },
+    "KEY_OPEN_DOOR_1": {
+        "name": "PhoneInteract",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    }
+
 }

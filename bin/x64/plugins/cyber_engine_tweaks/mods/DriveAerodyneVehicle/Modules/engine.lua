@@ -1,20 +1,8 @@
+local Def = require("Modules/def.lua")
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 Engine = {}
 Engine.__index = Engine
-
-Movement = {
-    Nothing = 0,
-    Up = 1,
-    Down = 2,
-    Forward = 3,
-    Backward = 4,
-    Right = 5,
-    Left = 6,
-    TurnRight = 7,
-    TurnLeft = 8,
-    Hover = 9
-}
 
 function Engine:New(position_obj, all_models)
     local obj = {}
@@ -117,17 +105,17 @@ function Engine:CalcurateIndication(movement)
     self.next_indication["yaw"] = actually_indication.yaw
 
     -- set indication
-    if movement == Movement.Forward then
+    if movement == Def.ActionList.Forward then
         self.next_indication["pitch"] = actually_indication.pitch - self.pitch_speed
-    elseif movement == Movement.Backward then
+    elseif movement == Def.ActionList.Backward then
         self.next_indication["pitch"] = actually_indication.pitch + self.pitch_speed
-    elseif movement == Movement.Right then
+    elseif movement == Def.ActionList.Right then
         self.next_indication["roll"] = actually_indication.roll + self.roll_speed
-    elseif movement == Movement.Left then
+    elseif movement == Def.ActionList.Left then
         self.next_indication["roll"] = actually_indication.roll - self.roll_speed
-    elseif movement == Movement.TurnRight then
+    elseif movement == Def.ActionList.TurnRight then
         self.next_indication["yaw"] = actually_indication.yaw + self.yaw_speed
-    elseif movement == Movement.TurnLeft then
+    elseif movement == Def.ActionList.TurnLeft then
         self.next_indication["yaw"] = actually_indication.yaw - self.yaw_speed
     else
         -- set roll restoration
@@ -176,13 +164,13 @@ function Engine:CalcurateIndication(movement)
 end
 
 function Engine:CalcuratePower(movement)
-    if movement == Movement.Down then
+    if movement == Def.ActionList.Down then
         self.log_obj:Record(LogLevel.Trace, "Change Power Off")
         self.clock = 0
         self.dynamic_lift_force = self.lift_force
         self.is_power_on = false
         self.position_obj:SetEngineState(self.is_power_on)
-    elseif movement == Movement.Up or self.is_power_on then
+    elseif movement == Def.ActionList.Up or self.is_power_on then
         if not self.is_power_on then
             self.log_obj:Record(LogLevel.Trace, "Change Power On")
             self.clock = 0
@@ -195,7 +183,7 @@ function Engine:CalcuratePower(movement)
         end
     elseif not self.is_power_on then
         self:SetPowerDownCurve(self.clock)
-    elseif movement == Movement.Hover then
+    elseif movement == Def.ActionList.Hover then
         self.is_hover = true
     end
 end

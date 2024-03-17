@@ -1,5 +1,6 @@
 local Aerodyne = require("Modules/aerodyne.lua")
 local Player = require("Modules/player.lua")
+local Def = require("Modules/def.lua")
 local Event = require("Modules/event.lua")
 local Log = require("Tools/log.lua")
 local Queue = require("Tools/queue.lua")
@@ -82,36 +83,42 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
 
     local cmd = self:ConvertActionList(action_name, action_type, action_value_type)
 
-    if cmd ~= ActionList.Nothing then
+    if cmd ~= Def.ActionList.Nothing then
         self.queue_obj:Enqueue(cmd)
     end
 
 end
 
 function Core:ConvertActionList(action_name, action_type, action_value)
-    local action_command = ActionList.Nothing
+    local action_command = Def.ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value}
 
     if Utils:IsTablesEqual(action_dist, self.input_table.KEY_RIGHT_CLICK_PRESS_IN_AV) then
-        action_command = ActionList.Up
+        action_command = Def.ActionList.Up
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_RIGHT_CLICK_RELEASE_IN_AV) then
-        action_command = ActionList.Down
+        action_command = Def.ActionList.Down
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_W_PRESS_IN_AV) then
-        action_command = ActionList.Forward
+        action_command = Def.ActionList.Forward
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_S_PRESS_IN_AV) then
-        action_command = ActionList.Backward
+        action_command = Def.ActionList.Backward
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_D_PRESS_IN_AV) then
-        action_command = ActionList.Right
+        action_command = Def.ActionList.Right
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_A_PRESS_IN_AV) then
-        action_command = ActionList.Left
+        action_command = Def.ActionList.Left
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_E_PRESS_IN_AV) then
-        action_command = ActionList.TurnRight
+        action_command = Def.ActionList.TurnRight
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_Q_PRESS_IN_AV) then
-        action_command = ActionList.TurnLeft
+        action_command = Def.ActionList.TurnLeft
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_F_PRESS_IN_WORLD) then
-        action_command = ActionList.EnterOrExit
+        action_command = Def.ActionList.Enter
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_F_PRESS_IN_AV) then
+        action_command = Def.ActionList.Exit
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_CAMERA_CHANGE) then
+        action_command = Def.ActionList.ChangeCamera
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_OPEN_DOOR_1) then
+        action_command = Def.ActionList.ChangeDoor1
     else
-        action_command = ActionList.Nothing
+        action_command = Def.ActionList.Nothing
     end
 
     return action_command
@@ -120,12 +127,12 @@ end
 function Core:GetActions()
     local actions = {}
     if self.queue_obj:IsEmpty() then
-        local action = ActionList.Nothing
+        local action = Def.ActionList.Nothing
         table.insert(actions, action)
     else
         while not self.queue_obj:IsEmpty() do
             local action = self.queue_obj:Dequeue()
-            if action >= ActionList.EnterOrExit then
+            if action >= Def.ActionList.Enter then
                 self:SetEvent(action)
             else
                 table.insert(actions, action)
@@ -133,7 +140,7 @@ function Core:GetActions()
         end
     end
     if actions == {} then
-        local action = ActionList.Nothing
+        local action = Def.ActionList.Nothing
         table.insert(actions, action)
     end
     self:OperateAerodyneVehicle(actions)
@@ -155,7 +162,7 @@ function Core:CallAerodyneVehicle()
 end
 
 function Core:ChangeAerodyneDoor()
-    self.av_obj:ChangeDoorState(1)
+    self.av_obj:ChangeDoorState(1, Def.DoorOperation.Change)
 end
 
 function Core:LockAerodyneDoor()
@@ -194,15 +201,34 @@ function Core:UnlockAerodyneDoor()
     event:AddInputHint(data, true)
     ui_system:QueueEvent(event)
 
-    DAV.hudCarController:ShowRequest()
-    DAV.hudCarController:OnInitialize()
-    DAV.hudCarController:OnCameraModeChanged(true)
-    DAV.Cron.Every(1, function()
-        local rand = math.random(0,7)
-        DAV.hudCarController:OnSpeedValueChanged(rand)
-        DAV.hudCarController:OnRpmValueChanged(rand)
-        DAV.hudCarController:EvaluateRPMMeterWidget(rand)
-    end)
+    -- DAV.hudCarController:ShowRequest()
+    -- DAV.hudCarController:OnInitialize()
+    -- DAV.hudCarController:OnCameraModeChanged(true)
+    -- DAV.Cron.Every(1, function()
+    --     local rand = math.random(0,7)
+    --     DAV.hudCarController:OnSpeedValueChanged(rand)
+    --     DAV.hudCarController:OnRpmValueChanged(rand)
+    --     DAV.hudCarController:EvaluateRPMMeterWidget(rand)
+    -- end)
+    
+    local event = VehicleUIactivateEvent.new()
+    event.activate = true
+    local ev = LateInit.new()
+    self.event_obj.hud_obj.hud_car_controller:QueueEvent(ev)
+
+    local inkSystem = Game.GetInkSystem()
+    local layer_ = inkSystem:GetLayer("inkHUDLayer"):GetVirtualWindow()
+    local layers = inkSystem:GetLayers();
+
+    for _, layer in ipairs(layers) do
+        print(layer:GetLayerName())
+    end
+
+    local tmp = self.event_obj.hud_obj.hud_car_controller:GetRootWidget()
+    self.event_obj.hud_obj.hud_car_controller = nil
+    print(tmp.name)
+    tmp:SetVisible(true)
+    -- tmp:Reparent(layer_)
 
 end
 
@@ -224,8 +250,12 @@ function Core:OperateAerodyneVehicle(actions)
 end
 
 function Core:SetEvent(action)
-    if action == ActionList.EnterOrExit then
+    if action == Def.ActionList.Enter or action == Def.ActionList.Exit then
         self.event_obj:EnterOrExitVehicle(self.player_obj)
+    elseif action == Def.ActionList.ChangeCamera then
+        self.event_obj:ToggleCamera()
+    elseif action == Def.ActionList.ChangeDoor1 then
+        self.event_obj:ChangeDoor(1)
     end
 end
 

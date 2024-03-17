@@ -1,29 +1,22 @@
 local Log = require("Tools/log.lua")
 local Camera = require("Modules/camera.lua")
+local Def = require("Modules/def.lua")
 local Hud = require("Modules/hud.lua")
 local Ui = require("Modules/ui.lua")
 local Event = {}
 Event.__index = Event
 
-Situation = {
-    Normal = 0,
-    Landing = 1,
-    Waiting = 2,
-    InVehicle = 3,
-    TalkingOff = 4,
-}
-
 function Event:New(av_obj)
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Event")
-    obj.hud_obj = Hud:New()
+    obj.hud_obj = Hud:New(av_obj.engine_obj)
     obj.ui_obj = Ui:New()
     obj.av_obj = av_obj
     obj.camera_obj = Camera:New()
 
     -- set default parameters
-    obj.current_situation = Situation.Normal
+    obj.current_situation = Def.Situation.Normal
 
     return setmetatable(obj, self)
 end
@@ -39,29 +32,29 @@ function Event:Init(index)
 end
 
 function Event:SetSituation(situation)
-    if self.current_situation == Situation.Normal and situation == Situation.Landing then
+    if self.current_situation == Def.Situation.Normal and situation == Def.Situation.Landing then
         self.log_obj:Record(LogLevel.Info, "Landing detected")
-        self.current_situation = Situation.Landing
+        self.current_situation = Def.Situation.Landing
         return true
-    elseif self.current_situation == Situation.Landing and situation == Situation.Waiting then
+    elseif self.current_situation == Def.Situation.Landing and situation == Def.Situation.Waiting then
         self.log_obj:Record(LogLevel.Info, "Waiting detected")
-        self.current_situation = Situation.Waiting
+        self.current_situation = Def.Situation.Waiting
         return true
-    elseif (self.current_situation == Situation.Waiting and situation == Situation.InVehicle) then
+    elseif (self.current_situation == Def.Situation.Waiting and situation == Def.Situation.InVehicle) then
         self.log_obj:Record(LogLevel.Info, "InVehicle detected")
-        self.current_situation = Situation.InVehicle
+        self.current_situation = Def.Situation.InVehicle
         return true
-    elseif (self.current_situation == Situation.Waiting and situation == Situation.TalkingOff) then
+    elseif (self.current_situation == Def.Situation.Waiting and situation == Def.Situation.TalkingOff) then
         self.log_obj:Record(LogLevel.Info, "TalkingOff detected")
-        self.current_situation = Situation.TalkingOff
+        self.current_situation = Def.Situation.TalkingOff
         return true
-    elseif (self.current_situation == Situation.InVehicle and situation == Situation.Waiting) then
+    elseif (self.current_situation == Def.Situation.InVehicle and situation == Def.Situation.Waiting) then
         self.log_obj:Record(LogLevel.Info, "Waiting detected")
-        self.current_situation = Situation.Waiting
+        self.current_situation = Def.Situation.Waiting
         return true
-    elseif (self.current_situation == Situation.TalkingOff and situation == Situation.Normal) then
+    elseif (self.current_situation == Def.Situation.TalkingOff and situation == Def.Situation.Normal) then
         self.log_obj:Record(LogLevel.Info, "Normal detected")
-        self.current_situation = Situation.Normal
+        self.current_situation = Def.Situation.Normal
         return true
     else
         self.log_obj:Record(LogLevel.Critical, "Invalid translating situation")
@@ -70,16 +63,17 @@ function Event:SetSituation(situation)
 end
 
 function Event:CheckAllEvents()
-    if self.current_situation == Situation.Normal then
+    if self.current_situation == Def.Situation.Normal then
         self:CheckCallVehicle()
-    elseif self.current_situation == Situation.Landing then
+    elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
-    elseif self.current_situation == Situation.Waiting then
+    elseif self.current_situation == Def.Situation.Waiting then
         self:CheckInEntryArea()
         self:CheckInAV()
-    elseif self.current_situation == Situation.InVehicle then
+        self:CheckReturnVehicle()
+    elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
-    elseif self.current_situation == Situation.TalkingOff then
+    elseif self.current_situation == Def.Situation.TalkingOff then
         print("TalkingOff")
     else
         self.log_obj:Record(LogLevel.Critical, "Invalid situation detected")
@@ -89,7 +83,7 @@ end
 function Event:CheckCallVehicle()
     if self.ui_obj:GetCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
-        self:SetSituation(Situation.Landing)
+        self:SetSituation(Def.Situation.Landing)
         self.av_obj:SpawnToSky(5.5, 50)
     end
 end
@@ -97,7 +91,8 @@ end
 function Event:CheckLanded()
     if self.av_obj.position_obj:IsCollision() then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
-        self:SetSituation(Situation.Waiting)
+        self:SetSituation(Def.Situation.Waiting)
+        self.av_obj:ChangeDoorState(1,Def.DoorOperation.Open)
     end
 end
 
@@ -113,27 +108,40 @@ end
 function Event:CheckInAV()
     if self.av_obj:IsPlayerIn() then
         -- when player take on AV
-        if self.current_situation == Situation.Waiting then
+        if self.current_situation == Def.Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
-            self:SetSituation(Situation.InVehicle)
+            self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
             self:ChangeCamera()
+            self.av_obj:ChangeDoorState(1, Def.DoorOperation.Close)
+            self.hud_obj:ShowMeter()
         end
     else
         -- when player take off from AV
-        if self.current_situation == Situation.InVehicle then
+        if self.current_situation == Def.Situation.InVehicle then
             self.log_obj:Record(LogLevel.Info, "Exit AV")
-            self:SetSituation(Situation.Waiting)
-            DAV.Cron.After(5, function()
-                self:ChangeCamera()
-            end)
-            -- self:ChangeCamera()
+            self:SetSituation(Def.Situation.Waiting)
+            self.av_obj:ChangeDoorState(1, Def.DoorOperation.Open)
+            self:ChangeCamera()
         end
     end
 end
 
+function Event:CheckReturnVehicle()
+    if self.ui_obj:GetCallStatus() then
+        self.log_obj:Record(LogLevel.Trace, "Vehicle return detected")
+        self:SetSituation(Def.Situation.TalkingOff)
+        self.av_obj:ChangeDoorState(1, Def.DoorOperation.Close)
+        self.av_obj:DespawnFromGround()
+        DAV.Cron.After(10, function()
+            self:SetSituation(Def.Situation.Normal)
+        end)
+    end
+end
+
+
 function Event:IsInEntryArea()
-    if self.current_situation == Situation.Waiting and self.av_obj.position_obj:IsPlayerInEntryArea() then
+    if self.current_situation == Def.Situation.Waiting and self.av_obj.position_obj:IsPlayerInEntryArea() then
         return true
     else
         return false
@@ -141,7 +149,7 @@ function Event:IsInEntryArea()
 end
 
 function Event:IsInVehicle()
-    if self.current_situation == Situation.InVehicle and self.av_obj:IsPlayerIn() then
+    if self.current_situation == Def.Situation.InVehicle and self.av_obj:IsPlayerIn() then
         return true
     else
         return false
@@ -149,10 +157,27 @@ function Event:IsInVehicle()
 end
 
 function Event:ChangeCamera()
-    if self.current_situation == Situation.InVehicle then
-        self.camera_obj:SetCameraPosition(CameraDistanceLevel.TppClose)
-    elseif self.current_situation == Situation.Waiting then
-        self.camera_obj:SetCameraPosition(CameraDistanceLevel.Fpp)
+    if self.current_situation == Def.Situation.InVehicle then
+        self.camera_obj:SetCameraPosition(Def.CameraDistanceLevel.TppClose)
+    elseif self.current_situation == Def.Situation.Waiting then
+        self.camera_obj:SetCameraPosition(Def.CameraDistanceLevel.Fpp)
+    end
+end
+
+function Event:ToggleCamera()
+    if self.current_situation == Def.Situation.InVehicle then
+        local res = self.camera_obj:ToggleCameraPosition()
+        if res == Def.CameraDistanceLevel.Fpp then
+            self.av_obj.player_obj:ActivateTPPHead(false)
+        elseif res == Def.CameraDistanceLevel.TppClose then
+            self.av_obj.player_obj:ActivateTPPHead(true)
+         end
+    end
+end
+
+function Event:ChangeDoor()
+    if self.current_situation == Def.Situation.InVehicle then
+        self.av_obj:ChangeDoorState(1, Def.DoorOperation.Change)
     end
 end
 
