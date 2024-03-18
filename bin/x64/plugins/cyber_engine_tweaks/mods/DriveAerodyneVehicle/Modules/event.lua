@@ -29,6 +29,14 @@ function Event:Init(index)
 
     self.ui_obj:Init(display_name_lockey, logo_inkatlas_path, logo_inkatlas_part_name)
     self.hud_obj:Init(choice_title)
+
+    Override("OpenVendorUI", "CreateInteraction", function(this, arg_1, arg_2, arg_3, wrapped_method)
+        if this:GetActionName().value == "vehicle_door_quest_locked" and self:IsInEntryArea() then
+            self.log_obj:Record(LogLevel.Trace, "Disappear vehicle door quest locked")
+            return
+        end
+        wrapped_method(arg_1, arg_2, arg_3)
+    end)
 end
 
 function Event:SetSituation(situation)
@@ -110,11 +118,13 @@ function Event:CheckInAV()
         -- when player take on AV
         if self.current_situation == Def.Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
+            SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
             self:ChangeCamera()
             self.av_obj:ChangeDoorState(1, Def.DoorOperation.Close)
             self.hud_obj:ShowMeter()
+            self.hud_obj:ShowCustomHint()
         end
     else
         -- when player take off from AV
@@ -124,6 +134,8 @@ function Event:CheckInAV()
             self.av_obj:ChangeDoorState(1, Def.DoorOperation.Open)
             self:ChangeCamera()
             self.hud_obj:HideMeter()
+            self.hud_obj:HideCustomHint()
+            SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
     end
 end

@@ -1,4 +1,5 @@
 local Log = require("Tools/log.lua")
+local Utils = require("Tools/utils.lua")
 local Hud = {}
 Hud.__index = Hud
 
@@ -16,6 +17,8 @@ function Hud:New(engine_obj)
 	obj.hud_car_controller = nil
 
     obj.is_speed_meter_shown = false
+    obj.key_input_show_hint_event = nil
+    obj.key_input_hide_hint_event = nil
 
     return setmetatable(obj, self)
 end
@@ -25,6 +28,7 @@ function Hud:Init(choice_title)
     self:SetOverride()
     self:SetObserve()
     self:SetChoiceTitle(choice_title)
+    self:SetCustomHint()
 
 end
 
@@ -39,14 +43,6 @@ function Hud:SetOverride()
         wrapped_method(ToVariant(data))
     end)
 
-	Override("OpenVendorUI", "CreateInteraction", function(this, arg_1, arg_2, arg_3, wrapped_method)
-        if this:GetActionName().value == "vehicle_door_quest_locked" then
-            self.log_obj:Record(LogLevel.Debug, "Anti vehicle door quest locked")
-            return
-        end
-        wrapped_method(arg_1, arg_2, arg_3)
-    end)
-
 end
 
 function Hud:SetObserve()
@@ -59,7 +55,7 @@ function Hud:SetObserve()
         self.interaction_ui_base = this
     end)
 
-	Observe("hudCarController", "OnInitialize", function(this)
+	Observe("hudCarController", "OnMountingEvent", function(this)
         self.hud_car_controller = this
     end)
 
@@ -134,5 +130,46 @@ function Hud:HideMeter()
     self.hud_car_controller:OnCameraModeChanged(false)
     self.is_speed_meter_shown = false
 end
+
+function Hud:SetCustomHint()
+    local hint_table = Utils:ReadJson("Data/key_hint.json")
+    self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()
+    self.key_input_hide_hint_event = UpdateInputHintMultipleEvent.new()
+    self.key_input_show_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
+    self.key_input_hide_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
+    for _, hint in ipairs(hint_table) do
+        local input_hint_data = InputHintData.new()
+        input_hint_data.source = CName.new(hint.source)
+        input_hint_data.action = CName.new(hint.action)
+        if hint.holdIndicationType == "FromInputConfig" then
+            input_hint_data.holdIndicationType = inkInputHintHoldIndicationType.FromInputConfig
+        elseif hint.holdIndicationType == "Hold" then
+            input_hint_data.holdIndicationType = inkInputHintHoldIndicationType.Hold
+        elseif hint.holdIndicationType == "Press" then
+            input_hint_data.holdIndicationType = inkInputHintHoldIndicationType.Press
+        else 
+            input_hint_data.holdIndicationType = inkInputHintHoldIndicationType.FromInputConfig
+        end
+        input_hint_data.sortingPriority = hint.sortingPriority
+        input_hint_data.enableHoldAnimation = hint.enableHoldAnimation
+        local keys = string.gmatch(hint.localizedLabel, "LocKey#(%d+)")
+        local localizedLabels = {}
+        for key in keys do
+            table.insert(localizedLabels, GetLocalizedText("LocKey#" .. key))
+        end
+        input_hint_data.localizedLabel = table.concat(localizedLabels, "-")
+        self.key_input_show_hint_event:AddInputHint(input_hint_data, true)
+        self.key_input_hide_hint_event:AddInputHint(input_hint_data, false)
+    end
+end
+
+function Hud:ShowCustomHint()
+    Game.GetUISystem():QueueEvent(self.key_input_show_hint_event)
+end
+
+function Hud:HideCustomHint()
+    Game.GetUISystem():QueueEvent(self.key_input_hide_hint_event)
+end
+
 
 return Hud

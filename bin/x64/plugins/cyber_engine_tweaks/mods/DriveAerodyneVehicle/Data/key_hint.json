@@ -1,0 +1,58 @@
+[
+    {
+        "source": "Accelerator",
+        "action": "click",
+        "localizedLabel": "LocKey#53168",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "ForwardBack",
+        "action": "LeftY_Axis",
+        "localizedLabel": "LocKey#77762+LocKey#78161",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "RightLeft",
+        "action": "LeftX_Axis",
+        "localizedLabel": "LocKey#77765+LocKey#77763",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "ROTATE",
+        "action": "character_preview_rotate",
+        "localizedLabel": "LocKey#15315",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "Camera",
+        "action": "secondaryAction",
+        "localizedLabel": "LocKey#15445",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "Door",
+        "action": "CallVehicle",
+        "localizedLabel": "LocKey#90595",
+        "sortingPriority": 0,
+        "holdIndicationType": "Press",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "Exit",
+        "action": "CharacterPanel",
+        "localizedLabel": "LocKey#36196",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    }
+]

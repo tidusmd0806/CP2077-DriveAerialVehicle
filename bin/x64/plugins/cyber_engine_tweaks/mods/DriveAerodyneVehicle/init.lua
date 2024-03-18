@@ -37,6 +37,18 @@ registerForEvent('onInit', function()
 
     end)
 
+    function handleInput(event)
+        print('Key: ' .. event:GetKey().value)
+        print('Action: ' .. event:GetAction().value)
+    end
+
+    DAV.inputListener = NewProxy({
+        OnKeyInput = { 
+            args = {'whandle:KeyInputEvent'},
+            callback = handleInput
+        }
+    })
+
     DAV.ready = true
     print('Drive an Aerodyne Vehicle Mod is ready!')
 end)

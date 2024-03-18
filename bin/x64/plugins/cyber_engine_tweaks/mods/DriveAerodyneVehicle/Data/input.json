@@ -1,121 +1,61 @@
 {
-    "KEY_SPACE_PRESS_IN_AV": {
-        "name": "UI_Skip",
-        "type": "BUTTON_PRESSED",
-        "value": "POSITIVE"
-    },
-    "KEY_SPACE_RELEASE_IN_AV": {
-        "name": "UI_Skip",
-        "type": "BUTTON_RELEASED",
-        "value": "ZERO"
-    },
-    "KEY_RIGHT_CLICK_PRESS_IN_AV": {
-        "name": "UI_Cancel",
-        "type": "BUTTON_PRESSED",
-        "value": "POSITIVE"
-    },
-    "KEY_RIGHT_CLICK_RELEASE_IN_AV": {
-        "name": "UI_Cancel",
-        "type": "BUTTON_RELEASED",
-        "value": "ZERO"
-    },
-    "KEY_CLICK_PRESS_IN_AV": {
+    "KEY_AV_ACCELERTOR": {
         "name": "click_hold",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
-    "KEY_CLICK_HOLD_IN_AV": {
-        "name": "click_hold",
-        "type": "BUTTON_HOLD_PROGRESS",
-        "value": "POSITIVE"
-    },
-    "KEY_CLICK_RELEASE_IN_AV": {
+    "KEY_AV_DOWN": {
         "name": "click_hold",
         "type": "BUTTON_RELEASED",
         "value": "ZERO"
     },
-    "KEY_W_PRESS_IN_AV": {
+    "KEY_AV_FORWARD_MOVE": {
         "name": "LeftY_Axis",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
-    "KEY_W_RELEASE_IN_AV": {
-        "name": "LeftY_Axis",
-        "type": "AXIS_CHANGE",
-        "value": "ZERO"
-    },
-    "KEY_S_PRESS_IN_AV": {
+    "KEY_AV_BACK_MOVE": {
         "name": "LeftY_Axis",
         "type": "AXIS_CHANGE",
         "value": "NEGATIVE"
     },
-    "KEY_S_RELEASE_IN_AV": {
-        "name": "LeftY_Axis",
-        "type": "AXIS_CHANGE",
-        "value": "ZERO"
-    },
-    "KEY_D_PRESS_IN_AV": {
+    "KEY_AV_RIGHT_MOVE": {
         "name": "LeftX_Axis",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
-    "KEY_D_RELEASE_IN_AV": {
-        "name": "LeftX_Axis",
-        "type": "AXIS_CHANGE",
-        "value": "ZERO"
-    },
-    "KEY_A_PRESS_IN_AV": {
+    "KEY_AV_LEFT_MOVE": {
         "name": "LeftX_Axis",
         "type": "AXIS_CHANGE",
         "value": "NEGATIVE"
     },
-    "KEY_A_RELEASE_IN_AV": {
-        "name": "LeftX_Axis",
-        "type": "AXIS_CHANGE",
-        "value": "ZERO"
-    },
-    "KEY_E_PRESS_IN_AV": {
+    "KEY_AV_RIGHT_ROTATE": {
         "name": "character_preview_rotate",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
-    "KEY_E_RELEASE_IN_AV": {
-        "name": "character_preview_rotate",
-        "type": "AXIS_CHANGE",
-        "value": "ZERO"
-    },
-    "KEY_Q_PRESS_IN_AV": {
+    "KEY_AV_LEFT_ROTATE": {
         "name": "character_preview_rotate",
         "type": "AXIS_CHANGE",
         "value": "NEGATIVE"
     },
-    "KEY_Q_RELEASE_IN_AV": {
-        "name": "character_preview_rotate",
-        "type": "AXIS_CHANGE",
+    "KEY_WORLD_ENTER_AV": {
+        "name": "Choice1",
+        "type": "BUTTON_RELEASED",
         "value": "ZERO"
     },
-    "KEY_F_PRESS_IN_WORLD": {
-        "name": "click",
+    "KEY_AV_EXIT_AV": {
+        "name": "CharacterPanel",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
-    "KEY_F_PRESS_IN_AV": {
-        "name": "Exit",
-        "type": "BUTTON_PRESSED",
-        "value": "POSITIVE"
-    },
-    "KEY_CALL_Vehicle": {
-        "name": "CallVehicle",
-        "type": "BUTTON_PRESSED",
-        "value": "POSITIVE"
-    },
-    "KEY_CAMERA_CHANGE": {
+    "KEY_AV_CAMERA": {
         "name": "secondaryAction",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
-    "KEY_OPEN_DOOR_1": {
-        "name": "PhoneInteract",
+    "KEY_AV_OPEN_DOOR": {
+        "name": "CallVehicle",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     }

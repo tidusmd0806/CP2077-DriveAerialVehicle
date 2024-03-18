@@ -93,29 +93,29 @@ function Core:ConvertActionList(action_name, action_type, action_value)
     local action_command = Def.ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value}
 
-    if Utils:IsTablesEqual(action_dist, self.input_table.KEY_RIGHT_CLICK_PRESS_IN_AV) then
+    if Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_ACCELERTOR) then
         action_command = Def.ActionList.Up
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_RIGHT_CLICK_RELEASE_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_DOWN) then
         action_command = Def.ActionList.Down
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_W_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_FORWARD_MOVE) then
         action_command = Def.ActionList.Forward
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_S_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_BACK_MOVE) then
         action_command = Def.ActionList.Backward
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_D_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_RIGHT_MOVE) then
         action_command = Def.ActionList.Right
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_A_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_LEFT_MOVE) then
         action_command = Def.ActionList.Left
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_E_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_RIGHT_ROTATE) then
         action_command = Def.ActionList.TurnRight
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_Q_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_LEFT_ROTATE) then
         action_command = Def.ActionList.TurnLeft
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_F_PRESS_IN_WORLD) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_WORLD_ENTER_AV) then
         action_command = Def.ActionList.Enter
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_F_PRESS_IN_AV) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_EXIT_AV) then
         action_command = Def.ActionList.Exit
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_CAMERA_CHANGE) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_CAMERA) then
         action_command = Def.ActionList.ChangeCamera
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_OPEN_DOOR_1) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_OPEN_DOOR) then
         action_command = Def.ActionList.ChangeDoor1
     else
         action_command = Def.ActionList.Nothing
@@ -179,51 +179,10 @@ function Core:LockAerodyneDoor()
 end
 
 function Core:UnlockAerodyneDoor()
-    -- self.av_obj:UnlockDoor()
+    self.av_obj:UnlockDoor()
 
-    SaveLocksManager.RequestSaveLockAdd("PersonalLink")
-
-    local ui_system = Game.GetUISystem()
-    local event = UpdateInputHintMultipleEvent.new()
-    event.targetHintContainer = CName.new("GameplayInputHelper")
-
-    local data = InputHintData.new()
-    data.source = CName.new("IK_G")
-    data.action = CName.new("Forward")
-    data.holdIndicationType = inkInputHintHoldIndicationType.FromInputConfig
-    data.sortingPriority = 0
-    data.enableHoldAnimation = false
-    data.localizedLabel = GetLocalizedTextByKey("Input-Hint-Enable-Flight")
-    if string.len(data.localizedLabel) == 0 then
-        data.localizedLabel = tostring("Input-Hint-Enable-Flight")
-      end
-
-    event:AddInputHint(data, true)
-    ui_system:QueueEvent(event)
-
-    -- DAV.hudCarController:ShowRequest()
-    -- DAV.hudCarController:OnInitialize()
-    -- DAV.hudCarController:OnCameraModeChanged(true)
-    -- DAV.Cron.Every(1, function()
-    --     local rand = math.random(0,7)
-    --     DAV.hudCarController:OnSpeedValueChanged(rand)
-    --     DAV.hudCarController:OnRpmValueChanged(rand)
-    --     DAV.hudCarController:EvaluateRPMMeterWidget(rand)
-    -- end)
+    Game.GetCallbackSystem():RegisterCallback(CName.new("Input/Key"), DAV.inputListener:Target(), DAV.inputListener:Function("OnKeyInput"))
     
-    -- local event = VehicleUIactivateEvent.new()
-    -- event.activate = true
-    -- local ev = LateInit.new()
-    -- self.event_obj.hud_obj.hud_car_controller:QueueEvent(ev)
-
-    -- local inkSystem = Game.GetInkSystem()
-    -- local layer_ = inkSystem:GetLayer("inkHUDLayer"):GetVirtualWindow()
-    -- local layers = inkSystem:GetLayers();
-
-    -- for _, layer in ipairs(layers) do
-    --     print(layer:GetLayerName())
-    -- end
-
 end
 
 function Core:Mount()

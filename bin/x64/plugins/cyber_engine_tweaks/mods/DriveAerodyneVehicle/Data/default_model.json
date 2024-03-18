@@ -53,6 +53,6 @@
         },
         "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
         "entry_area_radius": 2.0,
-        "exit_point": {"x": -3.0, "y": 0, "z": -1.0}
+        "exit_point": {"x": -2.0, "y": 0, "z": -1.0}
     }
 ]
