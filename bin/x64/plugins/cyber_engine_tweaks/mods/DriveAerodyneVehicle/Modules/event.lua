@@ -123,6 +123,7 @@ function Event:CheckInAV()
             self:SetSituation(Def.Situation.Waiting)
             self.av_obj:ChangeDoorState(1, Def.DoorOperation.Open)
             self:ChangeCamera()
+            self.hud_obj:HideMeter()
         end
     end
 end

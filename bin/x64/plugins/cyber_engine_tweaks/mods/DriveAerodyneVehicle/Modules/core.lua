@@ -211,24 +211,18 @@ function Core:UnlockAerodyneDoor()
     --     DAV.hudCarController:EvaluateRPMMeterWidget(rand)
     -- end)
     
-    local event = VehicleUIactivateEvent.new()
-    event.activate = true
-    local ev = LateInit.new()
-    self.event_obj.hud_obj.hud_car_controller:QueueEvent(ev)
+    -- local event = VehicleUIactivateEvent.new()
+    -- event.activate = true
+    -- local ev = LateInit.new()
+    -- self.event_obj.hud_obj.hud_car_controller:QueueEvent(ev)
 
-    local inkSystem = Game.GetInkSystem()
-    local layer_ = inkSystem:GetLayer("inkHUDLayer"):GetVirtualWindow()
-    local layers = inkSystem:GetLayers();
+    -- local inkSystem = Game.GetInkSystem()
+    -- local layer_ = inkSystem:GetLayer("inkHUDLayer"):GetVirtualWindow()
+    -- local layers = inkSystem:GetLayers();
 
-    for _, layer in ipairs(layers) do
-        print(layer:GetLayerName())
-    end
-
-    local tmp = self.event_obj.hud_obj.hud_car_controller:GetRootWidget()
-    self.event_obj.hud_obj.hud_car_controller = nil
-    print(tmp.name)
-    tmp:SetVisible(true)
-    -- tmp:Reparent(layer_)
+    -- for _, layer in ipairs(layers) do
+    --     print(layer:GetLayerName())
+    -- end
 
 end
 
