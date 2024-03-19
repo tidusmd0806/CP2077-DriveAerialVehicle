@@ -1,7 +1,7 @@
 [
     {
         "source": "Accelerator",
-        "action": "click",
+        "action": "dav_accelerate",
         "localizedLabel": "LocKey#53168",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
@@ -9,7 +9,7 @@
     },
     {
         "source": "ForwardBack",
-        "action": "LeftY_Axis",
+        "action": "dav_y_move",
         "localizedLabel": "LocKey#77762+LocKey#78161",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
@@ -17,15 +17,15 @@
     },
     {
         "source": "RightLeft",
-        "action": "LeftX_Axis",
+        "action": "dav_x_move",
         "localizedLabel": "LocKey#77765+LocKey#77763",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
         "enableHoldAnimation": false
     },
     {
-        "source": "ROTATE",
-        "action": "character_preview_rotate",
+        "source": "Rotate",
+        "action": "dav_rotate_move",
         "localizedLabel": "LocKey#15315",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
@@ -33,7 +33,7 @@
     },
     {
         "source": "Camera",
-        "action": "secondaryAction",
+        "action": "dav_change_view",
         "localizedLabel": "LocKey#15445",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
@@ -41,7 +41,7 @@
     },
     {
         "source": "Door",
-        "action": "CallVehicle",
+        "action": "dav_toggle_door_1",
         "localizedLabel": "LocKey#90595",
         "sortingPriority": 0,
         "holdIndicationType": "Press",
@@ -49,7 +49,7 @@
     },
     {
         "source": "Exit",
-        "action": "CharacterPanel",
+        "action": "dav_get_off",
         "localizedLabel": "LocKey#36196",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",

@@ -1,61 +1,61 @@
 {
     "KEY_AV_ACCELERTOR": {
-        "name": "click_hold",
+        "name": "dav_accelerate",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
     "KEY_AV_DOWN": {
-        "name": "click_hold",
+        "name": "dav_accelerate",
         "type": "BUTTON_RELEASED",
         "value": "ZERO"
     },
     "KEY_AV_FORWARD_MOVE": {
-        "name": "LeftY_Axis",
+        "name": "dav_y_move",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
     "KEY_AV_BACK_MOVE": {
-        "name": "LeftY_Axis",
+        "name": "dav_y_move",
         "type": "AXIS_CHANGE",
         "value": "NEGATIVE"
     },
     "KEY_AV_RIGHT_MOVE": {
-        "name": "LeftX_Axis",
+        "name": "dav_x_move",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
     "KEY_AV_LEFT_MOVE": {
-        "name": "LeftX_Axis",
+        "name": "dav_x_move",
         "type": "AXIS_CHANGE",
         "value": "NEGATIVE"
     },
     "KEY_AV_RIGHT_ROTATE": {
-        "name": "character_preview_rotate",
-        "type": "AXIS_CHANGE",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_LEFT_ROTATE": {
-        "name": "character_preview_rotate",
+        "name": "dav_rotate_move",
         "type": "AXIS_CHANGE",
         "value": "NEGATIVE"
     },
+    "KEY_AV_LEFT_ROTATE": {
+        "name": "dav_rotate_move",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
+    },
     "KEY_WORLD_ENTER_AV": {
-        "name": "Choice1",
-        "type": "BUTTON_RELEASED",
-        "value": "ZERO"
+        "name": "dav_choice",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
     },
     "KEY_AV_EXIT_AV": {
-        "name": "CharacterPanel",
+        "name": "dav_get_off",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
     "KEY_AV_CAMERA": {
-        "name": "secondaryAction",
+        "name": "dav_change_view",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
-    "KEY_AV_OPEN_DOOR": {
-        "name": "CallVehicle",
+    "KEY_AV_TOGGLE_DOOR_1": {
+        "name": "dav_toggle_door_1",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     }

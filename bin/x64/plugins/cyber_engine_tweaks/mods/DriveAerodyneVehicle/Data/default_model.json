@@ -25,8 +25,8 @@
             "famale": "sit_chair_lean180__2h_on_lap__01",
             "male": "sit_chair_lean180__2h_on_lap__01"
         },
-        "roll_speed": 0.8,
-        "pitch_speed": 0.8,
+        "roll_speed": 0.5,
+        "pitch_speed": 0.5,
         "yaw_speed": 0.8,
         "roll_restore_speed": 0.1,
         "pitch_restore_speed": 0.1,

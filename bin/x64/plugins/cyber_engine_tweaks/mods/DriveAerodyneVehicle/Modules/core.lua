@@ -115,7 +115,7 @@ function Core:ConvertActionList(action_name, action_type, action_value)
         action_command = Def.ActionList.Exit
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_CAMERA) then
         action_command = Def.ActionList.ChangeCamera
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_OPEN_DOOR) then
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_TOGGLE_DOOR_1) then
         action_command = Def.ActionList.ChangeDoor1
     else
         action_command = Def.ActionList.Nothing
@@ -125,7 +125,10 @@ function Core:ConvertActionList(action_name, action_type, action_value)
 end
 
 function Core:GetActions()
+
     local actions = {}
+    local unique_actions = {}
+
     if self.queue_obj:IsEmpty() then
         local action = Def.ActionList.Nothing
         table.insert(actions, action)
@@ -139,11 +142,25 @@ function Core:GetActions()
             end
         end
     end
+
     if actions == {} then
         local action = Def.ActionList.Nothing
         table.insert(actions, action)
     end
-    self:OperateAerodyneVehicle(actions)
+
+    for _, action in ipairs(actions) do
+        if not unique_actions[action] then
+            unique_actions[action] = true
+        end
+    end
+
+    local unique_actions_list = {}
+    for action in pairs(unique_actions) do
+        table.insert(unique_actions_list, action)
+    end
+
+    self:OperateAerodyneVehicle(unique_actions_list)
+
 end
 
 function Core:CallAerodyneVehicle()
@@ -180,9 +197,6 @@ end
 
 function Core:UnlockAerodyneDoor()
     self.av_obj:UnlockDoor()
-
-    Game.GetCallbackSystem():RegisterCallback(CName.new("Input/Key"), DAV.inputListener:Target(), DAV.inputListener:Function("OnKeyInput"))
-    
 end
 
 function Core:Mount()
