@@ -2,7 +2,7 @@ local Log = require("Tools/log.lua")
 local Camera = {}
 Camera.__index = Camera
 
-function Camera:New()
+function Camera:New(av_obj)
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Camera")
@@ -13,10 +13,17 @@ function Camera:New()
     obj.yawMaxRight = -360
     obj.yawMaxLeft = 360
 
+    obj.x_offset = 0.0
+
     -- set default parameters
     obj.current_camera_mode = Def.CameraDistanceLevel.Fpp
 
     return setmetatable(obj, self)
+end
+
+function Camera:SetOffset()
+    local index = self.av_obj.model_index
+    self.x_offset = -1 * self.av_obj.model[index].seat_position[3]
 end
 
 function Camera:ChangePosition()
@@ -31,28 +38,28 @@ end
 
 function Camera:SetCameraPosition(level)
     if level == Def.CameraDistanceLevel.Fpp then
-        self.camera_vector = Vector4.new(0.0, 0.0, 0.0, 1.0)
+        self.camera_vector = Vector4.new(0.0, 0.1, 0.0, 1.0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360
         self.yawMaxLeft = 360
         self.current_camera_mode = Def.CameraDistanceLevel.Fpp
     elseif level == Def.CameraDistanceLevel.TppClose then
-        self.camera_vector = Vector4.new(0.35, -7.5, 1.5, 1.0)
+        self.camera_vector = Vector4.new(self.x_offset, -7.5, 1.5, 1.0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360
         self.yawMaxLeft = 360
         self.current_camera_mode = Def.CameraDistanceLevel.TppClose
     elseif level == Def.CameraDistanceLevel.TppMedium then
-        self.camera_vector = Vector4.new(0.35, -10.0, 2.0, 1.0)
+        self.camera_vector = Vector4.new(self.x_offset, -10.0, 2.0, 1.0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360
         self.yawMaxLeft = 360
         self.current_camera_mode = Def.CameraDistanceLevel.TppMedium
     elseif level == Def.CameraDistanceLevel.TppFar then
-        self.camera_vector = Vector4.new(0.35, -15.0, 2.8, 1.0)
+        self.camera_vector = Vector4.new(self.x_offset, -15.0, 2.8, 1.0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360

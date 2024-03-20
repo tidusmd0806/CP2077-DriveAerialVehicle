@@ -19,7 +19,7 @@ end
 function Debug:Init()
     ImGui.SetNextWindowPos(100, 500, ImGuiCond.FirstUseEver) -- set window position x, y
     ImGui.SetNextWindowSize(800, 1000, ImGuiCond.Appearing) -- set window size w, h
-    ImGui.Begin("RAV DEBUG WINDOW")
+    ImGui.Begin("DAV DEBUG WINDOW")
     ImGui.Text("Debug Mode : On")
 end
 

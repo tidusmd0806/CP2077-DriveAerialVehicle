@@ -3,14 +3,14 @@ local Utils = require("Tools/utils.lua")
 local Hud = {}
 Hud.__index = Hud
 
-function Hud:New(engine_obj)
+function Hud:New(av_obj)
 
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Hud")
 
     -- set default parameters
-    obj.engine_obj = engine_obj
+    obj.av_obj = av_obj
     obj.interaction_ui_base = nil
     obj.interaction_hub = nil
     obj.choice_title = "AV"
@@ -23,11 +23,11 @@ function Hud:New(engine_obj)
     return setmetatable(obj, self)
 end
 
-function Hud:Init(choice_title)
+function Hud:Init()
 
     self:SetOverride()
     self:SetObserve()
-    self:SetChoiceTitle(choice_title)
+    self:SetChoiceTitle()
     self:SetCustomHint()
 
 end
@@ -61,8 +61,9 @@ function Hud:SetObserve()
 
 end
 
-function Hud:SetChoiceTitle(title)
-    self.choice_title = title
+function Hud:SetChoiceTitle()
+    local index = self.av_obj.model_index
+    self.choice_title = self.av_obj.all_models[index].name
 end
 
 function Hud:ShowChoice()
@@ -110,8 +111,8 @@ function Hud:ShowMeter()
     else
         self.is_speed_meter_shown = true
         DAV.Cron.Every(1, function()
-            local mph = self.engine_obj.current_speed * (3600 / 1600)
-            local power_level = math.floor((self.engine_obj.lift_force - self.engine_obj.min_lift_force) / ((self.engine_obj.max_lift_force - self.engine_obj.min_lift_force) / 10))
+            local mph = self.av_obj.engine_obj.current_speed * (3600 / 1600)
+            local power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
             self.hud_car_controller:OnSpeedValueChanged(mph / 3)
             self.hud_car_controller:OnRpmValueChanged(power_level)
             self.hud_car_controller:EvaluateRPMMeterWidget(power_level)

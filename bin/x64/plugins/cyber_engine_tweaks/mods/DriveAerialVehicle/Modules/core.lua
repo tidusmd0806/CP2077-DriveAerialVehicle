@@ -30,7 +30,6 @@ end
 
 function Core:Init()
 
-    local model_info = {1, 1}
     local all_models = self:GetAllModel()
     self.input_table = self:GetInputTable(self.input_path)
 
@@ -43,10 +42,10 @@ function Core:Init()
     self.player_obj:Init()
 
     self.av_obj = AV:New(all_models)
-    self.av_obj:SetModel(model_info)
+    self.av_obj:SetModel()
 
     self.event_obj = Event:New(self.av_obj)
-    self.event_obj:Init(model_info[1])
+    self.event_obj:Init()
 
     DAV.Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
@@ -132,39 +131,21 @@ end
 function Core:GetActions()
 
     local actions = {}
-    local unique_actions = {}
 
-    if self.queue_obj:IsEmpty() then
-        local action = Def.ActionList.Nothing
-        table.insert(actions, action)
-    else
-        while not self.queue_obj:IsEmpty() do
-            local action = self.queue_obj:Dequeue()
-            if action >= Def.ActionList.Enter then
-                self:SetEvent(action)
-            else
-                table.insert(actions, action)
-            end
+    while not self.queue_obj:IsEmpty() do
+        local action = self.queue_obj:Dequeue()
+        if action >= Def.ActionList.Enter then
+            self:SetEvent(action)
+        else
+            table.insert(actions, action)
         end
     end
 
-    if actions == {} then
-        local action = Def.ActionList.Nothing
-        table.insert(actions, action)
+    if #actions == 0 then
+        table.insert(actions, Def.ActionList.Nothing)
     end
 
-    for _, action in ipairs(actions) do
-        if not unique_actions[action] then
-            unique_actions[action] = true
-        end
-    end
-
-    local unique_actions_list = {}
-    for action in pairs(unique_actions) do
-        table.insert(unique_actions_list, action)
-    end
-
-    self:OperateAerialVehicle(unique_actions_list)
+    self:OperateAerialVehicle(actions)
 
 end
 
@@ -184,39 +165,24 @@ function Core:CallAerodyneVehicle()
 end
 
 function Core:ChangeAerodyneDoor()
-    self.av_obj:ChangeDoorState(1, Def.DoorOperation.Change)
+    self.av_obj:ChangeDoorState(Def.DoorOperation.Change)
 end
 
 function Core:LockAerodyneDoor()
-    -- self.av_obj:LockDoor()
+    self.av_obj:LockDoor()
     -- self.av_obj:Despawn()
     -- local audioEvent = SoundPlayEvent.new()
 
     -- audioEvent.soundName = StringToName("v_av_rayfield_excalibur_traffic_engine_01_av_dplr_01")
     -- print("sound")
     -- Game.GetPlayer():QueueEvent(audioEvent)
-
-    self.av_obj.player_obj:ChangeTppHead()
-end
-
-function Core:UnlockAerodyneDoor()
-    self.av_obj:UnlockDoor()
-end
-
-function Core:Mount()
-    self.av_obj:TakeOn(self.player_obj)
-    self.av_obj:Mount(3)
-end
-
-function Core:Unmount()
-    self.av_obj:Unmount()
 end
 
 function Core:OperateAerialVehicle(actions)
     if self.event_obj:IsInVehicle() then
         self.av_obj:Operate(actions)
-    elseif self.event_obj:IsAvailableMovement() and #actions == 1 and actions[1] == Def.ActionList.Nothing then
-        self.av_obj:Operate(actions)
+    elseif self.event_obj:IsWaiting() then
+        self.av_obj:Operate({Def.ActionList.Nothing})
     end
 end
 

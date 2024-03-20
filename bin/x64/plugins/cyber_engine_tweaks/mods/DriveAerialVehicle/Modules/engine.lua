@@ -30,9 +30,7 @@ function Engine:New(position_obj, all_models)
     obj.air_resistance_constant = nil
     obj.rebound_constant = nil
     obj.max_speed = 80
-    obj.current_speed = 0
-
-    obj.current_mode = Def.PowerMode.Off
+    
 
     -- set default parameters
     obj.next_indication = {roll = 0, pitch = 0, yaw = 0}
@@ -42,7 +40,9 @@ function Engine:New(position_obj, all_models)
     obj.horizenal_y_speed = 0
     obj.vertical_speed = 0
     obj.clock = 0
-    obj.dynamic_lift_force = obj.min_lift_force
+    obj.dynamic_lift_force = 0
+    obj.current_speed = 0
+    obj.current_mode = Def.PowerMode.Off
 
     return setmetatable(obj, self)
 end
@@ -68,6 +68,7 @@ function Engine:SetModel(index)
     self.time_to_max = self.all_models[index].time_to_max
     self.time_to_min = self.all_models[index].time_to_min
     self.rebound_constant = self.all_models[index].rebound_constant
+
 end
 
 function Engine:Init()
@@ -91,14 +92,14 @@ function Engine:GetNextPosition(movement)
         return 0, 0, 0, 0, 0, 0
     end
 
-    local roll, pitch, yaw = self:CalcurateIndication(movement)
-    self:CalcuratePower(movement)
+    local roll, pitch, yaw = self:CalculateIndication(movement)
+    self:CalculatePower(movement)
     local x, y, z = self:CalcureteVelocity()
 
     return x, y, z, roll, pitch, yaw
 end
 
-function Engine:CalcurateIndication(movement)
+function Engine:CalculateIndication(movement)
 
     local actually_indication = self.position_obj:GetEulerAngles()
     self.next_indication["roll"] = actually_indication.roll
@@ -164,7 +165,7 @@ function Engine:CalcurateIndication(movement)
 
 end
 
-function Engine:CalcuratePower(movement)
+function Engine:CalculatePower(movement)
     if movement == Def.ActionList.Down then
         self.log_obj:Record(LogLevel.Trace, "Change Power Off")
         self.clock = 0

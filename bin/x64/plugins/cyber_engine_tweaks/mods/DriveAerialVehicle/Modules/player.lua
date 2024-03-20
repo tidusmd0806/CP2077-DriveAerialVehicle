@@ -30,6 +30,7 @@ function Player:Init()
     end
 end
 
+-- refer to https://github.com/MaximiliumM/appearancemenumod for changing head when tpp or fpp
 function Player:PlayPose(sit_pose)
     local pose_name = nil
     if self.gender == "Female" then
@@ -68,7 +69,7 @@ function Player:StopPose()
     if self.dummy_entity_id ~= nil then
         local dummy_entity = Game.FindEntityByID(self.dummy_entity_id)
         if dummy_entity ~= nil then
-            Game.GetWorkspotSystem():StopInDevice(player)
+            Game.GetWorkspotSystem():StopInDevice(player, nil, nil)
             exEntitySpawner.Despawn(dummy_entity)
             self.dummy_entity_id = nil
         end
@@ -125,6 +126,7 @@ function Player:ActivateTPPHead(is_tpp)
 
         end)
     else
+        Game.GetScriptableSystemsContainer():Get(CName.new('TakeOverControlSystem')):EnablePlayerTPPRepresenation(false)
         DAV.Cron.Every(0.001, { tick = 1 }, function(timer)
             timer.tick = timer.tick + 1
 

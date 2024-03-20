@@ -33,12 +33,17 @@ function AV:New(all_models)
 	obj.active_seat = nil
 	obj.active_door = nil
 
+	obj.model_index = 1
+	obj.model_type_index = 1
+	obj.open_door_index = 1
+	obj.seat_index = 3
+
 	return setmetatable(obj, self)
 end
 
-function AV:SetModel(list)
-	local index = list[1]
-	local type_number = list[2]
+function AV:SetModel()
+	local index = self.model_index
+	local type_number = self.model_type_index
 	self.vehicle_model_tweakdb_id = self.all_models[index].tweakdb_id
 	self.vehicle_model_type = self.all_models[index].type[type_number]
 	self.is_default_mount = self.all_models[index].is_default_mount
@@ -151,7 +156,8 @@ function AV:LockDoor()
 	return true
 end
 
-function AV:ChangeDoorState(door_number, door_state)
+function AV:ChangeDoorState(door_state)
+	local door_number = self.open_door_index
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change door state")
 		return false
@@ -180,7 +186,8 @@ function AV:ChangeDoorState(door_number, door_state)
 	return true
 end
 
-function AV:Mount(seat_number)
+function AV:Mount()
+	local seat_number = self.seat_index
 
 	self.log_obj:Record(LogLevel.Debug, "Mount Aerial Vehicle : " .. seat_number)
 	if self.entity_id == nil then
@@ -191,7 +198,6 @@ function AV:Mount(seat_number)
 	local player = Game.GetPlayer()
 	local ent_id = entity:GetEntityID()
 	local seat = self.active_seat[seat_number]
-	-- local seat = "passenger_seat_e"
 
 
 	local data = NewObject('handle:gameMountEventData')
@@ -224,7 +230,7 @@ function AV:Mount(seat_number)
 			self.position_obj:SetEntity(entity)
 			DAV.Cron.After(0.2, function()
 				if not self.is_default_seat_position then
-					self:SitCorrectPosition(3)
+					self:SitCorrectPosition()
 				end
 				self.player_obj:ActivateTPPHead(true)
 				self.is_player_in = true
@@ -266,6 +272,7 @@ function AV:Unmount()
 	mount_event.mountData = data
 
 	-- self.player_obj:ActivateTPPHead(false)
+	self.player_obj:StopPose()
 
 	Game.GetMountingFacility():Unmount(mount_event)
 
@@ -278,9 +285,7 @@ function AV:Unmount()
 			self.position_obj:SetEntity(entity)
 			Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
 			self.player_obj:ActivateTPPHead(false)
-			DAV.Cron.After(2, function()
-				self.is_player_in = false
-			end)
+			self.is_player_in = false
 			DAV.Cron.Halt(timer)
 		end
 	end)
@@ -308,7 +313,8 @@ function AV:TakeOff()
 	return true
 end
 
-function AV:SitCorrectPosition(seat_number)
+function AV:SitCorrectPosition()
+	local seat_number = self.seat_index
 
 	self.player_obj:PlayPose(self.sit_pose)
 
@@ -346,6 +352,10 @@ function AV:Operate(action_commands)
 	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
 	self.log_obj:Record(LogLevel.Debug, "Operattion Count:" .. #action_commands)
 	for _, action_command in ipairs(action_commands) do
+		if action_command >= Def.ActionList.Enter then
+			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command)
+			return false
+		end
 		local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
 		x_total = x_total + x
 		y_total = y_total + y
@@ -353,6 +363,10 @@ function AV:Operate(action_commands)
 		roll_total = roll_total + roll
 		pitch_total = pitch_total + pitch
 		yaw_total = yaw_total + yaw
+	end
+	if #action_commands == 0 then
+		self.log_obj:Record(LogLevel.Critical, "Division by Zero")
+		return false
 	end
 	x_total = x_total / #action_commands
 	y_total = y_total / #action_commands

@@ -1,8 +1,9 @@
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "0.1",
+	version = "0.0.1",
     ready = false,
     is_debug_mode = true,
+    is_setting_menu = false,
     time_resolution = 0.01,
 }
 
@@ -22,12 +23,6 @@ registerForEvent('onInit', function()
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
 
-        if DAV.is_debug_mode then
-            DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
-        end
-
-        DAV.core_obj:StorePlayerAction(action_name, action_type, action_value)
-
         if DAV.core_obj.event_obj:IsInVehicle() then
             if string.find(action_name, "Exit") then
                 consumer:Consume()
@@ -35,6 +30,12 @@ registerForEvent('onInit', function()
                 consumer:Consume()
             end
         end
+
+        if DAV.is_debug_mode then
+            DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
+        end
+
+        DAV.core_obj:StorePlayerAction(action_name, action_type, action_value)
 
     end)
 
@@ -46,30 +47,17 @@ registerForEvent("onDraw", function()
     if DAV.is_debug_mode then
         DAV.debug_obj:ImGuiMain()
     end
+    if DAV.is_setting_menu then
+        DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
+    end
 end)
 
-registerHotkey('CallAerodyneVehicle', 'Call Aerodyne Vehicle', function()
-    DAV.core_obj:CallAerodyneVehicle()
-end)
-
-registerHotkey('ChangeAerodyneDoor', 'Change Door (TMP)', function()
-    DAV.core_obj:ChangeAerodyneDoor(1)
-end)
-
-registerHotkey('LockAerodyneDoor', 'Lock (TMP)', function()
-    DAV.core_obj:LockAerodyneDoor()
-end)
-
-registerHotkey('UnlockAerodyneDoor', 'Unlock (TMP)', function()
-    DAV.core_obj:UnlockAerodyneDoor()
-end)
-
-registerHotkey('Mount', 'Mount (TMP)', function()
-    DAV.core_obj:Mount(3)
-end)
-
-registerHotkey('Unmount', 'Unmount (TMP)', function()
-    DAV.core_obj:Unmount()
+registerHotkey('Setting', 'Show Set Up Menu', function()
+    if DAV.is_setting_menu then
+        DAV.is_setting_menu = false
+    else
+        DAV.is_setting_menu = true
+    end
 end)
 
 registerForEvent('onUpdate', function(delta)

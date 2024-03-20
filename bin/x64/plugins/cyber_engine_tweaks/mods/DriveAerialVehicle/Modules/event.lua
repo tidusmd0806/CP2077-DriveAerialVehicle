@@ -1,6 +1,7 @@
 local Log = require("Tools/log.lua")
 local Camera = require("Modules/camera.lua")
 local Def = require("Modules/def.lua")
+local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
 local Ui = require("Modules/ui.lua")
 local Event = {}
@@ -10,10 +11,10 @@ function Event:New(av_obj)
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Event")
-    obj.hud_obj = Hud:New(av_obj.engine_obj)
-    obj.ui_obj = Ui:New()
+    obj.hud_obj = Hud:New(av_obj)
+    obj.ui_obj = Ui:New(av_obj)
+    obj.camera_obj = Camera:New(av_obj)
     obj.av_obj = av_obj
-    obj.camera_obj = Camera:New()
 
     -- set default parameters
     obj.current_situation = Def.Situation.Normal
@@ -22,15 +23,30 @@ function Event:New(av_obj)
     return setmetatable(obj, self)
 end
 
-function Event:Init(index)
-    local display_name_lockey = self.av_obj.all_models[index].display_name_lockey
-    local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
-    local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
-    local choice_title = self.av_obj.all_models[index].name
+function Event:Init()
 
-    self.ui_obj:Init(display_name_lockey, logo_inkatlas_path, logo_inkatlas_part_name)
-    self.hud_obj:Init(choice_title)
+    self.ui_obj:Init()
+    self.hud_obj:Init()
 
+    self:SetObserve()
+    self:SetOverride()
+
+end
+
+function Event:SetObserve()
+
+    GameUI.Observe("SessionStart", function()
+        DAV.Cron.After(0.5, function()
+            self.ui_obj:ActivateAVSummon(true)
+        end)
+    end)
+
+    GameUI.Observe("SessionEnd", function()
+        self.ui_obj:ActivateAVSummon(false)
+    end)
+end
+
+function Event:SetOverride()
     Override("OpenVendorUI", "CreateInteraction", function(this, arg_1, arg_2, arg_3, wrapped_method)
         if this:GetActionName().value == "vehicle_door_quest_locked" and self:IsInEntryArea() then
             self.log_obj:Record(LogLevel.Trace, "Disappear vehicle door quest locked")
@@ -101,7 +117,7 @@ function Event:CheckLanded()
     if self.av_obj.position_obj:IsCollision() then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
         self:SetSituation(Def.Situation.Waiting)
-        self.av_obj:ChangeDoorState(1,Def.DoorOperation.Open)
+        self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
 end
 
@@ -123,7 +139,7 @@ function Event:CheckInAV()
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
             self:ChangeCamera()
-            self.av_obj:ChangeDoorState(1, Def.DoorOperation.Close)
+            self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             self.hud_obj:ShowMeter()
             self.hud_obj:ShowCustomHint()
         end
@@ -132,7 +148,7 @@ function Event:CheckInAV()
         if self.current_situation == Def.Situation.InVehicle then
             self.log_obj:Record(LogLevel.Info, "Exit AV")
             self:SetSituation(Def.Situation.Waiting)
-            self.av_obj:ChangeDoorState(1, Def.DoorOperation.Open)
+            self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
             self:ChangeCamera()
             self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
@@ -145,7 +161,7 @@ function Event:CheckReturnVehicle()
     if self.ui_obj:GetCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected")
         self:SetSituation(Def.Situation.TalkingOff)
-        self.av_obj:ChangeDoorState(1, Def.DoorOperation.Close)
+        self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
         self.av_obj:DespawnFromGround()
         DAV.Cron.After(10, function()
             self:SetSituation(Def.Situation.Normal)
@@ -153,8 +169,16 @@ function Event:CheckReturnVehicle()
     end
 end
 
-function Event:IsAvailableMovement()
-    if self.current_situation == Def.Situation.Waiting or self.current_situation == Def.Situation.InVehicle then
+function Event:IsNotSpawned()
+    if self.current_situation == Def.Situation.Normal then
+        return true
+    else
+        return false
+    end
+end
+
+function Event:IsWaiting()
+    if self.current_situation == Def.Situation.Waiting then
         return true
     else
         return false
@@ -198,14 +222,14 @@ end
 
 function Event:ChangeDoor()
     if self.current_situation == Def.Situation.InVehicle then
-        self.av_obj:ChangeDoorState(1, Def.DoorOperation.Change)
+        self.av_obj:ChangeDoorState(Def.DoorOperation.Change)
     end
 end
 
 function Event:EnterOrExitVehicle(player)
     if self:IsInEntryArea() then
         self.av_obj:TakeOn(player)
-        self.av_obj:Mount(3)
+        self.av_obj:Mount()
     elseif self:IsInVehicle() then
         self.av_obj:Unmount()
         self.av_obj:TakeOff()
