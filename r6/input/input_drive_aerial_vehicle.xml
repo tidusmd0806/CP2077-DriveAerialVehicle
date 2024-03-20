@@ -50,11 +50,11 @@
 
     <mapping name="dav_change_view" type="Button">
         <button id="IK_C"/>
-        <button id="IK_Pad_Y_TRIANGLE"/>
+        <button id="IK_Pad_DigitDown"/>
     </mapping>
 
     <mapping name="dav_toggle_door_1" type="Button">
-        <button id="IK_1"/>
+        <button id="IK_R"/>
         <button id="IK_Pad_DigitLeft"/>
     </mapping>
 </bindings>

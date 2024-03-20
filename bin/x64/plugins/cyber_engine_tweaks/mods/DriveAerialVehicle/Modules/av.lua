@@ -3,15 +3,15 @@ local Def = require("Modules/def.lua")
 local Engine = require("Modules/engine.lua")
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
-local Aerodyne = {}
-Aerodyne.__index = Aerodyne
+local AV = {}
+AV.__index = AV
 
-function Aerodyne:New(all_models)
+function AV:New(all_models)
 	local obj = {}
 	obj.position_obj = Position:New(all_models)
 	obj.engine_obj = Engine:New(obj.position_obj, all_models)
 	obj.log_obj = Log:New()
-	obj.log_obj:SetLevel(LogLevel.Info, "Aerodyne")
+	obj.log_obj:SetLevel(LogLevel.Info, "AV")
 	obj.player_obj = nil
 
 	obj.all_models = all_models
@@ -36,7 +36,7 @@ function Aerodyne:New(all_models)
 	return setmetatable(obj, self)
 end
 
-function Aerodyne:SetModel(list)
+function AV:SetModel(list)
 	local index = list[1]
 	local type_number = list[2]
 	self.vehicle_model_tweakdb_id = self.all_models[index].tweakdb_id
@@ -51,11 +51,11 @@ function Aerodyne:SetModel(list)
 	self.position_obj:SetModel(index)
 end
 
-function Aerodyne:IsPlayerIn()
+function AV:IsPlayerIn()
 	return self.is_player_in
 end
 
-function Aerodyne:Spawn(position, angle)
+function AV:Spawn(position, angle)
 	if self.entity_id ~= nil then
 		self.log_obj:Record(LogLevel.Info, "Entity already spawned")
 		return false
@@ -84,7 +84,7 @@ function Aerodyne:Spawn(position, angle)
 	return true
 end
 
-function Aerodyne:SpawnToSky()
+function AV:SpawnToSky()
 	local position = self.position_obj:GetSpawnPosition(self.spawn_distance, 0.0)
 	position.z = position.z + self.spawn_high
 	local angle = self.position_obj:GetSpawnOrientation(90.0)
@@ -103,7 +103,7 @@ function Aerodyne:SpawnToSky()
 	end)
 end
 
-function Aerodyne:Despawn()
+function AV:Despawn()
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to despawn")
 		return false
@@ -114,7 +114,7 @@ function Aerodyne:Despawn()
 	return true
 end
 
-function Aerodyne:DespawnFromGround()
+function AV:DespawnFromGround()
 	DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
 		timer.tick = timer.tick + 1
 
@@ -129,7 +129,7 @@ function Aerodyne:DespawnFromGround()
 end
 
 
-function Aerodyne:UnlockDoor()
+function AV:UnlockDoor()
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
 		return false
@@ -140,7 +140,7 @@ function Aerodyne:UnlockDoor()
 	return true
 end
 
-function Aerodyne:LockDoor()
+function AV:LockDoor()
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
 		return false
@@ -151,7 +151,7 @@ function Aerodyne:LockDoor()
 	return true
 end
 
-function Aerodyne:ChangeDoorState(door_number, door_state)
+function AV:ChangeDoorState(door_number, door_state)
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change door state")
 		return false
@@ -180,9 +180,9 @@ function Aerodyne:ChangeDoorState(door_number, door_state)
 	return true
 end
 
-function Aerodyne:Mount(seat_number)
+function AV:Mount(seat_number)
 
-	self.log_obj:Record(LogLevel.Debug, "Mount Aerodyne Vehicle : " .. seat_number)
+	self.log_obj:Record(LogLevel.Debug, "Mount Aerial Vehicle : " .. seat_number)
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to mount")
 		return false
@@ -237,7 +237,7 @@ function Aerodyne:Mount(seat_number)
 
 end
 
-function Aerodyne:Unmount()
+function AV:Unmount()
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to unmount")
 		return false
@@ -285,7 +285,7 @@ function Aerodyne:Unmount()
 	return true
 end
 
-function Aerodyne:TakeOn(player_obj)
+function AV:TakeOn(player_obj)
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to take on")
 		return false
@@ -294,21 +294,19 @@ function Aerodyne:TakeOn(player_obj)
 	return true
 end
 
-function Aerodyne:TakeOff()
+function AV:TakeOff()
 	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to take on")
+		self.log_obj:Record(LogLevel.Warning, "No entity to take off")
 		return false
 	end
 	self.player_obj = nil
 	return true
 end
 
-function Aerodyne:SitCorrectPosition(seat_number)
-	if self.player_obj.gender == "famale" then
-		self.player_obj:PlayPose(self.sit_pose.famele)
-	else
-		self.player_obj:PlayPose(self.sit_pose.male)
-	end
+function AV:SitCorrectPosition(seat_number)
+
+	self.player_obj:PlayPose(self.sit_pose)
+
 	local left_seat_cordinate = Vector4.new(self.seat_position[seat_number].x, self.seat_position[seat_number].y, self.seat_position[seat_number].z, 1.0)
 	local pos = self.position_obj:GetPosition()
 	local foward = self.position_obj:GetFoword()
@@ -327,7 +325,7 @@ function Aerodyne:SitCorrectPosition(seat_number)
 	return true
 end
 
-function Aerodyne:Move(x, y, z, roll, pitch, yaw)
+function AV:Move(x, y, z, roll, pitch, yaw)
 
 	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) then
 		return false
@@ -336,10 +334,10 @@ function Aerodyne:Move(x, y, z, roll, pitch, yaw)
 	return true
 end
 
-function Aerodyne:Operate(action_command)
+function AV:Operate(action_command)
 
 	if action_command ~= Def.ActionList.Nothing then
-		self.log_obj:Record(LogLevel.Debug, "Operate Aerodyne Vehicle : " .. action_command)
+		self.log_obj:Record(LogLevel.Debug, "Operate Aerial Vehicle : " .. action_command)
 	end
 
 	local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
@@ -356,4 +354,4 @@ function Aerodyne:Operate(action_command)
 	return true
 end
 
-return Aerodyne
+return AV

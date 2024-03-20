@@ -1,4 +1,4 @@
-local Aerodyne = require("Modules/aerodyne.lua")
+local AV = require("Modules/av.lua")
 local Player = require("Modules/player.lua")
 local Def = require("Modules/def.lua")
 local Event = require("Modules/event.lua")
@@ -41,7 +41,7 @@ function Core:Init()
     self.player_obj = Player:New(Game.GetPlayer())
     self.player_obj:Init()
 
-    self.av_obj = Aerodyne:New(all_models)
+    self.av_obj = AV:New(all_models)
     self.av_obj:SetModel(model_info)
 
     self.event_obj = Event:New(self.av_obj)

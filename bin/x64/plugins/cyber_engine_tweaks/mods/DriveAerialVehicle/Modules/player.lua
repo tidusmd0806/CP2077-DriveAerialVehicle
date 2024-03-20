@@ -24,13 +24,20 @@ end
 function Player:Init()
     local gender_string = Game.GetPlayer():GetResolvedGenderName()
     if string.find(tostring(gender_string), "Female") then
-        self.gender = "Famale"
+        self.gender = "Female"
     else
         self.gender = "Male"
     end
 end
 
-function Player:PlayPose(pose_name)
+function Player:PlayPose(sit_pose)
+    local pose_name = nil
+    if self.gender == "Female" then
+        pose_name = sit_pose.female
+	else
+        pose_name = sit_pose.male
+	end
+
     local player = Game.GetPlayer()
     local transform = player:GetWorldTransform()
     transform:SetPosition(player:GetWorldPosition())
