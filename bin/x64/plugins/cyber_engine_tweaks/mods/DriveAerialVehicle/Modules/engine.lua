@@ -29,13 +29,15 @@ function Engine:New(position_obj, all_models)
     obj.gravity_constant = 9.8
     obj.air_resistance_constant = nil
     obj.rebound_constant = nil
+    obj.max_speed = 80
+    obj.current_speed = 0
+
+    obj.current_mode = Def.PowerMode.Off
 
     -- set default parameters
     obj.next_indication = {roll = 0, pitch = 0, yaw = 0}
     obj.base_angle = nil
     obj.is_finished_init = false
-    obj.is_power_on = false
-    obj.is_hover = false
     obj.horizenal_x_speed = 0
     obj.horizenal_y_speed = 0
     obj.vertical_speed = 0
@@ -75,8 +77,7 @@ function Engine:Init()
         end)
         self.base_angle = self.position_obj:GetEulerAngles()
     end
-    self.is_power_on = false
-    self.is_hover = false
+    self.current_mode = Def.PowerMode.Hover
     self.horizenal_x_speed = 0
     self.horizenal_y_speed = 0
     self.vertical_speed = 0
@@ -168,23 +169,34 @@ function Engine:CalcuratePower(movement)
         self.log_obj:Record(LogLevel.Trace, "Change Power Off")
         self.clock = 0
         self.dynamic_lift_force = self.lift_force
-        self.is_power_on = false
-        self.position_obj:SetEngineState(self.is_power_on)
-    elseif movement == Def.ActionList.Up or self.is_power_on then
-        if not self.is_power_on then
+        self.current_mode = Def.PowerMode.Off
+        self.position_obj:SetEngineState(self.current_mode)
+    elseif movement == Def.ActionList.Hold then
+        self.log_obj:Record(LogLevel.Trace, "Change Power Hold")
+        self.clock = 0
+        self.dynamic_lift_force = self.lift_force
+        self.current_mode = Def.PowerMode.Hold
+    elseif movement == Def.ActionList.Up or self.current_mode == Def.PowerMode.On then
+        if self.current_mode ~= Def.PowerMode.On then
             self.log_obj:Record(LogLevel.Trace, "Change Power On")
             self.clock = 0
             self.dynamic_lift_force = self.lift_force
-            self.is_power_on = true
-            self.is_hover = false
-            self.position_obj:SetEngineState(self.is_power_on)
+            self.current_mode = Def.PowerMode.On
+            self.position_obj:SetEngineState(self.current_mode)
         else
             self:SetPowerUpCurve(self.clock)
         end
-    elseif not self.is_power_on then
+    elseif movement == Def.ActionList.Hover or self.current_mode == Def.PowerMode.Hover then
+        if self.current_mode ~= Def.PowerMode.Hover then
+            self.log_obj:Record(LogLevel.Trace, "Change Power Hover")
+            self.clock = 0
+            self.dynamic_lift_force = self.lift_force
+            self.current_mode = Def.PowerMode.Hover
+        else
+            self:SetPowerUpCurve(self.clock)
+        end
+    else
         self:SetPowerDownCurve(self.clock)
-    elseif movement == Def.ActionList.Hover then
-        self.is_hover = true
     end
 end
 
@@ -220,9 +232,27 @@ function Engine:CalcureteVelocity()
     local temp = Utils:QuaternionMultiply(quot, force_quat)
     local force_world = Utils:QuaternionMultiply(temp, q_conj)
 
+    if self.current_mode == Def.PowerMode.Hold or self.current_mode == Def.PowerMode.Hover then
+        local speed = math.sqrt(force_world.i * force_world.i + force_world.j * force_world.j + force_world.k * force_world.k)
+        self.vertical_speed = 0
+        force_world.k = -self.vertical_speed * self.mess / DAV.time_resolution + self.mess * self.gravity_constant
+        local new_speed = math.sqrt(force_world.i * force_world.i + force_world.j * force_world.j + force_world.k * force_world.k)
+        force_world.i = force_world.i * speed / new_speed
+        force_world.j = force_world.j * speed / new_speed
+    else
+        self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.air_resistance_constant * self.vertical_speed)
+    end
+
     self.horizenal_x_speed = self.horizenal_x_speed + (DAV.time_resolution / self.mess) * (force_world.i - self.air_resistance_constant * self.horizenal_x_speed)
     self.horizenal_y_speed = self.horizenal_y_speed + (DAV.time_resolution / self.mess) * (force_world.j - self.air_resistance_constant * self.horizenal_y_speed)
-    self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.air_resistance_constant * self.vertical_speed)
+
+    -- check limitation
+    self.current_speed = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed + self.vertical_speed * self.vertical_speed)
+    if self.current_speed > self.max_speed then
+        self.horizenal_x_speed = self.horizenal_x_speed * self.max_speed / self.current_speed
+        self.horizenal_y_speed = self.horizenal_y_speed * self.max_speed / self.current_speed
+        self.vertical_speed = self.vertical_speed * self.max_speed / self.current_speed
+    end
 
     local x, y, z = self.horizenal_x_speed * DAV.time_resolution, self.horizenal_y_speed * DAV.time_resolution, self.vertical_speed * DAV.time_resolution
 

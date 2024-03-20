@@ -265,7 +265,7 @@ function AV:Unmount()
 	mount_event.lowLevelMountingInfo = mounting_info
 	mount_event.mountData = data
 
-	self.player_obj:ActivateTPPHead(false)
+	-- self.player_obj:ActivateTPPHead(false)
 
 	Game.GetMountingFacility():Unmount(mount_event)
 
@@ -277,7 +277,10 @@ function AV:Unmount()
 			local position = self.position_obj:GetExitPosition()
 			self.position_obj:SetEntity(entity)
 			Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
-			self.is_player_in = false
+			self.player_obj:ActivateTPPHead(false)
+			DAV.Cron.After(2, function()
+				self.is_player_in = false
+			end)
 			DAV.Cron.Halt(timer)
 		end
 	end)
@@ -299,7 +302,9 @@ function AV:TakeOff()
 		self.log_obj:Record(LogLevel.Warning, "No entity to take off")
 		return false
 	end
-	self.player_obj = nil
+	DAV.Cron.After(3, function()
+		self.player_obj = nil
+	end)
 	return true
 end
 
@@ -315,11 +320,14 @@ function AV:SitCorrectPosition(seat_number)
 
 	local rotated = Utils:RotateVectorByQuaternion(left_seat_cordinate, rot)
 
-	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
+	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
         local dummy_entity = Game.FindEntityByID(self.player_obj.dummy_entity_id)
         if dummy_entity ~= nil then
+			timer.tick = timer.tick + 1
             Game.GetTeleportationFacility():Teleport(dummy_entity, Vector4.new(pos.x + rotated.x, pos.y + rotated.y, pos.z + rotated.z, 1.0), Vector4.ToRotation(Backward))
-			DAV.Cron.Halt(timer)
+			if timer.tick > 5 then
+				DAV.Cron.Halt(timer)
+			end
         end
     end)
 	return true
@@ -334,19 +342,31 @@ function AV:Move(x, y, z, roll, pitch, yaw)
 	return true
 end
 
-function AV:Operate(action_command)
-
-	if action_command ~= Def.ActionList.Nothing then
-		self.log_obj:Record(LogLevel.Debug, "Operate Aerial Vehicle : " .. action_command)
+function AV:Operate(action_commands)
+	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
+	self.log_obj:Record(LogLevel.Debug, "Operattion Count:" .. #action_commands)
+	for _, action_command in ipairs(action_commands) do
+		local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
+		x_total = x_total + x
+		y_total = y_total + y
+		z_total = z_total + z
+		roll_total = roll_total + roll
+		pitch_total = pitch_total + pitch
+		yaw_total = yaw_total + yaw
 	end
+	x_total = x_total / #action_commands
+	y_total = y_total / #action_commands
+	z_total = z_total / #action_commands
+	roll_total = roll_total / #action_commands
+	pitch_total = pitch_total / #action_commands
+	yaw_total = yaw_total / #action_commands
 
-	local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
-
-	if x == 0 and y == 0 and z == 0 and roll == 0 and pitch == 0 and yaw == 0 then
+	if x_total == 0 and y_total == 0 and z_total == 0 and roll_total == 0 and pitch_total == 0 and yaw_total == 0 then
+		self.log_obj:Record(LogLevel.Trace, "No operation")
 		return false
 	end
 
-	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) then
+	if not self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total) then
 		self.engine_obj:SetSpeedAfterRebound()
 		return false
 	end

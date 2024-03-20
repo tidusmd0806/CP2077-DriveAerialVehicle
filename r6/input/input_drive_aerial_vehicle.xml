@@ -1,23 +1,15 @@
 <?xml version="1.0"?>
 <bindings>
-    <context name="InteractionActions" append="true">
-        <action name="dav_choice" map ="dav_choice"/>
-    </context>
-
     <context name="UIShared" append="true">       
         <action name="dav_accelerate" map ="dav_accelerate"/>
         <action name="dav_y_move" map ="dav_y_move"/>
         <action name="dav_x_move" map ="dav_x_move"/>
         <action name="dav_rotate_move" map ="dav_rotate_move"/>
+        <action name="dav_hover" map ="dav_hover"/>
         <action name="dav_get_off" map ="dav_get_off"/>
         <action name="dav_change_view" map ="dav_change_view"/>
         <action name="dav_toggle_door_1" map ="dav_toggle_door_1"/>
     </context>
-
-    <mapping name="dav_choice" type="Button">
-        <button id="IK_F"/>
-		<button id="IK_Pad_X_SQUARE"/>
-    </mapping>
     
     <mapping name="dav_accelerate" type="Button">
         <button id ="IK_LeftMouse"/>
@@ -43,18 +35,23 @@
         <button id ="IK_Pad_RightShoulder" val="1.0"/>
     </mapping>
 
+    <mapping name="dav_hover" type="Axis">
+        <button id="IK_Space" val="1.0"/>
+        <button id="IK_Pad_RightTrigger"/>
+    </mapping>
+
     <mapping name="dav_get_off" type="Button">
         <button id="IK_F"/>
         <button id="IK_Pad_X_SQUARE"/>
     </mapping>
 
     <mapping name="dav_change_view" type="Button">
-        <button id="IK_C"/>
+        <button id="IK_R"/>
         <button id="IK_Pad_DigitDown"/>
     </mapping>
 
     <mapping name="dav_toggle_door_1" type="Button">
-        <button id="IK_R"/>
+        <button id="IK_Z"/>
         <button id="IK_Pad_DigitLeft"/>
     </mapping>
 </bindings>

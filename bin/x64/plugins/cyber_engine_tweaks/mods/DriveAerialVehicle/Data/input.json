@@ -39,10 +39,20 @@
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
-    "KEY_WORLD_ENTER_AV": {
-        "name": "dav_choice",
-        "type": "BUTTON_PRESSED",
+    "KEY_AV_HOVER": {
+        "name": "dav_hover",
+        "type": "AXIS_CHANGE",
         "value": "POSITIVE"
+    },
+    "KEY_AV_HOLD": {
+        "name": "dav_hover",
+        "type": "AXIS_CHANGE",
+        "value": "ZERO"
+    },
+    "KEY_WORLD_ENTER_AV": {
+        "name": "Choice1",
+        "type": "BUTTON_RELEASED",
+        "value": "ZERO"
     },
     "KEY_AV_EXIT_AV": {
         "name": "dav_get_off",

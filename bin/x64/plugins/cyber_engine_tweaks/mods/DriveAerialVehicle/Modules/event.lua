@@ -17,6 +17,7 @@ function Event:New(av_obj)
 
     -- set default parameters
     obj.current_situation = Def.Situation.Normal
+    obj.door_open_wait_time = 5.0
 
     return setmetatable(obj, self)
 end
@@ -152,6 +153,13 @@ function Event:CheckReturnVehicle()
     end
 end
 
+function Event:IsAvailableMovement()
+    if self.current_situation == Def.Situation.Waiting or self.current_situation == Def.Situation.InVehicle then
+        return true
+    else
+        return false
+    end
+end
 
 function Event:IsInEntryArea()
     if self.current_situation == Def.Situation.Waiting and self.av_obj.position_obj:IsPlayerInEntryArea() then

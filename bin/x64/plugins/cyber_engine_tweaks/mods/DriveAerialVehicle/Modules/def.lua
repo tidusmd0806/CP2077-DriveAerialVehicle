@@ -12,6 +12,7 @@ Def.ActionList = {
     TurnRight = 7,
     TurnLeft = 8,
     Hover = 9,
+    Hold = 10,
 	---------
 	Enter= 100,
 	Exit = 101,
@@ -31,6 +32,13 @@ Def.DoorOperation = {
 	Change = 0,
 	Open = 1,
 	Close = 2,
+}
+
+Def.PowerMode = {
+    Off = 0,
+    On = 1,
+    Hold = 2,
+    Hover = 3,
 }
 
 Def.CameraDistanceLevel = {

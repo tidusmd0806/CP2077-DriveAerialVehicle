@@ -110,10 +110,7 @@ function Hud:ShowMeter()
     else
         self.is_speed_meter_shown = true
         DAV.Cron.Every(1, function()
-            local coordinate_speed = math.sqrt(self.engine_obj.horizenal_x_speed * self.engine_obj.horizenal_x_speed 
-                                                + self.engine_obj.horizenal_y_speed * self.engine_obj.horizenal_y_speed 
-                                                + self.engine_obj.vertical_speed * self.engine_obj.vertical_speed)
-            local mph = coordinate_speed * (3600 / 1600)
+            local mph = self.engine_obj.current_speed * (3600 / 1600)
             local power_level = math.floor((self.engine_obj.lift_force - self.engine_obj.min_lift_force) / ((self.engine_obj.max_lift_force - self.engine_obj.min_lift_force) / 10))
             self.hud_car_controller:OnSpeedValueChanged(mph / 3)
             self.hud_car_controller:OnRpmValueChanged(power_level)

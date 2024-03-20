@@ -1,3 +1,4 @@
+local Def = require("Modules/def.lua")
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Position = {}
@@ -74,8 +75,14 @@ function Position:SetEntity(entity)
     self.entity = entity
 end
 
-function Position:SetEngineState(is_power_on)
-    self.is_power_on = is_power_on
+function Position:SetEngineState(mode)
+    if mode == Def.PowerMode.On then
+        self.is_power_on = true
+    elseif mode == Def.PowerMode.Off then
+        self.is_power_on = false
+    else
+        self.log_obj:Record(LogLevel.Critical, "Set Invalid Power Mode")
+    end
 end
 
 function Position:ChangeWorldCordinate(point_list)

@@ -12,6 +12,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_player_position = false
     obj.is_im_gui_av_position = false
     obj.is_im_gui_lift_force = false
+    obj.is_im_gui_engine_info = false
     return setmetatable(obj, self)
 end
 
@@ -36,7 +37,8 @@ function Debug:ImGuiMain()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
-    self:ImGuiLiftForceAndSpped()
+    self:ImGuiLiftForceAndSpeed()
+    self:ImGuiCurrentEngineInfo()
 end
 
 function Debug:ImGuiSituation()
@@ -85,7 +87,7 @@ function Debug:ImGuiAVPosition()
     end
 end
 
-function Debug:ImGuiLiftForceAndSpped()
+function Debug:ImGuiLiftForceAndSpeed()
     self.is_im_gui_lift_force = ImGui.Checkbox("[ImGui] Lift Force And Speed", self.is_im_gui_lift_force)
     if self.is_im_gui_lift_force then
         if self.core_obj.av_obj.position_obj.entity == nil then
@@ -95,6 +97,13 @@ function Debug:ImGuiLiftForceAndSpped()
         local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
         local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
         ImGui.Text("F: " .. self.core_obj.av_obj.engine_obj.lift_force .. ", v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z)
+    end
+end
+
+function Debug:ImGuiCurrentEngineInfo()
+    self.is_im_gui_engine_info = ImGui.Checkbox("[ImGui] Current Engine Info", self.is_im_gui_engine_info)
+    if self.is_im_gui_engine_info then
+        ImGui.Text("Current Power Mode : " .. self.core_obj.av_obj.engine_obj.current_mode .. ", Current Speed : " .. self.core_obj.av_obj.engine_obj.current_speed)
     end
 end
 

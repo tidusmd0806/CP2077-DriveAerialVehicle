@@ -20,6 +20,7 @@ function Core:New()
 
     obj.av_model_path = "Data/default_model.json"
     obj.input_path = "Data/input.json"
+    obj.dead_zone = 0.5
 
     -- set default parameters
     obj.input_table = {}
@@ -73,9 +74,9 @@ end
 
 function Core:StorePlayerAction(action_name, action_type, action_value)
     local action_value_type = "ZERO"
-    if action_value > 0.1 then
+    if action_value > self.dead_zone then
         action_value_type = "POSITIVE"
-    elseif action_value < -0.1 then
+    elseif action_value < -self.dead_zone then
         action_value_type = "NEGATIVE"
     else
         action_value_type = "ZERO"
@@ -109,6 +110,10 @@ function Core:ConvertActionList(action_name, action_type, action_value)
         action_command = Def.ActionList.TurnRight
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_LEFT_ROTATE) then
         action_command = Def.ActionList.TurnLeft
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_HOVER) then
+        action_command = Def.ActionList.Hover
+    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_HOLD) then
+        action_command = Def.ActionList.Hold
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_WORLD_ENTER_AV) then
         action_command = Def.ActionList.Enter
     elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_EXIT_AV) then
@@ -159,7 +164,7 @@ function Core:GetActions()
         table.insert(unique_actions_list, action)
     end
 
-    self:OperateAerodyneVehicle(unique_actions_list)
+    self:OperateAerialVehicle(unique_actions_list)
 
 end
 
@@ -184,15 +189,14 @@ end
 
 function Core:LockAerodyneDoor()
     -- self.av_obj:LockDoor()
-    self.av_obj:Despawn()
+    -- self.av_obj:Despawn()
     -- local audioEvent = SoundPlayEvent.new()
 
     -- audioEvent.soundName = StringToName("v_av_rayfield_excalibur_traffic_engine_01_av_dplr_01")
     -- print("sound")
     -- Game.GetPlayer():QueueEvent(audioEvent)
 
-    DAV.hudCarController:HideRequest()
-    DAV.hudCarController:OnCameraModeChanged(false)
+    self.av_obj.player_obj:ChangeTppHead()
 end
 
 function Core:UnlockAerodyneDoor()
@@ -208,11 +212,11 @@ function Core:Unmount()
     self.av_obj:Unmount()
 end
 
-function Core:OperateAerodyneVehicle(actions)
+function Core:OperateAerialVehicle(actions)
     if self.event_obj:IsInVehicle() then
-        for _, action_command in ipairs(actions) do
-            self.av_obj:Operate(action_command)
-        end
+        self.av_obj:Operate(actions)
+    elseif self.event_obj:IsAvailableMovement() and #actions == 1 and actions[1] == Def.ActionList.Nothing then
+        self.av_obj:Operate(actions)
     end
 end
 

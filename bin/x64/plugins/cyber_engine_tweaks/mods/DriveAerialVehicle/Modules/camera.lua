@@ -38,21 +38,21 @@ function Camera:SetCameraPosition(level)
         self.yawMaxLeft = 360
         self.current_camera_mode = Def.CameraDistanceLevel.Fpp
     elseif level == Def.CameraDistanceLevel.TppClose then
-        self.camera_vector = Vector4.new(0.0, -7.5, 1.5, 1.0)
+        self.camera_vector = Vector4.new(0.35, -7.5, 1.5, 1.0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360
         self.yawMaxLeft = 360
         self.current_camera_mode = Def.CameraDistanceLevel.TppClose
     elseif level == Def.CameraDistanceLevel.TppMedium then
-        self.camera_vector = Vector4.new(0.0, -10.0, 2.0, 1.0)
+        self.camera_vector = Vector4.new(0.35, -10.0, 2.0, 1.0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360
         self.yawMaxLeft = 360
         self.current_camera_mode = Def.CameraDistanceLevel.TppMedium
     elseif level == Def.CameraDistanceLevel.TppFar then
-        self.camera_vector = Vector4.new(0.0, -12.5, 2.5, 1.0)
+        self.camera_vector = Vector4.new(0.35, -15.0, 2.8, 1.0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360

@@ -32,6 +32,14 @@
         "enableHoldAnimation": false
     },
     {
+        "source": "Hover",
+        "action": "dav_hover",
+        "localizedLabel": "LocKey#53245",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
         "source": "Camera",
         "action": "dav_change_view",
         "localizedLabel": "LocKey#15445",
@@ -44,7 +52,7 @@
         "action": "dav_toggle_door_1",
         "localizedLabel": "LocKey#90595",
         "sortingPriority": 0,
-        "holdIndicationType": "Press",
+        "holdIndicationType": "FromInputConfig",
         "enableHoldAnimation": false
     },
     {

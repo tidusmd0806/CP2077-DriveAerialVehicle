@@ -22,19 +22,19 @@ registerForEvent('onInit', function()
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
 
-        -- if DAV.core_obj.event_obj:IsInVehicle() then
-        --     if string.find(action_name, "Exit") then
-        --         consumer:Consume()
-        --     elseif string.find(action_name, "VisionHold") then
-        --         consumer:Consume()
-        --     end
-        -- end
-
         if DAV.is_debug_mode then
             DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
         end
 
         DAV.core_obj:StorePlayerAction(action_name, action_type, action_value)
+
+        if DAV.core_obj.event_obj:IsInVehicle() then
+            if string.find(action_name, "Exit") then
+                consumer:Consume()
+            elseif string.find(action_name, "VisionHold") then
+                consumer:Consume()
+            end
+        end
 
     end)
 
