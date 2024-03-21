@@ -168,16 +168,6 @@ function Core:ChangeAerodyneDoor()
     self.av_obj:ChangeDoorState(Def.DoorOperation.Change)
 end
 
-function Core:LockAerodyneDoor()
-    self.av_obj:LockDoor()
-    -- self.av_obj:Despawn()
-    -- local audioEvent = SoundPlayEvent.new()
-
-    -- audioEvent.soundName = StringToName("v_av_rayfield_excalibur_traffic_engine_01_av_dplr_01")
-    -- print("sound")
-    -- Game.GetPlayer():QueueEvent(audioEvent)
-end
-
 function Core:OperateAerialVehicle(actions)
     if self.event_obj:IsInVehicle() then
         self.av_obj:Operate(actions)

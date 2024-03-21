@@ -3,6 +3,7 @@ local Camera = require("Modules/camera.lua")
 local Def = require("Modules/def.lua")
 local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
+local Sound = require("Modules/sound.lua")
 local Ui = require("Modules/ui.lua")
 local Event = {}
 Event.__index = Event
@@ -14,6 +15,7 @@ function Event:New(av_obj)
     obj.hud_obj = Hud:New(av_obj)
     obj.ui_obj = Ui:New(av_obj)
     obj.camera_obj = Camera:New(av_obj)
+    obj.sound_obj = Sound:New()
     obj.av_obj = av_obj
 
     -- set default parameters
@@ -27,6 +29,7 @@ function Event:Init()
 
     self.ui_obj:Init()
     self.hud_obj:Init()
+    self.sound_obj:Init()
 
     self:SetObserve()
     self:SetOverride()

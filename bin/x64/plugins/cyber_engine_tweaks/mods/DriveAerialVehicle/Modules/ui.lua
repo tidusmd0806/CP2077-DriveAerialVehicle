@@ -137,7 +137,7 @@ function Ui:ShowSettingMenu()
 	end
 
 	ImGui.Text("Select the AV you want to drive")
-	if ImGui.BeginCombo("AV Model", self.selected_vehicle_model_name) then
+	if ImGui.BeginCombo("##AV Model", self.selected_vehicle_model_name) then
 		for index, value in ipairs(self.vehicle_model_list) do
 			if self.selected_vehicle_model_name == value.name then
 				selected = true

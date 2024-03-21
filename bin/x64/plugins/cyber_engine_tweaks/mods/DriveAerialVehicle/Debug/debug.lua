@@ -13,6 +13,9 @@ function Debug:New(core_obj)
     obj.is_im_gui_av_position = false
     obj.is_im_gui_lift_force = false
     obj.is_im_gui_engine_info = false
+    obj.is_im_gui_sound_check = false
+
+    obj.selected_sound = "None"
     return setmetatable(obj, self)
 end
 
@@ -33,12 +36,13 @@ end
 
 function Debug:ImGuiMain()
     self:Init()
-    self:SelectPrint()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
     self:ImGuiLiftForceAndSpeed()
     self:ImGuiCurrentEngineInfo()
+    self:ImGuiSoundCheck()
+    self:SelectPrint()
 end
 
 function Debug:ImGuiSituation()
@@ -104,6 +108,24 @@ function Debug:ImGuiCurrentEngineInfo()
     self.is_im_gui_engine_info = ImGui.Checkbox("[ImGui] Current Engine Info", self.is_im_gui_engine_info)
     if self.is_im_gui_engine_info then
         ImGui.Text("Current Power Mode : " .. self.core_obj.av_obj.engine_obj.current_mode .. ", Current Speed : " .. self.core_obj.av_obj.engine_obj.current_speed)
+    end
+end
+
+function Debug:ImGuiSoundCheck()
+    self.is_im_gui_sound_check = ImGui.Checkbox("[ImGui] Sound Check", self.is_im_gui_sound_check)
+    if self.is_im_gui_sound_check then
+        if ImGui.BeginCombo("##Sound List", self.selected_sound) then
+            for key, _ in pairs(self.core_obj.event_obj.sound_obj.sound_data) do
+                if (ImGui.Selectable(value, (self.selected_sound==key))) then
+                    self.selected_sound = key
+                end
+            end
+            ImGui.EndCombo()
+        end
+
+        if ImGui.Button("Play", 150, 80) then
+            self.core_obj.event_obj.sound_obj:PlaySound(self.selected_sound)
+        end
     end
 end
 
