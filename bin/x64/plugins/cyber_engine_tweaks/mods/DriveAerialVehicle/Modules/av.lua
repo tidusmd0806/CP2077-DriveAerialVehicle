@@ -376,12 +376,20 @@ function AV:Operate(action_commands)
 	yaw_total = yaw_total / #action_commands
 
 	if x_total == 0 and y_total == 0 and z_total == 0 and roll_total == 0 and pitch_total == 0 and yaw_total == 0 then
-		self.log_obj:Record(LogLevel.Trace, "No operation")
+		self.log_obj:Record(LogLevel.Debug, "No operation")
 		return false
 	end
 
-	if not self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total) then
+	local res = self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
+
+	if res == Def.TeleportResult.Collision then
 		self.engine_obj:SetSpeedAfterRebound()
+		return false
+	elseif res == Def.TeleportResult.AvoidStack then
+		self.log_obj:Record(LogLevel.Info, "Avoid Stack")
+		return false
+	elseif res == Def.TeleportResult.Error then
+		self.log_obj:Record(LogLevel.Error, "Teleport Error")
 		return false
 	end
 

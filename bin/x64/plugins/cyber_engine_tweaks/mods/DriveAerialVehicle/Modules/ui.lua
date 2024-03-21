@@ -35,6 +35,7 @@ end
 function Ui:Init()
     self:SetTweekDB()
     self:SetOverride()
+	self:InitVehicleModelList()
 end
 
 function Ui:SetTweekDB()
@@ -61,8 +62,8 @@ function Ui:SetTweekDB()
 end
 
 function Ui:ResetTweekDB()
-	TweakDB:RemoveRecord(self.dummy_vehicle_record)
-	TweakDB:RemoveRecord(self.dummy_logo_record)
+	TweakDB:DeleteRecord(self.dummy_vehicle_record)
+	TweakDB:DeleteRecord(self.dummy_logo_record)
 end
 
 function Ui:SetOverride()
@@ -97,6 +98,34 @@ function Ui:GetCallStatus()
     return call_status
 end
 
+function Ui:InitVehicleModelList()
+
+	for i, model in ipairs(self.all_av_models) do
+        self.vehicle_model_list[i] = model.name
+	end
+	self.selected_vehicle_model_number = 1
+	self.selected_vehicle_model_name = self.vehicle_model_list[1]
+
+	for i, type in ipairs(self.all_av_models[self.selected_vehicle_model_number].type) do
+		self.vehicle_type_list[i] = type
+	end
+	self.selected_vehicle_type_number = 1
+	self.selected_vehicle_type_name = self.vehicle_type_list[1]
+
+	for i, door in ipairs(self.all_av_models[self.selected_vehicle_model_number].active_door) do
+		self.vehicle_door_list[i] = door
+	end
+	self.selected_vehicle_door_number = 1
+	self.selected_vehicle_door_name = self.vehicle_door_list[1]
+
+	for i, seat in ipairs(self.all_av_models[self.selected_vehicle_model_number].active_seat) do
+		self.vehicle_seat_list[i] = seat
+	end
+	self.selected_vehicle_seat_number = 1
+	self.selected_vehicle_seat_name = self.vehicle_seat_list[1]
+
+end
+
 function Ui:ShowSettingMenu()
 	local selected = false
     ImGui.SetNextWindowSize(800, 1000, ImGuiCond.Appearing)
@@ -106,11 +135,7 @@ function Ui:ShowSettingMenu()
 		ImGui.Text("Please despawn your AV by pushing vehicle button.")
 		return
 	end
-	for i, model in ipairs(self.all_av_models) do
-        self.vehicle_model_list[i] = model.name
-	end
-	self.selected_vehicle_model_number = 1
-	self.selected_vehicle_model_name = self.vehicle_model_list[1]
+
 	ImGui.Text("Select the AV you want to drive")
 	if ImGui.BeginCombo("AV Model", self.selected_vehicle_model_name) then
 		for index, value in ipairs(self.vehicle_model_list) do
@@ -127,70 +152,75 @@ function Ui:ShowSettingMenu()
 		ImGui.EndCombo()
 	end
 
-	-- for i, type in ipairs(self.all_av_models[self.selected_vehicle_model_number].type) do
-	-- 	self.vehicle_type_list[i] = type
-	-- end
-	-- self.selected_vehicle_type_number = 1
-	-- self.selected_vehicle_type_name = self.vehicle_type_list[1]
-	-- ImGui.Text("Select the type of AV")
-	-- if ImGui.BeginCombo("AV Type", self.selected_vehicle_type_name) then
-	-- 	for index, value in ipairs(self.vehicle_type_list) do
-	-- 		if self.selected_vehicle_type_name == value then
-	-- 			selected = true
-	-- 		else 
-	-- 			selected = false
-	-- 		end
-	-- 		if(ImGui.Selectable(value, selected)) then
-	-- 			self.selected_vehicle_type_name = value
-	-- 			self.selected_vehicle_type_number = index
-	-- 		end
-	-- 	end
-	-- 	ImGui.EndCombo()
-	-- end
+	self.vehicle_type_list = {}
+	self.vehicle_door_list = {}
+	self.vehicle_seat_list = {}
 
-	-- for i, door in ipairs(self.all_av_models[self.selected_vehicle_model_number].active_door) do
-	-- 	self.vehicle_door_list[i] = door
-	-- end
-	-- self.selected_vehicle_door_number = 1
-	-- self.selected_vehicle_door_name = self.vehicle_door_list[1]
-	-- ImGui.Text("Select the door of AV")
-	-- if ImGui.BeginCombo("AV Door", self.selected_vehicle_door_name) then
-	-- 	for index, value in ipairs(self.vehicle_door_list) do
-	-- 		if self.selected_vehicle_door_name == value then
-	-- 			selected = true
-	-- 		else 
-	-- 			selected = false
-	-- 		end
-	-- 		if(ImGui.Selectable(value, selected)) then
-	-- 			self.selected_vehicle_door_name = value
-	-- 			self.selected_vehicle_door_number = index
-	-- 		end
-	-- 	end
-	-- 	ImGui.EndCombo()
-	-- end
+	for i, type in ipairs(self.all_av_models[self.selected_vehicle_model_number].type) do
+		self.vehicle_type_list[i] = type
+	end
 
-	-- for i, seat in ipairs(self.all_av_models[self.selected_vehicle_model_number].active_seat) do
-	-- 	self.vehicle_seat_list[i] = seat
-	-- end
-	-- self.selected_vehicle_seat_number = 1
-	-- self.selected_vehicle_seat_name = self.vehicle_seat_list[1]
-	-- ImGui.Text("Select the seat of AV")
-	-- if ImGui.BeginCombo("AV Seat", self.selected_vehicle_seat_name) then
-	-- 	for index, value in ipairs(self.vehicle_seat_list) do
-	-- 		if self.selected_vehicle_seat_name == value then
-	-- 			selected = true
-	-- 		else 
-	-- 			selected = false
-	-- 		end
-	-- 		if(ImGui.Selectable(value, selected)) then
-	-- 			self.selected_vehicle_seat_name = value
-	-- 			self.selected_vehicle_seat_number = index
-	-- 		end
-	-- 	end
-	-- 	ImGui.EndCombo()
-	-- end
+	for i, door in ipairs(self.all_av_models[self.selected_vehicle_model_number].active_door) do
+		self.vehicle_door_list[i] = door
+	end
 
-	if ImGui.Button("Click Me!", 100, 50) then
+	for i, seat in ipairs(self.all_av_models[self.selected_vehicle_model_number].active_seat) do
+		self.vehicle_seat_list[i] = seat
+	end
+
+	self.selected_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
+	self.selected_vehicle_door_name = self.vehicle_door_list[self.selected_vehicle_door_number]
+	self.selected_vehicle_seat_name = self.vehicle_seat_list[self.selected_vehicle_seat_number]
+
+	ImGui.Text("Select the type of AV")
+	if ImGui.BeginCombo("##AV Type", self.selected_vehicle_type_name) then
+		for index, value in ipairs(self.vehicle_type_list) do
+			if self.selected_vehicle_type_name == value then
+				selected = true
+			else 
+				selected = false
+			end
+			if(ImGui.Selectable(value, selected)) then
+				self.selected_vehicle_type_name = value
+				self.selected_vehicle_type_number = index
+			end
+		end
+		ImGui.EndCombo()
+	end
+
+	ImGui.Text("Select the door of AV")
+	if ImGui.BeginCombo("##AV Door", self.selected_vehicle_door_name) then
+		for index, value in ipairs(self.vehicle_door_list) do
+			if self.selected_vehicle_door_name == value then
+				selected = true
+			else 
+				selected = false
+			end
+			if(ImGui.Selectable(value, selected)) then
+				self.selected_vehicle_door_name = value
+				self.selected_vehicle_door_number = index
+			end
+		end
+		ImGui.EndCombo()
+	end
+
+	ImGui.Text("Select the seat of AV")
+	if ImGui.BeginCombo("##AV Seat", self.selected_vehicle_seat_name) then
+		for index, value in ipairs(self.vehicle_seat_list) do
+			if self.selected_vehicle_seat_name == value then
+				selected = true
+			else 
+				selected = false
+			end
+			if(ImGui.Selectable(value, selected)) then
+				self.selected_vehicle_seat_name = value
+				self.selected_vehicle_seat_number = index
+			end
+		end
+		ImGui.EndCombo()
+	end
+
+	if ImGui.Button("Update", 150, 80) then
 		self:SetParameters()
 	end
 
@@ -198,14 +228,16 @@ function Ui:ShowSettingMenu()
 end
 
 function Ui:SetParameters()
+
 	self.av_obj.model_index = self.selected_vehicle_model_number
-	self.av_obj.type_index = self.selected_vehicle_type_number
+	self.av_obj.model_type_index = self.selected_vehicle_type_number
 	self.av_obj.open_door_index = self.selected_vehicle_door_number
 	self.av_obj.seat_index = self.selected_vehicle_seat_number
 	self.av_obj:SetModel()
 	DAV.core_obj.event_obj.hud_obj:SetChoiceTitle()
 	self:ResetTweekDB()
 	self:SetTweekDB()
+	self:ActivateAVSummon(true)
 
 end
 

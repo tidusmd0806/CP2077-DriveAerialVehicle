@@ -15,7 +15,7 @@ function Position:New(all_models)
     obj.model_index = 1
 
     obj.min_direction_norm = 0.5 -- NOT Change this value
-    obj.collision_max_count = 50
+    obj.collision_max_count = 100
     obj.dividing_rate = 0.2
 
     obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
@@ -23,6 +23,7 @@ function Position:New(all_models)
     -- set default parameters
     obj.collision_count = 0
     obj.is_collision = false
+    obj.reflection_vector = {x = 0, y = 0, z = 0}
     obj.is_power_on = false
 
     obj.local_corners = {}
@@ -155,7 +156,7 @@ function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
 
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Error, "No vehicle entity for SetNextPosition")
-        return false
+        return Def.TeleportResult.Error
     end
 
     local pos = self:GetPosition()
@@ -168,23 +169,27 @@ function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
 
     if self:CheckCollision(pos, self.next_position) then
         self.log_obj:Record(LogLevel.Debug, "Collision Detected")
+        
+        self.next_position = Vector4.new(pos.x, pos.y, pos.z, 1.0)
+        self.next_angle = EulerAngles.new(rot.roll, rot.pitch, rot.yaw)
+        
+        self:ChangePosition()
+
         if self.is_power_on then
             self.collision_count = self.collision_count + 1
         else
             self.collision_count = 0
         end
-        self.next_position = Vector4.new(pos.x, pos.y, pos.z, 1.0)
-        self.next_angle = EulerAngles.new(rot.roll, rot.pitch, rot.yaw)
-        self:ChangePosition()
         if self.collision_count > self.collision_max_count then
             self.log_obj:Record(LogLevel.Trace, "Collision Count Over")
             self:AvoidStacking()
             self.collision_count = 0
+            return Def.TeleportResult.AvoidStack
         end
-        return false
+        return Def.TeleportResult.Collision
     else
         self.collision_count = 0
-        return true
+        return Def.TeleportResult.Success
     end
 end
 
@@ -212,10 +217,11 @@ function Position:CheckCollision(current_pos, next_pos)
         local current_corner = Vector4.new(corner.x, corner.y, corner.z, 1.0)
         local next_corner = Vector4.new(corner.x + direction.x, corner.y + direction.y, corner.z + direction.z, 1.0)
         for _, filter in ipairs(self.collision_filters) do
-            local success, result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_corner, next_corner, filter, false, false)
+            local success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_corner, next_corner, filter, false, false)
             if success then
                 self.stack_corner_num = i
                 self.is_collision = true
+                self:CalculateReflection(current_corner, trace_result)
                 return true
             end
         end
@@ -224,10 +230,24 @@ function Position:CheckCollision(current_pos, next_pos)
     return false
 end
 
+function Position:CalculateReflection(current_pos, trace_result)
+    local collision_point = trace_result.position
+    local normal_vector = trace_result.normal
+    local collision_vector = {x = collision_point.x - current_pos.x, y = collision_point.y - current_pos.y, z = collision_point.z - current_pos.z}
+    local inner_product = normal_vector.x * collision_vector.x + normal_vector.y * collision_vector.y + normal_vector.z * collision_vector.z
+    self.reflection_vector.x = collision_vector.x - 2 * inner_product * normal_vector.x
+    self.reflection_vector.y = collision_vector.y - 2 * inner_product * normal_vector.y
+    self.reflection_vector.z = collision_vector.z - 2 * inner_product * normal_vector.z
+end
+
 function Position:IsCollision()
     local collision_status = self.is_collision
     self.is_collision = false
     return collision_status
+end
+
+function Position:GetReflectionVector()
+    return self.reflection_vector
 end
 
 function Position:IsPlayerInEntryArea()

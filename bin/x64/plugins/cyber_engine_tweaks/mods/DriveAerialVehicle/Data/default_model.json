@@ -40,7 +40,7 @@
         "time_to_min": 3,
         "mess": 2000,
         "air_resistance_constant": 300,
-        "rebound_constant": 0.3,
+        "rebound_constant": 1.0,
         "shape": {
             "A": {"x": 1.5, "y": 3.0, "z": 1.5},
             "B": {"x": 1.5, "y": 3.0, "z": -0.5},
@@ -56,17 +56,17 @@
         "exit_point": {"x": -1.5, "y": 0, "z": -1.0}
     },
     {
-        "name": "Zetatech Atlas",
-        "tweakdb_id": "Vehicle.av_zetatech_atlas",
+        "name": "Zetatech Atlus",
+        "tweakdb_id": "Vehicle.av_zetatech_atlus",
         "display_name_lockey": 77962,
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "zetatech",
         "type": [
-            "zetatech_atlas_arasaka_01",
-            "zetatech_atlas_ncpd_01",
-            "zetatech_atlas_news_01",
-            "zetatech_atlas_stealth_01",
-            "zetatech_atlas_trama_team"
+            "zetatech_atlus_arasaka_01",
+            "zetatech_atlus_ncpd_01",
+            "zetatech_atlus_news_01",
+            "zetatech_atlus_stealth_01",
+            "zetatech_atlus_trama_team"
         ],
         "is_default_mount": false,
         "active_door": ["seat_front_left"],
@@ -98,7 +98,7 @@
         "time_to_min": 3,
         "mess": 2000,
         "air_resistance_constant": 300,
-        "rebound_constant": 0.3,
+        "rebound_constant": 1.0,
         "shape": {
             "A": {"x": 1.5, "y": 3.0, "z": 1.5},
             "B": {"x": 1.5, "y": 3.0, "z": -0.5},

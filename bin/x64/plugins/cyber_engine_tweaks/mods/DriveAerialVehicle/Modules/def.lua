@@ -41,6 +41,13 @@ Def.PowerMode = {
     Hover = 3,
 }
 
+Def.TeleportResult = {
+    Error = -1,
+    Collision = 0,
+    Success = 1,
+    AvoidStack = 2,
+}
+
 Def.CameraDistanceLevel = {
     Fpp = 0,
     TppClose = 1,

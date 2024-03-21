@@ -261,9 +261,13 @@ function Engine:CalcureteVelocity()
 end
 
 function Engine:SetSpeedAfterRebound()
-    self.horizenal_x_speed = -self.horizenal_x_speed * self.rebound_constant
-    self.horizenal_y_speed = -self.horizenal_y_speed * self.rebound_constant
-    self.vertical_speed = -self.vertical_speed * self.rebound_constant
+    local reflection_vector = self.position_obj:GetReflectionVector()
+    local reflection_vector_norm = math.sqrt(reflection_vector.x * reflection_vector.x + reflection_vector.y * reflection_vector.y + reflection_vector.z * reflection_vector.z)
+    local reflection_value = reflection_vector_norm * self.current_speed * self.rebound_constant
+
+    self.horizenal_x_speed = reflection_vector.x * reflection_value
+    self.horizenal_y_speed = reflection_vector.y * reflection_value
+    self.vertical_speed = reflection_vector.z * reflection_value
 end
 
 return Engine
