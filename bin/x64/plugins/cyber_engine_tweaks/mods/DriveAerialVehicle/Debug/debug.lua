@@ -15,7 +15,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_engine_info = false
     obj.is_im_gui_sound_check = false
 
-    obj.selected_sound = "None"
+    obj.selected_sound = "first"
     return setmetatable(obj, self)
 end
 
@@ -116,15 +116,19 @@ function Debug:ImGuiSoundCheck()
     if self.is_im_gui_sound_check then
         if ImGui.BeginCombo("##Sound List", self.selected_sound) then
             for key, _ in pairs(self.core_obj.event_obj.sound_obj.sound_data) do
-                if (ImGui.Selectable(value, (self.selected_sound==key))) then
+                if (ImGui.Selectable(key, (self.selected_sound==key))) then
                     self.selected_sound = key
                 end
             end
             ImGui.EndCombo()
         end
 
-        if ImGui.Button("Play", 150, 80) then
+        if ImGui.Button("Play", 150, 60) then
             self.core_obj.event_obj.sound_obj:PlaySound(self.selected_sound)
+        end
+
+        if ImGui.Button("Stop", 150, 60) then
+            self.core_obj.event_obj.sound_obj:StopSound(self.selected_sound)
         end
     end
 end

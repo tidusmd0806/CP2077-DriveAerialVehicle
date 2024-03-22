@@ -11,6 +11,7 @@ function Sound:New()
 
     obj.sound_data = {}
     obj.playing_sound = {}
+    obj.is_loop = false
 
     return setmetatable(obj, self)
 end
@@ -20,30 +21,29 @@ function Sound:Init()
 end
 
 function Sound:PlaySound(sound_name)
-
-    local event = PlaySoundEvent.new()
-    event.soundEvent = CName.new(self.sound_data[sound_name])
     Game.GetPlayer():PlaySoundEvent(self.sound_data[sound_name])
-    table.insert(self.playing_sound, {sound_name = sound_name, event = event})
-    return true
+end
+
+function Sound:PlaySoundComplex(sound_name, delay_time, is_loop, duration, loop_time)
+
+    DAV.Cron:After(delay_time, function()
+        if is_loop then
+            DAV.Cron:Every(duration, {tick = 1} , function(timer)
+                timer.tick = timer.tick + 1
+                Game.GetPlayer():PlaySoundEvent(self.sound_data[sound_name])
+                if timer.tick * duration >= loop_time then
+                    Game.GetPlayer():StopSoundEvent(self.sound_data[sound_name])
+                    DAV.Cron.Halt(timer)
+                end
+            end)
+        else
+            Game.GetPlayer():PlaySoundEvent(self.sound_data[sound_name])
+        end
+    end)
 end
 
 function Sound:StopSound(sound_name)
-    for index, value in ipairs(self.playing_sound) do
-        if value.sound_name == sound_name then
-            Game.GetPlayer():StopSoundEvent(value.event)
-            table.remove(self.playing_sound, index)
-            return true
-        end
-    end
-    return false
-end
-
-function Sound:StopAllSound()
-    for index, value in ipairs(self.playing_sound) do
-        Game.GetPlayer():StopSoundEvent(value.event)
-    end
-    self.playing_sound = {}
+    Game.GetPlayer():StopSoundEvent(self.sound_data[sound_name])
 end
 
 return Sound

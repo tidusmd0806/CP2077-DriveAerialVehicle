@@ -126,7 +126,6 @@ function Player:ActivateTPPHead(is_tpp)
 
         end)
     else
-        Game.GetScriptableSystemsContainer():Get(CName.new('TakeOverControlSystem')):EnablePlayerTPPRepresenation(false)
         DAV.Cron.Every(0.001, { tick = 1 }, function(timer)
             timer.tick = timer.tick + 1
 

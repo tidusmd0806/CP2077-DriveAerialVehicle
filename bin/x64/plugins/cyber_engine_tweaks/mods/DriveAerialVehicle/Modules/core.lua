@@ -17,6 +17,9 @@ function Core:New()
     obj.av_obj = nil
     obj.player_obj = nil
     obj.event_obj = nil
+    
+    obj.all_models = nil
+    obj.input_table = nil
 
     obj.av_model_path = "Data/default_model.json"
     obj.input_path = "Data/input.json"
@@ -30,10 +33,15 @@ end
 
 function Core:Init()
 
-    local all_models = self:GetAllModel()
+    -- for core reset
+    local core_reset_func = function()
+        self:Reset()
+    end
+
+    self.all_models = self:GetAllModel()
     self.input_table = self:GetInputTable(self.input_path)
 
-    if all_models == nil then
+    if self.all_models == nil then
         self.log_obj:Record(LogLevel.Error, "Model is nil")
         return
     end
@@ -41,16 +49,27 @@ function Core:Init()
     self.player_obj = Player:New(Game.GetPlayer())
     self.player_obj:Init()
 
-    self.av_obj = AV:New(all_models)
+    self.av_obj = AV:New(self.all_models)
     self.av_obj:SetModel()
 
-    self.event_obj = Event:New(self.av_obj)
-    self.event_obj:Init()
+    self.event_obj = Event:New(core_reset_func)
+    self.event_obj:Init(self.av_obj)
 
     DAV.Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
         self:GetActions()
     end)
+    
+end
+
+function Core:Reset()
+    self.player_obj = Player:New(Game.GetPlayer())
+    self.player_obj:Init()
+
+    self.av_obj = AV:New(self.all_models)
+    self.av_obj:SetModel()
+
+    self.event_obj:Init(self.av_obj)
 end
 
 function Core:GetAllModel()
@@ -147,25 +166,6 @@ function Core:GetActions()
 
     self:OperateAerialVehicle(actions)
 
-end
-
-function Core:CallAerodyneVehicle()
-    self.av_obj:SpawnToSky()
-    local times = 150
-    DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
-        timer.tick = timer.tick + 1
-        if timer.tick == times then
-            self.av_obj:LockDoor()
-        elseif timer.tick > times then
-            if not self.av_obj:Move(0.0, 0.0, -0.5, 0.0, 0.0, 0.0) then
-            DAV.Cron.Halt(timer)
-            end
-        end
-    end)
-end
-
-function Core:ChangeAerodyneDoor()
-    self.av_obj:ChangeDoorState(Def.DoorOperation.Change)
 end
 
 function Core:OperateAerialVehicle(actions)

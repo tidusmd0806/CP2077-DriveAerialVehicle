@@ -2,7 +2,7 @@ local Log = require("Tools/log.lua")
 local Ui = {}
 Ui.__index = Ui
 
-function Ui:New(av_obj)
+function Ui:New()
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Ui")
@@ -10,8 +10,8 @@ function Ui:New(av_obj)
     obj.dummy_vehicle_record = "Vehicle.av_dav_dummy"
     obj.dummy_vehicle_record_path = "base\\vehicles\\special\\av_dav_dummy_99.ent"
     obj.dummy_logo_record = "UIIcon.av_davr_logo"
-	obj.av_obj = av_obj
-    obj.all_av_models = av_obj.all_models
+	obj.av_obj = nil
+    obj.all_av_models = nil
 
     -- set default value
     obj.dummy_vehicle_record_hash = nil
@@ -32,7 +32,9 @@ function Ui:New(av_obj)
     return setmetatable(obj, self)
 end
 
-function Ui:Init()
+function Ui:Init(av_obj)
+	self.av_obj = av_obj
+    self.all_av_models = av_obj.all_models
     self:SetTweekDB()
     self:SetOverride()
 	self:InitVehicleModelList()
@@ -67,25 +69,27 @@ function Ui:ResetTweekDB()
 end
 
 function Ui:SetOverride()
-    Override("VehicleSystem", "SpawnPlayerVehicle", function(this, arg_1, wrapped_method)
+	if not DAV.ready then
+		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, arg_1, wrapped_method)
 
-        local record_hash = this:GetActivePlayerVehicle().recordID.hash
+			local record_hash = this:GetActivePlayerVehicle().recordID.hash
 
-        if record_hash == self.dummy_vehicle_record_hash then
-            self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")        
-            self.is_vehicle_call = true
-            return false
-        else
-            local res = false
-            if arg_1 == nil then
-                res = wrapped_method()
-            else
-                res = wrapped_method(arg_1)
-            end
-            self.is_vehicle_call = false
-            return res
-        end
-    end)
+			if record_hash == self.dummy_vehicle_record_hash then
+				self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")        
+				self.is_vehicle_call = true
+				return false
+			else
+				local res = false
+				if arg_1 == nil then
+					res = wrapped_method()
+				else
+					res = wrapped_method(arg_1)
+				end
+				self.is_vehicle_call = false
+				return res
+			end
+		end)
+	end
 end
 
 function Ui:ActivateAVSummon(is_avtive)

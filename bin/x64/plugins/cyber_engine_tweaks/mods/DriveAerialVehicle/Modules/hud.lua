@@ -3,14 +3,14 @@ local Utils = require("Tools/utils.lua")
 local Hud = {}
 Hud.__index = Hud
 
-function Hud:New(av_obj)
+function Hud:New()
 
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Hud")
 
     -- set default parameters
-    obj.av_obj = av_obj
+    obj.av_obj = nil
     obj.interaction_ui_base = nil
     obj.interaction_hub = nil
     obj.choice_title = "AV"
@@ -19,11 +19,14 @@ function Hud:New(av_obj)
     obj.is_speed_meter_shown = false
     obj.key_input_show_hint_event = nil
     obj.key_input_hide_hint_event = nil
+    obj.speed_meter_refresh_rate = 0.5
 
     return setmetatable(obj, self)
 end
 
-function Hud:Init()
+function Hud:Init(av_obj)
+
+    self.av_obj = av_obj
 
     self:SetOverride()
     self:SetObserve()
@@ -34,30 +37,34 @@ end
 
 function Hud:SetOverride()
 
-    -- Overside choice ui (refer to https://www.nexusmods.com/cyberpunk2077/mods/7299)
-    Override("InteractionUIBase", "OnDialogsData", function(_, arg_1, wrapped_method)
-        local data = FromVariant(arg_1)
-        local hubs = data.choiceHubs
-        table.insert(hubs, self.interaction_hub)
-        data.choiceHubs = hubs
-        wrapped_method(ToVariant(data))
-    end)
+    if not DAV.ready then
+        -- Overside choice ui (refer to https://www.nexusmods.com/cyberpunk2077/mods/7299)
+        Override("InteractionUIBase", "OnDialogsData", function(_, arg_1, wrapped_method)
+            local data = FromVariant(arg_1)
+            local hubs = data.choiceHubs
+            table.insert(hubs, self.interaction_hub)
+            data.choiceHubs = hubs
+            wrapped_method(ToVariant(data))
+        end)
+    end
 
 end
 
 function Hud:SetObserve()
 
-    Observe("InteractionUIBase", "OnInitialize", function(this)
-        self.interaction_ui_base = this
-    end)
+    if not DAV.ready then   
+        Observe("InteractionUIBase", "OnInitialize", function(this)
+            self.interaction_ui_base = this
+        end)
 
-    Observe("InteractionUIBase", "OnDialogsData", function(this)
-        self.interaction_ui_base = this
-    end)
+        Observe("InteractionUIBase", "OnDialogsData", function(this)
+            self.interaction_ui_base = this
+        end)
 
-	Observe("hudCarController", "OnMountingEvent", function(this)
-        self.hud_car_controller = this
-    end)
+        Observe("hudCarController", "OnMountingEvent", function(this)
+            self.hud_car_controller = this
+        end)
+    end
 
 end
 
@@ -110,7 +117,7 @@ function Hud:ShowMeter()
         return
     else
         self.is_speed_meter_shown = true
-        DAV.Cron.Every(1, function()
+        DAV.Cron.Every(self.speed_meter_refresh_rate, function()
             local mph = self.av_obj.engine_obj.current_speed * (3600 / 1600)
             local power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
             self.hud_car_controller:OnSpeedValueChanged(mph / 3)

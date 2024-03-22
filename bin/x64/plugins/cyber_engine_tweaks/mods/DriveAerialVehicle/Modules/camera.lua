@@ -2,18 +2,21 @@ local Log = require("Tools/log.lua")
 local Camera = {}
 Camera.__index = Camera
 
-function Camera:New(av_obj)
+function Camera:New()
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Camera")
+    obj.av_obj = nil
 
     obj.camera_vector = nil
+    obj.camera_angle = nil
     obj.pitchMax = 80
     obj.pitchMin = -80
     obj.yawMaxRight = -360
     obj.yawMaxLeft = 360
 
     obj.x_offset = 0.0
+    obj.yaw_offset = 0.0
 
     -- set default parameters
     obj.current_camera_mode = Def.CameraDistanceLevel.Fpp
@@ -21,9 +24,12 @@ function Camera:New(av_obj)
     return setmetatable(obj, self)
 end
 
-function Camera:SetOffset()
+function Camera:Init(av_obj)
+    self.av_obj = av_obj
     local index = self.av_obj.model_index
-    self.x_offset = -1 * self.av_obj.model[index].seat_position[3]
+    local seat_number = self.av_obj.seat_index
+    self.x_offset = -1 * self.av_obj.all_models[index].seat_position[seat_number].x
+    self.yaw_offset = self.av_obj.all_models[index].seat_position[seat_number].yaw
 end
 
 function Camera:ChangePosition()
@@ -33,12 +39,13 @@ function Camera:ChangePosition()
     fpp_component.yawMaxRight = self.yawMaxRight
     fpp_component.yawMaxLeft = self.yawMaxLeft
     fpp_component:SetLocalPosition(self.camera_vector)
-    fpp_component:ResetPitch()
+    fpp_component:SetLocalOrientation(EulerAngles.ToQuat(self.camera_angle))
 end
 
 function Camera:SetCameraPosition(level)
     if level == Def.CameraDistanceLevel.Fpp then
         self.camera_vector = Vector4.new(0.0, 0.1, 0.0, 1.0)
+        self.camera_angle = EulerAngles.new(0, 0, 0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360
@@ -46,6 +53,7 @@ function Camera:SetCameraPosition(level)
         self.current_camera_mode = Def.CameraDistanceLevel.Fpp
     elseif level == Def.CameraDistanceLevel.TppClose then
         self.camera_vector = Vector4.new(self.x_offset, -7.5, 1.5, 1.0)
+        self.camera_angle = EulerAngles.new(0, 0, 0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360
@@ -53,6 +61,7 @@ function Camera:SetCameraPosition(level)
         self.current_camera_mode = Def.CameraDistanceLevel.TppClose
     elseif level == Def.CameraDistanceLevel.TppMedium then
         self.camera_vector = Vector4.new(self.x_offset, -10.0, 2.0, 1.0)
+        self.camera_angle = EulerAngles.new(0, 0, 0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360
@@ -60,6 +69,7 @@ function Camera:SetCameraPosition(level)
         self.current_camera_mode = Def.CameraDistanceLevel.TppMedium
     elseif level == Def.CameraDistanceLevel.TppFar then
         self.camera_vector = Vector4.new(self.x_offset, -15.0, 2.8, 1.0)
+        self.camera_angle = EulerAngles.new(0, 0, 0)
         self.pitchMax = 80
         self.pitchMin = -80
         self.yawMaxRight = -360

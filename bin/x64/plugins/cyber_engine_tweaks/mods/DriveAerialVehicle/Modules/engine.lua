@@ -30,7 +30,7 @@ function Engine:New(position_obj, all_models)
     obj.air_resistance_constant = nil
     obj.rebound_constant = nil
     obj.max_speed = 80
-    
+
 
     -- set default parameters
     obj.next_indication = {roll = 0, pitch = 0, yaw = 0}
@@ -59,7 +59,6 @@ function Engine:SetModel(index)
     self.max_pitch = self.all_models[index].max_pitch
     self.min_pitch = self.all_models[index].min_pitch
 
-    
     self.mess = self.all_models[index].mess
     self.air_resistance_constant = self.all_models[index].air_resistance_constant
     self.max_lift_force = self.mess * self.gravity_constant + self.all_models[index].max_lift_force

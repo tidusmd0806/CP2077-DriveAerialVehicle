@@ -8,15 +8,17 @@ local Ui = require("Modules/ui.lua")
 local Event = {}
 Event.__index = Event
 
-function Event:New(av_obj)
+function Event:New(reset_callback)
     local obj = {}
     obj.log_obj = Log:New()
-    obj.log_obj:SetLevel(LogLevel.Info, "Event")
-    obj.hud_obj = Hud:New(av_obj)
-    obj.ui_obj = Ui:New(av_obj)
-    obj.camera_obj = Camera:New(av_obj)
+    obj.log_obj:SetLevel(LogLevel.Info, "Event") 
+    obj.av_obj = nil
+    obj.hud_obj = Hud:New()
+    obj.ui_obj = Ui:New()
+    obj.camera_obj = Camera:New()
     obj.sound_obj = Sound:New()
-    obj.av_obj = av_obj
+
+    obj.reset_callback = reset_callback
 
     -- set default parameters
     obj.current_situation = Def.Situation.Normal
@@ -25,11 +27,14 @@ function Event:New(av_obj)
     return setmetatable(obj, self)
 end
 
-function Event:Init()
+function Event:Init(av_obj)
 
-    self.ui_obj:Init()
-    self.hud_obj:Init()
-    self.sound_obj:Init()
+    self.av_obj = av_obj
+
+    self.ui_obj:Init(self.av_obj)
+    self.hud_obj:Init(self.av_obj)
+    self.camera_obj:Init(self.av_obj)
+    self.sound_obj:Init(self.av_obj)
 
     self:SetObserve()
     self:SetOverride()
@@ -101,8 +106,9 @@ function Event:CheckAllEvents()
         self:CheckReturnVehicle()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
+        self:CheckCollision()
     elseif self.current_situation == Def.Situation.TalkingOff then
-        print("TalkingOff")
+        -- Reserved
     else
         self.log_obj:Record(LogLevel.Critical, "Invalid situation detected")
     end
@@ -111,6 +117,8 @@ end
 function Event:CheckCallVehicle()
     if self.ui_obj:GetCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
+        self.sound_obj:PlaySound("101_call_vehicle")
+        self.sound_obj:PlaySound("211_landing")
         self:SetSituation(Def.Situation.Landing)
         self.av_obj:SpawnToSky(5.5, 50)
     end
@@ -119,6 +127,8 @@ end
 function Event:CheckLanded()
     if self.av_obj.position_obj:IsCollision() then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
+        self.sound_obj:PlaySound("131_arrive_vehicle")
+        self.sound_obj:PlaySound("221_idel_loop")
         self:SetSituation(Def.Situation.Waiting)
         self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
@@ -139,6 +149,8 @@ function Event:CheckInAV()
         if self.current_situation == Def.Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
             SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
+            self.sound_obj:StopSound("221_idel_loop")
+            self.sound_obj:PlaySound("232_fly_loop")
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
             self:ChangeCamera()
@@ -150,6 +162,8 @@ function Event:CheckInAV()
         -- when player take off from AV
         if self.current_situation == Def.Situation.InVehicle then
             self.log_obj:Record(LogLevel.Info, "Exit AV")
+            self.sound_obj:StopSound("232_fly_loop")
+            self.sound_obj:PlaySound("221_idel_loop")
             self:SetSituation(Def.Situation.Waiting)
             self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
             self:ChangeCamera()
@@ -160,14 +174,24 @@ function Event:CheckInAV()
     end
 end
 
+function Event:CheckCollision()
+    if self.av_obj.is_collision then
+        self.log_obj:Record(LogLevel.Debug, "Collision detected")
+        self.sound_obj:PlaySound("233_crash")
+    end
+end
+
 function Event:CheckReturnVehicle()
     if self.ui_obj:GetCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected")
+        self.sound_obj:PlaySound("211_landing")
+        self.sound_obj:PlaySound("104_call_vehicle")
         self:SetSituation(Def.Situation.TalkingOff)
         self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
         self.av_obj:DespawnFromGround()
         DAV.Cron.After(10, function()
             self:SetSituation(Def.Situation.Normal)
+            self.reset_callback()
         end)
     end
 end
