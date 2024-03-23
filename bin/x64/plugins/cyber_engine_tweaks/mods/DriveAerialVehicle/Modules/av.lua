@@ -1,5 +1,5 @@
 local Position = require("Modules/position.lua")
-local Def = require("Modules/def.lua")
+local Def = require("Tools/def.lua")
 local Engine = require("Modules/engine.lua")
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
@@ -59,7 +59,7 @@ function AV:SetModel()
 	self.seat_position = self.all_models[index].seat_position
 	self.active_seat = self.all_models[index].actual_allocated_seat
 	self.active_seat_yaw = self.all_models[index].seat_position[seat_number].yaw
-	self.active_door = self.all_models[index].active_door
+	self.active_door = self.all_models[index].actual_allocated_door
 	self.engine_obj:SetModel(index)
 	self.position_obj:SetModel(index)
 end
@@ -232,7 +232,7 @@ function AV:Mount()
 	self.position_obj:ChangePosition()
 
 	-- return position near mounted vehicle	
-	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
+	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
 		local entity = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
@@ -252,6 +252,7 @@ function AV:Mount()
 end
 
 function AV:Unmount()
+	local seat_number = self.seat_index
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to unmount")
 		return false
@@ -259,7 +260,7 @@ function AV:Unmount()
 	local entity = Game.FindEntityByID(self.entity_id)
 	local player = Game.GetPlayer()
 	local ent_id = entity:GetEntityID()
-	local seat = "seat_back_left"
+	local seat = self.active_seat[seat_number]
 
 	local data = NewObject('handle:gameMountEventData')
 	data.isInstant = true
@@ -282,7 +283,7 @@ function AV:Unmount()
 	Game.GetMountingFacility():Unmount(mount_event)
 
 	-- set entity id to position object
-	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
+	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
 			if self.player_obj == nil then
@@ -295,7 +296,9 @@ function AV:Unmount()
 			self.position_obj:SetEntity(entity)
 			Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
 			self.player_obj:ActivateTPPHead(false)
-			self.player_obj:StopPose()
+			if not self.is_default_seat_position then
+				self.player_obj:StopPose()
+			end
 			self.is_player_in = false
 			DAV.Cron.Halt(timer)
 		end

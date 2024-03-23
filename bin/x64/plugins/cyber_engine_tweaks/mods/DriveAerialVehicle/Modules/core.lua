@@ -1,6 +1,6 @@
 local AV = require("Modules/av.lua")
 local Player = require("Modules/player.lua")
-local Def = require("Modules/def.lua")
+local Def = require("Tools/def.lua")
 local Event = require("Modules/event.lua")
 local Log = require("Tools/log.lua")
 local Queue = require("Tools/queue.lua")

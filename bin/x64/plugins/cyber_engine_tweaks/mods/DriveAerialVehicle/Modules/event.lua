@@ -1,6 +1,6 @@
 local Log = require("Tools/log.lua")
 local Camera = require("Modules/camera.lua")
-local Def = require("Modules/def.lua")
+local Def = require("Tools/def.lua")
 local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
 local Sound = require("Modules/sound.lua")
