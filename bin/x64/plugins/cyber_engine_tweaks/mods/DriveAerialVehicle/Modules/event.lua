@@ -259,7 +259,12 @@ function Event:EnterOrExitVehicle(player)
         self.av_obj:Mount()
     elseif self:IsInVehicle() then
         self.av_obj:Unmount()
-        self.av_obj:TakeOff()
+        DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
+            if not self.av_obj:IsPlayerIn() then
+                self.av_obj:TakeOff()
+                DAV.Cron.Halt(timer)
+            end
+        end)
     end
 end
 

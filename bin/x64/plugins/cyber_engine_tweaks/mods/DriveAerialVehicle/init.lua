@@ -14,6 +14,13 @@ DAV.Debug = require('Debug/debug.lua')
 DAV.core_obj = DAV.Core:New()
 DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
 
+registerForEvent('onTweak', function()
+	TweakDB:SetFlat('Character.Player_Puppet_Base.tags', {"Player", "TPP_Player"})
+	TweakDB:SetFlat('Character.Player_Puppet_Base.itemGroups', {})
+	TweakDB:SetFlat('Character.Player_Puppet_Base.appearanceName', "TPP_Body")
+	TweakDB:SetFlat('Character.Player_Puppet_Base.isBumpable', false)
+end)
+
 registerForEvent('onInit', function()
 
     DAV.core_obj:Init()
@@ -90,6 +97,20 @@ registerHotkey('Setting', 'Show Set Up Menu', function()
     else
         DAV.is_setting_menu = true
     end
+end)
+
+registerHotkey('Test', 'Test', function()
+    -- local fpp_component = Game.GetPlayer():GetFPPCameraComponent()
+    -- local carCam = fpp_component:FindComponentByName(CName.new("vehicleTPPCamera"))
+	-- carCam:Activate(2, true)
+    Game.GetScriptableSystemsContainer():Get(CName.new('TakeOverControlSystem')):EnablePlayerTPPRepresenation(false)
+    GetPlayer():QueueEvent(tpp)
+end)
+
+registerHotkey('Test2', 'Test2', function()
+    local tpp = ActivateTPPRepresentationEvent.new()
+    tpp.playerController = Game.GetPlayer()
+    GetPlayer():QueueEvent(tpp)
 end)
 
 registerForEvent('onUpdate', function(delta)

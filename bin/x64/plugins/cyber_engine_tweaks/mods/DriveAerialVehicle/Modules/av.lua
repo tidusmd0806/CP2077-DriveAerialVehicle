@@ -287,11 +287,12 @@ function AV:Unmount()
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
 			if self.player_obj == nil then
-				self.log_obj:Record(LogLevel.Errpr, "No player object")
+				self.log_obj:Record(LogLevel.Error, "No player object")
 				DAV.Cron.Halt(timer)
 				return
 			end
-			local angle = player:GetWorldOrientation():ToEulerAngles()
+			local angle = entity:GetWorldOrientation():ToEulerAngles()
+			angle.yaw = angle.yaw + 90
 			local position = self.position_obj:GetExitPosition()
 			self.position_obj:SetEntity(entity)
 			Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
@@ -321,9 +322,7 @@ function AV:TakeOff()
 		self.log_obj:Record(LogLevel.Warning, "No entity to take off")
 		return false
 	end
-	DAV.Cron.After(3, function()
-		self.player_obj = nil
-	end)
+	self.player_obj = nil
 	return true
 end
 

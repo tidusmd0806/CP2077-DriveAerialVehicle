@@ -78,6 +78,7 @@ end
 
 -- refer to https://github.com/MaximiliumM/appearancemenumod for changing head when tpp or fpp
 function Player:ActivateTPPHead(is_tpp)
+    local delay = 10
     local player = Game.GetPlayer()
     local head_type = nil
     if self.gender == "Famale" then
@@ -111,7 +112,7 @@ function Player:ActivateTPPHead(is_tpp)
         DAV.Cron.Every(0.001, { tick = 1 }, function(timer)
             timer.tick = timer.tick + 1
 
-            if timer.tick > 20 then
+            if timer.tick > delay then
                 DAV.Cron.Halt(timer)
             end
             DAV.Cron.After(0.001, function()
@@ -131,7 +132,14 @@ function Player:ActivateTPPHead(is_tpp)
 
             transcation_system:ChangeItemAppearanceByName(player, head_id, "default&FPP")
 
-            if timer.tick > 20 then
+            if timer.tick > delay then
+                DAV.Cron.After(0.1, function()
+                    -- I dont know why this is needed, but it is important to change the head to fpp head
+                    local tpp_event = ActivateTPPRepresentationEvent.new()
+                    tpp_event.playerController = Game.GetPlayer()
+                    GetPlayer():QueueEvent(tpp_event)
+                    Game.GetScriptableSystemsContainer():Get(CName.new("TakeOverControlSystem")):EnablePlayerTPPRepresenation(false)
+                end)
                 DAV.Cron.Halt(timer)
             end
             DAV.Cron.After(0.001, function()
