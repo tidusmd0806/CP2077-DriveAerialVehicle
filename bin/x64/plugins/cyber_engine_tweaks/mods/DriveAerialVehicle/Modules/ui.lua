@@ -11,7 +11,6 @@ function Ui:New()
     obj.dummy_vehicle_record_path = "base\\vehicles\\special\\av_dav_dummy_99.ent"
     obj.dummy_logo_record = "UIIcon.av_davr_logo"
 	obj.av_obj = nil
-    obj.all_av_models = nil
 
     -- set default value
     obj.dummy_vehicle_record_hash = nil
@@ -28,20 +27,26 @@ function Ui:New()
 	obj.vehicle_seat_list = {}
 	obj.selected_vehicle_seat_name = ""
 	obj.selected_vehicle_seat_number = 1
+	obj.current_vehicle_model_name = ""
+	obj.current_vehicle_type_name = ""
+	obj.current_vehicle_door_name = ""
+	obj.current_vehicle_seat_name = ""
 
     return setmetatable(obj, self)
 end
 
 function Ui:Init(av_obj)
 	self.av_obj = av_obj
-    self.all_av_models = av_obj.all_models
+
     self:SetTweekDB()
-    self:SetOverride()
-	self:InitVehicleModelList()
+	if not DAV.ready then
+    	self:SetOverride()
+		self:InitVehicleModelList()
+	end
 end
 
 function Ui:SetTweekDB()
-	local index = self.av_obj.model_index
+	local index = DAV.model_index
 	local display_name_lockey = self.av_obj.all_models[index].display_name_lockey
     local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
     local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
@@ -104,29 +109,34 @@ end
 
 function Ui:InitVehicleModelList()
 
-	for i, model in ipairs(self.all_av_models) do
+	for i, model in ipairs(self.av_obj.all_models) do
         self.vehicle_model_list[i] = model.name
 	end
-	self.selected_vehicle_model_number = 1
-	self.selected_vehicle_model_name = self.vehicle_model_list[1]
+	self.selected_vehicle_model_number = DAV.model_index
+	self.selected_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
 
-	for i, type in ipairs(self.all_av_models[self.selected_vehicle_model_number].type) do
+	for i, type in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].type) do
 		self.vehicle_type_list[i] = type
 	end
-	self.selected_vehicle_type_number = 1
-	self.selected_vehicle_type_name = self.vehicle_type_list[1]
+	self.selected_vehicle_type_number = DAV.model_type_index
+	self.selected_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
 
-	for i, door in ipairs(self.all_av_models[self.selected_vehicle_model_number].active_door) do
+	for i, door in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].active_door) do
 		self.vehicle_door_list[i] = door
 	end
-	self.selected_vehicle_door_number = 1
-	self.selected_vehicle_door_name = self.vehicle_door_list[1]
+	self.selected_vehicle_door_number = DAV.open_door_index
+	self.selected_vehicle_door_name = self.vehicle_door_list[self.selected_vehicle_door_number]
 
-	for i, seat in ipairs(self.all_av_models[self.selected_vehicle_model_number].active_seat) do
+	for i, seat in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].active_seat) do
 		self.vehicle_seat_list[i] = seat
 	end
-	self.selected_vehicle_seat_number = 1
-	self.selected_vehicle_seat_name = self.vehicle_seat_list[1]
+	self.selected_vehicle_seat_number = DAV.seat_index
+	self.selected_vehicle_seat_name = self.vehicle_seat_list[self.selected_vehicle_seat_number]
+	
+	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
+	self.current_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
+	self.current_vehicle_door_name = self.vehicle_door_list[self.selected_vehicle_door_number]
+	self.current_vehicle_seat_name = self.vehicle_seat_list[self.selected_vehicle_seat_number]
 
 end
 
@@ -134,9 +144,26 @@ function Ui:ShowSettingMenu()
 	local selected = false
     ImGui.SetNextWindowSize(800, 1000, ImGuiCond.Appearing)
     ImGui.Begin("Drive an AV Setting Menu")
+
+	ImGui.Text("Now Selected")
+	ImGui.Text("Model: ")
+	ImGui.SameLine()
+	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_model_name)
+	ImGui.Text("Type : ")
+	ImGui.SameLine()
+	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_type_name)
+	ImGui.Text("Door : ")
+	ImGui.SameLine()
+	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_door_name)
+	ImGui.Text("Seat : ")
+	ImGui.SameLine()
+	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_seat_name)
+
+	ImGui.Spacing()
+
 	if not DAV.core_obj.event_obj:IsNotSpawned() then
-		ImGui.Text("Setting is not available while driving an AV.")
-		ImGui.Text("Please despawn your AV by pushing vehicle button.")
+		ImGui.TextColored(1, 0, 0, 1, "Settings cannot be changed at this time")
+		ImGui.TextColored(1, 0, 0, 1, "Please despawn your AV by pushing vehicle button")
 		return
 	end
 
@@ -160,15 +187,15 @@ function Ui:ShowSettingMenu()
 	self.vehicle_door_list = {}
 	self.vehicle_seat_list = {}
 
-	for i, type in ipairs(self.all_av_models[self.selected_vehicle_model_number].type) do
+	for i, type in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].type) do
 		self.vehicle_type_list[i] = type
 	end
 
-	for i, door in ipairs(self.all_av_models[self.selected_vehicle_model_number].active_door) do
+	for i, door in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].active_door) do
 		self.vehicle_door_list[i] = door
 	end
 
-	for i, seat in ipairs(self.all_av_models[self.selected_vehicle_model_number].active_seat) do
+	for i, seat in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].active_seat) do
 		self.vehicle_seat_list[i] = seat
 	end
 
@@ -224,7 +251,7 @@ function Ui:ShowSettingMenu()
 		ImGui.EndCombo()
 	end
 
-	if ImGui.Button("Update", 150, 80) then
+	if ImGui.Button("Update", 180, 60) then
 		self:SetParameters()
 	end
 
@@ -233,15 +260,18 @@ end
 
 function Ui:SetParameters()
 
-	self.av_obj.model_index = self.selected_vehicle_model_number
-	self.av_obj.model_type_index = self.selected_vehicle_type_number
-	self.av_obj.open_door_index = self.selected_vehicle_door_number
-	self.av_obj.seat_index = self.selected_vehicle_seat_number
-	self.av_obj:SetModel()
-	DAV.core_obj.event_obj.hud_obj:SetChoiceTitle()
+	DAV.model_index = self.selected_vehicle_model_number
+	DAV.model_type_index = self.selected_vehicle_type_number
+	DAV.open_door_index = self.selected_vehicle_door_number
+	DAV.seat_index = self.selected_vehicle_seat_number
 	self:ResetTweekDB()
-	self:SetTweekDB()
+	DAV.core_obj:Reset()
 	self:ActivateAVSummon(true)
+
+	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
+	self.current_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
+	self.current_vehicle_door_name = self.vehicle_door_list[self.selected_vehicle_door_number]
+	self.current_vehicle_seat_name = self.vehicle_seat_list[self.selected_vehicle_seat_number]
 
 end
 

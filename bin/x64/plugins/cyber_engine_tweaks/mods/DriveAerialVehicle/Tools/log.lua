@@ -9,7 +9,7 @@ LogLevel = {
 }
 
 -- Force the log level to be the same for all instances
-MasterLogLevel = LogLevel.Debug
+MasterLogLevel = LogLevel.Error
 
 local Log = {}
 Log.__index = Log

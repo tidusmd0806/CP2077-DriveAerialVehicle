@@ -33,11 +33,6 @@ end
 
 function Core:Init()
 
-    -- for core reset
-    local core_reset_func = function()
-        self:Reset()
-    end
-
     self.all_models = self:GetAllModel()
     self.input_table = self:GetInputTable(self.input_path)
 
@@ -52,7 +47,7 @@ function Core:Init()
     self.av_obj = AV:New(self.all_models)
     self.av_obj:SetModel()
 
-    self.event_obj = Event:New(core_reset_func)
+    self.event_obj = Event:New()
     self.event_obj:Init(self.av_obj)
 
     DAV.Cron.Every(DAV.time_resolution, function()
@@ -150,6 +145,11 @@ end
 function Core:GetActions()
 
     local actions = {}
+
+    if self.event_obj:IsInMenuOrPopup() then
+        self.queue_obj:Clear()
+        return
+    end
 
     while not self.queue_obj:IsEmpty() do
         local action = self.queue_obj:Dequeue()

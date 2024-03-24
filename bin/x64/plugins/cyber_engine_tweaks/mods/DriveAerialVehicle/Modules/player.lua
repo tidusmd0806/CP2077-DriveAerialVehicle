@@ -30,7 +30,6 @@ function Player:Init()
     end
 end
 
--- refer to https://github.com/MaximiliumM/appearancemenumod for changing head when tpp or fpp
 function Player:PlayPose(sit_pose)
     local pose_name = nil
     if self.gender == "Female" then
@@ -48,16 +47,17 @@ function Player:PlayPose(sit_pose)
 
     self.dummy_entity_id = exEntitySpawner.Spawn(self.workspot_entity_path, transform, '')
 
-    DAV.Cron.Every(0.1, {tick = 1}, function(timer)
+    DAV.Cron.Every(0.01, {tick = 1}, function(timer)
         local dummy_entity = Game.FindEntityByID(self.dummy_entity_id)
         if dummy_entity ~= nil then
-            Game.GetWorkspotSystem():PlayInDeviceSimple(dummy_entity, player, true, self.workspot_resorce_component_name, nil, nil, 0, 1, nil)
-            Game.GetWorkspotSystem():SendJumpToAnimEnt(player, pose_name, false)
-
-            -- for some reason, the pose is not played at the first time, so we need to play it again
-            DAV.Cron.After(1.5, function()
+            DAV.Cron.After(0.1, function()
                 Game.GetWorkspotSystem():PlayInDeviceSimple(dummy_entity, player, true, self.workspot_resorce_component_name, nil, nil, 0, 1, nil)
-                Game.GetWorkspotSystem():SendJumpToAnimEnt(player, pose_name, false)
+                Game.GetWorkspotSystem():SendJumpToAnimEnt(player, pose_name, true)
+            end)
+
+            DAV.Cron.After(0.2, function()
+                Game.GetWorkspotSystem():PlayInDeviceSimple(dummy_entity, player, true, self.workspot_resorce_component_name, nil, nil, 0, 1, nil)
+                Game.GetWorkspotSystem():SendJumpToAnimEnt(player, pose_name, true)
             end)
             DAV.Cron.Halt(timer)
         end
@@ -65,11 +65,9 @@ function Player:PlayPose(sit_pose)
 end
 
 function Player:StopPose()
-    local player = Game.GetPlayer()
     if self.dummy_entity_id ~= nil then
         local dummy_entity = Game.FindEntityByID(self.dummy_entity_id)
         if dummy_entity ~= nil then
-            Game.GetWorkspotSystem():StopInDevice(player, nil, nil)
             exEntitySpawner.Despawn(dummy_entity)
             self.dummy_entity_id = nil
         end
@@ -133,12 +131,14 @@ function Player:ActivateTPPHead(is_tpp)
             transcation_system:ChangeItemAppearanceByName(player, head_id, "default&FPP")
 
             if timer.tick > delay then
-                DAV.Cron.After(0.1, function()
+                DAV.Cron.After(1.0, function()
                     -- I dont know why this is needed, but it is important to change the head to fpp head
                     local tpp_event = ActivateTPPRepresentationEvent.new()
                     tpp_event.playerController = Game.GetPlayer()
                     GetPlayer():QueueEvent(tpp_event)
-                    Game.GetScriptableSystemsContainer():Get(CName.new("TakeOverControlSystem")):EnablePlayerTPPRepresenation(false)
+                    DAV.Cron.After(0.1, function()
+                        Game.GetScriptableSystemsContainer():Get(CName.new("TakeOverControlSystem")):EnablePlayerTPPRepresenation(false)
+                    end)
                 end)
                 DAV.Cron.Halt(timer)
             end

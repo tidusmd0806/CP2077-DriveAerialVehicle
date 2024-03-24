@@ -28,8 +28,10 @@ function Hud:Init(av_obj)
 
     self.av_obj = av_obj
 
-    self:SetOverride()
-    self:SetObserve()
+    if not DAV.ready then
+        self:SetOverride()
+        self:SetObserve()
+    end
     self:SetChoiceTitle()
     self:SetCustomHint()
 
@@ -69,7 +71,7 @@ function Hud:SetObserve()
 end
 
 function Hud:SetChoiceTitle()
-    local index = self.av_obj.model_index
+    local index = DAV.model_index
     self.choice_title = self.av_obj.all_models[index].name
 end
 

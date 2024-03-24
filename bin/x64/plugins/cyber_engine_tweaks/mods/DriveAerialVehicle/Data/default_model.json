@@ -12,10 +12,10 @@
             "rayfield_excalibur__basic_saburo_arasaka_01"
         ],
         "is_default_mount": true,
-        "active_door": ["left"],
+        "active_door": ["Left Door"],
         "actual_allocated_door": ["seat_front_left"],
-        "active_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
-        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
+        "active_seat": ["Front Left Seat", "Front Right Seat", "Back Left Seat", "Back Right Seat"],
+        "actual_allocated_seat": ["seat_back_right", "seat_back_right", "seat_back_right", "seat_back_right"],
         "is_default_seat_position": false,
         "seat_position": [
             {"x": -0.35, "y":  0.50, "z": -0.38, "yaw": 180.0},
@@ -44,18 +44,18 @@
         "air_resistance_constant": 300,
         "rebound_constant": 1.0,
         "shape": {
-            "A": {"x": 1.5, "y": 3.0, "z": 1.5},
-            "B": {"x": 1.5, "y": 3.0, "z": -0.5},
-            "C": {"x": 2.0, "y": -6.0, "z": 2.0},
-            "D": {"x": 2.0, "y": -6.0, "z": -0.5},
-            "E": {"x": -1.5, "y": 3.0, "z": 1.5},
-            "F": {"x": -1.5, "y": 3.0, "z": -0.5},
-            "G": {"x": -2.0, "y": -4.0, "z": 2.0},
-            "H": {"x": -2.0, "y": -4.0, "z": -0.5}
+            "A": {"x":  1.5, "y":  3.0, "z":  1.5},
+            "B": {"x":  1.5, "y":  3.0, "z": -0.5},
+            "C": {"x":  2.0, "y": -6.0, "z":  2.0},
+            "D": {"x":  2.0, "y": -6.0, "z": -0.5},
+            "E": {"x": -1.5, "y":  3.0, "z":  1.5},
+            "F": {"x": -1.5, "y":  3.0, "z": -0.5},
+            "G": {"x": -2.0, "y": -6.0, "z":  2.0},
+            "H": {"x": -2.0, "y": -6.0, "z": -0.5}
         },
         "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
         "entry_area_radius": 2.0,
-        "exit_point": {"x": -1.5, "y": 0, "z": -1.0}
+        "exit_point": {"x": -2.5, "y": 0, "z": 0}
     },
     {
         "name": "Militech Manticore",
@@ -69,17 +69,15 @@
             "militech_manticore__basic_ncpd_01"
         ],
         "is_default_mount": true,
-        "active_door": ["left", "right"],
+        "active_door": ["Left Door", "Right Door"],
         "actual_allocated_door": ["seat_front_left", "seat_front_right"],
-        "active_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
-        "actual_allocated_seat": ["seat_back_left", "seat_back_left", "seat_back_left", "seat_back_left"],
+        "active_seat": ["Side Left Seat", "Side Right Seat", "Cockpit"],
+        "actual_allocated_seat": ["seat_back_right", "seat_back_right", "seat_back_right"],
         "is_default_seat_position": false,
         "seat_position": [
-            {"x": 0.0 , "y": 0.0, "z": 0.0, "yaw": 0.0},
-            {"x": 0.0 , "y": 0.0, "z": 0.0, "yaw": 0.0},
-            {"x": 0.0 , "y": 0.0, "z": 0.0, "yaw": 0.0},
-            {"x": 0.0 , "y": 0.0, "z": 0.0, "yaw": 0.0},
-            {"x": 0.0 , "y": 0.0, "z": 0.0, "yaw": 0.0}
+            {"x": -0.7 , "y": -0.3, "z": -0.9, "yaw":  90.0},
+            {"x":  0.7 , "y": -0.3, "z": -0.9, "yaw": -90.0},
+            {"x": -0.6 , "y":  3.2, "z": -0.9, "yaw":   0.0}
         ],
         "sit_pose": {
             "female": "sit_chair_lean180__2h_on_lap__01",
@@ -94,26 +92,26 @@
         "min_roll": -25,
         "max_pitch": 25,
         "min_pitch": -25,
-        "max_lift_force": 12000,
-        "min_lift_force": 6000,
-        "time_to_max": 5,
-        "time_to_min": 3,
-        "mess": 2000,
+        "max_lift_force": 32000,
+        "min_lift_force": 13000,
+        "time_to_max": 9,
+        "time_to_min": 7,
+        "mess": 4500,
         "air_resistance_constant": 300,
         "rebound_constant": 1.0,
         "shape": {
-            "A": {"x": 1.5, "y": 3.0, "z": 1.5},
-            "B": {"x": 1.5, "y": 3.0, "z": -1.5},
-            "C": {"x": 2.0, "y": -6.0, "z": 2.0},
-            "D": {"x": 2.0, "y": -6.0, "z": -1.5},
-            "E": {"x": -1.5, "y": 3.0, "z": 1.5},
-            "F": {"x": -1.5, "y": 3.0, "z": -1.5},
-            "G": {"x": -2.0, "y": -4.0, "z": 2.0},
-            "H": {"x": -2.0, "y": -4.0, "z": -1.5}
+            "A": {"x":  1.8, "y":  5.0, "z":  1.7},
+            "B": {"x":  1.8, "y":  5.0, "z": -1.7},
+            "C": {"x":  2.0, "y": -6.5, "z":  1.7},
+            "D": {"x":  2.0, "y": -6.5, "z": -1.7},
+            "E": {"x": -1.8, "y":  5.0, "z":  1.7},
+            "F": {"x": -1.8, "y":  5.0, "z": -1.7},
+            "G": {"x": -2.0, "y": -6.5, "z":  1.7},
+            "H": {"x": -2.0, "y": -6.5, "z": -1.7}
         },
-        "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
-        "entry_area_radius": 2.0,
-        "exit_point": {"x": -1.5, "y": 0, "z": -1.0}
+        "entry_point": {"x": 0.0, "y": 0.0, "z": -2.0},
+        "entry_area_radius": 3.5,
+        "exit_point": {"x": -2.5, "y": 0, "z": -1.5}
     },
     {
         "name": "Zetatech Atlus",
@@ -129,17 +127,17 @@
             "zetatech_atlus_trama_team"
         ],
         "is_default_mount": false,
-        "active_door": ["left"],
+        "active_door": ["Left Door"],
         "actual_allocated_door": ["seat_front_left"],
-        "active_seat": ["passenger_seat_a", "passenger_seat_b", "passenger_seat_c", "passenger_seat_d", "passenger_seat_e"],
+        "active_seat": ["Front Side Seat", "Middle Side Seat", "Back Side Seat", "Back Right Seat", "Back Left Seat"],
         "actual_allocated_seat": ["passenger_seat_a", "passenger_seat_b", "passenger_seat_c", "passenger_seat_d", "passenger_seat_e"],
         "is_default_seat_position": true,
         "seat_position": [
-            {"x": 0.0 , "y": 0.0, "z": 0.0, "yaw": 0.0},
-            {"x": 0.0 , "y": 0.0, "z": 0.0, "yaw": 0.0},
-            {"x": 0.0 , "y": 0.0, "z": 0.0, "yaw": 0.0},
-            {"x": 0.0 , "y": 0.0, "z": 0.0, "yaw": 0.0},
-            {"x": 0.0 , "y": 0.0, "z": 0.0, "yaw": 0.0}
+            {"x":  1.4 , "y":  0.8, "z": -0.6, "yaw": 90.0},
+            {"x":  1.4 , "y":  0.0, "z": -0.6, "yaw": 90.0},
+            {"x":  1.4 , "y": -1.2, "z": -0.6, "yaw": 90.0},
+            {"x":  0.8 , "y": -1.4, "z": -0.6, "yaw":  0.0},
+            {"x": -0.6 , "y": -1.4, "z": -0.6, "yaw":  0.0}
         ],
         "sit_pose": {
             "female": "sit_chair_lean180__2h_on_lap__01",
@@ -154,25 +152,25 @@
         "min_roll": -25,
         "max_pitch": 25,
         "min_pitch": -25,
-        "max_lift_force": 12000,
-        "min_lift_force": 6000,
-        "time_to_max": 5,
-        "time_to_min": 3,
-        "mess": 2000,
+        "max_lift_force": 24000,
+        "min_lift_force": 10000,
+        "time_to_max": 8,
+        "time_to_min": 5,
+        "mess": 3000,
         "air_resistance_constant": 300,
         "rebound_constant": 1.0,
         "shape": {
-            "A": {"x": 1.5, "y": 3.0, "z": 1.5},
-            "B": {"x": 1.5, "y": 3.0, "z": -0.5},
-            "C": {"x": 2.0, "y": -6.0, "z": 2.0},
-            "D": {"x": 2.0, "y": -6.0, "z": -0.5},
-            "E": {"x": -1.5, "y": 3.0, "z": 1.5},
-            "F": {"x": -1.5, "y": 3.0, "z": -0.5},
-            "G": {"x": -2.0, "y": -4.0, "z": 2.0},
-            "H": {"x": -2.0, "y": -4.0, "z": -0.5}
+            "A": {"x":  2.5, "y":  4.5, "z":  2.0},
+            "B": {"x":  2.5, "y":  4.5, "z":  0.0},
+            "C": {"x":  2.5, "y": -4.5, "z":  2.0},
+            "D": {"x":  2.5, "y": -4.5, "z":  0.0},
+            "E": {"x": -2.5, "y":  4.5, "z":  2.0},
+            "F": {"x": -2.5, "y":  4.5, "z":  0.0},
+            "G": {"x": -2.5, "y": -4.5, "z":  2.0},
+            "H": {"x": -2.5, "y": -4.5, "z":  0.0}
         },
         "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
         "entry_area_radius": 2.0,
-        "exit_point": {"x": -5.5, "y": 0, "z": 0.0}
+        "exit_point": {"x": -2.5, "y": 0, "z": 0.0}
     }
 ]

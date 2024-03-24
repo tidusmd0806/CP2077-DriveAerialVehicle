@@ -107,7 +107,8 @@ end
 function Debug:ImGuiCurrentEngineInfo()
     self.is_im_gui_engine_info = ImGui.Checkbox("[ImGui] Current Engine Info", self.is_im_gui_engine_info)
     if self.is_im_gui_engine_info then
-        ImGui.Text("Current Power Mode : " .. self.core_obj.av_obj.engine_obj.current_mode .. ", Current Speed : " .. self.core_obj.av_obj.engine_obj.current_speed)
+        local v = string.format("%.2f", self.core_obj.av_obj.engine_obj.current_speed)
+        ImGui.Text("Current Power Mode : " .. self.core_obj.av_obj.engine_obj.current_mode .. ", Current Speed : " .. v)
     end
 end
 

@@ -8,26 +8,27 @@ local Ui = require("Modules/ui.lua")
 local Event = {}
 Event.__index = Event
 
-function Event:New(reset_callback)
+function Event:New()
     local obj = {}
     obj.log_obj = Log:New()
-    obj.log_obj:SetLevel(LogLevel.Info, "Event") 
+    obj.log_obj:SetLevel(LogLevel.Info, "Event")
     obj.av_obj = nil
     obj.hud_obj = Hud:New()
     obj.ui_obj = Ui:New()
     obj.camera_obj = Camera:New()
     obj.sound_obj = Sound:New()
 
-    obj.reset_callback = reset_callback
-
     -- set default parameters
     obj.current_situation = Def.Situation.Normal
-    obj.door_open_wait_time = 5.0
+    obj.is_in_menu = false
+    obj.is_in_popup = false
 
     return setmetatable(obj, self)
 end
 
 function Event:Init(av_obj)
+
+    self.current_situation = Def.Situation.Normal
 
     self.av_obj = av_obj
 
@@ -36,8 +37,10 @@ function Event:Init(av_obj)
     self.camera_obj:Init(self.av_obj)
     self.sound_obj:Init(self.av_obj)
 
-    self:SetObserve()
-    self:SetOverride()
+    if not DAV.ready then
+        self:SetObserve()
+        self:SetOverride()
+    end
 
 end
 
@@ -45,6 +48,30 @@ function Event:SetObserve()
 
     GameUI.Observe("SessionStart", function()
         DAV.Cron.After(0.5, function()
+            DAV.core_obj:Reset()
+            self.ui_obj:ActivateAVSummon(true)
+        end)
+    end)
+
+    GameUI.Observe("MenuOpen", function()
+        self.is_in_menu = true
+    end)
+
+    GameUI.Observe("MenuClose", function()
+        self.is_in_menu = false
+    end)
+
+    GameUI.Observe("PopupOpen", function()
+        self.is_in_popup = true
+    end)
+
+    GameUI.Observe("PopupClose", function()
+        self.is_in_popup = false
+    end)
+
+    GameUI.Observe("LoadingFinish", function()
+        DAV.Cron.After(0.5, function()
+            DAV.core_obj:Reset()
             self.ui_obj:ActivateAVSummon(true)
         end)
     end)
@@ -108,7 +135,7 @@ function Event:CheckAllEvents()
         self:CheckInAV()
         self:CheckCollision()
     elseif self.current_situation == Def.Situation.TalkingOff then
-        -- Reserved
+        self:CheckDespawn()
     else
         self.log_obj:Record(LogLevel.Critical, "Invalid situation detected")
     end
@@ -125,7 +152,7 @@ function Event:CheckCallVehicle()
 end
 
 function Event:CheckLanded()
-    if self.av_obj.position_obj:IsCollision() then
+    if self.av_obj.position_obj:IsCollision() or self.av_obj.is_landed then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
         self.sound_obj:PlaySound("131_arrive_vehicle")
         self.sound_obj:PlaySound("221_idel_loop")
@@ -165,7 +192,6 @@ function Event:CheckInAV()
             self.sound_obj:StopSound("232_fly_loop")
             self.sound_obj:PlaySound("221_idel_loop")
             self:SetSituation(Def.Situation.Waiting)
-            self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
             self:ChangeCamera()
             self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
@@ -177,7 +203,9 @@ end
 function Event:CheckCollision()
     if self.av_obj.is_collision then
         self.log_obj:Record(LogLevel.Debug, "Collision detected")
-        self.sound_obj:PlaySound("233_crash")
+        if not self.av_obj.engine_obj:IsInFalling() then
+            self.sound_obj:PlaySound("233_crash")
+        end
     end
 end
 
@@ -189,10 +217,14 @@ function Event:CheckReturnVehicle()
         self:SetSituation(Def.Situation.TalkingOff)
         self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
         self.av_obj:DespawnFromGround()
-        DAV.Cron.After(10, function()
-            self:SetSituation(Def.Situation.Normal)
-            self.reset_callback()
-        end)
+    end
+end
+
+function Event:CheckDespawn()
+    if self.av_obj:IsDespawned() then
+        self.log_obj:Record(LogLevel.Trace, "Despawn detected")
+        self:SetSituation(Def.Situation.Normal)
+        DAV.core_obj:Reset()
     end
 end
 
@@ -222,6 +254,14 @@ end
 
 function Event:IsInVehicle()
     if self.current_situation == Def.Situation.InVehicle and self.av_obj:IsPlayerIn() then
+        return true
+    else
+        return false
+    end
+end
+
+function Event:IsInMenuOrPopup()
+    if self.is_in_menu or self.is_in_popup then
         return true
     else
         return false

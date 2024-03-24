@@ -43,6 +43,7 @@ function Engine:New(position_obj, all_models)
     obj.dynamic_lift_force = 0
     obj.current_speed = 0
     obj.current_mode = Def.PowerMode.Off
+    obj.is_falling = false
 
     return setmetatable(obj, self)
 end
@@ -267,6 +268,22 @@ function Engine:SetSpeedAfterRebound()
     self.horizenal_x_speed = reflection_vector.x * reflection_value
     self.horizenal_y_speed = reflection_vector.y * reflection_value
     self.vertical_speed = reflection_vector.z * reflection_value
+
+    -- check falling
+    local horizenal_speed = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed)
+    if self.vertical_speed > 0 and math.abs(self.vertical_speed) > horizenal_speed then
+        self.is_falling = true
+    else
+        self.is_falling = false
+    end
+end
+
+function Engine:IsInFalling()
+    if self.is_falling then
+        return true
+    else
+        return false
+    end
 end
 
 return Engine

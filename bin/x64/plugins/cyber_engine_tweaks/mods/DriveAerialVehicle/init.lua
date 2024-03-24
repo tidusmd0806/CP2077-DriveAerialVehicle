@@ -1,10 +1,20 @@
+--------------------------------------------------------
+-- CopyRight (C) 2024, tidusmd. All rights reserved.
+-- This mod is under the MIT License.
+-- https://opensource.org/licenses/mit-license.php
+--------------------------------------------------------
+
 DAV = {
 	description = "Drive an Aerial Vehicele",
 	version = "0.0.1",
     ready = false,
-    is_debug_mode = true,
-    is_setting_menu = false,
+    is_debug_mode = false,
+    is_opening_overlay = false,
     time_resolution = 0.01,
+	model_index = 1,
+	model_type_index = 3,
+	open_door_index = 1,
+	seat_index = 3,
 }
 
 DAV.Cron = require('External/Cron.lua')
@@ -14,11 +24,12 @@ DAV.Debug = require('Debug/debug.lua')
 DAV.core_obj = DAV.Core:New()
 DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
 
-registerForEvent('onTweak', function()
-	TweakDB:SetFlat('Character.Player_Puppet_Base.tags', {"Player", "TPP_Player"})
-	TweakDB:SetFlat('Character.Player_Puppet_Base.itemGroups', {})
-	TweakDB:SetFlat('Character.Player_Puppet_Base.appearanceName', "TPP_Body")
-	TweakDB:SetFlat('Character.Player_Puppet_Base.isBumpable', false)
+registerForEvent("onOverlayOpen",function ()
+	DAV.is_opening_overlay = true
+end)
+
+registerForEvent("onOverlayClose",function ()
+	DAV.is_opening_overlay = false
 end)
 
 registerForEvent('onInit', function()
@@ -46,37 +57,6 @@ registerForEvent('onInit', function()
 
     end)
 
-    -- Observe("IMountingFacility", "Unmount", function(this, event)
-    --     print("Unmount")
-    --     print("delay: " .. event.delay)
-    --     print("lowLevelMountingInfo")
-    --     print("childId: " .. event.lowLevelMountingInfo.childId:GetHash())
-    --     print("parentId: " .. event.lowLevelMountingInfo.parentId:GetHash())
-    --     print("slotId: " .. event.lowLevelMountingInfo.slotId.id.value)
-    --     print("mountData")
-    --     print("allowFailsafeTeleport ")
-    --     print(event.mountData.allowFailsafeTeleport)
-    --     print("entryAnimName: " .. event.mountData.entryAnimName.value)
-    --     print("entrySlotName: " .. event.mountData.entrySlotName.value)
-    --     print("ignoreHLS")
-    --     print(event.mountData.ignoreHLS)
-    --     -- print("initialTransformLS: " .. event.mountData.initialTransformLS)
-    --     print("isCarrying")
-    --     print(event.mountData.isCarrying)
-    --     print("isInstant")
-    --     print(event.mountData.isInstant)
-    --     print("isJustAttached")
-    --     print(event.mountData.isJustAttached)
-    --     -- print("mountEventOptions" .. event.mountData.mountEventOptions)
-    --     print("mountParentEntityId: " .. event.mountData.mountParentEntityId:GetHash())
-    --     print("removePitchRollRotationOnDismount")
-    --     print(event.mountData.removePitchRollRotationOnDismount)
-    --     print("setEntityVisibleWhenMountFinish")
-    --     print(event.mountData.setEntityVisibleWhenMountFinish)
-    --     print("slotName" .. event.mountData.slotName.value)
-    --     print("switchRenderPlane")
-    --     print(event.mountData.switchRenderPlane)
-    -- end)
 
     DAV.ready = true
     print('Drive an Aerodyne Vehicle Mod is ready!')
@@ -86,31 +66,9 @@ registerForEvent("onDraw", function()
     if DAV.is_debug_mode then
         DAV.debug_obj:ImGuiMain()
     end
-    if DAV.is_setting_menu then
+    if DAV.is_opening_overlay then
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
-end)
-
-registerHotkey('Setting', 'Show Set Up Menu', function()
-    if DAV.is_setting_menu then
-        DAV.is_setting_menu = false
-    else
-        DAV.is_setting_menu = true
-    end
-end)
-
-registerHotkey('Test', 'Test', function()
-    -- local fpp_component = Game.GetPlayer():GetFPPCameraComponent()
-    -- local carCam = fpp_component:FindComponentByName(CName.new("vehicleTPPCamera"))
-	-- carCam:Activate(2, true)
-    Game.GetScriptableSystemsContainer():Get(CName.new('TakeOverControlSystem')):EnablePlayerTPPRepresenation(false)
-    GetPlayer():QueueEvent(tpp)
-end)
-
-registerHotkey('Test2', 'Test2', function()
-    local tpp = ActivateTPPRepresentationEvent.new()
-    tpp.playerController = Game.GetPlayer()
-    GetPlayer():QueueEvent(tpp)
 end)
 
 registerForEvent('onUpdate', function(delta)

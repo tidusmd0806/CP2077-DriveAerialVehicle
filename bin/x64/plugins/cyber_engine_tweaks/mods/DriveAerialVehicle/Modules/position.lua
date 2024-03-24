@@ -15,8 +15,8 @@ function Position:New(all_models)
     obj.model_index = 1
 
     obj.min_direction_norm = 0.5 -- NOT Change this value
-    obj.collision_max_count = 100
-    obj.dividing_rate = 0.2
+    obj.collision_max_count = 50
+    obj.dividing_rate = 0.3
 
     obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
 

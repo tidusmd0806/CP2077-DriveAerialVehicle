@@ -34,23 +34,20 @@ function AV:New(all_models)
 	obj.active_seat_yaw = nil
 	obj.active_door = nil
 
-	obj.model_index = 1
-	obj.model_type_index = 1
-	obj.open_door_index = 1
-	obj.seat_index = 3
-
 	-- This parameter is used for collision when player done not operate AV
 	obj.is_collision = false
 	obj.max_collision_count = obj.position_obj.collision_max_count
 	obj.colison_count = 0
+	obj.door_open_time = 1.5
+	obj.is_landed = false
 
 	return setmetatable(obj, self)
 end
 
 function AV:SetModel()
-	local index = self.model_index
-	local type_number = self.model_type_index
-	local seat_number = self.seat_index
+	local index = DAV.model_index
+	local type_number = DAV.model_type_index
+	local seat_number = DAV.seat_index
 	self.vehicle_model_tweakdb_id = self.all_models[index].tweakdb_id
 	self.vehicle_model_type = self.all_models[index].type[type_number]
 	self.is_default_mount = self.all_models[index].is_default_mount
@@ -66,6 +63,14 @@ end
 
 function AV:IsPlayerIn()
 	return self.is_player_in
+end
+
+function AV:IsDespawned()
+	if self.entity_id == nil then
+		return true
+	else
+		return false
+	end
 end
 
 function AV:Spawn(position, angle)
@@ -108,8 +113,10 @@ function AV:SpawnToSky()
 			self:LockDoor()
 		elseif timer.tick > self.spawn_wait_count then
 			if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
+				self.is_landed = true
 				DAV.Cron.Halt(timer)
 			elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
+				self.is_landed = true
 				DAV.Cron.Halt(timer)
 			end
 		end
@@ -128,6 +135,7 @@ function AV:Despawn()
 end
 
 function AV:DespawnFromGround()
+	self.is_landed = false
 	DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
 		timer.tick = timer.tick + 1
 
@@ -165,7 +173,7 @@ function AV:LockDoor()
 end
 
 function AV:ChangeDoorState(door_state)
-	local door_number = self.open_door_index
+	local door_number = DAV.open_door_index
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change door state")
 		return false
@@ -195,7 +203,7 @@ function AV:ChangeDoorState(door_state)
 end
 
 function AV:Mount()
-	local seat_number = self.seat_index
+	local seat_number = DAV.seat_index
 
 	self.log_obj:Record(LogLevel.Debug, "Mount Aerial Vehicle : " .. seat_number)
 	if self.entity_id == nil then
@@ -252,7 +260,7 @@ function AV:Mount()
 end
 
 function AV:Unmount()
-	local seat_number = self.seat_index
+	local seat_number = DAV.seat_index
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to unmount")
 		return false
@@ -280,29 +288,42 @@ function AV:Unmount()
 	mount_event.lowLevelMountingInfo = mounting_info
 	mount_event.mountData = data
 
-	Game.GetMountingFacility():Unmount(mount_event)
+	local entity = Game.FindEntityByID(self.entity_id)
+	local vehicle_ps = entity:GetVehiclePS()
 
-	-- set entity id to position object
-	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
-		local entity = Game.FindEntityByID(self.entity_id)
-		if entity ~= nil then
-			if self.player_obj == nil then
-				self.log_obj:Record(LogLevel.Error, "No player object")
+	local open_door_wait = self.door_open_time
+	if vehicle_ps:GetDoorState(DAV.open_door_index - 1).value  == "Closed" then
+		self:ChangeDoorState(Def.DoorOperation.Open)
+	else
+		open_door_wait = 0.1
+	end
+
+	DAV.Cron.After(open_door_wait, function()
+
+		Game.GetMountingFacility():Unmount(mount_event)
+
+		-- set entity id to position object
+		DAV.Cron.Every(0.01, {tick = 1}, function(timer)
+			local entity = Game.FindEntityByID(self.entity_id)
+			if entity ~= nil then
+				if self.player_obj == nil then
+					self.log_obj:Record(LogLevel.Error, "No player object")
+					DAV.Cron.Halt(timer)
+					return
+				end
+				local angle = entity:GetWorldOrientation():ToEulerAngles()
+				angle.yaw = angle.yaw + 90
+				local position = self.position_obj:GetExitPosition()
+				self.position_obj:SetEntity(entity)
+				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
+				self.player_obj:ActivateTPPHead(false)
+				if not self.is_default_seat_position then
+					self.player_obj:StopPose()
+				end
+				self.is_player_in = false
 				DAV.Cron.Halt(timer)
-				return
 			end
-			local angle = entity:GetWorldOrientation():ToEulerAngles()
-			angle.yaw = angle.yaw + 90
-			local position = self.position_obj:GetExitPosition()
-			self.position_obj:SetEntity(entity)
-			Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
-			self.player_obj:ActivateTPPHead(false)
-			if not self.is_default_seat_position then
-				self.player_obj:StopPose()
-			end
-			self.is_player_in = false
-			DAV.Cron.Halt(timer)
-		end
+		end)
 	end)
 
 	return true
@@ -327,7 +348,7 @@ function AV:TakeOff()
 end
 
 function AV:SitCorrectPosition()
-	local seat_number = self.seat_index
+	local seat_number = DAV.seat_index
 
 	self.player_obj:PlayPose(self.sit_pose)
 
@@ -344,10 +365,8 @@ function AV:SitCorrectPosition()
         if dummy_entity ~= nil then
 			timer.tick = timer.tick + 1
             Game.GetTeleportationFacility():Teleport(dummy_entity, Vector4.new(pos.x + rotated.x, pos.y + rotated.y, pos.z + rotated.z, 1.0), Vector4.ToRotation(Backward))
-			if timer.tick > 5 then
-				DAV.Cron.Halt(timer)
-			end
-        end
+			DAV.Cron.Halt(timer)
+		end
     end)
 	return true
 end
