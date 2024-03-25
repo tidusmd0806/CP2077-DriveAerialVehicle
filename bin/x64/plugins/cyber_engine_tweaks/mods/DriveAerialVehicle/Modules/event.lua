@@ -154,8 +154,8 @@ end
 function Event:CheckLanded()
     if self.av_obj.position_obj:IsCollision() or self.av_obj.is_landed then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
+        self.sound_obj:StopSound("211_landing")
         self.sound_obj:PlaySound("131_arrive_vehicle")
-        self.sound_obj:PlaySound("221_idel_loop")
         self:SetSituation(Def.Situation.Waiting)
         self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
@@ -176,7 +176,6 @@ function Event:CheckInAV()
         if self.current_situation == Def.Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
             SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
-            self.sound_obj:StopSound("221_idel_loop")
             self.sound_obj:PlaySound("232_fly_loop")
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
@@ -190,7 +189,6 @@ function Event:CheckInAV()
         if self.current_situation == Def.Situation.InVehicle then
             self.log_obj:Record(LogLevel.Info, "Exit AV")
             self.sound_obj:StopSound("232_fly_loop")
-            self.sound_obj:PlaySound("221_idel_loop")
             self:SetSituation(Def.Situation.Waiting)
             self:ChangeCamera()
             self.hud_obj:HideMeter()
@@ -212,7 +210,7 @@ end
 function Event:CheckReturnVehicle()
     if self.ui_obj:GetCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected")
-        self.sound_obj:PlaySound("211_landing")
+        self.sound_obj:PlaySound("243_leaving")
         self.sound_obj:PlaySound("104_call_vehicle")
         self:SetSituation(Def.Situation.TalkingOff)
         self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
@@ -223,6 +221,7 @@ end
 function Event:CheckDespawn()
     if self.av_obj:IsDespawned() then
         self.log_obj:Record(LogLevel.Trace, "Despawn detected")
+        self.sound_obj:StopSound("243_leaving")
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
     end
@@ -249,6 +248,7 @@ function Event:IsInEntryArea()
         return true
     else
         return false
+        
     end
 end
 

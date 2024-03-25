@@ -423,7 +423,7 @@ function AV:Operate(action_commands)
 		self.colison_count = self.colison_count + 1
 		if self.colison_count > self.max_collision_count then
 			self.log_obj:Record(LogLevel.Info, "Collision Count Over. Engine Reset")
-			self.engine_obj:Init()
+			-- self.engine_obj:Init()
 			self.colison_count = 0
 		end
 		return false
