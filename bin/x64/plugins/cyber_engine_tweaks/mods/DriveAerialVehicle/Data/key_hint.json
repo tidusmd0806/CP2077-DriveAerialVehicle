@@ -1,0 +1,66 @@
+[
+    {
+        "source": "Accelerator",
+        "action": "dav_accelerate",
+        "localizedLabel": "LocKey#53168",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "ForwardBack",
+        "action": "dav_y_move",
+        "localizedLabel": "LocKey#77762+LocKey#78161",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "RightLeft",
+        "action": "dav_x_move",
+        "localizedLabel": "LocKey#77765+LocKey#77763",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "Rotate",
+        "action": "dav_rotate_move",
+        "localizedLabel": "LocKey#15315",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "Hover",
+        "action": "dav_hover",
+        "localizedLabel": "LocKey#53245",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "Camera",
+        "action": "dav_change_view",
+        "localizedLabel": "LocKey#15445",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "Door",
+        "action": "dav_toggle_door_1",
+        "localizedLabel": "LocKey#90595",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
+        "source": "Exit",
+        "action": "dav_get_off",
+        "localizedLabel": "LocKey#36196",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    }
+]

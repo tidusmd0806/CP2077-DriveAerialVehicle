@@ -1,0 +1,73 @@
+{
+    "KEY_AV_ACCELERTOR": {
+        "name": "dav_accelerate",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    },
+    "KEY_AV_DOWN": {
+        "name": "dav_accelerate",
+        "type": "BUTTON_RELEASED",
+        "value": "ZERO"
+    },
+    "KEY_AV_FORWARD_MOVE": {
+        "name": "dav_y_move",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
+    },
+    "KEY_AV_BACK_MOVE": {
+        "name": "dav_y_move",
+        "type": "AXIS_CHANGE",
+        "value": "NEGATIVE"
+    },
+    "KEY_AV_RIGHT_MOVE": {
+        "name": "dav_x_move",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
+    },
+    "KEY_AV_LEFT_MOVE": {
+        "name": "dav_x_move",
+        "type": "AXIS_CHANGE",
+        "value": "NEGATIVE"
+    },
+    "KEY_AV_RIGHT_ROTATE": {
+        "name": "dav_rotate_move",
+        "type": "AXIS_CHANGE",
+        "value": "NEGATIVE"
+    },
+    "KEY_AV_LEFT_ROTATE": {
+        "name": "dav_rotate_move",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
+    },
+    "KEY_AV_HOVER": {
+        "name": "dav_hover",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
+    },
+    "KEY_AV_HOLD": {
+        "name": "dav_hover",
+        "type": "AXIS_CHANGE",
+        "value": "ZERO"
+    },
+    "KEY_WORLD_ENTER_AV": {
+        "name": "Choice1",
+        "type": "BUTTON_RELEASED",
+        "value": "ZERO"
+    },
+    "KEY_AV_EXIT_AV": {
+        "name": "dav_get_off",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    },
+    "KEY_AV_CAMERA": {
+        "name": "dav_change_view",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    },
+    "KEY_AV_TOGGLE_DOOR_1": {
+        "name": "dav_toggle_door_1",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    }
+
+}
