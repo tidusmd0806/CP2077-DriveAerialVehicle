@@ -19,7 +19,7 @@ function Hud:New()
     obj.is_speed_meter_shown = false
     obj.key_input_show_hint_event = nil
     obj.key_input_hide_hint_event = nil
-    obj.speed_meter_refresh_rate = 0.5
+    obj.speed_meter_refresh_rate = 0.2
 
     return setmetatable(obj, self)
 end
@@ -41,12 +41,16 @@ function Hud:SetOverride()
 
     if not DAV.ready then
         -- Overside choice ui (refer to https://www.nexusmods.com/cyberpunk2077/mods/7299)
-        Override("InteractionUIBase", "OnDialogsData", function(_, arg_1, wrapped_method)
-            local data = FromVariant(arg_1)
-            local hubs = data.choiceHubs
-            table.insert(hubs, self.interaction_hub)
-            data.choiceHubs = hubs
-            wrapped_method(ToVariant(data))
+        Override("InteractionUIBase", "OnDialogsData", function(_, value, wrapped_method)
+            if self.av_obj.position_obj:IsPlayerInEntryArea() then
+                local data = FromVariant(value)
+                local hubs = data.choiceHubs
+                table.insert(hubs, self.interaction_hub)
+                data.choiceHubs = hubs
+                wrapped_method(ToVariant(data))
+            else
+                wrapped_method(value)
+            end
         end)
     end
 

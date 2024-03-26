@@ -6,7 +6,7 @@
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "0.0.1",
+	version = "0.1.0",
     ready = false,
     is_debug_mode = false,
     is_opening_overlay = false,
@@ -15,6 +15,7 @@ DAV = {
 	model_type_index = 3,
 	open_door_index = 1,
 	seat_index = 3,
+    horizenal_boost_ratio = 1.2
 }
 
 DAV.Cron = require('External/Cron.lua')
@@ -57,6 +58,9 @@ registerForEvent('onInit', function()
 
     end)
 
+    Observe("CommunitySystem", "EnableDynamicCrowdNullArea", function(this)
+        print('EnableDynamicCrowdNullArea')
+    end)
 
     DAV.ready = true
     print('Drive an Aerodyne Vehicle Mod is ready!')
@@ -70,6 +74,16 @@ registerForEvent("onDraw", function()
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
 end)
+
+-- registerHotkey("DAV_1", "1", function()
+--     Game.GetGodModeSystem():AddGodMode(GetPlayer():GetEntityID(), gameGodModeType.Invulnerable, 'FastTravel')
+--     GetPlayer():SetInvisible(true)
+-- end)
+
+-- registerHotkey("DAV_2", "2", function()
+--     GetPlayer():SetInvisible(false)
+--     Game.GetGodModeSystem():RemoveGodMode(GetPlayer():GetEntityID(), gameGodModeType.Invulnerable, 'FastTravel')
+-- end)
 
 registerForEvent('onUpdate', function(delta)
     -- This is required for Cron to function

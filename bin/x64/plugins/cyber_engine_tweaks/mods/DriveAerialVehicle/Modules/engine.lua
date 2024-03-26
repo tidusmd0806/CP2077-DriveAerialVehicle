@@ -29,7 +29,7 @@ function Engine:New(position_obj, all_models)
     obj.gravity_constant = 9.8
     obj.air_resistance_constant = nil
     obj.rebound_constant = nil
-    obj.max_speed = 80
+    obj.max_speed = 280
 
 
     -- set default parameters
@@ -44,6 +44,7 @@ function Engine:New(position_obj, all_models)
     obj.current_speed = 0
     obj.current_mode = Def.PowerMode.Off
     obj.is_falling = false
+    obj.horizenal_boost_ratio = DAV.horizenal_boost_ratio
 
     return setmetatable(obj, self)
 end
@@ -69,6 +70,7 @@ function Engine:SetModel(index)
     self.time_to_min = self.all_models[index].time_to_min
     self.rebound_constant = self.all_models[index].rebound_constant
 
+    self.horizenal_boost_ratio = DAV.horizenal_boost_ratio
 end
 
 function Engine:Init()
@@ -244,8 +246,8 @@ function Engine:CalcureteVelocity()
         self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.air_resistance_constant * self.vertical_speed)
     end
 
-    self.horizenal_x_speed = self.horizenal_x_speed + (DAV.time_resolution / self.mess) * (force_world.i - self.air_resistance_constant * self.horizenal_x_speed)
-    self.horizenal_y_speed = self.horizenal_y_speed + (DAV.time_resolution / self.mess) * (force_world.j - self.air_resistance_constant * self.horizenal_y_speed)
+    self.horizenal_x_speed = self.horizenal_x_speed + (DAV.time_resolution / self.mess) * (force_world.i * self.horizenal_boost_ratio - self.air_resistance_constant * self.horizenal_x_speed)
+    self.horizenal_y_speed = self.horizenal_y_speed + (DAV.time_resolution / self.mess) * (force_world.j * self.horizenal_boost_ratio - self.air_resistance_constant * self.horizenal_y_speed)
 
     -- check limitation
     self.current_speed = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed + self.vertical_speed * self.vertical_speed)
