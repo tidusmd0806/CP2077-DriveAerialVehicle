@@ -363,8 +363,7 @@ function AV:SitCorrectPosition()
 	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
         local dummy_entity = Game.FindEntityByID(self.player_obj.dummy_entity_id)
         if dummy_entity ~= nil then
-			timer.tick = timer.tick + 1
-            Game.GetTeleportationFacility():Teleport(dummy_entity, Vector4.new(pos.x + rotated.x, pos.y + rotated.y, pos.z + rotated.z, 1.0), Vector4.ToRotation(Backward))
+			Game.GetTeleportationFacility():Teleport(dummy_entity, Vector4.new(pos.x + rotated.x, pos.y + rotated.y, pos.z + rotated.z, 1.0), Vector4.ToRotation(Backward))
 			DAV.Cron.Halt(timer)
 		end
     end)

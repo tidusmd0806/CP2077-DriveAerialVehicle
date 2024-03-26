@@ -158,12 +158,24 @@ function Ui:ShowSettingMenu()
 	ImGui.Text("Seat : ")
 	ImGui.SameLine()
 	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_seat_name)
+	ImGui.Text("Horizenal Boost Ratio : ")
+	ImGui.SameLine()
+	ImGui.TextColored(0, 1, 0, 1, string.format("%.1f", DAV.horizenal_boost_ratio))
 
 	ImGui.Spacing()
 
 	if not DAV.core_obj.event_obj:IsNotSpawned() then
 		ImGui.TextColored(1, 0, 0, 1, "Settings cannot be changed at this time")
 		ImGui.TextColored(1, 0, 0, 1, "Please despawn your AV by pushing vehicle button")
+		return
+	end
+
+	if self.selected_vehicle_model_name == nil then
+		self.selected_vehicle_model_name = self.vehicle_model_list[1]
+		return
+	end
+	if self.selected_vehicle_model_number == nil then
+		self.selected_vehicle_model_number = 1
 		return
 	end
 
@@ -202,6 +214,31 @@ function Ui:ShowSettingMenu()
 	self.selected_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
 	self.selected_vehicle_door_name = self.vehicle_door_list[self.selected_vehicle_door_number]
 	self.selected_vehicle_seat_name = self.vehicle_seat_list[self.selected_vehicle_seat_number]
+
+	if self.selected_vehicle_type_name == nil then
+		self.selected_vehicle_type_name = self.vehicle_type_list[1]
+		return
+	end
+	if self.selected_vehicle_type_number == nil then
+		self.selected_vehicle_type_number = 1
+		return
+	end
+	if self.selected_vehicle_door_name == nil then
+		self.selected_vehicle_door_name = self.vehicle_door_list[1]
+		return
+	end
+	if self.selected_vehicle_door_number == nil then
+		self.selected_vehicle_door_number = 1
+		return
+	end
+	if self.selected_vehicle_seat_name == nil then
+		self.selected_vehicle_seat_name = self.vehicle_seat_list[1]
+		return
+	end
+	if self.selected_vehicle_seat_number == nil then
+		self.selected_vehicle_seat_number = 1
+		return
+	end
 
 	ImGui.Text("Select the type of AV")
 	if ImGui.BeginCombo("##AV Type", self.selected_vehicle_type_name) then
@@ -251,8 +288,14 @@ function Ui:ShowSettingMenu()
 		ImGui.EndCombo()
 	end
 
-	if ImGui.Button("Update", 180, 60) then
-		self:SetParameters()
+	ImGui.Text("Horizenal Boost Ratio")
+	local is_used_slider = false
+	DAV.horizenal_boost_ratio, is_used_slider = ImGui.SliderFloat("##Horizenal Boost Ratio", DAV.horizenal_boost_ratio, 1.0, 3.0, "%.1f")
+
+	if not is_used_slider then
+		if ImGui.Button("Update", 180, 60) then
+			self:SetParameters()
+		end
 	end
 
     ImGui.End()

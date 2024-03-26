@@ -55,11 +55,6 @@ function Player:PlayPose(sit_pose)
                 Game.GetWorkspotSystem():PlayInDeviceSimple(dummy_entity, player, true, self.workspot_resorce_component_name, nil, nil, 0, 1, nil)
                 Game.GetWorkspotSystem():SendJumpToAnimEnt(player, pose_name, true)
             end)
-
-            -- DAV.Cron.After(0.2, function()
-            --     Game.GetWorkspotSystem():PlayInDeviceSimple(dummy_entity, player, true, self.workspot_resorce_component_name, nil, nil, 0, 1, nil)
-            --     Game.GetWorkspotSystem():SendJumpToAnimEnt(player, pose_name, true)
-            -- end)
             DAV.Cron.Halt(timer)
         end
     end)
