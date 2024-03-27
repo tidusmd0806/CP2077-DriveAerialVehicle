@@ -58,9 +58,24 @@ registerForEvent('onInit', function()
 
     end)
 
-    Observe("CommunitySystem", "EnableDynamicCrowdNullArea", function(this)
-        print('EnableDynamicCrowdNullArea')
-    end)
+    -- Observe("VehicleComponent", "OnVehicleStartedMountingEvent", function(this, event)
+    --     if event.character:IsPlayer() then
+    --         print("OnVehicleStartedMountingEvent")
+    --         DAV.Cron.Every(1, {tick = 1} , function(timer)
+    --             timer.tick = timer.tick + 1
+    --             if timer.tick >= 10 then
+    --                 this:OnVehicleCameraChange(true)
+    --                 DAV.Cron.Halt(timer)
+    --             end
+    --         end)
+    --     end
+
+    -- end)
+
+    -- Observe("VehicleComponent", "OnVehicleCameraChange", function(this, bool)
+    --     print("OnVehicleCameraChange")
+    --     print(bool)
+    -- end)
 
     DAV.ready = true
     print('Drive an Aerodyne Vehicle Mod is ready!')
@@ -75,15 +90,42 @@ registerForEvent("onDraw", function()
     end
 end)
 
--- registerHotkey("DAV_1", "1", function()
---     Game.GetGodModeSystem():AddGodMode(GetPlayer():GetEntityID(), gameGodModeType.Invulnerable, 'FastTravel')
---     GetPlayer():SetInvisible(true)
--- end)
+registerHotkey("DAV_1", "1", function()
+    local spawnTransform = Game.GetPlayer():GetWorldTransform()
 
--- registerHotkey("DAV_2", "2", function()
---     GetPlayer():SetInvisible(false)
---     Game.GetGodModeSystem():RemoveGodMode(GetPlayer():GetEntityID(), gameGodModeType.Invulnerable, 'FastTravel')
--- end)
+    local heading = Game.GetPlayer():GetWorldForward()
+    local pos = Game.GetPlayer():GetWorldPosition()
+    pos = Vector4.new(pos.x + heading.x, pos.y + heading.y, pos.z + 1.5, pos.w) -- in front of the player
+
+    spawnTransform:SetPosition(pos)
+
+    local entityID = exEntitySpawner.Spawn("base\\entities\\cameras\\simple_free_camera.ent", spawnTransform, '')
+
+    DAV.Cron.Every(0.1, {tick = 1}, function(timer)
+        local entity = Game.FindEntityByID(entityID)
+        timer.tick = timer.tick + 1
+        if entity then
+            DAV.component = entity:FindComponentByName("camera")
+
+            DAV.Cron.Halt(timer)
+        elseif timer.tick > 20 then
+            DAV.Cron.Halt(timer)
+        end
+    end)
+
+end)
+
+registerHotkey("DAV_2", "2", function()
+    DAV.component:Activate(0, false)
+end)
+
+registerHotkey("DAV_3", "3", function()
+    Game.GetPlayer():GetFPPCameraComponent():Activate(0, false)
+end)
+
+registerHotkey("DAV_4", "4", function()
+    DAV.core_obj.player_obj:ActivateTPPHead(true)
+end)
 
 registerForEvent('onUpdate', function(delta)
     -- This is required for Cron to function
