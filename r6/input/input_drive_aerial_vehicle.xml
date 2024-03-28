@@ -9,6 +9,10 @@
         <action name="dav_get_off" map ="dav_get_off"/>
         <action name="dav_change_view" map ="dav_change_view"/>
         <action name="dav_toggle_door_1" map ="dav_toggle_door_1"/>
+        <action name="dav_x_camera_mouse" map ="dav_x_camera_mouse"/>
+        <action name="dav_y_camera_mouse" map ="dav_y_camera_mouse"/>
+        <action name="dav_x_camera_joystick" map ="dav_x_camera_joystick"/>
+        <action name="dav_y_camera_joystick" map ="dav_y_camera_joystick"/>
     </context>
     
     <mapping name="dav_accelerate" type="Button">
@@ -53,5 +57,21 @@
     <mapping name="dav_toggle_door_1" type="Button">
         <button id="IK_Z"/>
         <button id="IK_Pad_DigitLeft"/>
+    </mapping>
+
+    <mapping name="dav_x_camera_mouse" type="Relative">
+        <button id="IK_MouseX"/>
+    </mapping>
+
+    <mapping name="dav_y_camera_mouse" type="Relative">
+        <button id="IK_MouseY"/>
+    </mapping>
+
+    <mapping name="dav_x_camera_joystick" type="Axis">
+        <button id="IK_Pad_RightAxisX"/>
+    </mapping>
+
+    <mapping name="dav_y_camera_joystick" type="Axis">
+        <button id="IK_Pad_RightAxisY"/>
     </mapping>
 </bindings>

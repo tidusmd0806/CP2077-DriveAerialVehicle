@@ -1,5 +1,4 @@
 local Log = require("Tools/log.lua")
-local Camera = require("Modules/camera.lua")
 local Def = require("Tools/def.lua")
 local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
@@ -15,13 +14,13 @@ function Event:New()
     obj.av_obj = nil
     obj.hud_obj = Hud:New()
     obj.ui_obj = Ui:New()
-    obj.camera_obj = Camera:New()
     obj.sound_obj = Sound:New()
 
     -- set default parameters
     obj.current_situation = Def.Situation.Normal
     obj.is_in_menu = false
     obj.is_in_popup = false
+    obj.is_in_photo = false
 
     return setmetatable(obj, self)
 end
@@ -34,7 +33,6 @@ function Event:Init(av_obj)
 
     self.ui_obj:Init(self.av_obj)
     self.hud_obj:Init(self.av_obj)
-    self.camera_obj:Init(self.av_obj)
     self.sound_obj:Init(self.av_obj)
 
     if not DAV.ready then
@@ -67,6 +65,14 @@ function Event:SetObserve()
 
     GameUI.Observe("PopupClose", function()
         self.is_in_popup = false
+    end)
+
+    GameUI.Observe("PhotoModeOpen", function()
+        self.is_in_photo = true
+    end)
+
+    GameUI.Observe("PhotoModeClose", function()
+        self.is_in_photo = false
     end)
 
     GameUI.Observe("LoadingFinish", function()
@@ -179,7 +185,7 @@ function Event:CheckInAV()
             self.sound_obj:PlaySound("232_fly_loop")
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
-            self:ChangeCamera()
+            -- self:ChangeCamera()
             self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             self.hud_obj:ShowMeter()
             self.hud_obj:ShowCustomHint()
@@ -190,7 +196,7 @@ function Event:CheckInAV()
             self.log_obj:Record(LogLevel.Info, "Exit AV")
             self.sound_obj:StopSound("232_fly_loop")
             self:SetSituation(Def.Situation.Waiting)
-            self:ChangeCamera()
+            -- self:ChangeCamera()
             self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
@@ -260,32 +266,21 @@ function Event:IsInVehicle()
     end
 end
 
-function Event:IsInMenuOrPopup()
-    if self.is_in_menu or self.is_in_popup then
+function Event:IsInMenuOrPopupOrPhoto()
+    if self.is_in_menu or self.is_in_popup or self.is_in_photo then
         return true
     else
         return false
     end
 end
 
-function Event:ChangeCamera()
-    if self.current_situation == Def.Situation.InVehicle then
-        self.camera_obj:SetCameraPosition(Def.CameraDistanceLevel.TppClose)
-    elseif self.current_situation == Def.Situation.Waiting then
-        self.camera_obj:SetCameraPosition(Def.CameraDistanceLevel.Fpp)
-    end
-end
-
-function Event:ToggleCamera()
-    if self.current_situation == Def.Situation.InVehicle then
-        local res = self.camera_obj:ToggleCameraPosition()
-        if res == Def.CameraDistanceLevel.Fpp then
-            self.av_obj.player_obj:ActivateTPPHead(false)
-        elseif res == Def.CameraDistanceLevel.TppClose then
-            self.av_obj.player_obj:ActivateTPPHead(true)
-         end
-    end
-end
+-- function Event:ChangeCamera()
+--     if self.current_situation == Def.Situation.InVehicle then
+--         self.camera_obj:SetCameraPosition(Def.CameraDistanceLevel.TppClose)
+--     elseif self.current_situation == Def.Situation.Waiting then
+--         self.camera_obj:SetCameraPosition(Def.CameraDistanceLevel.Fpp)
+--     end
+-- end
 
 function Event:ChangeDoor()
     if self.current_situation == Def.Situation.InVehicle then

@@ -1,5 +1,6 @@
 local Log = require("Tools/log.lua")
 local Camera = {}
+local Utils = require("Tools/utils.lua")
 Camera.__index = Camera
 
 function Camera:New()
@@ -18,9 +19,13 @@ function Camera:New()
     obj.tpp_medium_camera_high = 2.0
     obj.tpp_far_camera_distance = 15.0
     obj.tpp_far_camera_high = 2.5
+    obj.free_camera_ent_path = "base\\entities\\cameras\\simple_free_camera.ent"
 
     -- set default parameters
     obj.current_camera_mode = Def.CameraDistanceLevel.Fpp
+    obj.vehicle_entity = nil
+    obj.cam_position = {}
+    obj.cam_component = nil
 
     return setmetatable(obj, self)
 end
@@ -34,6 +39,33 @@ function Camera:Init(av_obj)
     self.y_offset = self.av_obj.all_models[index].seat_position[seat_number].y * -1
     self.yaw_offset = self.av_obj.all_models[index].seat_position[seat_number].yaw
 
+end
+
+function Camera:SetInitialPosition(vehicle_entity)
+
+    self.vehicle_entity = vehicle_entity
+
+    local position = vehicle_entity:GetWorldPosition()
+    local vehicle_center = {x = position.x + self.x_offset, y = position.y + self.x_offset, z = position.z}
+    local angle = vehicle_entity:GetWorldForward():ToRotation()
+
+    local cam_transform = WorldTransform.new()
+    cam_transform:SetPosition(Vector4.new(vehicle_center.x, vehicle_center.y, vehicle_center.z, 1.0))
+    cam_transform:SetOrientationEuler(angle)
+
+    local cam_entity_id = exEntitySpawner.Spawn(self.free_camera_ent_path, cam_transform, '')
+
+    DAV.Cron.Every(0.1, {tick = 1}, function(timer)
+        local entity = Game.FindEntityByID(cam_entity_id)
+        timer.tick = timer.tick + 1
+        if entity then
+            self.cam_component = entity:FindComponentByName("camera")
+
+            DAV.Cron.Halt(timer)
+        elseif timer.tick > 20 then
+            DAV.Cron.Halt(timer)
+        end
+    end)
 end
 
 function Camera:SetCameraPosition(level)
@@ -105,6 +137,10 @@ function Camera:ToggleCameraPosition()
         self.current_camera_mode = Def.CameraDistanceLevel.Fpp
     end
     self:SetCameraPosition(self.current_camera_mode)
+    return self.current_camera_mode
+end
+
+function Camera:CheckMode()
     return self.current_camera_mode
 end
 

@@ -30,7 +30,7 @@ function Player:Init()
     end
 end
 
-function Player:PlayPose(sit_pose)
+function Player:SitAnim(sit_pose)
     local pose_name = nil
     if self.gender == "Female" then
         pose_name = sit_pose.female
@@ -60,7 +60,7 @@ function Player:PlayPose(sit_pose)
     end)
 end
 
-function Player:StopPose()
+function Player:StopAnim()
     if self.dummy_entity_id ~= nil then
         local dummy_entity = Game.FindEntityByID(self.dummy_entity_id)
         if dummy_entity ~= nil then

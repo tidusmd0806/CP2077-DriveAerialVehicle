@@ -18,6 +18,12 @@ Def.ActionList = {
 	Exit = 101,
 	ChangeCamera = 102,
 	ChangeDoor1 = 103,
+    ---------
+    CamReset = 200,
+    CamUp = 201,
+    CamDown = 202,
+    CamRight = 203,
+    CamLeft = 204,
 }
 
 Def.Situation = {

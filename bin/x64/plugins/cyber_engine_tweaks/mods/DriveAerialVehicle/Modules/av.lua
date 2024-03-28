@@ -44,7 +44,7 @@ function AV:New(all_models)
 	return setmetatable(obj, self)
 end
 
-function AV:SetModel()
+function AV:Init()
 	local index = DAV.model_index
 	local type_number = DAV.model_type_index
 	local seat_number = DAV.seat_index
@@ -220,7 +220,7 @@ function AV:Mount()
 	data.isInstant = false
 	data.slotName = seat
 	data.mountParentEntityId = ent_id
-	data.entryAnimName = "forcedTransition"
+	data.entryAnimName = "stand__2h_on_sides__01__to__sit_couch__AV_excalibur__01__turn270__getting_into_AV__01"
 
 
 	local slot_id = NewObject('gamemountingMountingSlotId')
@@ -241,14 +241,14 @@ function AV:Mount()
 
 	-- return position near mounted vehicle	
 	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
-		local entity = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
+		local entity = player:GetMountedVehicle()
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
 			DAV.Cron.After(0.2, function()
 				if not self.is_default_seat_position then
 					self:SitCorrectPosition()
 				end
-				self.player_obj:ActivateTPPHead(true)
+				-- self.player_obj:ActivateTPPHead(true)
 				self.is_player_in = true
 			end)
 			DAV.Cron.Halt(timer)
@@ -318,7 +318,7 @@ function AV:Unmount()
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
 				self.player_obj:ActivateTPPHead(false)
 				if not self.is_default_seat_position then
-					self.player_obj:StopPose()
+					self.player_obj:StopAnim()
 				end
 				self.is_player_in = false
 				DAV.Cron.Halt(timer)
@@ -350,7 +350,7 @@ end
 function AV:SitCorrectPosition()
 	local seat_number = DAV.seat_index
 
-	self.player_obj:PlayPose(self.sit_pose)
+	self.player_obj:SitAnim(self.sit_pose)
 
 	local left_seat_cordinate = Vector4.new(self.seat_position[seat_number].x, self.seat_position[seat_number].y, self.seat_position[seat_number].z, 1.0)
 	local pos = self.position_obj:GetPosition()

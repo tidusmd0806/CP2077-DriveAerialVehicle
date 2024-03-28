@@ -6,10 +6,12 @@
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "0.1.0",
+	version = "0.2.0",
     ready = false,
     is_debug_mode = false,
     is_opening_overlay = false,
+    is_locked_input = true,
+    input_unlock_time = 0.5,
     time_resolution = 0.01,
 	model_index = 1,
 	model_type_index = 3,
@@ -21,6 +23,7 @@ DAV = {
 DAV.Cron = require('External/Cron.lua')
 DAV.Core = require('Modules/core.lua')
 DAV.Debug = require('Debug/debug.lua')
+DAV.Utils = require('Tools/utils.lua')
 
 DAV.core_obj = DAV.Core:New()
 DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
@@ -35,18 +38,27 @@ end)
 
 registerForEvent('onInit', function()
 
+    DAV.is_debug_mode = true
+
     DAV.core_obj:Init()
+
+    local exception_list = DAV.Utils:ReadJson("Data/essential_default_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
         local action_name = action:GetName(action).value
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
 
-        if DAV.core_obj.event_obj:IsInVehicle() then
-            if string.find(action_name, "Exit") then
-                consumer:Consume()
-            elseif string.find(action_name, "VisionHold") then
-                consumer:Consume()
+        if DAV.core_obj.event_obj:IsInVehicle() and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+            for _, exception in pairs(exception_list) do
+                if action_name ~= exception and DAV.is_locked_input then
+                    consumer:ConsumeSingleAction()
+                else
+                    DAV.is_locked_input = false
+                    DAV.Cron.After(DAV.input_unlock_time, function()
+                        DAV.is_locked_input = true
+                    end)
+                end
             end
         end
 
@@ -58,27 +70,8 @@ registerForEvent('onInit', function()
 
     end)
 
-    -- Observe("VehicleComponent", "OnVehicleStartedMountingEvent", function(this, event)
-    --     if event.character:IsPlayer() then
-    --         print("OnVehicleStartedMountingEvent")
-    --         DAV.Cron.Every(1, {tick = 1} , function(timer)
-    --             timer.tick = timer.tick + 1
-    --             if timer.tick >= 10 then
-    --                 this:OnVehicleCameraChange(true)
-    --                 DAV.Cron.Halt(timer)
-    --             end
-    --         end)
-    --     end
-
-    -- end)
-
-    -- Observe("VehicleComponent", "OnVehicleCameraChange", function(this, bool)
-    --     print("OnVehicleCameraChange")
-    --     print(bool)
-    -- end)
-
     DAV.ready = true
-    print('Drive an Aerodyne Vehicle Mod is ready!')
+    print('Drive an Aerial Vehicle Mod is ready!')
 end)
 
 registerForEvent("onDraw", function()
@@ -116,7 +109,7 @@ registerHotkey("DAV_1", "1", function()
 end)
 
 registerHotkey("DAV_2", "2", function()
-    DAV.component:Activate(0, false)
+    DAV.core_obj.camera_obj.cam_component:Activate(0, false)
 end)
 
 registerHotkey("DAV_3", "3", function()
@@ -125,6 +118,13 @@ end)
 
 registerHotkey("DAV_4", "4", function()
     DAV.core_obj.player_obj:ActivateTPPHead(true)
+end)
+
+registerHotkey("DAV_5", "5", function()
+    local pos = Game.GetPlayer():GetWorldPosition()
+    pos.x = pos.x + 10
+    local angle = Game.GetPlayer():GetWorldOrientation():ToEulerAngles()
+    Game.GetTeleportationFacility():Teleport(DAV.enti, pos, angle)
 end)
 
 registerForEvent('onUpdate', function(delta)
