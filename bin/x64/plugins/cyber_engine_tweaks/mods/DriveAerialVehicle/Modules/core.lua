@@ -1,5 +1,4 @@
 local AV = require("Modules/av.lua")
-local Camera = require("Modules/camera.lua")
 local Player = require("Modules/player.lua")
 local Def = require("Tools/def.lua")
 local Event = require("Modules/event.lua")
@@ -16,7 +15,6 @@ function Core:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Core")
     obj.queue_obj = Queue:New()
     obj.av_obj = nil
-    obj.camera_obj = nil
     obj.player_obj = nil
     obj.event_obj = nil
     
@@ -26,7 +24,8 @@ function Core:New()
     obj.av_model_path = "Data/default_model.json"
     obj.input_path = "Data/input.json"
     obj.axis_dead_zone = 0.5
-    obj.relative_dead_zone = 50
+    obj.relative_dead_zone = 0.01
+    obj.relative_table = {}
 
     -- set default parameters
     obj.input_table = {}
@@ -53,9 +52,6 @@ function Core:Init()
     self.event_obj = Event:New()
     self.event_obj:Init(self.av_obj)
 
-    self.camera_obj = Camera:New()
-    self.camera_obj:Init(self.av_obj)
-
     DAV.Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
         self:GetActions()
@@ -71,9 +67,6 @@ function Core:Reset()
     self.av_obj:Init()
 
     self.event_obj:Init(self.av_obj)
-
-    self.camera_obj = Camera:New()
-    self.camera_obj:Init(self.av_obj)
 end
 
 function Core:GetAllModel()
@@ -209,43 +202,29 @@ end
 
 function Core:OperateCamera(actions)
     for _, action in pairs(actions) do
-        print(action)
+        self.av_obj.camera_obj:SetLocalPosition(action)
     end
-    -- if self.event_obj:IsInVehicle() then
-    --     self.av_obj:Operate(actions)
-    -- elseif self.event_obj:IsWaiting() then
-    --     self.av_obj:Operate({Def.ActionList.Nothing})
-    -- end
 end
 
 
 function Core:SetEvent(action)
     if action == Def.ActionList.Enter or action == Def.ActionList.Exit then
         self.event_obj:EnterOrExitVehicle(self.player_obj)
-        local player = Game.GetPlayer()
-        DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
-            timer.tick = timer.tick + 1
-            local entity =  Game.GetPlayer():GetMountedVehicle()
-            if entity ~= nil then
-                self.camera_obj:SetInitialPosition(entity)
-                DAV.Cron.Halt(timer)
-            end
-        end)
     elseif action == Def.ActionList.ChangeCamera then
         self:ToggleCamera()
     elseif action == Def.ActionList.ChangeDoor1 then
-        self.event_obj:ChangeDoor(1)
+        self.event_obj:ChangeDoor()
     end
 end
 
 function Core:ToggleCamera()
-    if self.current_situation == Def.Situation.InVehicle then
-        local res = self.camera_obj:CheckMode()
+    if self.event_obj:IsInVehicle() then
+        local res = self.av_obj.camera_obj:Toggle()
         if res == Def.CameraDistanceLevel.Fpp then
-            self.av_obj.player_obj:ActivateTPPHead(false)
+            self.player_obj:ActivateTPPHead(false)
         elseif res == Def.CameraDistanceLevel.TppClose then
-            self.av_obj.player_obj:ActivateTPPHead(true)
-         end
+            self.player_obj:ActivateTPPHead(true)
+        end
     end
 end
 

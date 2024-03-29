@@ -4,5 +4,9 @@
     "OpenHubMenu",
     "OpenInventoryMenu",
     "OpenCraftingMenu",
-    "OpenJournalMenu"
+    "OpenJournalMenu",
+    "mouse_x",
+    "mouse_y",
+    "right_stick_x",
+    "right_stick_y"
 ]

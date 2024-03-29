@@ -11,13 +11,13 @@ DAV = {
     is_debug_mode = false,
     is_opening_overlay = false,
     is_locked_input = true,
-    input_unlock_time = 0.5,
+    input_unlock_time = 0.1,
     time_resolution = 0.01,
 	model_index = 1,
 	model_type_index = 3,
 	open_door_index = 1,
 	seat_index = 3,
-    horizenal_boost_ratio = 1.2
+    horizenal_boost_ratio = 1.3
 }
 
 DAV.Cron = require('External/Cron.lua')
@@ -38,7 +38,7 @@ end)
 
 registerForEvent('onInit', function()
 
-    DAV.is_debug_mode = true
+    -- DAV.is_debug_mode = true
 
     DAV.core_obj:Init()
 
@@ -81,50 +81,6 @@ registerForEvent("onDraw", function()
     if DAV.is_opening_overlay then
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
-end)
-
-registerHotkey("DAV_1", "1", function()
-    local spawnTransform = Game.GetPlayer():GetWorldTransform()
-
-    local heading = Game.GetPlayer():GetWorldForward()
-    local pos = Game.GetPlayer():GetWorldPosition()
-    pos = Vector4.new(pos.x + heading.x, pos.y + heading.y, pos.z + 1.5, pos.w) -- in front of the player
-
-    spawnTransform:SetPosition(pos)
-
-    local entityID = exEntitySpawner.Spawn("base\\entities\\cameras\\simple_free_camera.ent", spawnTransform, '')
-
-    DAV.Cron.Every(0.1, {tick = 1}, function(timer)
-        local entity = Game.FindEntityByID(entityID)
-        timer.tick = timer.tick + 1
-        if entity then
-            DAV.component = entity:FindComponentByName("camera")
-
-            DAV.Cron.Halt(timer)
-        elseif timer.tick > 20 then
-            DAV.Cron.Halt(timer)
-        end
-    end)
-
-end)
-
-registerHotkey("DAV_2", "2", function()
-    DAV.core_obj.camera_obj.cam_component:Activate(0, false)
-end)
-
-registerHotkey("DAV_3", "3", function()
-    Game.GetPlayer():GetFPPCameraComponent():Activate(0, false)
-end)
-
-registerHotkey("DAV_4", "4", function()
-    DAV.core_obj.player_obj:ActivateTPPHead(true)
-end)
-
-registerHotkey("DAV_5", "5", function()
-    local pos = Game.GetPlayer():GetWorldPosition()
-    pos.x = pos.x + 10
-    local angle = Game.GetPlayer():GetWorldOrientation():ToEulerAngles()
-    Game.GetTeleportationFacility():Teleport(DAV.enti, pos, angle)
 end)
 
 registerForEvent('onUpdate', function(delta)

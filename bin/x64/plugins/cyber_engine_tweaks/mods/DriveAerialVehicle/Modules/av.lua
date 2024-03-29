@@ -1,3 +1,4 @@
+local Camera = require("Modules/camera.lua")
 local Position = require("Modules/position.lua")
 local Def = require("Tools/def.lua")
 local Engine = require("Modules/engine.lua")
@@ -10,6 +11,7 @@ function AV:New(all_models)
 	local obj = {}
 	obj.position_obj = Position:New(all_models)
 	obj.engine_obj = Engine:New(obj.position_obj, all_models)
+	obj.camera_obj = Camera:New(obj.position_obj)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
 	obj.player_obj = nil
@@ -243,7 +245,8 @@ function AV:Mount()
 	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
 		local entity = player:GetMountedVehicle()
 		if entity ~= nil then
-			self.position_obj:SetEntity(entity)
+			self.camera_obj:Create()
+			-- self.position_obj:SetEntity(entity)
 			DAV.Cron.After(0.2, function()
 				if not self.is_default_seat_position then
 					self:SitCorrectPosition()
@@ -314,7 +317,7 @@ function AV:Unmount()
 				local angle = entity:GetWorldOrientation():ToEulerAngles()
 				angle.yaw = angle.yaw + 90
 				local position = self.position_obj:GetExitPosition()
-				self.position_obj:SetEntity(entity)
+				-- self.position_obj:SetEntity(entity)
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
 				self.player_obj:ActivateTPPHead(false)
 				if not self.is_default_seat_position then
@@ -354,7 +357,7 @@ function AV:SitCorrectPosition()
 
 	local left_seat_cordinate = Vector4.new(self.seat_position[seat_number].x, self.seat_position[seat_number].y, self.seat_position[seat_number].z, 1.0)
 	local pos = self.position_obj:GetPosition()
-	local foward = self.position_obj:GetFoword()
+	local foward = self.position_obj:GetForward()
 	local Backward = Vector4.RotateAxis(foward ,Vector4.new(0, 0, 1, 0), (180 + self.active_seat_yaw) / 180.0 * Pi())
 	local rot = self.position_obj:GetQuaternion()
 
@@ -399,6 +402,8 @@ function AV:Operate(action_commands)
 		self.log_obj:Record(LogLevel.Critical, "Division by Zero")
 		return false
 	end
+
+	self.camera_obj:Move()
 
 	self.is_collision = false
 

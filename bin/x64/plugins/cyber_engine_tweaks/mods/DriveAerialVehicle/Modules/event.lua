@@ -276,9 +276,9 @@ end
 
 -- function Event:ChangeCamera()
 --     if self.current_situation == Def.Situation.InVehicle then
---         self.camera_obj:SetCameraPosition(Def.CameraDistanceLevel.TppClose)
+--         self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppClose)
 --     elseif self.current_situation == Def.Situation.Waiting then
---         self.camera_obj:SetCameraPosition(Def.CameraDistanceLevel.Fpp)
+--         self.camera_obj:ChangePosition(Def.CameraDistanceLevel.Fpp)
 --     end
 -- end
 
