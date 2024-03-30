@@ -18,6 +18,12 @@ Def.ActionList = {
 	Exit = 101,
 	ChangeCamera = 102,
 	ChangeDoor1 = 103,
+    ---------
+    CamReset = 200,
+    CamUp = 201,
+    CamDown = 202,
+    CamRight = 203,
+    CamLeft = 204,
 }
 
 Def.Situation = {
@@ -49,10 +55,11 @@ Def.TeleportResult = {
 }
 
 Def.CameraDistanceLevel = {
-    Fpp = 0,
-    TppClose = 1,
-    TppMedium = 2,
-    TppFar = 3
+    TppSeat = 0,
+    Fpp = 1,
+    TppClose = 2,
+    TppMedium = 3,
+    TppFar = 4,
 }
 
 return Def

@@ -1,3 +1,4 @@
+local Camera = require("Modules/camera.lua")
 local Position = require("Modules/position.lua")
 local Def = require("Tools/def.lua")
 local Engine = require("Modules/engine.lua")
@@ -10,6 +11,7 @@ function AV:New(all_models)
 	local obj = {}
 	obj.position_obj = Position:New(all_models)
 	obj.engine_obj = Engine:New(obj.position_obj, all_models)
+	obj.camera_obj = Camera:New(obj.position_obj, all_models)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
 	obj.player_obj = nil
@@ -44,7 +46,7 @@ function AV:New(all_models)
 	return setmetatable(obj, self)
 end
 
-function AV:SetModel()
+function AV:Init()
 	local index = DAV.model_index
 	local type_number = DAV.model_type_index
 	local seat_number = DAV.seat_index
@@ -95,6 +97,7 @@ function AV:Spawn(position, angle)
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
 			self.engine_obj:Init()
+			self.camera_obj:Create()
 			DAV.Cron.Halt(timer)
 		end
 	end)
@@ -220,7 +223,7 @@ function AV:Mount()
 	data.isInstant = false
 	data.slotName = seat
 	data.mountParentEntityId = ent_id
-	data.entryAnimName = "forcedTransition"
+	data.entryAnimName = "stand__2h_on_sides__01__to__sit_couch__AV_excalibur__01__turn270__getting_into_AV__01"
 
 
 	local slot_id = NewObject('gamemountingMountingSlotId')
@@ -241,15 +244,22 @@ function AV:Mount()
 
 	-- return position near mounted vehicle	
 	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
-		local entity = Game['GetMountedVehicle;GameObject'](Game.GetPlayer())
+		local entity = player:GetMountedVehicle()
 		if entity ~= nil then
-			self.position_obj:SetEntity(entity)
+			if not self.is_default_seat_position then
+				self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppSeat)
+			end
+			-- self.position_obj:SetEntity(entity)
 			DAV.Cron.After(0.2, function()
 				if not self.is_default_seat_position then
 					self:SitCorrectPosition()
 				end
-				self.player_obj:ActivateTPPHead(true)
-				self.is_player_in = true
+				-- self.player_obj:ActivateTPPHead(true)
+				DAV.Cron.After(1.5, function()
+					self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppMedium)
+					self.player_obj:ActivateTPPHead(true)
+					self.is_player_in = true
+				end)
 			end)
 			DAV.Cron.Halt(timer)
 		end
@@ -314,11 +324,12 @@ function AV:Unmount()
 				local angle = entity:GetWorldOrientation():ToEulerAngles()
 				angle.yaw = angle.yaw + 90
 				local position = self.position_obj:GetExitPosition()
-				self.position_obj:SetEntity(entity)
+				self.camera_obj:ChangePosition(Def.CameraDistanceLevel.Fpp)
+				-- self.position_obj:SetEntity(entity)
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
 				self.player_obj:ActivateTPPHead(false)
 				if not self.is_default_seat_position then
-					self.player_obj:StopPose()
+					self.player_obj:StopAnim()
 				end
 				self.is_player_in = false
 				DAV.Cron.Halt(timer)
@@ -350,11 +361,11 @@ end
 function AV:SitCorrectPosition()
 	local seat_number = DAV.seat_index
 
-	self.player_obj:PlayPose(self.sit_pose)
+	self.player_obj:SitAnim(self.sit_pose)
 
 	local left_seat_cordinate = Vector4.new(self.seat_position[seat_number].x, self.seat_position[seat_number].y, self.seat_position[seat_number].z, 1.0)
 	local pos = self.position_obj:GetPosition()
-	local foward = self.position_obj:GetFoword()
+	local foward = self.position_obj:GetForward()
 	local Backward = Vector4.RotateAxis(foward ,Vector4.new(0, 0, 1, 0), (180 + self.active_seat_yaw) / 180.0 * Pi())
 	local rot = self.position_obj:GetQuaternion()
 
@@ -399,6 +410,8 @@ function AV:Operate(action_commands)
 		self.log_obj:Record(LogLevel.Critical, "Division by Zero")
 		return false
 	end
+
+	self.camera_obj:Move()
 
 	self.is_collision = false
 

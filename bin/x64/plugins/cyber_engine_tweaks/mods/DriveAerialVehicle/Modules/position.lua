@@ -15,7 +15,7 @@ function Position:New(all_models)
     obj.model_index = 1
 
     obj.min_direction_norm = 0.5 -- NOT Change this value
-    obj.collision_max_count = 50
+    obj.collision_max_count = 80
     obj.dividing_rate = 0.3
 
     obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
@@ -114,9 +114,9 @@ function Position:GetPosition()
     return self.entity:GetWorldPosition()
 end
 
-function Position:GetFoword()
+function Position:GetForward()
     if self.entity == nil then
-        self.log_obj:Record(LogLevel.Error, "No vehicle entity for GetFoword")
+        self.log_obj:Record(LogLevel.Error, "No vehicle entity for GetForward")
         return Vector4.new(0, 0, 0, 1.0)
     end
     return self.entity:GetWorldForward()

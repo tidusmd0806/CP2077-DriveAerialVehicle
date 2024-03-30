@@ -22,9 +22,26 @@ function Utils:IsTablesEqual(table1, table2)
     return true
 end
 
+-- wheather table2 elements are in table1
+function Utils:IsTablesNearlyEqual(big_table, small_table)
+   for key, value in pairs(small_table) do
+      if value ~= big_table[key] then
+         return false
+      end
+   end
+   return true
+end
+
 -- y = k(x - a)^2 + b and cross point is (0, c). Calculate Slope.
 function Utils:CalculationQuadraticFuncSlope(a, b, c, x)
    return 2*(c - b)*(x - a)/(a * a)
+end
+
+function Utils:ChangePolarCoordinates(x, y, z)
+   local r = math.sqrt(x*x + y*y + z*z)
+   local theta = math.atan2(y, x) * 180 / Pi()
+   local phi = math.acos(z / r) * 180 / Pi()
+   return r, theta, phi
 end
 
 function Utils:QuaternionMultiply(q1, q2)
