@@ -42,7 +42,7 @@
     {
         "source": "Camera",
         "action": "dav_change_view",
-        "localizedLabel": "LocKey#15445",
+        "localizedLabel": "LocKey#36194",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
         "enableHoldAnimation": false

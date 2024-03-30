@@ -6,21 +6,24 @@
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "0.1.0",
+	version = "0.2.0",
     ready = false,
     is_debug_mode = false,
     is_opening_overlay = false,
+    is_locked_input = true,
+    input_unlock_time = 1.5,
     time_resolution = 0.01,
 	model_index = 1,
 	model_type_index = 3,
 	open_door_index = 1,
 	seat_index = 3,
-    horizenal_boost_ratio = 1.2
+    horizenal_boost_ratio = 1.3
 }
 
 DAV.Cron = require('External/Cron.lua')
 DAV.Core = require('Modules/core.lua')
 DAV.Debug = require('Debug/debug.lua')
+DAV.Utils = require('Tools/utils.lua')
 
 DAV.core_obj = DAV.Core:New()
 DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
@@ -35,18 +38,23 @@ end)
 
 registerForEvent('onInit', function()
 
+    -- DAV.is_debug_mode = true
+
     DAV.core_obj:Init()
+
+    local exception_list = DAV.Utils:ReadJson("Data/exception_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
         local action_name = action:GetName(action).value
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
 
-        if DAV.core_obj.event_obj:IsInVehicle() then
-            if string.find(action_name, "Exit") then
-                consumer:Consume()
-            elseif string.find(action_name, "VisionHold") then
-                consumer:Consume()
+        if DAV.core_obj.event_obj:IsInVehicle() and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+            for _, exception in pairs(exception_list) do
+                if string.find(action_name, exception) then
+                    consumer:ConsumeSingleAction()
+                    return
+                end
             end
         end
 
@@ -58,12 +66,8 @@ registerForEvent('onInit', function()
 
     end)
 
-    Observe("CommunitySystem", "EnableDynamicCrowdNullArea", function(this)
-        print('EnableDynamicCrowdNullArea')
-    end)
-
     DAV.ready = true
-    print('Drive an Aerodyne Vehicle Mod is ready!')
+    print('Drive an Aerial Vehicle Mod is ready!')
 end)
 
 registerForEvent("onDraw", function()
@@ -75,15 +79,20 @@ registerForEvent("onDraw", function()
     end
 end)
 
--- registerHotkey("DAV_1", "1", function()
---     Game.GetGodModeSystem():AddGodMode(GetPlayer():GetEntityID(), gameGodModeType.Invulnerable, 'FastTravel')
---     GetPlayer():SetInvisible(true)
--- end)
+registerHotkey("Test1", "Test1", function()
+    local setting = require('External/GameSettings.lua')
+    setting.Toggle('/interface/hud/action_buttons')
+end)
 
--- registerHotkey("DAV_2", "2", function()
---     GetPlayer():SetInvisible(false)
---     Game.GetGodModeSystem():RemoveGodMode(GetPlayer():GetEntityID(), gameGodModeType.Invulnerable, 'FastTravel')
--- end)
+registerHotkey("Test2", "Test2", function()
+    local setting = require('External/GameSettings.lua')
+    setting.Set('/interface/hud/action_buttons', false)
+end)
+
+registerHotkey("Test3", "Test3", function()
+    local setting = require('External/GameSettings.lua')
+    setting.Set('/interface/hud/action_buttons', true)
+end)
 
 registerForEvent('onUpdate', function(delta)
     -- This is required for Cron to function

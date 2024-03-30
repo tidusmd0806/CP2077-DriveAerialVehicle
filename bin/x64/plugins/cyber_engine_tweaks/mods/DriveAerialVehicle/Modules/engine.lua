@@ -66,8 +66,8 @@ function Engine:SetModel(index)
     self.max_lift_force = self.mess * self.gravity_constant + self.all_models[index].max_lift_force
     self.min_lift_force = self.mess * self.gravity_constant - self.all_models[index].min_lift_force
     self.lift_force = self.min_lift_force
-    self.time_to_max = self.all_models[index].time_to_max
-    self.time_to_min = self.all_models[index].time_to_min
+    self.time_to_max = self.all_models[index].time_to_max * 10 -- 10 times for clocking 0.1s
+    self.time_to_min = self.all_models[index].time_to_min * 10
     self.rebound_constant = self.all_models[index].rebound_constant
 
     self.horizenal_boost_ratio = DAV.horizenal_boost_ratio
@@ -75,7 +75,7 @@ end
 
 function Engine:Init()
     if not self.is_finished_init then
-        DAV.Cron.Every(1, {tick = 1}, function(timer)
+        DAV.Cron.Every(0.1, {tick = 1}, function(timer)
             self.clock = self.clock + 1
         end)
         self.base_angle = self.position_obj:GetEulerAngles()

@@ -1,3 +1,4 @@
+local GameSettings = require('External/GameSettings.lua')
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Hud = {}
@@ -180,6 +181,14 @@ end
 
 function Hud:HideCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_hide_hint_event)
+end
+
+function Hud:ShowActionButtons()
+    GameSettings.Set('/interface/hud/action_buttons', true)
+end
+
+function Hud:HideActionButtons()
+    GameSettings.Set('/interface/hud/action_buttons', false)
 end
 
 
