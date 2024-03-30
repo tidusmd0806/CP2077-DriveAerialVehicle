@@ -8,6 +8,7 @@ local Event = {}
 Event.__index = Event
 
 function Event:New()
+
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Event")
@@ -16,6 +17,8 @@ function Event:New()
     obj.ui_obj = Ui:New()
     obj.sound_obj = Sound:New()
 
+    obj.re_enter_wait = 8.0
+
     -- set default parameters
     obj.current_situation = Def.Situation.Normal
     obj.is_in_menu = false
@@ -23,6 +26,7 @@ function Event:New()
     obj.is_in_photo = false
 
     return setmetatable(obj, self)
+
 end
 
 function Event:Init(av_obj)
@@ -185,10 +189,10 @@ function Event:CheckInAV()
             self.sound_obj:PlaySound("232_fly_loop")
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
-            -- self:ChangeCamera()
             self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             self.hud_obj:ShowMeter()
             self.hud_obj:ShowCustomHint()
+            self.hud_obj:HideActionButtons()
         end
     else
         -- when player take off from AV
@@ -196,9 +200,9 @@ function Event:CheckInAV()
             self.log_obj:Record(LogLevel.Info, "Exit AV")
             self.sound_obj:StopSound("232_fly_loop")
             self:SetSituation(Def.Situation.Waiting)
-            -- self:ChangeCamera()
             self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
+            self.hud_obj:ShowActionButtons()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
     end
@@ -254,7 +258,7 @@ function Event:IsInEntryArea()
         return true
     else
         return false
-        
+
     end
 end
 
@@ -274,13 +278,9 @@ function Event:IsInMenuOrPopupOrPhoto()
     end
 end
 
--- function Event:ChangeCamera()
---     if self.current_situation == Def.Situation.InVehicle then
---         self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppClose)
---     elseif self.current_situation == Def.Situation.Waiting then
---         self.camera_obj:ChangePosition(Def.CameraDistanceLevel.Fpp)
---     end
--- end
+function Event:IsAllowedEntry()
+    return self.is_allowed_entry
+end
 
 function Event:ChangeDoor()
     if self.current_situation == Def.Situation.InVehicle then
@@ -289,7 +289,7 @@ function Event:ChangeDoor()
 end
 
 function Event:EnterOrExitVehicle(player)
-    if self:IsInEntryArea() then
+    if self:IsInEntryArea()then
         self.av_obj:TakeOn(player)
         self.av_obj:Mount()
     elseif self:IsInVehicle() then

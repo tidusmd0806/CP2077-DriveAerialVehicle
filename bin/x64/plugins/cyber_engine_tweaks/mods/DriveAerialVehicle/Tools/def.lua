@@ -55,10 +55,11 @@ Def.TeleportResult = {
 }
 
 Def.CameraDistanceLevel = {
-    Fpp = 0,
-    TppClose = 1,
-    TppMedium = 2,
-    TppFar = 3
+    TppSeat = 0,
+    Fpp = 1,
+    TppClose = 2,
+    TppMedium = 3,
+    TppFar = 4,
 }
 
 return Def

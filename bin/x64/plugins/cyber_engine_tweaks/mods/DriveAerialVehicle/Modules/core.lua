@@ -10,6 +10,7 @@ local Core = {}
 Core.__index = Core
 
 function Core:New()
+
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Core")
@@ -17,7 +18,7 @@ function Core:New()
     obj.av_obj = nil
     obj.player_obj = nil
     obj.event_obj = nil
-    
+
     obj.all_models = nil
     obj.input_table = nil
 
@@ -26,11 +27,13 @@ function Core:New()
     obj.axis_dead_zone = 0.5
     obj.relative_dead_zone = 0.01
     obj.relative_table = {}
+    obj.relative_resolution = 0.1
 
     -- set default parameters
     obj.input_table = {}
 
     return setmetatable(obj, self)
+
 end
 
 function Core:Init()
@@ -56,10 +59,11 @@ function Core:Init()
         self.event_obj:CheckAllEvents()
         self:GetActions()
     end)
-    
+
 end
 
 function Core:Reset()
+
     self.player_obj = Player:New(Game.GetPlayer())
     self.player_obj:Init()
 
@@ -67,28 +71,37 @@ function Core:Reset()
     self.av_obj:Init()
 
     self.event_obj:Init(self.av_obj)
+
 end
 
 function Core:GetAllModel()
+
     local model = Utils:ReadJson(self.av_model_path)
+
     if model == nil then
         self.log_obj:Record(LogLevel.Error, "Default Model is nil")
         return nil
     end
     return model
+
 end
 
 function Core:GetInputTable(input_path)
+
     local input = Utils:ReadJson(input_path)
+
     if input == nil then
         self.log_obj:Record(LogLevel.Error, "Input is nil")
         return nil
     end
     return input
+
 end
 
 function Core:StorePlayerAction(action_name, action_type, action_value)
+
     local action_value_type = "ZERO"
+
     if action_type == "RELATIVE_CHANGE" then
         if action_value > self.relative_dead_zone then
             action_value_type = "POSITIVE"
@@ -107,59 +120,76 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
         end
     end
 
-    local cmd = self:ConvertActionList(action_name, action_type, action_value_type)
+    local cmd, loop_count = self:ConvertActionList(action_name, action_type, action_value_type, action_value)
 
-    if cmd ~= Def.ActionList.Nothing then
-        self.queue_obj:Enqueue(cmd)
+    for _ = 1, loop_count do
+        if cmd ~= Def.ActionList.Nothing then
+            self.queue_obj:Enqueue(cmd)
+        end
     end
 
 end
 
-function Core:ConvertActionList(action_name, action_type, action_value)
-    local action_command = Def.ActionList.Nothing
-    local action_dist = {name = action_name, type = action_type, value = action_value}
+function Core:ConvertActionList(action_name, action_type, action_value_type, action_value)
 
-    if Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_ACCELERTOR) then
+    local action_command = Def.ActionList.Nothing
+    local action_dist = {name = action_name, type = action_type, value = action_value_type}
+    local loop_count = 1
+
+    if Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_ACCELERTOR) then
         action_command = Def.ActionList.Up
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_DOWN) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_DOWN) then
         action_command = Def.ActionList.Down
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_FORWARD_MOVE) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_FORWARD_MOVE) then
         action_command = Def.ActionList.Forward
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_BACK_MOVE) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_BACK_MOVE) then
         action_command = Def.ActionList.Backward
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_RIGHT_MOVE) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_MOVE) then
         action_command = Def.ActionList.Right
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_LEFT_MOVE) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_MOVE) then
         action_command = Def.ActionList.Left
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_RIGHT_ROTATE) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_ROTATE) then
         action_command = Def.ActionList.TurnRight
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_LEFT_ROTATE) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_ROTATE) then
         action_command = Def.ActionList.TurnLeft
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_HOVER) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_HOVER) then
         action_command = Def.ActionList.Hover
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_HOLD) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_HOLD) then
         action_command = Def.ActionList.Hold
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_WORLD_ENTER_AV) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_ENTER_AV) then
         action_command = Def.ActionList.Enter
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_EXIT_AV) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_EXIT_AV) then
         action_command = Def.ActionList.Exit
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_CAMERA) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_CAMERA) then
         action_command = Def.ActionList.ChangeCamera
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_TOGGLE_DOOR_1) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_DOOR_1) then
         action_command = Def.ActionList.ChangeDoor1
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_UP_CAMERA_MOUSE) or Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_UP_CAMERA_JOYSTICK) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_UP_CAMERA_MOUSE) then
         action_command = Def.ActionList.CamUp
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_DOWN_CAMERA_MOUSE) or Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_DOWN_CAMERA_JOYSTICK) then
+        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_UP_CAMERA_JOYSTICK) then
+        action_command = Def.ActionList.CamUp
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_DOWN_CAMERA_MOUSE) then
         action_command = Def.ActionList.CamDown
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_RIGHT_CAMERA_MOUSE) or Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_RIGHT_CAMERA_JOYSTICK) then
+        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_DOWN_CAMERA_JOYSTICK) then
+        action_command = Def.ActionList.CamDown
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_CAMERA_MOUSE) then
         action_command = Def.ActionList.CamRight
-    elseif Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_LEFT_CAMERA_MOUSE) or Utils:IsTablesEqual(action_dist, self.input_table.KEY_AV_LEFT_CAMERA_JOYSTICK) then
+        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_CAMERA_JOYSTICK) then
+        action_command = Def.ActionList.CamRight
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_CAMERA_MOUSE) then
+        action_command = Def.ActionList.CamLeft
+        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_CAMERA_JOYSTICK) then
         action_command = Def.ActionList.CamLeft
     else
         action_command = Def.ActionList.Nothing
     end
 
-    return action_command
+    return action_command, loop_count
+
 end
 
 function Core:GetActions()
@@ -193,21 +223,25 @@ function Core:GetActions()
 end
 
 function Core:OperateAerialVehicle(actions)
+
     if self.event_obj:IsInVehicle() then
         self.av_obj:Operate(actions)
     elseif self.event_obj:IsWaiting() then
         self.av_obj:Operate({Def.ActionList.Nothing})
     end
+
 end
 
 function Core:OperateCamera(actions)
+
     for _, action in pairs(actions) do
         self.av_obj.camera_obj:SetLocalPosition(action)
     end
+
 end
 
-
 function Core:SetEvent(action)
+
     if action == Def.ActionList.Enter or action == Def.ActionList.Exit then
         self.event_obj:EnterOrExitVehicle(self.player_obj)
     elseif action == Def.ActionList.ChangeCamera then
@@ -215,9 +249,11 @@ function Core:SetEvent(action)
     elseif action == Def.ActionList.ChangeDoor1 then
         self.event_obj:ChangeDoor()
     end
+
 end
 
 function Core:ToggleCamera()
+
     if self.event_obj:IsInVehicle() then
         local res = self.av_obj.camera_obj:Toggle()
         if res == Def.CameraDistanceLevel.Fpp then
@@ -226,6 +262,7 @@ function Core:ToggleCamera()
             self.player_obj:ActivateTPPHead(true)
         end
     end
+
 end
 
 return Core

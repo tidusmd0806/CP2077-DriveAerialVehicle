@@ -11,7 +11,7 @@ function AV:New(all_models)
 	local obj = {}
 	obj.position_obj = Position:New(all_models)
 	obj.engine_obj = Engine:New(obj.position_obj, all_models)
-	obj.camera_obj = Camera:New(obj.position_obj)
+	obj.camera_obj = Camera:New(obj.position_obj, all_models)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
 	obj.player_obj = nil
@@ -97,6 +97,7 @@ function AV:Spawn(position, angle)
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
 			self.engine_obj:Init()
+			self.camera_obj:Create()
 			DAV.Cron.Halt(timer)
 		end
 	end)
@@ -245,14 +246,20 @@ function AV:Mount()
 	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
 		local entity = player:GetMountedVehicle()
 		if entity ~= nil then
-			self.camera_obj:Create()
+			if not self.is_default_seat_position then
+				self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppSeat)
+			end
 			-- self.position_obj:SetEntity(entity)
 			DAV.Cron.After(0.2, function()
 				if not self.is_default_seat_position then
 					self:SitCorrectPosition()
 				end
 				-- self.player_obj:ActivateTPPHead(true)
-				self.is_player_in = true
+				DAV.Cron.After(1.5, function()
+					self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppMedium)
+					self.player_obj:ActivateTPPHead(true)
+					self.is_player_in = true
+				end)
 			end)
 			DAV.Cron.Halt(timer)
 		end
@@ -317,6 +324,7 @@ function AV:Unmount()
 				local angle = entity:GetWorldOrientation():ToEulerAngles()
 				angle.yaw = angle.yaw + 90
 				local position = self.position_obj:GetExitPosition()
+				self.camera_obj:ChangePosition(Def.CameraDistanceLevel.Fpp)
 				-- self.position_obj:SetEntity(entity)
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
 				self.player_obj:ActivateTPPHead(false)

@@ -4,21 +4,19 @@ local Utils = require("Tools/utils.lua")
 local Camera = {}
 Camera.__index = Camera
 
-function Camera:New(position_obj)
+function Camera:New(position_obj, all_models)
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Camera")
     obj.position_obj = position_obj
+    obj.all_models = all_models
 
-    obj.tpp_close_camera_distance = 7.5
-    obj.tpp_close_camera_high = 1.5
-    obj.tpp_medium_camera_distance = 12.0
-    obj.tpp_medium_camera_high = 2.0
-    obj.tpp_far_camera_distance = 15.0
-    obj.tpp_far_camera_high = 2.5
     obj.free_camera_ent_path = "base\\entities\\cameras\\simple_free_camera.ent"
     obj.camera_theta_speed = 0.7
     obj.camera_phi_speed = 0.7
+
+    obj.camera_distance_seat_offset = -0.1
+    obj.camera_z_seat_offset = 1.3
     obj.camera_distance_close = 7.5
     obj.camera_initial_theta_close = 0
     obj.camera_initial_phi_close = 15
@@ -39,6 +37,8 @@ function Camera:New(position_obj)
     obj.cam_theta = 0
     obj.cam_phi = 0
 
+    obj.is_reverse_camera = false
+
     return setmetatable(obj, self)
 end
 
@@ -47,6 +47,7 @@ function Camera:Create()
     self.fpp_component = Game.GetPlayer():GetFPPCameraComponent()
 
     local position = self.position_obj:GetPosition()
+    position.z = position.z + 100.0
     local angle = self.position_obj:GetForward():ToRotation()
 
     local cam_transform = WorldTransform.new()
@@ -79,6 +80,10 @@ function Camera:Move()
     local cam_position = Vector4.new(center_position.x + self.cam_distance * math.cos(base_theta) * math.cos(self.cam_phi * Pi() / 180.0), center_position.y + self.cam_distance * math.sin(base_theta) * math.cos(self.cam_phi * Pi() / 180.0), center_position.z + self.cam_distance * math.sin(self.cam_phi * Pi() / 180.0), 1.0)
     local angle_dir = Vector4.new(center_position.x - cam_position.x, center_position.y - cam_position.y, cam_position.z - center_position.z, 1.0)
 
+    if self.is_reverse_camera then
+        angle_dir = Vector4.new(angle_dir.x * -1, angle_dir.y * -1, angle_dir.z * -1, 1.0)
+    end
+
     Game.GetTeleportationFacility():Teleport(self.cam_entity, cam_position, angle_dir:ToRotation())
 
 end
@@ -107,7 +112,39 @@ function Camera:SetLocalPosition(action)
 end
 
 function Camera:ChangePosition(level)
-    if level == Def.CameraDistanceLevel.Fpp then
+
+    self.is_reverse_camera = false
+
+    if level == Def.CameraDistanceLevel.TppSeat then
+        local x = self.all_models[DAV.model_index].seat_position[DAV.seat_index].y * -1
+        local y = self.all_models[DAV.model_index].seat_position[DAV.seat_index].x
+        local z = self.all_models[DAV.model_index].seat_position[DAV.seat_index].z + self.camera_z_seat_offset
+        local yaw = self.all_models[DAV.model_index].seat_position[DAV.seat_index].yaw
+
+        local reverse_sign = 1
+
+        if yaw == 0 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].y > 0 then
+            self.is_reverse_camera = true
+            reverse_sign = -1
+        elseif yaw == 180 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].y < 0 then
+            self.is_reverse_camera = true
+            reverse_sign = -1
+        elseif yaw == 90 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].x < 0 then
+            self.is_reverse_camera = true
+            reverse_sign = -1
+        elseif yaw == -90 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].x > 0 then
+            self.is_reverse_camera = true
+            reverse_sign = -1
+        end
+
+        local r, theta, phi = Utils:ChangePolarCoordinates(x, y, z)
+        self.cam_distance = r + self.camera_distance_seat_offset * reverse_sign
+        self.cam_theta = theta
+        self.cam_phi = 90 - phi
+
+        self.tpp_component:Activate(0, false)
+        self.current_camera_mode = Def.CameraDistanceLevel.TppSeat
+    elseif level == Def.CameraDistanceLevel.Fpp then
         self.fpp_component:SetLocalPosition(Vector4.new(0.0, 0.0, 0.0, 1.0))
         self.fpp_component:SetLocalOrientation(EulerAngles.ToQuat(EulerAngles.new(0, 0, 0)))
         self.fpp_component.pitchMax = 80
