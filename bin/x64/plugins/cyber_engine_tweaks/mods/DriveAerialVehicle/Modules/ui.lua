@@ -32,6 +32,8 @@ function Ui:New()
 	obj.current_vehicle_door_name = ""
 	obj.current_vehicle_seat_name = ""
 
+	obj.temp_vehicle_model_name = ""
+
     return setmetatable(obj, self)
 end
 
@@ -145,7 +147,7 @@ function Ui:ShowSettingMenu()
     ImGui.SetNextWindowSize(800, 1000, ImGuiCond.Appearing)
     ImGui.Begin("Drive an AV Setting Menu")
 
-	ImGui.Text("Now Selected")
+	ImGui.Text("[Now Selected]")
 	ImGui.Text("Model: ")
 	ImGui.SameLine()
 	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_model_name)
@@ -193,6 +195,13 @@ function Ui:ShowSettingMenu()
 			end
 		end
 		ImGui.EndCombo()
+	end
+
+	if self.current_vehicle_model_name ~= self.selected_vehicle_model_name and self.selected_vehicle_model_name ~= self.temp_vehicle_model_name then
+		self.temp_vehicle_model_name = self.selected_vehicle_model_name
+		self.selected_vehicle_type_number = 1
+		self.selected_vehicle_door_number = 1
+		self.selected_vehicle_seat_number = 1
 	end
 
 	self.vehicle_type_list = {}

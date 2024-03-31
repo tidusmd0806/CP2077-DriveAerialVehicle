@@ -55,7 +55,8 @@
         },
         "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
         "entry_area_radius": 2.0,
-        "exit_point": {"x": -2.5, "y": 0, "z": 0}
+        "exit_point": {"x": -2.5, "y": 0, "z": 0},
+        "camera_distance_ratio": 1.0
     },
     {
         "name": "Militech Manticore",
@@ -66,7 +67,8 @@
         "type": [
             "militech_manticore__basic_manticore_01",
             "militech_manticore__basic_manticore_dumdum_01",
-            "militech_manticore__basic_ncpd_01"
+            "militech_manticore__basic_ncpd_01",
+            "militech_manticore_trauma_team_nusa_01"
         ],
         "is_default_mount": true,
         "active_door": ["Left Door", "Right Door"],
@@ -111,7 +113,8 @@
         },
         "entry_point": {"x": 0.0, "y": 0.0, "z": -2.0},
         "entry_area_radius": 3.5,
-        "exit_point": {"x": -2.5, "y": 0, "z": -1.5}
+        "exit_point": {"x": -2.5, "y": 0, "z": -1.5},
+        "camera_distance_ratio": 1.0
     },
     {
         "name": "Zetatech Atlus",
@@ -171,6 +174,123 @@
         },
         "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
         "entry_area_radius": 2.0,
-        "exit_point": {"x": -2.5, "y": 0, "z": 0.0}
+        "exit_point": {"x": -2.5, "y": 0, "z": 0.0},
+        "camera_distance_ratio": 1.0
+    },
+    {
+        "name": "Zetatech Surveyor",
+        "tweakdb_id": "Vehicle.av_zetatech_surveyor_dav",
+        "display_name_lockey": 77063,
+        "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
+        "logo_inkatlas_part_name" : "zetatech",
+        "type": [
+            "zetatech_surveyor__basic_kangtao_01",
+            "zetatech_surveyor__basic_ep1_maxtac_01",
+            "zetatech_surveyor__basic_arasaka_01"
+        ],
+        "is_default_mount": true,
+        "active_door": ["seat_front_left", "trunk"],
+        "actual_allocated_door": ["seat_front_left", "trunk"],
+        "active_seat": ["Left Side Middle Seat", "Right Side Front Seat", "Right Side Middle Seat"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_left", "seat_front_left"],
+        "is_default_seat_position": false,
+        "seat_position": [
+            {"x": -0.9 , "y": -0.5, "z": -1.6, "yaw":   0.0},
+            {"x":  0.9 , "y":  1.6, "z": -1.6, "yaw":   0.0},
+            {"x":  0.9 , "y":  0.1, "z": -1.6, "yaw": 180.0}
+        ],
+        "sit_pose": {
+            "female": "sit_chair_lean180__2h_on_lap__01",
+            "male": "sit_chair_lean180__2h_on_lap__01"
+        },
+        "roll_speed": 0.5,
+        "pitch_speed": 0.5,
+        "yaw_speed": 1.2,
+        "roll_restore_speed": 0.1,
+        "pitch_restore_speed": 0.1,
+        "max_roll": 25,
+        "min_roll": -25,
+        "max_pitch": 25,
+        "min_pitch": -25,
+        "max_lift_force": 24000,
+        "min_lift_force": 18000,
+        "time_to_max": 1.8,
+        "time_to_min": 1.6,
+        "mess": 3000,
+        "air_resistance_constant": 300,
+        "rebound_constant": 1.0,
+        "shape": {
+            "A": {"x":  2.5, "y":  4.5, "z":  2.0},
+            "B": {"x":  2.5, "y":  4.5, "z": -2.0},
+            "C": {"x":  2.5, "y": -4.5, "z":  2.0},
+            "D": {"x":  2.5, "y": -4.5, "z": -2.0},
+            "E": {"x": -2.5, "y":  4.5, "z":  2.0},
+            "F": {"x": -2.5, "y":  4.5, "z": -2.0},
+            "G": {"x": -2.5, "y": -4.5, "z":  2.0},
+            "H": {"x": -2.5, "y": -4.5, "z": -2.0}
+        },
+        "entry_point": {"x": -2.0, "y": 2.0, "z": -2.0},
+        "entry_area_radius": 3.0,
+        "exit_point": {"x": -2.5, "y": 0, "z": 0.0},
+        "camera_distance_ratio": 1.3
+    },
+    {
+        "name": "Zetatech Valgus",
+        "tweakdb_id": "Vehicle.q108_arasaka_helicopter_dav",
+        "display_name_lockey": 77065,
+        "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
+        "logo_inkatlas_part_name" : "zetatech",
+        "type": [
+            "zetatech_valgus_valgus_max_tac",
+            "zetatech_valgus_border_patrol",
+            "zetatech_valgus_arasaka",
+            "zetatech_valgus_valgus_01",
+            "zetatech_valgus_q101_backalley"
+        ],
+        "is_default_mount": true,
+        "active_door": ["seat_front_left", "door_left_open__01", "door_open", "trunk", "trunk", "trunk"],
+        "actual_allocated_door": ["seat_front_left", "door_left_open__01", "door_open", "trunk", "trunk", "trunk"],
+        "active_seat": ["Right Seat", "Left Seat", "Cockpit"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_left", "seat_front_left"],
+        "is_default_seat_position": false,
+        "seat_position": [
+            {"x":  1.0 , "y":  0.0, "z":  0.0, "yaw": 90.0},
+            {"x": -1.0 , "y":  0.0, "z":  0.0, "yaw":-90.0},
+            {"x":  0.0 , "y":  7.0, "z":  0.0, "yaw":  0.0}
+        ],
+        "sit_pose": {
+            "female": "sit_chair_lean180__2h_on_lap__01",
+            "male": "sit_chair_lean180__2h_on_lap__01"
+        },
+        "roll_speed": 0.5,
+        "pitch_speed": 0.5,
+        "yaw_speed": 1.2,
+        "roll_restore_speed": 0.1,
+        "pitch_restore_speed": 0.1,
+        "max_roll": 25,
+        "min_roll": -25,
+        "max_pitch": 25,
+        "min_pitch": -25,
+        "max_lift_force": 24000,
+        "min_lift_force": 18000,
+        "time_to_max": 1.8,
+        "time_to_min": 1.6,
+        "mess": 3000,
+        "air_resistance_constant": 300,
+        "rebound_constant": 1.0,
+        "shape": {
+            "A": {"x":  2.5, "y":  4.5, "z":  2.0},
+            "B": {"x":  2.5, "y":  4.5, "z":  0.0},
+            "C": {"x":  2.5, "y": -4.5, "z":  2.0},
+            "D": {"x":  2.5, "y": -4.5, "z":  0.0},
+            "E": {"x": -2.5, "y":  4.5, "z":  2.0},
+            "F": {"x": -2.5, "y":  4.5, "z":  0.0},
+            "G": {"x": -2.5, "y": -4.5, "z":  2.0},
+            "H": {"x": -2.5, "y": -4.5, "z":  0.0}
+        },
+        "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
+        "entry_area_radius": 5.0,
+        "exit_point": {"x": -2.5, "y": 0, "z": 0.0},
+        "camera_distance_ratio": 1.7
     }
 ]

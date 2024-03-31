@@ -15,15 +15,16 @@ function Camera:New(position_obj, all_models)
     obj.camera_theta_speed = 0.7
     obj.camera_phi_speed = 0.7
 
+    local camera_distance_ratio = all_models[DAV.model_index].camera_distance_ratio or 1.0
     obj.camera_distance_seat_offset = -0.1
     obj.camera_z_seat_offset = 1.3
-    obj.camera_distance_close = 7.5
+    obj.camera_distance_close = 7.5 * camera_distance_ratio
     obj.camera_initial_theta_close = 0
     obj.camera_initial_phi_close = 15
-    obj.camera_distance_medium = 12.0
+    obj.camera_distance_medium = 12.0 * camera_distance_ratio
     obj.camera_initial_theta_medium = 0
     obj.camera_initial_phi_medium = 10
-    obj.camera_distance_far = 15.0
+    obj.camera_distance_far = 15.0 * camera_distance_ratio
     obj.camera_initial_theta_far = 0
     obj.camera_initial_phi_far = 5
 
