@@ -17,7 +17,7 @@ DAV = {
 	model_type_index = 1,
 	open_door_index = 1,
 	seat_index = 1,
-    horizenal_boost_ratio = 1.3
+    horizenal_boost_ratio = 2.0
 }
 
 DAV.Cron = require('External/Cron.lua')
@@ -41,13 +41,13 @@ registerForEvent("onTweak",function ()
     TweakDB:CloneRecord("Vehicle.av_zetatech_surveyor_dav", "Vehicle.av_zetatech_surveyor")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
     -- original valgus record
-    TweakDB:CloneRecord("Vehicle.q108_arasaka_helicopter_dav", "Vehicle.q108_arasaka_helicopter")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q108_arasaka_helicopter_dav.entityTemplatePath"), "base\\dav\\q108_arasaka_helicopter_dav.ent")
+    TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav", "Vehicle.q000_nomad_border_patrol_heli")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
 end)
 
 registerForEvent('onInit', function()
 
-    DAV.is_debug_mode = true
+    -- DAV.is_debug_mode = true
 
     DAV.core_obj:Init()
 
