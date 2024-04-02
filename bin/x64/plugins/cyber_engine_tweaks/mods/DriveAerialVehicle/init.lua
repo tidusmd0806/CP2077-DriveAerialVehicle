@@ -14,10 +14,10 @@ DAV = {
     input_unlock_time = 1.5,
     time_resolution = 0.01,
 	model_index = 1,
-	model_type_index = 3,
+	model_type_index = 1,
 	open_door_index = 1,
-	seat_index = 3,
-    horizenal_boost_ratio = 1.3
+	seat_index = 1,
+    horizenal_boost_ratio = 2.0
 }
 
 DAV.Cron = require('External/Cron.lua')
@@ -34,6 +34,15 @@ end)
 
 registerForEvent("onOverlayClose",function ()
 	DAV.is_opening_overlay = false
+end)
+
+registerForEvent("onTweak",function ()
+    -- original surveyor record
+    TweakDB:CloneRecord("Vehicle.av_zetatech_surveyor_dav", "Vehicle.av_zetatech_surveyor")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
+    -- original valgus record
+    TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav", "Vehicle.q000_nomad_border_patrol_heli")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
 end)
 
 registerForEvent('onInit', function()
@@ -77,21 +86,6 @@ registerForEvent("onDraw", function()
     if DAV.is_opening_overlay then
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
-end)
-
-registerHotkey("Test1", "Test1", function()
-    local setting = require('External/GameSettings.lua')
-    setting.Toggle('/interface/hud/action_buttons')
-end)
-
-registerHotkey("Test2", "Test2", function()
-    local setting = require('External/GameSettings.lua')
-    setting.Set('/interface/hud/action_buttons', false)
-end)
-
-registerHotkey("Test3", "Test3", function()
-    local setting = require('External/GameSettings.lua')
-    setting.Set('/interface/hud/action_buttons', true)
 end)
 
 registerForEvent('onUpdate', function(delta)

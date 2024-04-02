@@ -32,6 +32,10 @@ function Ui:New()
 	obj.current_vehicle_door_name = ""
 	obj.current_vehicle_seat_name = ""
 
+	obj.temp_vehicle_model_name = ""
+
+	obj.max_boost_ratio = 5.0
+
     return setmetatable(obj, self)
 end
 
@@ -75,21 +79,16 @@ end
 
 function Ui:SetOverride()
 	if not DAV.ready then
-		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, arg_1, wrapped_method)
+		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
 
-			local record_hash = this:GetActivePlayerVehicle().recordID.hash
+			local record_hash = this:GetActivePlayerVehicle(vehicle_type).recordID.hash
 
 			if record_hash == self.dummy_vehicle_record_hash then
-				self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")        
+				self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
 				self.is_vehicle_call = true
 				return false
 			else
-				local res = false
-				if arg_1 == nil then
-					res = wrapped_method()
-				else
-					res = wrapped_method(arg_1)
-				end
+				local res = wrapped_method(vehicle_type)
 				self.is_vehicle_call = false
 				return res
 			end
@@ -145,7 +144,7 @@ function Ui:ShowSettingMenu()
     ImGui.SetNextWindowSize(800, 1000, ImGuiCond.Appearing)
     ImGui.Begin("Drive an AV Setting Menu")
 
-	ImGui.Text("Now Selected")
+	ImGui.Text("[Now Selected]")
 	ImGui.Text("Model: ")
 	ImGui.SameLine()
 	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_model_name)
@@ -193,6 +192,13 @@ function Ui:ShowSettingMenu()
 			end
 		end
 		ImGui.EndCombo()
+	end
+
+	if self.current_vehicle_model_name ~= self.selected_vehicle_model_name and self.selected_vehicle_model_name ~= self.temp_vehicle_model_name then
+		self.temp_vehicle_model_name = self.selected_vehicle_model_name
+		self.selected_vehicle_type_number = 1
+		self.selected_vehicle_door_number = 1
+		self.selected_vehicle_seat_number = 1
 	end
 
 	self.vehicle_type_list = {}
@@ -290,7 +296,7 @@ function Ui:ShowSettingMenu()
 
 	ImGui.Text("Horizenal Boost Ratio")
 	local is_used_slider = false
-	DAV.horizenal_boost_ratio, is_used_slider = ImGui.SliderFloat("##Horizenal Boost Ratio", DAV.horizenal_boost_ratio, 1.0, 3.0, "%.1f")
+	DAV.horizenal_boost_ratio, is_used_slider = ImGui.SliderFloat("##Horizenal Boost Ratio", DAV.horizenal_boost_ratio, 1.0, self.max_boost_ratio, "%.1f")
 
 	if not is_used_slider then
 		if ImGui.Button("Update", 180, 60) then
