@@ -127,7 +127,7 @@ function Hud:ShowMeter()
         DAV.Cron.Every(self.speed_meter_refresh_rate, function()
             local mph = self.av_obj.engine_obj.current_speed * (3600 / 1600)
             local power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
-            self.hud_car_controller:OnSpeedValueChanged(mph / 3)
+            self.hud_car_controller:OnSpeedValueChanged(mph / 4.58)
             self.hud_car_controller:OnRpmValueChanged(power_level)
             self.hud_car_controller:EvaluateRPMMeterWidget(power_level)
             if not self.is_speed_meter_shown then

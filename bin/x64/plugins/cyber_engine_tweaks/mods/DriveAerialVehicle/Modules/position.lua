@@ -199,6 +199,7 @@ function Position:ChangePosition()
         self.log_obj:Record(LogLevel.Error, "No vehicle entity for ChangePosition")
         return false
     end
+
     Game.GetTeleportationFacility():Teleport(self.entity, self.next_position, self.next_angle)
 end
 

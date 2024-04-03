@@ -6,7 +6,7 @@
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "0.2.0",
+	version = "0.4.0",
     ready = false,
     is_debug_mode = false,
     is_opening_overlay = false,
@@ -47,7 +47,7 @@ end)
 
 registerForEvent('onInit', function()
 
-    -- DAV.is_debug_mode = true
+    DAV.is_debug_mode = true
 
     DAV.core_obj:Init()
 
@@ -75,6 +75,20 @@ registerForEvent('onInit', function()
 
     end)
 
+    Observe('gameEntityStubComponentPS', 'GetSpawnerID', function(this)
+        print("GetSpawnerID")
+    end)
+    Observe('gameEntityStubComponentPS', 'GetOwnerCommunityEntryName', function(this)
+        print("GetOwnerCommunityEntryName")
+        print(num)
+    end)
+    Observe('gameEntityStubComponentPS', 'GetPSComponentName', function(this)
+        print("GetPSComponentName")
+    end)
+    -- Observe('gameEntityStubComponentPS', 'ForcePersistentStateChange', function(this)
+    --     print("ForcePersistentStateChange")
+    -- end)
+
     DAV.ready = true
     print('Drive an Aerial Vehicle Mod is ready!')
 end)
@@ -86,6 +100,17 @@ registerForEvent("onDraw", function()
     if DAV.is_opening_overlay then
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
+end)
+
+registerHotkey("DAV_ToggleDebug", "Toggle Debug Mode", function()
+    local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+    local temp = entEntityPositionProvider.CreateEntityPositionProvider(entity)
+    local pos = temp:GetWorldOffset()
+    print("x: " .. pos.x .. " y: " .. pos.y .. " z: " .. pos.z)
+    pos.z = 500
+    local vec4 = Vector4.new(pos.x, pos.y, pos.z, 0)
+    temp:SetWorldOffset(vec4)
+
 end)
 
 registerForEvent('onUpdate', function(delta)
