@@ -112,68 +112,91 @@ function Camera:SetLocalPosition(action)
     end
 end
 
+-- function Camera:ChangePosition(level)
+
+--     self.is_reverse_camera = false
+
+--     if level == Def.CameraDistanceLevel.TppSeat then
+--         local x = self.all_models[DAV.model_index].seat_position[DAV.seat_index].y * -1
+--         local y = self.all_models[DAV.model_index].seat_position[DAV.seat_index].x
+--         local z = self.all_models[DAV.model_index].seat_position[DAV.seat_index].z + self.camera_z_seat_offset
+--         local yaw = self.all_models[DAV.model_index].seat_position[DAV.seat_index].yaw
+
+--         local reverse_sign = 1
+
+--         if yaw == 0 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].y > 0 then
+--             self.is_reverse_camera = true
+--             reverse_sign = -1
+--         elseif yaw == 180 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].y < 0 then
+--             self.is_reverse_camera = true
+--             reverse_sign = -1
+--         elseif yaw == 90 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].x < 0 then
+--             self.is_reverse_camera = true
+--             reverse_sign = -1
+--         elseif yaw == -90 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].x > 0 then
+--             self.is_reverse_camera = true
+--             reverse_sign = -1
+--         end
+
+--         local r, theta, phi = Utils:ChangePolarCoordinates(x, y, z)
+--         self.cam_distance = r + self.camera_distance_seat_offset * reverse_sign
+--         self.cam_theta = theta
+--         self.cam_phi = 90 - phi
+
+--         self.tpp_component:Activate(0, false)
+--         self.current_camera_mode = Def.CameraDistanceLevel.TppSeat
+--     elseif level == Def.CameraDistanceLevel.Fpp then
+--         self.fpp_component:SetLocalPosition(Vector4.new(0.0, 0.0, 0.0, 1.0))
+--         self.fpp_component:SetLocalOrientation(EulerAngles.ToQuat(EulerAngles.new(0, 0, 0)))
+--         self.fpp_component.pitchMax = 80
+--         self.fpp_component.pitchMin = -80
+--         self.fpp_component.yawMaxRight = -360
+--         self.fpp_component.yawMaxLeft = 360
+--         self.fpp_component:ResetPitch()
+--         self.fpp_component:Activate(0, false)
+--         self.current_camera_mode = Def.CameraDistanceLevel.Fpp
+--     elseif level == Def.CameraDistanceLevel.TppClose then
+--         self.cam_distance = self.camera_distance_close
+--         self.cam_theta = self.camera_initial_theta_close
+--         self.cam_phi = self.camera_initial_phi_close
+--         self.tpp_component:Activate(0, false)
+--         self.current_camera_mode = Def.CameraDistanceLevel.TppClose
+--     elseif level == Def.CameraDistanceLevel.TppMedium then
+--         self.cam_distance = self.camera_distance_medium
+--         self.cam_theta = self.camera_initial_theta_medium
+--         self.cam_phi = self.camera_initial_phi_medium
+--         self.tpp_component:Activate(0, false)
+--         self.current_camera_mode = Def.CameraDistanceLevel.TppMedium
+--     elseif level == Def.CameraDistanceLevel.TppFar then
+--         self.cam_distance = self.camera_distance_far
+--         self.cam_theta = self.camera_initial_theta_far
+--         self.cam_phi = self.camera_initial_phi_far
+--         self.tpp_component:Activate(0, false)
+--         self.current_camera_mode = Def.CameraDistanceLevel.TppFar
+--     end
+-- end
+
 function Camera:ChangePosition(level)
 
-    self.is_reverse_camera = false
+    local camera_perspective = vehicleRequestCameraPerspectiveEvent.new()
 
-    if level == Def.CameraDistanceLevel.TppSeat then
-        local x = self.all_models[DAV.model_index].seat_position[DAV.seat_index].y * -1
-        local y = self.all_models[DAV.model_index].seat_position[DAV.seat_index].x
-        local z = self.all_models[DAV.model_index].seat_position[DAV.seat_index].z + self.camera_z_seat_offset
-        local yaw = self.all_models[DAV.model_index].seat_position[DAV.seat_index].yaw
-
-        local reverse_sign = 1
-
-        if yaw == 0 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].y > 0 then
-            self.is_reverse_camera = true
-            reverse_sign = -1
-        elseif yaw == 180 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].y < 0 then
-            self.is_reverse_camera = true
-            reverse_sign = -1
-        elseif yaw == 90 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].x < 0 then
-            self.is_reverse_camera = true
-            reverse_sign = -1
-        elseif yaw == -90 and self.all_models[DAV.model_index].seat_position[DAV.seat_index].x > 0 then
-            self.is_reverse_camera = true
-            reverse_sign = -1
-        end
-
-        local r, theta, phi = Utils:ChangePolarCoordinates(x, y, z)
-        self.cam_distance = r + self.camera_distance_seat_offset * reverse_sign
-        self.cam_theta = theta
-        self.cam_phi = 90 - phi
-
-        self.tpp_component:Activate(0, false)
-        self.current_camera_mode = Def.CameraDistanceLevel.TppSeat
-    elseif level == Def.CameraDistanceLevel.Fpp then
-        self.fpp_component:SetLocalPosition(Vector4.new(0.0, 0.0, 0.0, 1.0))
-        self.fpp_component:SetLocalOrientation(EulerAngles.ToQuat(EulerAngles.new(0, 0, 0)))
-        self.fpp_component.pitchMax = 80
-        self.fpp_component.pitchMin = -80
-        self.fpp_component.yawMaxRight = -360
-        self.fpp_component.yawMaxLeft = 360
-        self.fpp_component:ResetPitch()
-        self.fpp_component:Activate(0, false)
-        self.current_camera_mode = Def.CameraDistanceLevel.Fpp
+    -- if level == Def.CameraDistanceLevel.TppSeat then
+    --     camera_perspective.cameraPerspective = vehicleCameraPerspective.FPP
+    if level == Def.CameraDistanceLevel.Fpp then
+		self.log_obj:Record(LogLevel.Trace, "Change Camera : FPP")
+        camera_perspective.cameraPerspective = vehicleCameraPerspective.FPP
     elseif level == Def.CameraDistanceLevel.TppClose then
-        self.cam_distance = self.camera_distance_close
-        self.cam_theta = self.camera_initial_theta_close
-        self.cam_phi = self.camera_initial_phi_close
-        self.tpp_component:Activate(0, false)
-        self.current_camera_mode = Def.CameraDistanceLevel.TppClose
+		self.log_obj:Record(LogLevel.Trace, "Change Camera : TPPClose")
+        camera_perspective.cameraPerspective = vehicleCameraPerspective.TPPClose
     elseif level == Def.CameraDistanceLevel.TppMedium then
-        self.cam_distance = self.camera_distance_medium
-        self.cam_theta = self.camera_initial_theta_medium
-        self.cam_phi = self.camera_initial_phi_medium
-        self.tpp_component:Activate(0, false)
-        self.current_camera_mode = Def.CameraDistanceLevel.TppMedium
+		self.log_obj:Record(LogLevel.Trace, "Change Camera : TPPMedium")
+        camera_perspective.cameraPerspective = vehicleCameraPerspective.TPPMedium
     elseif level == Def.CameraDistanceLevel.TppFar then
-        self.cam_distance = self.camera_distance_far
-        self.cam_theta = self.camera_initial_theta_far
-        self.cam_phi = self.camera_initial_phi_far
-        self.tpp_component:Activate(0, false)
-        self.current_camera_mode = Def.CameraDistanceLevel.TppFar
+		self.log_obj:Record(LogLevel.Trace, "Change Camera : TPPFar")
+        camera_perspective.cameraPerspective = vehicleCameraPerspective.TPPFar
     end
+    Game.GetPlayer():QueueEvent(camera_perspective)
+
 end
 
 function Camera:Toggle()

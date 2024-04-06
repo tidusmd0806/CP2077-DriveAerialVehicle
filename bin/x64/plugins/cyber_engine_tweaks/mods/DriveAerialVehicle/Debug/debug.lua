@@ -1,3 +1,5 @@
+local Def = require("Tools/def.lua")
+local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Debug = {}
 Debug.__index = Debug
@@ -35,7 +37,9 @@ function Debug:SelectPrint()
 end
 
 function Debug:ImGuiMain()
+
     self:Init()
+    self:SetLogLevel()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
@@ -43,6 +47,24 @@ function Debug:ImGuiMain()
     self:ImGuiCurrentEngineInfo()
     self:ImGuiSoundCheck()
     self:SelectPrint()
+
+end
+
+function Debug:SetLogLevel()
+    local selected = false
+    if ImGui.BeginCombo("LogLevel", Utils:GetKeyFromValue(LogLevel, MasterLogLevel)) then
+		for _, key in ipairs(Utils:GetKeys(LogLevel)) do
+			if Utils:GetKeyFromValue(LogLevel, MasterLogLevel) == key then
+				selected = true
+			else
+				selected = false
+			end
+			if(ImGui.Selectable(key, selected)) then
+				MasterLogLevel = LogLevel[key]
+			end
+		end
+		ImGui.EndCombo()
+	end
 end
 
 function Debug:ImGuiSituation()

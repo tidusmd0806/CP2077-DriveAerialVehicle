@@ -97,7 +97,7 @@ function AV:Spawn(position, angle)
 		if entity ~= nil then
 			self.position_obj:SetEntity(entity)
 			self.engine_obj:Init()
-			self.camera_obj:Create()
+			-- self.camera_obj:Create()
 			DAV.Cron.Halt(timer)
 		end
 	end)
@@ -176,33 +176,57 @@ function AV:LockDoor()
 end
 
 function AV:ChangeDoorState(door_state)
-	local door_number = DAV.open_door_index
-	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to change door state")
-		return false
-	end
-	local entity = Game.FindEntityByID(self.entity_id)
-	local vehicle_ps = entity:GetVehiclePS()
-	local state = vehicle_ps:GetDoorState(door_number - 1).value -- front left door: 0 / front right door: 1
-	local door_event = nil
-	if state == "Closed" then
-		if door_state == Def.DoorOperation.Close then
-			return false
+
+	local change_counter = 0
+
+	for _, door_name in ipairs(self.active_door) do
+		local door_number = EVehicleDoor.seat_front_left
+		if door_name == "seat_front_left" then
+			door_number = EVehicleDoor.seat_front_left
+		elseif door_name == "seat_front_right" then
+			door_number = EVehicleDoor.seat_front_right
+		elseif door_name == "seat_back_left" then
+			door_number = EVehicleDoor.seat_back_left
+		elseif door_name == "seat_back_right" then
+			door_number = EVehicleDoor.seat_back_right
+		elseif door_name == "trunk" then
+			door_number = EVehicleDoor.trunk
+		elseif door_name == "hood" then
+			door_number = EVehicleDoor.hood
 		end
-		door_event = VehicleDoorOpen.new()
-	elseif state == "Open" then
-		if door_state == Def.DoorOperation.Open then
-			return false
+
+		if self.entity_id == nil then
+			self.log_obj:Record(LogLevel.Warning, "No entity to change door state")
+			return nil
 		end
-		door_event = VehicleDoorClose.new()
-	else
-		self.log_obj:Record(LogLevel.Error, "Door state is not valid : " .. state)
-		return false
+		local entity = Game.FindEntityByID(self.entity_id)
+		local vehicle_ps = entity:GetVehiclePS()
+		local state = vehicle_ps:GetDoorState(door_number).value
+
+		local door_event = nil
+		local can_change = true
+		if state == "Closed" then
+			if door_state == Def.DoorOperation.Close then
+				can_change = false
+			end
+			door_event = VehicleDoorOpen.new()
+		elseif state == "Open" then
+			if door_state == Def.DoorOperation.Open then
+				can_change = false
+			end
+			door_event = VehicleDoorClose.new()
+		else
+			self.log_obj:Record(LogLevel.Error, "Door state is not valid : " .. state)
+			return nil
+		end
+		if can_change then
+			change_counter = change_counter + 1
+			door_event.slotID = CName.new(door_name)
+			door_event.forceScene = false
+			vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
+		end
 	end
-	door_event.slotID = self.active_door[door_number]
-	door_event.forceScene = false
-	vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
-	return true
+	return change_counter
 end
 
 function AV:Mount()
@@ -246,9 +270,9 @@ function AV:Mount()
 	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
 		local entity = player:GetMountedVehicle()
 		if entity ~= nil then
-			if not self.is_default_seat_position then
-				self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppSeat)
-			end
+			-- if not self.is_default_seat_position then
+			-- 	self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppSeat)
+			-- end
 			-- self.position_obj:SetEntity(entity)
 			DAV.Cron.After(0.2, function()
 				if not self.is_default_seat_position then
@@ -256,8 +280,8 @@ function AV:Mount()
 				end
 				-- self.player_obj:ActivateTPPHead(true)
 				DAV.Cron.After(1.5, function()
-					self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppMedium)
-					self.player_obj:ActivateTPPHead(true)
+					-- self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppMedium)
+					-- self.player_obj:ActivateTPPHead(true)
 					self.is_player_in = true
 				end)
 			end)
@@ -298,13 +322,9 @@ function AV:Unmount()
 	mount_event.lowLevelMountingInfo = mounting_info
 	mount_event.mountData = data
 
-	local entity = Game.FindEntityByID(self.entity_id)
-	local vehicle_ps = entity:GetVehiclePS()
-
+	-- if all door are open, wait time is short
 	local open_door_wait = self.door_open_time
-	if vehicle_ps:GetDoorState(DAV.open_door_index - 1).value  == "Closed" then
-		self:ChangeDoorState(Def.DoorOperation.Open)
-	else
+	if self:ChangeDoorState(Def.DoorOperation.Open) == 0 then
 		open_door_wait = 0.1
 	end
 
@@ -324,10 +344,10 @@ function AV:Unmount()
 				local angle = entity:GetWorldOrientation():ToEulerAngles()
 				angle.yaw = angle.yaw + 90
 				local position = self.position_obj:GetExitPosition()
-				self.camera_obj:ChangePosition(Def.CameraDistanceLevel.Fpp)
+				-- self.camera_obj:ChangePosition(Def.CameraDistanceLevel.Fpp)
 				-- self.position_obj:SetEntity(entity)
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
-				self.player_obj:ActivateTPPHead(false)
+				-- self.player_obj:ActivateTPPHead(false)
 				if not self.is_default_seat_position then
 					self.player_obj:StopAnim()
 				end
@@ -411,7 +431,7 @@ function AV:Operate(action_commands)
 		return false
 	end
 
-	self.camera_obj:Move()
+	-- self.camera_obj:Move()
 
 	self.is_collision = false
 

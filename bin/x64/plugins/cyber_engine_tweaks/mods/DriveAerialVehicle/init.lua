@@ -6,24 +6,24 @@
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "0.4.0",
+	version = "1.0.0",
     ready = false,
     is_debug_mode = false,
     is_opening_overlay = false,
-    is_locked_input = true,
-    input_unlock_time = 1.5,
     time_resolution = 0.01,
 	model_index = 1,
 	model_type_index = 1,
-	open_door_index = 1,
 	seat_index = 1,
-    horizenal_boost_ratio = 2.0
+    horizenal_boost_ratio = 2.0,
+    cet_required_version = 32.1, -- 1.32.1
+    codeware_required_version = 8.2, -- 1.8.2
+    cet_version_num = 0,
+    codeware_version_num = 0
 }
 
 DAV.Cron = require('External/Cron.lua')
 DAV.Core = require('Modules/core.lua')
 DAV.Debug = require('Debug/debug.lua')
-DAV.Utils = require('Tools/utils.lua')
 
 DAV.core_obj = DAV.Core:New()
 DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
@@ -37,60 +37,27 @@ registerForEvent("onOverlayClose",function ()
 end)
 
 registerForEvent("onTweak",function ()
-    -- original surveyor record
+    -- Custom surveyor record
     TweakDB:CloneRecord("Vehicle.av_zetatech_surveyor_dav", "Vehicle.av_zetatech_surveyor")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
-    -- original valgus record
+    -- Custom valgus record
     TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav", "Vehicle.q000_nomad_border_patrol_heli")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
 end)
 
 registerForEvent('onInit', function()
 
-    DAV.is_debug_mode = true
+    if not DAV:CheckDependencies() then
+        print('Drive an Aerial Vehicle Mod failed to load due to missing dependencies.')
+        return
+    end
 
     DAV.core_obj:Init()
 
-    local exception_list = DAV.Utils:ReadJson("Data/exception_input.json")
-
-    Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
-        local action_name = action:GetName(action).value
-		local action_type = action:GetType(action).value
-        local action_value = action:GetValue(action)
-
-        if DAV.core_obj.event_obj:IsInVehicle() and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
-            for _, exception in pairs(exception_list) do
-                if string.find(action_name, exception) then
-                    consumer:ConsumeSingleAction()
-                    return
-                end
-            end
-        end
-
-        if DAV.is_debug_mode then
-            DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
-        end
-
-        DAV.core_obj:StorePlayerAction(action_name, action_type, action_value)
-
-    end)
-
-    Observe('gameEntityStubComponentPS', 'GetSpawnerID', function(this)
-        print("GetSpawnerID")
-    end)
-    Observe('gameEntityStubComponentPS', 'GetOwnerCommunityEntryName', function(this)
-        print("GetOwnerCommunityEntryName")
-        print(num)
-    end)
-    Observe('gameEntityStubComponentPS', 'GetPSComponentName', function(this)
-        print("GetPSComponentName")
-    end)
-    -- Observe('gameEntityStubComponentPS', 'ForcePersistentStateChange', function(this)
-    --     print("ForcePersistentStateChange")
-    -- end)
-
     DAV.ready = true
+
     print('Drive an Aerial Vehicle Mod is ready!')
+
 end)
 
 registerForEvent("onDraw", function()
@@ -103,13 +70,38 @@ registerForEvent("onDraw", function()
 end)
 
 registerHotkey("DAV_ToggleDebug", "Toggle Debug Mode", function()
+    local player = Game.GetPlayer()
+    local eve = vehicleRequestCameraPerspectiveEvent.new()
+    eve.cameraPerspective = vehicleCameraPerspective.FPP
+    player:QueueEvent(eve)
+
+end)
+
+registerHotkey("DAV_ToggleDebug2", "Toggle Debug Mode2", function()
+    local player = Game.GetPlayer()
+    local eve = vehicleRequestCameraPerspectiveEvent.new()
+    eve.cameraPerspective = vehicleCameraPerspective.TPPFar
+    player:QueueEvent(eve)
+
+end)
+
+registerHotkey("DAV_ToggleDebug3", "Toggle Debug Mode3", function()
     local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-    local temp = entEntityPositionProvider.CreateEntityPositionProvider(entity)
-    local pos = temp:GetWorldOffset()
-    print("x: " .. pos.x .. " y: " .. pos.y .. " z: " .. pos.z)
-    pos.z = 500
-    local vec4 = Vector4.new(pos.x, pos.y, pos.z, 0)
-    temp:SetWorldOffset(vec4)
+	local vehicle_ps = entity:GetVehiclePS()
+    local door_event = VehicleDoorOpen.new()
+	door_event.slotID = CName.new("trunk")
+	door_event.forceScene = false
+	vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
+
+end)
+
+registerHotkey("DAV_ToggleDebug4", "Toggle Debug Mode4", function()
+    local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+	local vehicle_ps = entity:GetVehiclePS()
+    local door_event = VehicleDoorClose.new()
+	door_event.slotID = CName.new("trunk")
+	door_event.forceScene = false
+	vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
 
 end)
 
@@ -117,5 +109,33 @@ registerForEvent('onUpdate', function(delta)
     -- This is required for Cron to function
     DAV.Cron.Update(delta)
 end)
+
+function DAV:CheckDependencies()
+
+    -- Check Cyber Engine Tweaks Version
+    local cet_version_str = GetVersion()
+    local cet_version_major, cet_version_minor = cet_version_str:match("1.(%d+)%.*(%d*)")
+    DAV.cet_version_num = tonumber(cet_version_major .. "." .. cet_version_minor)
+
+    -- Check CodeWare Version
+    local code_version_str = Codeware.Version()
+    local code_version_major, code_version_minor = code_version_str:match("1.(%d+)%.*(%d*)")
+    DAV.codeware_version_num = tonumber(code_version_major .. "." .. code_version_minor)
+
+    if DAV.cet_version_num < DAV.cet_required_version then
+        print("Drive an Aerial Vehicle Mod requires Cyber Engine Tweaks version 1." .. DAV.cet_required_version .. " or higher.")
+        return false
+    elseif DAV.codeware_version_num < DAV.codeware_required_version then
+        print("Drive an Aerial Vehicle Mod requires CodeWare version 1." .. DAV.codeware_required_version .. " or higher.")
+        return false
+    end
+
+    return true
+
+end
+
+function DAV:Version()
+    return DAV.version
+end
 
 return DAV

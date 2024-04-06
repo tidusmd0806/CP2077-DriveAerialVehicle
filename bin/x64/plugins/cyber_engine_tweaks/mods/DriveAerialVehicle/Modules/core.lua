@@ -31,6 +31,7 @@ function Core:New()
 
     -- set default parameters
     obj.input_table = {}
+    obj.current_custom_mappin_position = {x = 0, y = 0, z = 0}
 
     return setmetatable(obj, self)
 
@@ -60,6 +61,9 @@ function Core:Init()
         self:GetActions()
     end)
 
+    self:SetInputListener()
+    self:SetCustomMappinPosition()
+
 end
 
 function Core:Reset()
@@ -71,6 +75,51 @@ function Core:Reset()
     self.av_obj:Init()
 
     self.event_obj:Init(self.av_obj)
+
+end
+
+function Core:SetInputListener()
+
+    local player = Game.GetPlayer()
+
+    player:RegisterInputListener(player, "dav_rotate_move")
+
+    local exception_list = Utils:ReadJson("Data/exception_input.json")
+
+    Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
+        local action_name = action:GetName(action).value
+		local action_type = action:GetType(action).value
+        local action_value = action:GetValue(action)
+
+        if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
+            for _, exception in pairs(exception_list) do
+                if string.find(action_name, exception) then
+                    consumer:Consume()
+                    return
+                end
+            end
+        end
+
+        if DAV.is_debug_mode then
+            DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
+        end
+
+        self:StorePlayerAction(action_name, action_type, action_value)
+
+    end)
+
+end
+
+function Core:SetCustomMappinPosition()
+
+    Observe('BaseWorldMapMappinController', 'SelectMappin', function(this)
+		local mappin = this.mappin
+        if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
+            local pos = mappin:GetWorldPosition()
+            self.current_custom_mappin_position = {x = pos.x, y = pos.y, z = pos.z}
+        end
+
+	end)
 
 end
 
@@ -256,11 +305,11 @@ function Core:ToggleCamera()
 
     if self.event_obj:IsInVehicle() then
         local res = self.av_obj.camera_obj:Toggle()
-        if res == Def.CameraDistanceLevel.Fpp then
-            self.player_obj:ActivateTPPHead(false)
-        elseif res == Def.CameraDistanceLevel.TppClose then
-            self.player_obj:ActivateTPPHead(true)
-        end
+        -- if res == Def.CameraDistanceLevel.Fpp then
+        --     self.player_obj:ActivateTPPHead(false)
+        -- elseif res == Def.CameraDistanceLevel.TppClose then
+        --     self.player_obj:ActivateTPPHead(true)
+        -- end
     end
 
 end

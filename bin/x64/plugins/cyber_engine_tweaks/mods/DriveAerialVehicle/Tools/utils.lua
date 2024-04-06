@@ -22,6 +22,23 @@ function Utils:IsTablesEqual(table1, table2)
     return true
 end
 
+function Utils:GetKeyFromValue(table_, target_value)
+   for key, value in pairs(table_) do
+       if value == target_value then
+           return key
+       end
+   end
+   return nil
+end
+
+function Utils:GetKeys(table_)
+   local keys = {}
+   for key, _ in pairs(table_) do
+       table.insert(keys, key)
+   end
+   return keys
+end
+
 -- wheather table2 elements are in table1
 function Utils:IsTablesNearlyEqual(big_table, small_table)
    for key, value in pairs(small_table) do

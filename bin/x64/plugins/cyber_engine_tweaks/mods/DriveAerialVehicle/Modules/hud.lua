@@ -77,14 +77,14 @@ end
 
 function Hud:SetChoiceTitle()
     local index = DAV.model_index
-    self.choice_title = self.av_obj.all_models[index].name
+    self.choice_title = GetLocalizedText("LocKey#" .. tostring(self.av_obj.all_models[index].display_name_lockey))
 end
 
 function Hud:ShowChoice()
 
     local choice = gameinteractionsvisListChoiceData.new()
     choice.localizedName = GetLocalizedText("LocKey#81569")
-    choice.inputActionName = CName.new("click")
+    choice.inputActionName = CName.new("Choice2")
 
     local hub = gameinteractionsvisListChoiceHubData.new()
     hub.title = self.choice_title
@@ -185,10 +185,14 @@ end
 
 function Hud:ShowActionButtons()
     GameSettings.Set('/interface/hud/action_buttons', true)
+    GameSettings.Set('/interface/hud/activity_log', true)
+    GameSettings.Set('/interface/hud/quest_tracker', true)
 end
 
 function Hud:HideActionButtons()
     GameSettings.Set('/interface/hud/action_buttons', false)
+    GameSettings.Set('/interface/hud/activity_log', false)
+    GameSettings.Set('/interface/hud/quest_tracker', false)
 end
 
 
