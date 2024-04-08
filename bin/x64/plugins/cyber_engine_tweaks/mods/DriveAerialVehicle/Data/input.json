@@ -68,45 +68,5 @@
         "name": "dav_toggle_door_1",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
-    },
-    "KEY_AV_UP_CAMERA_MOUSE": {
-        "name": "dav_y_camera_mouse",
-        "type": "RELATIVE_CHANGE",
-        "value": "NEGATIVE"
-    },
-    "KEY_AV_DOWN_CAMERA_MOUSE": {
-        "name": "dav_y_camera_mouse",
-        "type": "RELATIVE_CHANGE",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_LEFT_CAMERA_MOUSE": {
-        "name": "dav_x_camera_mouse",
-        "type": "RELATIVE_CHANGE",
-        "value": "NEGATIVE"
-    },
-    "KEY_AV_RIGHT_CAMERA_MOUSE": {
-        "name": "dav_x_camera_mouse",
-        "type": "RELATIVE_CHANGE",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_UP_CAMERA_JOYSTICK": {
-        "name": "dav_y_camera_joystick",
-        "type": "AXIS_CHANGE",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_DOWN_CAMERA_JOYSTICK": {
-        "name": "dav_y_camera_joystick",
-        "type": "AXIS_CHANGE",
-        "value": "NEGATIVE"
-    },
-    "KEY_AV_LEFT_CAMERA_JOYSTICK": {
-        "name": "dav_x_camera_joystick",
-        "type": "AXIS_CHANGE",
-        "value": "NEGATIVE"
-    },
-    "KEY_AV_RIGHT_CAMERA_JOYSTICK": {
-        "name": "dav_x_camera_joystick",
-        "type": "AXIS_CHANGE",
-        "value": "POSITIVE"
     }
 }

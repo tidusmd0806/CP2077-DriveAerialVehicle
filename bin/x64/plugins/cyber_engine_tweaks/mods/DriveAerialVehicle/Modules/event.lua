@@ -288,15 +288,13 @@ function Event:ChangeDoor()
     end
 end
 
-function Event:EnterOrExitVehicle(player)
+function Event:EnterOrExitVehicle()
     if self:IsInEntryArea()then
-        self.av_obj:TakeOn(player)
         self.av_obj:Mount()
     elseif self:IsInVehicle() then
         self.av_obj:Unmount()
         DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
             if not self.av_obj:IsPlayerIn() then
-                self.av_obj:TakeOff()
                 DAV.Cron.Halt(timer)
             end
         end)

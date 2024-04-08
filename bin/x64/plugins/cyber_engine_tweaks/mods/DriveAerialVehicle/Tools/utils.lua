@@ -104,4 +104,13 @@ function Utils:ReadJson(fill_path)
    return nil
 end
 
+function Utils:WriteJson(fill_path, write_data)
+   local file = io.open(fill_path, "w")
+   if file then
+      local contents = json.encode(write_data)
+      file:write(contents)
+      file:close()
+   end
+ end
+
 return Utils

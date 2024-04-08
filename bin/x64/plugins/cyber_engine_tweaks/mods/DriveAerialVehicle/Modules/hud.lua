@@ -71,6 +71,24 @@ function Hud:SetObserve()
         Observe("hudCarController", "OnMountingEvent", function(this)
             self.hud_car_controller = this
         end)
+
+        Observe("UISystem", "QueueEvent", function(this, event)
+            print(event:ToString())
+            if event:ToString() == "gameuiUpdateInputHintEvent" then
+                print(event.data.source.value)
+                if event.data.source == CName.new("VehicleDriver") then
+                    local delete_hint_source_event = DeleteInputHintBySourceEvent.new()
+                    delete_hint_source_event.targetHintContainer = CName.new("GameplayInputHelper")
+                    delete_hint_source_event.source = CName.new("VehicleDriver")
+                    Game.GetUISystem():QueueEvent(delete_hint_source_event)
+                    Game.GetUISystem():QueueEvent(delete_hint_source_event)
+                end
+            elseif event:ToString() == "gameuiUpdateInputHintMultipleEvent" then
+                for k, v in pairs(event.data) do
+                    print(v.source.value)
+                end
+            end
+        end)
     end
 
 end

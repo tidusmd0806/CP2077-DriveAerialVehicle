@@ -11,6 +11,7 @@ DAV = {
     is_debug_mode = false,
     is_opening_overlay = false,
     time_resolution = 0.01,
+    user_setting_path = "Data/user_setting.json",
 	model_index = 1,
 	model_type_index = 1,
 	seat_index = 1,
@@ -24,9 +25,18 @@ DAV = {
 DAV.Cron = require('External/Cron.lua')
 DAV.Core = require('Modules/core.lua')
 DAV.Debug = require('Debug/debug.lua')
+DAV.Utils = require('Tools/utils.lua')
 
 DAV.core_obj = DAV.Core:New()
 DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
+
+DAV.user_setting_table = {
+    version = DAV.version,
+    model_index = DAV.model_index,
+    model_type_index = DAV.model_type_index,
+    seat_index = DAV.seat_index,
+    horizenal_boost_ratio = DAV.horizenal_boost_ratio
+}
 
 registerForEvent("onOverlayOpen",function ()
 	DAV.is_opening_overlay = true
@@ -37,9 +47,23 @@ registerForEvent("onOverlayClose",function ()
 end)
 
 registerForEvent("onTweak",function ()
+
+    -- Custom excalibur record
+    TweakDB:CloneRecord("Vehicle.av_rayfield_excalibur_dav", "Vehicle.av_rayfield_excalibur")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.entityTemplatePath"), "base\\dav\\av_rayfield_excalibur__basic_01_dav.ent")
+
+    -- Custom manticore record
+    TweakDB:CloneRecord("Vehicle.av_militech_manticore_dav", "Vehicle.av_militech_manticore")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav.ent")
+
+    -- Custom manticore record
+    TweakDB:CloneRecord("Vehicle.av_zetatech_atlus_dav", "Vehicle.av_zetatech_atlus")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_dav.entityTemplatePath"), "base\\dav\\av_zetatech_atlus_basic_02_dav.ent")
+
     -- Custom surveyor record
     TweakDB:CloneRecord("Vehicle.av_zetatech_surveyor_dav", "Vehicle.av_zetatech_surveyor")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
+
     -- Custom valgus record
     TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav", "Vehicle.q000_nomad_border_patrol_heli")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
@@ -50,6 +74,11 @@ registerForEvent('onInit', function()
     if not DAV:CheckDependencies() then
         print('Drive an Aerial Vehicle Mod failed to load due to missing dependencies.')
         return
+    end
+
+    local setting_data = DAV.Utils:ReadJson(DAV.user_setting_path)
+    if setting_data.version == DAV.version then
+        DAV.user_setting_table = setting_data
     end
 
     DAV.core_obj:Init()
@@ -67,42 +96,6 @@ registerForEvent("onDraw", function()
     if DAV.is_opening_overlay then
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
-end)
-
-registerHotkey("DAV_ToggleDebug", "Toggle Debug Mode", function()
-    local player = Game.GetPlayer()
-    local eve = vehicleRequestCameraPerspectiveEvent.new()
-    eve.cameraPerspective = vehicleCameraPerspective.FPP
-    player:QueueEvent(eve)
-
-end)
-
-registerHotkey("DAV_ToggleDebug2", "Toggle Debug Mode2", function()
-    local player = Game.GetPlayer()
-    local eve = vehicleRequestCameraPerspectiveEvent.new()
-    eve.cameraPerspective = vehicleCameraPerspective.TPPFar
-    player:QueueEvent(eve)
-
-end)
-
-registerHotkey("DAV_ToggleDebug3", "Toggle Debug Mode3", function()
-    local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-	local vehicle_ps = entity:GetVehiclePS()
-    local door_event = VehicleDoorOpen.new()
-	door_event.slotID = CName.new("trunk")
-	door_event.forceScene = false
-	vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
-
-end)
-
-registerHotkey("DAV_ToggleDebug4", "Toggle Debug Mode4", function()
-    local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-	local vehicle_ps = entity:GetVehiclePS()
-    local door_event = VehicleDoorClose.new()
-	door_event.slotID = CName.new("trunk")
-	door_event.forceScene = false
-	vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
-
 end)
 
 registerForEvent('onUpdate', function(delta)

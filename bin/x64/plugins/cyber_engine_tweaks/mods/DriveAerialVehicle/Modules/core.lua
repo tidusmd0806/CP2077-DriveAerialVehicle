@@ -1,5 +1,4 @@
 local AV = require("Modules/av.lua")
-local Player = require("Modules/player.lua")
 local Def = require("Tools/def.lua")
 local Event = require("Modules/event.lua")
 local Log = require("Tools/log.lua")
@@ -16,7 +15,6 @@ function Core:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Core")
     obj.queue_obj = Queue:New()
     obj.av_obj = nil
-    obj.player_obj = nil
     obj.event_obj = nil
 
     obj.all_models = nil
@@ -47,9 +45,6 @@ function Core:Init()
         return
     end
 
-    self.player_obj = Player:New(Game.GetPlayer())
-    self.player_obj:Init()
-
     self.av_obj = AV:New(self.all_models)
     self.av_obj:Init()
 
@@ -67,9 +62,6 @@ function Core:Init()
 end
 
 function Core:Reset()
-
-    self.player_obj = Player:New(Game.GetPlayer())
-    self.player_obj:Init()
 
     self.av_obj = AV:New(self.all_models)
     self.av_obj:Init()
@@ -207,32 +199,12 @@ function Core:ConvertActionList(action_name, action_type, action_value_type, act
         action_command = Def.ActionList.Hold
     elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_ENTER_AV) then
         action_command = Def.ActionList.Enter
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_EXIT_AV) then
-        action_command = Def.ActionList.Exit
+    -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_EXIT_AV) then
+    --     action_command = Def.ActionList.Exit
     elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_CAMERA) then
         action_command = Def.ActionList.ChangeCamera
     elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_DOOR_1) then
         action_command = Def.ActionList.ChangeDoor1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_UP_CAMERA_MOUSE) then
-        action_command = Def.ActionList.CamUp
-        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_UP_CAMERA_JOYSTICK) then
-        action_command = Def.ActionList.CamUp
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_DOWN_CAMERA_MOUSE) then
-        action_command = Def.ActionList.CamDown
-        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_DOWN_CAMERA_JOYSTICK) then
-        action_command = Def.ActionList.CamDown
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_CAMERA_MOUSE) then
-        action_command = Def.ActionList.CamRight
-        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_CAMERA_JOYSTICK) then
-        action_command = Def.ActionList.CamRight
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_CAMERA_MOUSE) then
-        action_command = Def.ActionList.CamLeft
-        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_CAMERA_JOYSTICK) then
-        action_command = Def.ActionList.CamLeft
     else
         action_command = Def.ActionList.Nothing
     end
@@ -244,7 +216,6 @@ end
 function Core:GetActions()
 
     local move_actions = {}
-    local cam_actions = {}
 
     if self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.queue_obj:Clear()
@@ -253,10 +224,8 @@ function Core:GetActions()
 
     while not self.queue_obj:IsEmpty() do
         local action = self.queue_obj:Dequeue()
-        if action >= Def.ActionList.Enter and action < Def.ActionList.CamReset then
+        if action >= Def.ActionList.Enter then
             self:SetEvent(action)
-        elseif action >= Def.ActionList.CamReset then
-            table.insert(cam_actions, action)
         else
             table.insert(move_actions, action)
         end
@@ -267,7 +236,6 @@ function Core:GetActions()
     end
 
     self:OperateAerialVehicle(move_actions)
-    self:OperateCamera(cam_actions)
 
 end
 
@@ -281,18 +249,10 @@ function Core:OperateAerialVehicle(actions)
 
 end
 
-function Core:OperateCamera(actions)
-
-    for _, action in pairs(actions) do
-        self.av_obj.camera_obj:SetLocalPosition(action)
-    end
-
-end
-
 function Core:SetEvent(action)
 
     if action == Def.ActionList.Enter or action == Def.ActionList.Exit then
-        self.event_obj:EnterOrExitVehicle(self.player_obj)
+        self.event_obj:EnterOrExitVehicle()
     elseif action == Def.ActionList.ChangeCamera then
         self:ToggleCamera()
     elseif action == Def.ActionList.ChangeDoor1 then
@@ -304,12 +264,7 @@ end
 function Core:ToggleCamera()
 
     if self.event_obj:IsInVehicle() then
-        local res = self.av_obj.camera_obj:Toggle()
-        -- if res == Def.CameraDistanceLevel.Fpp then
-        --     self.player_obj:ActivateTPPHead(false)
-        -- elseif res == Def.CameraDistanceLevel.TppClose then
-        --     self.player_obj:ActivateTPPHead(true)
-        -- end
+        self.av_obj.camera_obj:Toggle()
     end
 
 end

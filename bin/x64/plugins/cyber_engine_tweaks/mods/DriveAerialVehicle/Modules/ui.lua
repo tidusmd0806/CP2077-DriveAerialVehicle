@@ -1,4 +1,5 @@
 local Log = require("Tools/log.lua")
+local Utils = require("Tools/utils.lua")
 local Ui = {}
 Ui.__index = Ui
 
@@ -41,8 +42,16 @@ function Ui:Init(av_obj)
     self:SetTweekDB()
 	if not DAV.ready then
     	self:SetOverride()
+		self:SetInitialParameters()
 		self:InitVehicleModelList()
 	end
+end
+
+function Ui:SetInitialParameters()
+	DAV.model_index = DAV.user_setting_table.model_index
+	DAV.model_type_index = DAV.user_setting_table.model_type_index
+	DAV.seat_index = DAV.user_setting_table.seat_index
+	DAV.horizenal_boost_ratio = DAV.user_setting_table.horizenal_boost_ratio
 end
 
 function Ui:SetTweekDB()
@@ -311,6 +320,12 @@ function Ui:SetParameters()
 	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
 	self.current_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
 	self.current_vehicle_seat_name = self.vehicle_seat_list[self.selected_vehicle_seat_number]
+
+	DAV.user_setting_table.model_index = DAV.model_index
+	DAV.user_setting_table.model_type_index = DAV.model_type_index
+	DAV.user_setting_table.seat_index = DAV.seat_index
+	DAV.user_setting_table.horizenal_boost_ratio = DAV.horizenal_boost_ratio
+	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end
 
