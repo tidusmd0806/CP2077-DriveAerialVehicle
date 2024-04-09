@@ -16,6 +16,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_lift_force = false
     obj.is_im_gui_engine_info = false
     obj.is_im_gui_sound_check = false
+    obj.is_im_gui_mappin_position = false
 
     obj.selected_sound = "first"
     return setmetatable(obj, self)
@@ -46,6 +47,7 @@ function Debug:ImGuiMain()
     self:ImGuiLiftForceAndSpeed()
     self:ImGuiCurrentEngineInfo()
     self:ImGuiSoundCheck()
+    self:ImGuiMappinPosition()
     self:SelectPrint()
 
 end
@@ -153,6 +155,16 @@ function Debug:ImGuiSoundCheck()
         if ImGui.Button("Stop", 150, 60) then
             self.core_obj.event_obj.sound_obj:StopSound(self.selected_sound)
         end
+    end
+end
+
+function Debug:ImGuiMappinPosition()
+    self.is_im_gui_mappin_position = ImGui.Checkbox("[ImGui] Custom Mappin Position", self.is_im_gui_mappin_position)
+    if self.is_im_gui_mappin_position then
+        local x = string.format("%.2f", self.core_obj.current_custom_mappin_position.x)
+        local y = string.format("%.2f", self.core_obj.current_custom_mappin_position.y)
+        local z = string.format("%.2f", self.core_obj.current_custom_mappin_position.z)
+        ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
     end
 end
 

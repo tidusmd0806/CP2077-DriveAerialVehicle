@@ -16,7 +16,7 @@ function Position:New(all_models)
 
     obj.min_direction_norm = 0.5 -- NOT Change this value
     obj.collision_max_count = 80
-    obj.dividing_rate = 0.3
+    obj.dividing_rate = 0.5
 
     obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
 
@@ -86,13 +86,12 @@ function Position:SetEngineState(mode)
     end
 end
 
-function Position:ChangeWorldCordinate(point_list)
-    local vector = self:GetPosition()
+function Position:ChangeWorldCordinate(basic_vector ,point_list)
     local quaternion = self:GetQuaternion()
     local result_list = {}
     for i, corner in ipairs(point_list) do
         local rotated = Utils:RotateVectorByQuaternion(corner, quaternion)
-        result_list[i] = {x = rotated.x + vector.x, y = rotated.y + vector.y, z = rotated.z + vector.z}
+        result_list[i] = {x = rotated.x + basic_vector.x, y = rotated.y + basic_vector.y, z = rotated.z + basic_vector.z}
     end
     return result_list
 end
@@ -205,7 +204,7 @@ end
 
 function Position:CheckCollision(current_pos, next_pos)
 
-    self.corners = self:ChangeWorldCordinate(self.local_corners)
+    self.corners = self:ChangeWorldCordinate(current_pos, self.local_corners)
 
     -- Conjecture Direction Norm for Detect Collision
     local direction = {x = next_pos.x - current_pos.x, y = next_pos.y - current_pos.y, z = next_pos.z - current_pos.z}
@@ -252,7 +251,8 @@ function Position:GetReflectionVector()
 end
 
 function Position:IsPlayerInEntryArea()
-    local world_entry_point = self:ChangeWorldCordinate({self.entry_point})
+    local basic_vector = self:GetPosition()
+    local world_entry_point = self:ChangeWorldCordinate(basic_vector, {self.entry_point})
     local player_pos = Game.GetPlayer():GetWorldPosition()
     local player_vector = {x = player_pos.x, y = player_pos.y, z = player_pos.z}
 
@@ -294,7 +294,8 @@ function Position:AvoidStacking()
 end
 
 function Position:GetExitPosition()
-    return self:ChangeWorldCordinate({self.exit_point})[1]
+    local basic_vector = self:GetPosition()
+    return self:ChangeWorldCordinate(basic_vector, {self.exit_point})[1]
 end
 
 return Position

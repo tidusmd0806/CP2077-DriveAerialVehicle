@@ -181,7 +181,7 @@ function Ui:ShowVehicleSetting()
 	ImGui.Spacing()
 
 	if not DAV.core_obj.event_obj:IsNotSpawned() then
-		ImGui.TextColored(1, 0, 0, 1, "Settings cannot be changed at this time")
+		ImGui.TextColored(1, 0, 0, 1, "The settings menu is currently unavailable")
 		ImGui.TextColored(1, 0, 0, 1, "Please despawn your AV by pushing vehicle button")
 		return
 	end

@@ -39,6 +39,14 @@ function Utils:GetKeys(table_)
    return keys
 end
 
+function Utils:Normalize(v)
+   local norm = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+   v.x = v.x / norm
+   v.y = v.y / norm
+   v.z = v.z / norm
+   return v
+end
+
 -- wheather table2 elements are in table1
 function Utils:IsTablesNearlyEqual(big_table, small_table)
    for key, value in pairs(small_table) do

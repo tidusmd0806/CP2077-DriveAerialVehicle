@@ -26,6 +26,7 @@ function Core:New()
     obj.relative_dead_zone = 0.01
     obj.relative_table = {}
     obj.relative_resolution = 0.1
+    obj.hold_progress = 0.9
 
     -- set default parameters
     obj.input_table = {}
@@ -74,7 +75,27 @@ function Core:SetInputListener()
 
     local player = Game.GetPlayer()
 
+    player:UnregisterInputListener(player, "dav_accelerate")
+    player:UnregisterInputListener(player, "dav_y_move")
+    player:UnregisterInputListener(player, "dav_x_move")
+    player:UnregisterInputListener(player, "dav_rotate_move")
+    player:UnregisterInputListener(player, "dav_hover")
+    player:UnregisterInputListener(player, "dav_get_on")
+    player:UnregisterInputListener(player, "dav_get_off")
+    player:UnregisterInputListener(player, "dav_change_view")
+    player:UnregisterInputListener(player, "dav_toggle_door_1")
+    player:UnregisterInputListener(player, "dav_toggle_auto_pilot")
+
+    player:RegisterInputListener(player, "dav_accelerate")
+    player:RegisterInputListener(player, "dav_y_move")
+    player:RegisterInputListener(player, "dav_x_move")
     player:RegisterInputListener(player, "dav_rotate_move")
+    player:RegisterInputListener(player, "dav_hover")
+    player:RegisterInputListener(player, "dav_get_on")
+    player:RegisterInputListener(player, "dav_get_off")
+    player:RegisterInputListener(player, "dav_change_view")
+    player:RegisterInputListener(player, "dav_toggle_door_1")
+    player:RegisterInputListener(player, "dav_toggle_auto_pilot")
 
     local exception_list = Utils:ReadJson("Data/exception_input.json")
 
@@ -109,6 +130,7 @@ function Core:SetCustomMappinPosition()
         if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
             local pos = mappin:GetWorldPosition()
             self.current_custom_mappin_position = {x = pos.x, y = pos.y, z = pos.z}
+            self.av_obj:SetDestination(pos)
         end
 
 	end)
@@ -148,6 +170,12 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
             action_value_type = "POSITIVE"
         elseif action_value < -self.relative_dead_zone then
             action_value_type = "NEGATIVE"
+        else
+            action_value_type = "ZERO"
+        end
+    elseif action_type == "BUTTON_HOLD_PROGRESS" then
+        if action_value > self.hold_progress then
+            action_value_type = "POSITIVE"
         else
             action_value_type = "ZERO"
         end
@@ -199,12 +227,14 @@ function Core:ConvertActionList(action_name, action_type, action_value_type, act
         action_command = Def.ActionList.Hold
     elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_ENTER_AV) then
         action_command = Def.ActionList.Enter
-    -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_EXIT_AV) then
-    --     action_command = Def.ActionList.Exit
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_EXIT_AV) then
+        action_command = Def.ActionList.Exit
     elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_CAMERA) then
         action_command = Def.ActionList.ChangeCamera
     elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_DOOR_1) then
         action_command = Def.ActionList.ChangeDoor1
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_AUTO_PILOT) then
+        action_command = Def.ActionList.AutoPilot
     else
         action_command = Def.ActionList.Nothing
     end
@@ -241,22 +271,28 @@ end
 
 function Core:OperateAerialVehicle(actions)
 
-    if self.event_obj:IsInVehicle() then
-        self.av_obj:Operate(actions)
-    elseif self.event_obj:IsWaiting() then
-        self.av_obj:Operate({Def.ActionList.Nothing})
+    if not self.is_locked_operation then
+        if self.event_obj:IsInVehicle() then
+            self.av_obj:Operate(actions)
+        elseif self.event_obj:IsWaiting() then
+            self.av_obj:Operate({Def.ActionList.Nothing})
+        end
     end
 
 end
 
 function Core:SetEvent(action)
 
-    if action == Def.ActionList.Enter or action == Def.ActionList.Exit then
-        self.event_obj:EnterOrExitVehicle()
+    if action == Def.ActionList.Enter then
+        self.event_obj:EnterVehicle()
+    elseif action == Def.ActionList.Exit then
+        self.event_obj:ExitVehicle()
     elseif action == Def.ActionList.ChangeCamera then
         self:ToggleCamera()
     elseif action == Def.ActionList.ChangeDoor1 then
         self.event_obj:ChangeDoor()
+    elseif action == Def.ActionList.AutoPilot then
+        self.event_obj:ToggleAutoMode()
     end
 
 end

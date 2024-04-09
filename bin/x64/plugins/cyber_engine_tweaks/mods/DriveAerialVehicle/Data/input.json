@@ -50,13 +50,13 @@
         "value": "ZERO"
     },
     "KEY_WORLD_ENTER_AV": {
-        "name": "Choice1",
-        "type": "BUTTON_RELEASED",
-        "value": "ZERO"
+        "name": "dav_get_on",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
     },
     "KEY_AV_EXIT_AV": {
         "name": "dav_get_off",
-        "type": "BUTTON_PRESSED",
+        "type": "BUTTON_HOLD_PROGRESS",
         "value": "POSITIVE"
     },
     "KEY_AV_CAMERA": {
@@ -66,6 +66,11 @@
     },
     "KEY_AV_TOGGLE_DOOR_1": {
         "name": "dav_toggle_door_1",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    },
+    "KEY_AV_TOGGLE_AUTO_PILOT": {
+        "name": "dav_toggle_auto_pilot",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     }

@@ -67,6 +67,10 @@ registerForEvent("onTweak",function ()
     -- Custom valgus record
     TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav", "Vehicle.q000_nomad_border_patrol_heli")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
+
+    -- Custom valgus record(door close)
+    TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav_closed", "Vehicle.q000_nomad_border_patrol_heli")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav_closed.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav_closed.ent")
 end)
 
 registerForEvent('onInit', function()
@@ -96,6 +100,10 @@ registerForEvent("onDraw", function()
     if DAV.is_opening_overlay then
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
+end)
+
+registerHotkey("DAV_Toggle_Debug_Mode", "Toggle Debug Mode", function()
+    DAV.core_obj:ToggleAutoPilot()
 end)
 
 registerForEvent('onUpdate', function(delta)

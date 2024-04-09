@@ -1,4 +1,5 @@
 local GameSettings = require('External/GameSettings.lua')
+local GameHUD = require('External/GameHUD.lua')
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Hud = {}
@@ -32,6 +33,7 @@ function Hud:Init(av_obj)
     if not DAV.ready then
         self:SetOverride()
         self:SetObserve()
+        GameHUD.Initialize()
     end
     self:SetChoiceTitle()
     self:SetCustomHint()
@@ -72,20 +74,16 @@ function Hud:SetObserve()
             self.hud_car_controller = this
         end)
 
+        -- hide unnecessary input hint
         Observe("UISystem", "QueueEvent", function(this, event)
-            print(event:ToString())
-            if event:ToString() == "gameuiUpdateInputHintEvent" then
-                print(event.data.source.value)
-                if event.data.source == CName.new("VehicleDriver") then
-                    local delete_hint_source_event = DeleteInputHintBySourceEvent.new()
-                    delete_hint_source_event.targetHintContainer = CName.new("GameplayInputHelper")
-                    delete_hint_source_event.source = CName.new("VehicleDriver")
-                    Game.GetUISystem():QueueEvent(delete_hint_source_event)
-                    Game.GetUISystem():QueueEvent(delete_hint_source_event)
-                end
-            elseif event:ToString() == "gameuiUpdateInputHintMultipleEvent" then
-                for k, v in pairs(event.data) do
-                    print(v.source.value)
+            if DAV.core_obj.event_obj:IsInEntryArea() or DAV.core_obj.event_obj:IsInVehicle() then
+                if event:ToString() == "gameuiUpdateInputHintEvent" then
+                    if event.data.source == CName.new("VehicleDriver") then
+                        local delete_hint_source_event = DeleteInputHintBySourceEvent.new()
+                        delete_hint_source_event.targetHintContainer = CName.new("GameplayInputHelper")
+                        delete_hint_source_event.source = CName.new("VehicleDriver")
+                        Game.GetUISystem():QueueEvent(delete_hint_source_event)
+                    end
                 end
             end
         end)
@@ -203,15 +201,27 @@ end
 
 function Hud:ShowActionButtons()
     GameSettings.Set('/interface/hud/action_buttons', true)
-    GameSettings.Set('/interface/hud/activity_log', true)
-    GameSettings.Set('/interface/hud/quest_tracker', true)
 end
 
 function Hud:HideActionButtons()
     GameSettings.Set('/interface/hud/action_buttons', false)
-    GameSettings.Set('/interface/hud/activity_log', false)
-    GameSettings.Set('/interface/hud/quest_tracker', false)
 end
+
+function Hud:ShowAutoModeDisplay()
+    local text = GetLocalizedText("LocKey#84945")
+    GameHUD.ShowMessage(text)
+end
+
+function Hud:ShowDriveModeDisplay()
+    local text = GetLocalizedText("LocKey#84944")
+    GameHUD.ShowMessage(text)
+end
+
+function Hud:ShowArrivalDisplay()
+    local text = GetLocalizedText("LocKey#77994")
+    GameHUD.ShowMessage(text)
+end
+
 
 
 return Hud
