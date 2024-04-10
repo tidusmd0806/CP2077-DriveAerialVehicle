@@ -31,6 +31,8 @@ function Position:New(all_models)
     obj.entry_point = {}
     obj.entry_area_radius = 0
 
+    obj.collision_trace_result = nil
+
     return setmetatable(obj, self)
 end
 
@@ -219,6 +221,7 @@ function Position:CheckCollision(current_pos, next_pos)
         for _, filter in ipairs(self.collision_filters) do
             local success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_corner, next_corner, filter, false, false)
             if success then
+                self.collision_trace_result = trace_result
                 self.stack_corner_num = i
                 self.is_collision = true
                 self:CalculateReflection(current_corner, trace_result)

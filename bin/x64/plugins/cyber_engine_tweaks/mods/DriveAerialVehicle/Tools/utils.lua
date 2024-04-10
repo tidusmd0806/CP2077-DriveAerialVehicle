@@ -62,6 +62,14 @@ function Utils:CalculationQuadraticFuncSlope(a, b, c, x)
    return 2*(c - b)*(x - a)/(a * a)
 end
 
+function Utils:GetSpecificLogarithmFunction(index)
+   local ratio_list = {0.37, 1.0, 2.72, 7.39, 20.1} -- y=exp(x-1)
+   if index < 1 or index > 5 then
+      return nil
+   end
+   return ratio_list[index]
+end
+
 function Utils:ChangePolarCoordinates(x, y, z)
    local r = math.sqrt(x*x + y*y + z*z)
    local theta = math.atan2(y, x) * 180 / Pi()
