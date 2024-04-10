@@ -5,5 +5,9 @@
     "EnterCombatMode",
     "Weapon",
     "SwitchItem",
-    "TogglePhotoMode"
+    "ToggleVehCamera",
+    "IconicCyberware",
+    "upgrade_cyberware",
+    "TogglePhotoMode",
+    "PocketRadio"
 ]

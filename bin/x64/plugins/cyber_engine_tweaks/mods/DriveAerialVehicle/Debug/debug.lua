@@ -1,3 +1,5 @@
+local Def = require("Tools/def.lua")
+local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Debug = {}
 Debug.__index = Debug
@@ -14,6 +16,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_lift_force = false
     obj.is_im_gui_engine_info = false
     obj.is_im_gui_sound_check = false
+    obj.is_im_gui_mappin_position = false
 
     obj.selected_sound = "first"
     return setmetatable(obj, self)
@@ -35,14 +38,35 @@ function Debug:SelectPrint()
 end
 
 function Debug:ImGuiMain()
+
     self:Init()
+    self:SetLogLevel()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
     self:ImGuiLiftForceAndSpeed()
     self:ImGuiCurrentEngineInfo()
     self:ImGuiSoundCheck()
+    self:ImGuiMappinPosition()
     self:SelectPrint()
+
+end
+
+function Debug:SetLogLevel()
+    local selected = false
+    if ImGui.BeginCombo("LogLevel", Utils:GetKeyFromValue(LogLevel, MasterLogLevel)) then
+		for _, key in ipairs(Utils:GetKeys(LogLevel)) do
+			if Utils:GetKeyFromValue(LogLevel, MasterLogLevel) == key then
+				selected = true
+			else
+				selected = false
+			end
+			if(ImGui.Selectable(key, selected)) then
+				MasterLogLevel = LogLevel[key]
+			end
+		end
+		ImGui.EndCombo()
+	end
 end
 
 function Debug:ImGuiSituation()
@@ -131,6 +155,16 @@ function Debug:ImGuiSoundCheck()
         if ImGui.Button("Stop", 150, 60) then
             self.core_obj.event_obj.sound_obj:StopSound(self.selected_sound)
         end
+    end
+end
+
+function Debug:ImGuiMappinPosition()
+    self.is_im_gui_mappin_position = ImGui.Checkbox("[ImGui] Custom Mappin Position", self.is_im_gui_mappin_position)
+    if self.is_im_gui_mappin_position then
+        local x = string.format("%.2f", self.core_obj.current_custom_mappin_position.x)
+        local y = string.format("%.2f", self.core_obj.current_custom_mappin_position.y)
+        local z = string.format("%.2f", self.core_obj.current_custom_mappin_position.z)
+        ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
     end
 end
 

@@ -6,18 +6,20 @@
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "0.2.0",
+	version = "1.0.0",
     ready = false,
     is_debug_mode = false,
     is_opening_overlay = false,
-    is_locked_input = true,
-    input_unlock_time = 1.5,
     time_resolution = 0.01,
+    user_setting_path = "Data/user_setting.json",
 	model_index = 1,
 	model_type_index = 1,
-	open_door_index = 1,
 	seat_index = 1,
-    horizenal_boost_ratio = 2.0
+    horizenal_boost_ratio = 2.0,
+    cet_required_version = 32.1, -- 1.32.1
+    codeware_required_version = 8.2, -- 1.8.2
+    cet_version_num = 0,
+    codeware_version_num = 0
 }
 
 DAV.Cron = require('External/Cron.lua')
@@ -28,6 +30,14 @@ DAV.Utils = require('Tools/utils.lua')
 DAV.core_obj = DAV.Core:New()
 DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
 
+DAV.user_setting_table = {
+    version = DAV.version,
+    model_index = DAV.model_index,
+    model_type_index = DAV.model_type_index,
+    seat_index = DAV.seat_index,
+    horizenal_boost_ratio = DAV.horizenal_boost_ratio
+}
+
 registerForEvent("onOverlayOpen",function ()
 	DAV.is_opening_overlay = true
 end)
@@ -37,46 +47,50 @@ registerForEvent("onOverlayClose",function ()
 end)
 
 registerForEvent("onTweak",function ()
-    -- original surveyor record
+
+    -- Custom excalibur record
+    TweakDB:CloneRecord("Vehicle.av_rayfield_excalibur_dav", "Vehicle.av_rayfield_excalibur")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.entityTemplatePath"), "base\\dav\\av_rayfield_excalibur__basic_01_dav.ent")
+
+    -- Custom manticore record
+    TweakDB:CloneRecord("Vehicle.av_militech_manticore_dav", "Vehicle.av_militech_manticore")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav.ent")
+
+    -- Custom manticore record
+    TweakDB:CloneRecord("Vehicle.av_zetatech_atlus_dav", "Vehicle.av_zetatech_atlus")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_dav.entityTemplatePath"), "base\\dav\\av_zetatech_atlus_basic_02_dav.ent")
+
+    -- Custom surveyor record
     TweakDB:CloneRecord("Vehicle.av_zetatech_surveyor_dav", "Vehicle.av_zetatech_surveyor")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
-    -- original valgus record
+
+    -- Custom valgus record
     TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav", "Vehicle.q000_nomad_border_patrol_heli")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
+
+    -- Custom valgus record(door close)
+    TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav_closed", "Vehicle.q000_nomad_border_patrol_heli")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav_closed.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav_closed.ent")
 end)
 
 registerForEvent('onInit', function()
 
-    -- DAV.is_debug_mode = true
+    if not DAV:CheckDependencies() then
+        print('Drive an Aerial Vehicle Mod failed to load due to missing dependencies.')
+        return
+    end
+
+    local setting_data = DAV.Utils:ReadJson(DAV.user_setting_path)
+    if setting_data.version == DAV.version then
+        DAV.user_setting_table = setting_data
+    end
 
     DAV.core_obj:Init()
 
-    local exception_list = DAV.Utils:ReadJson("Data/exception_input.json")
-
-    Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
-        local action_name = action:GetName(action).value
-		local action_type = action:GetType(action).value
-        local action_value = action:GetValue(action)
-
-        if DAV.core_obj.event_obj:IsInVehicle() and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
-            for _, exception in pairs(exception_list) do
-                if string.find(action_name, exception) then
-                    consumer:ConsumeSingleAction()
-                    return
-                end
-            end
-        end
-
-        if DAV.is_debug_mode then
-            DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
-        end
-
-        DAV.core_obj:StorePlayerAction(action_name, action_type, action_value)
-
-    end)
-
     DAV.ready = true
+
     print('Drive an Aerial Vehicle Mod is ready!')
+
 end)
 
 registerForEvent("onDraw", function()
@@ -88,9 +102,41 @@ registerForEvent("onDraw", function()
     end
 end)
 
+registerHotkey("DAV_Toggle_Debug_Mode", "Toggle Debug Mode", function()
+    DAV.core_obj:ToggleAutoPilot()
+end)
+
 registerForEvent('onUpdate', function(delta)
     -- This is required for Cron to function
     DAV.Cron.Update(delta)
 end)
+
+function DAV:CheckDependencies()
+
+    -- Check Cyber Engine Tweaks Version
+    local cet_version_str = GetVersion()
+    local cet_version_major, cet_version_minor = cet_version_str:match("1.(%d+)%.*(%d*)")
+    DAV.cet_version_num = tonumber(cet_version_major .. "." .. cet_version_minor)
+
+    -- Check CodeWare Version
+    local code_version_str = Codeware.Version()
+    local code_version_major, code_version_minor = code_version_str:match("1.(%d+)%.*(%d*)")
+    DAV.codeware_version_num = tonumber(code_version_major .. "." .. code_version_minor)
+
+    if DAV.cet_version_num < DAV.cet_required_version then
+        print("Drive an Aerial Vehicle Mod requires Cyber Engine Tweaks version 1." .. DAV.cet_required_version .. " or higher.")
+        return false
+    elseif DAV.codeware_version_num < DAV.codeware_required_version then
+        print("Drive an Aerial Vehicle Mod requires CodeWare version 1." .. DAV.codeware_required_version .. " or higher.")
+        return false
+    end
+
+    return true
+
+end
+
+function DAV:Version()
+    return DAV.version
+end
 
 return DAV

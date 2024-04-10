@@ -1,4 +1,5 @@
 local Log = require("Tools/log.lua")
+local Utils = require("Tools/utils.lua")
 local Ui = {}
 Ui.__index = Ui
 
@@ -21,15 +22,11 @@ function Ui:New()
 	obj.vehicle_type_list = {}
 	obj.selected_vehicle_type_name = ""
 	obj.selected_vehicle_type_number = 1
-	obj.vehicle_door_list = {}
-	obj.selected_vehicle_door_name = ""
-	obj.selected_vehicle_door_number = 1
 	obj.vehicle_seat_list = {}
 	obj.selected_vehicle_seat_name = ""
 	obj.selected_vehicle_seat_number = 1
 	obj.current_vehicle_model_name = ""
 	obj.current_vehicle_type_name = ""
-	obj.current_vehicle_door_name = ""
 	obj.current_vehicle_seat_name = ""
 
 	obj.temp_vehicle_model_name = ""
@@ -45,8 +42,16 @@ function Ui:Init(av_obj)
     self:SetTweekDB()
 	if not DAV.ready then
     	self:SetOverride()
+		self:SetInitialParameters()
 		self:InitVehicleModelList()
 	end
+end
+
+function Ui:SetInitialParameters()
+	DAV.model_index = DAV.user_setting_table.model_index
+	DAV.model_type_index = DAV.user_setting_table.model_type_index
+	DAV.seat_index = DAV.user_setting_table.seat_index
+	DAV.horizenal_boost_ratio = DAV.user_setting_table.horizenal_boost_ratio
 end
 
 function Ui:SetTweekDB()
@@ -120,40 +125,52 @@ function Ui:InitVehicleModelList()
 	self.selected_vehicle_type_number = DAV.model_type_index
 	self.selected_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
 
-	for i, door in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].active_door) do
-		self.vehicle_door_list[i] = door
-	end
-	self.selected_vehicle_door_number = DAV.open_door_index
-	self.selected_vehicle_door_name = self.vehicle_door_list[self.selected_vehicle_door_number]
-
 	for i, seat in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].active_seat) do
 		self.vehicle_seat_list[i] = seat
 	end
 	self.selected_vehicle_seat_number = DAV.seat_index
 	self.selected_vehicle_seat_name = self.vehicle_seat_list[self.selected_vehicle_seat_number]
-	
+
 	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
 	self.current_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
-	self.current_vehicle_door_name = self.vehicle_door_list[self.selected_vehicle_door_number]
 	self.current_vehicle_seat_name = self.vehicle_seat_list[self.selected_vehicle_seat_number]
 
 end
 
 function Ui:ShowSettingMenu()
-	local selected = false
     ImGui.SetNextWindowSize(800, 1000, ImGuiCond.Appearing)
     ImGui.Begin("Drive an AV Setting Menu")
 
-	ImGui.Text("[Now Selected]")
+	if ImGui.BeginTabBar("DAV Setting Menu") then
+
+		if ImGui.BeginTabItem("Select Vehicle") then
+			self:ShowVehicleSetting()
+			ImGui.EndTabItem()
+		end
+
+		if ImGui.BeginTabItem("Info") then
+			self:ShowInfo()
+			ImGui.EndTabItem()
+		end
+
+		ImGui.EndTabBar()
+
+	end
+
+    ImGui.End()
+
+end
+
+function Ui:ShowVehicleSetting()
+
+	local selected = false
+
 	ImGui.Text("Model: ")
 	ImGui.SameLine()
 	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_model_name)
 	ImGui.Text("Type : ")
 	ImGui.SameLine()
 	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_type_name)
-	ImGui.Text("Door : ")
-	ImGui.SameLine()
-	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_door_name)
 	ImGui.Text("Seat : ")
 	ImGui.SameLine()
 	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_seat_name)
@@ -164,7 +181,7 @@ function Ui:ShowSettingMenu()
 	ImGui.Spacing()
 
 	if not DAV.core_obj.event_obj:IsNotSpawned() then
-		ImGui.TextColored(1, 0, 0, 1, "Settings cannot be changed at this time")
+		ImGui.TextColored(1, 0, 0, 1, "The settings menu is currently unavailable")
 		ImGui.TextColored(1, 0, 0, 1, "Please despawn your AV by pushing vehicle button")
 		return
 	end
@@ -183,7 +200,7 @@ function Ui:ShowSettingMenu()
 		for index, value in ipairs(self.vehicle_model_list) do
 			if self.selected_vehicle_model_name == value.name then
 				selected = true
-			else 
+			else
 				selected = false
 			end
 			if(ImGui.Selectable(value, selected)) then
@@ -197,20 +214,14 @@ function Ui:ShowSettingMenu()
 	if self.current_vehicle_model_name ~= self.selected_vehicle_model_name and self.selected_vehicle_model_name ~= self.temp_vehicle_model_name then
 		self.temp_vehicle_model_name = self.selected_vehicle_model_name
 		self.selected_vehicle_type_number = 1
-		self.selected_vehicle_door_number = 1
 		self.selected_vehicle_seat_number = 1
 	end
 
 	self.vehicle_type_list = {}
-	self.vehicle_door_list = {}
 	self.vehicle_seat_list = {}
 
 	for i, type in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].type) do
 		self.vehicle_type_list[i] = type
-	end
-
-	for i, door in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].active_door) do
-		self.vehicle_door_list[i] = door
 	end
 
 	for i, seat in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].active_seat) do
@@ -218,7 +229,6 @@ function Ui:ShowSettingMenu()
 	end
 
 	self.selected_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
-	self.selected_vehicle_door_name = self.vehicle_door_list[self.selected_vehicle_door_number]
 	self.selected_vehicle_seat_name = self.vehicle_seat_list[self.selected_vehicle_seat_number]
 
 	if self.selected_vehicle_type_name == nil then
@@ -229,14 +239,7 @@ function Ui:ShowSettingMenu()
 		self.selected_vehicle_type_number = 1
 		return
 	end
-	if self.selected_vehicle_door_name == nil then
-		self.selected_vehicle_door_name = self.vehicle_door_list[1]
-		return
-	end
-	if self.selected_vehicle_door_number == nil then
-		self.selected_vehicle_door_number = 1
-		return
-	end
+
 	if self.selected_vehicle_seat_name == nil then
 		self.selected_vehicle_seat_name = self.vehicle_seat_list[1]
 		return
@@ -251,7 +254,7 @@ function Ui:ShowSettingMenu()
 		for index, value in ipairs(self.vehicle_type_list) do
 			if self.selected_vehicle_type_name == value then
 				selected = true
-			else 
+			else
 				selected = false
 			end
 			if(ImGui.Selectable(value, selected)) then
@@ -262,28 +265,12 @@ function Ui:ShowSettingMenu()
 		ImGui.EndCombo()
 	end
 
-	ImGui.Text("Select the door of AV")
-	if ImGui.BeginCombo("##AV Door", self.selected_vehicle_door_name) then
-		for index, value in ipairs(self.vehicle_door_list) do
-			if self.selected_vehicle_door_name == value then
-				selected = true
-			else 
-				selected = false
-			end
-			if(ImGui.Selectable(value, selected)) then
-				self.selected_vehicle_door_name = value
-				self.selected_vehicle_door_number = index
-			end
-		end
-		ImGui.EndCombo()
-	end
-
 	ImGui.Text("Select the seat of AV")
 	if ImGui.BeginCombo("##AV Seat", self.selected_vehicle_seat_name) then
 		for index, value in ipairs(self.vehicle_seat_list) do
 			if self.selected_vehicle_seat_name == value then
 				selected = true
-			else 
+			else
 				selected = false
 			end
 			if(ImGui.Selectable(value, selected)) then
@@ -304,14 +291,27 @@ function Ui:ShowSettingMenu()
 		end
 	end
 
-    ImGui.End()
+end
+
+function Ui:ShowInfo()
+	ImGui.Text("Drive an Aerial Vehicle v" .. DAV.version)
+	if DAV.cet_version_num < DAV.cet_required_version then
+		ImGui.TextColored(1, 0, 0, 1, "CET Version: " .. GetVersion() .. "(This version is not supported)")
+	else
+		ImGui.Text("CET Version: " .. GetVersion())
+	end
+	if DAV.codeware_version_num < DAV.codeware_required_version then
+		ImGui.TextColored(1, 0, 0, 1, "CodeWare Version: " .. Codeware.Version() .. "(This version is not supported)")
+	else
+		ImGui.Text("CodeWare Version: " .. Codeware.Version())
+	end
+	DAV.is_debug_mode = ImGui.Checkbox("Debug Window (Developer Mode)", DAV.is_debug_mode)
 end
 
 function Ui:SetParameters()
 
 	DAV.model_index = self.selected_vehicle_model_number
 	DAV.model_type_index = self.selected_vehicle_type_number
-	DAV.open_door_index = self.selected_vehicle_door_number
 	DAV.seat_index = self.selected_vehicle_seat_number
 	self:ResetTweekDB()
 	DAV.core_obj:Reset()
@@ -319,8 +319,13 @@ function Ui:SetParameters()
 
 	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
 	self.current_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
-	self.current_vehicle_door_name = self.vehicle_door_list[self.selected_vehicle_door_number]
 	self.current_vehicle_seat_name = self.vehicle_seat_list[self.selected_vehicle_seat_number]
+
+	DAV.user_setting_table.model_index = DAV.model_index
+	DAV.user_setting_table.model_type_index = DAV.model_type_index
+	DAV.user_setting_table.seat_index = DAV.seat_index
+	DAV.user_setting_table.horizenal_boost_ratio = DAV.horizenal_boost_ratio
+	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end
 

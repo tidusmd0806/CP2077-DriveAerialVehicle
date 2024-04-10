@@ -1,7 +1,7 @@
 [
     {
         "name": "Rayfield Excalibur",
-        "tweakdb_id": "Vehicle.av_rayfield_excalibur",
+        "tweakdb_id": "Vehicle.av_rayfield_excalibur_dav",
         "display_name_lockey": 77051,
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "rayfield",
@@ -11,22 +11,11 @@
             "rayfield_excalibur__basic_premium_01",
             "rayfield_excalibur__basic_saburo_arasaka_01"
         ],
-        "is_default_mount": true,
-        "active_door": ["Left Door"],
         "actual_allocated_door": ["seat_front_left"],
         "active_seat": ["Front Left Seat", "Front Right Seat", "Back Left Seat", "Back Right Seat"],
-        "actual_allocated_seat": ["seat_back_right", "seat_back_right", "seat_back_right", "seat_back_right"],
-        "is_default_seat_position": false,
-        "seat_position": [
-            {"x": -0.35, "y":  0.50, "z": -0.38, "yaw": 180.0},
-            {"x":  0.35, "y":  0.50, "z": -0.38, "yaw": 180.0},
-            {"x": -0.35, "y": -1.10, "z": -0.38, "yaw":   0.0},
-            {"x":  0.35, "y": -1.10, "z": -0.38, "yaw":   0.0}
-        ],
-        "sit_pose": {
-            "female": "sit_chair_lean180__2h_on_lap__01",
-            "male": "sit_chair_lean180__2h_on_lap__01"
-        },
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
+        "camera_distance_ratio": [1.2, 1.2, 1.2, 1.2],
+        "camera_center_offset": [{"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 01.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}],
         "roll_speed": 0.5,
         "pitch_speed": 0.5,
         "yaw_speed": 1.2,
@@ -36,12 +25,12 @@
         "min_roll": -20,
         "max_pitch": 20,
         "min_pitch": -20,
-        "max_lift_force": 12000,
-        "min_lift_force": 10000,
-        "time_to_max": 1.8,
-        "time_to_min": 1.5,
+        "max_lift_force": 20000,
+        "min_lift_force": 15000,
+        "time_to_max": 1.0,
+        "time_to_min": 1.0,
         "mess": 2000,
-        "air_resistance_constant": 300,
+        "air_resistance_constant": 400,
         "rebound_constant": 0.5,
         "shape": {
             "A": {"x":  1.5, "y":  3.0, "z":  1.5},
@@ -55,12 +44,11 @@
         },
         "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
         "entry_area_radius": 2.0,
-        "exit_point": {"x": -2.5, "y": 0, "z": 0},
-        "camera_distance_ratio": 1.0
+        "exit_point": {"x": -2.5, "y": 0, "z": 0}
     },
     {
         "name": "Militech Manticore",
-        "tweakdb_id": "Vehicle.av_militech_manticore",
+        "tweakdb_id": "Vehicle.av_militech_manticore_dav",
         "display_name_lockey": 77967,
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "militech_l",
@@ -70,21 +58,11 @@
             "militech_manticore__basic_ncpd_01",
             "militech_manticore_trauma_team_nusa_01"
         ],
-        "is_default_mount": true,
-        "active_door": ["Left Door", "Right Door"],
         "actual_allocated_door": ["seat_front_left", "seat_front_right"],
-        "active_seat": ["Side Left Seat", "Side Right Seat", "Cockpit"],
-        "actual_allocated_seat": ["seat_back_right", "seat_back_right", "seat_back_right"],
-        "is_default_seat_position": false,
-        "seat_position": [
-            {"x": -0.8 , "y": -0.3, "z": -1.1, "yaw":  90.0},
-            {"x":  0.8 , "y": -0.3, "z": -1.1, "yaw": -90.0},
-            {"x": -0.6 , "y":  3.4, "z": -0.9, "yaw":   0.0}
-        ],
-        "sit_pose": {
-            "female": "sit_chair_lean180__2h_on_lap__01",
-            "male": "sit_chair_lean180__2h_on_lap__01"
-        },
+        "active_seat": ["Left Passenger Seat", "Right Passenger Seat", "Cockpit(Left)", "Cockpit(Right)"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
+        "camera_distance_ratio": [1.5, 1.5, 1.5, 1.5],
+        "camera_center_offset": [{"x": 0.0, "y": 0.0, "z": 0.5}, {"x": 0.0, "y": 0.0, "z": 0.5}, {"x": 0.0, "y": 0.0, "z": 0.5}, {"x": 0.0, "y": 0.0, "z": 0.5}],
         "roll_speed": 0.5,
         "pitch_speed": 0.5,
         "yaw_speed": 1.2,
@@ -94,12 +72,12 @@
         "min_roll": -20,
         "max_pitch": 20,
         "min_pitch": -20,
-        "max_lift_force": 32000,
-        "min_lift_force": 25000,
-        "time_to_max": 1.5,
-        "time_to_min": 1.3,
+        "max_lift_force": 40000,
+        "min_lift_force": 40000,
+        "time_to_max": 0.8,
+        "time_to_min": 0.8,
         "mess": 4500,
-        "air_resistance_constant": 300,
+        "air_resistance_constant": 500,
         "rebound_constant": 0.5,
         "shape": {
             "A": {"x":  1.8, "y":  5.0, "z":  1.7},
@@ -113,12 +91,11 @@
         },
         "entry_point": {"x": 0.0, "y": 0.0, "z": -2.0},
         "entry_area_radius": 3.5,
-        "exit_point": {"x": -2.5, "y": 0, "z": -1.5},
-        "camera_distance_ratio": 1.0
+        "exit_point": {"x": -2.5, "y": 0, "z": -1.5}
     },
     {
         "name": "Zetatech Atlus",
-        "tweakdb_id": "Vehicle.av_zetatech_atlus",
+        "tweakdb_id": "Vehicle.av_zetatech_atlus_dav",
         "display_name_lockey": 77962,
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "zetatech",
@@ -129,23 +106,11 @@
             "zetatech_atlus_stealth_01",
             "zetatech_atlus_trama_team"
         ],
-        "is_default_mount": false,
-        "active_door": ["Left Door"],
         "actual_allocated_door": ["seat_front_left"],
-        "active_seat": ["Front Side Seat", "Middle Side Seat", "Back Side Seat", "Back Right Seat", "Back Left Seat"],
+        "active_seat": ["Passenger Seat A", "Passenger Seat B", "Passenger Seat C", "Passenger Seat D", "Passenger Seat E"],
         "actual_allocated_seat": ["passenger_seat_a", "passenger_seat_b", "passenger_seat_c", "passenger_seat_d", "passenger_seat_e"],
-        "is_default_seat_position": true,
-        "seat_position": [
-            {"x":  1.4 , "y":  0.8, "z": -0.6, "yaw": 90.0},
-            {"x":  1.4 , "y":  0.0, "z": -0.6, "yaw": 90.0},
-            {"x":  1.4 , "y": -1.2, "z": -0.6, "yaw": 90.0},
-            {"x":  0.8 , "y": -1.4, "z": -0.6, "yaw":  0.0},
-            {"x": -0.6 , "y": -1.4, "z": -0.6, "yaw":  0.0}
-        ],
-        "sit_pose": {
-            "female": "sit_chair_lean180__2h_on_lap__01",
-            "male": "sit_chair_lean180__2h_on_lap__01"
-        },
+        "camera_distance_ratio": [1.0, 1.0, 1.0, 1.0, 1.0],
+        "camera_center_offset": [{"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}],
         "roll_speed": 0.5,
         "pitch_speed": 0.5,
         "yaw_speed": 1.2,
@@ -155,12 +120,12 @@
         "min_roll": -20,
         "max_pitch": 20,
         "min_pitch": -20,
-        "max_lift_force": 24000,
-        "min_lift_force": 18000,
-        "time_to_max": 1.6,
-        "time_to_min": 1.8,
+        "max_lift_force": 30000,
+        "min_lift_force": 20000,
+        "time_to_max": 1.2,
+        "time_to_min": 1.0,
         "mess": 3000,
-        "air_resistance_constant": 300,
+        "air_resistance_constant": 500,
         "rebound_constant": 0.5,
         "shape": {
             "A": {"x":  2.5, "y":  4.5, "z":  2.0},
@@ -174,8 +139,7 @@
         },
         "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
         "entry_area_radius": 2.0,
-        "exit_point": {"x": -2.5, "y": 0, "z": 0.0},
-        "camera_distance_ratio": 1.0
+        "exit_point": {"x": -2.5, "y": 0, "z": 0.0}
     },
     {
         "name": "Zetatech Surveyor",
@@ -188,21 +152,11 @@
             "zetatech_surveyor__basic_ep1_maxtac_01",
             "zetatech_surveyor__basic_arasaka_01"
         ],
-        "is_default_mount": true,
-        "active_door": ["Always Opened"],
-        "actual_allocated_door": ["seat_front_left"],
-        "active_seat": ["Left Side Middle Seat", "Right Side Front Seat", "Right Side Middle Seat"],
-        "actual_allocated_seat": ["seat_front_left", "seat_front_left", "seat_front_left"],
-        "is_default_seat_position": false,
-        "seat_position": [
-            {"x": -0.9 , "y": -0.5, "z": -1.6, "yaw":   0.0},
-            {"x":  0.9 , "y":  1.6, "z": -1.6, "yaw":   0.0},
-            {"x":  0.9 , "y":  0.1, "z": -1.6, "yaw": 180.0}
-        ],
-        "sit_pose": {
-            "female": "sit_chair_lean180__2h_on_lap__01",
-            "male": "sit_chair_lean180__2h_on_lap__01"
-        },
+        "actual_allocated_door": ["trunk"],
+        "active_seat": ["Seat in Front", "Seat in Middle(Left)", "Seat in Middle(Right)", "Seat in Back"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
+        "camera_distance_ratio": [1.8, 1.8, 1.8, 1.8],
+        "camera_center_offset": [{"x": 0.0, "y": 0.0, "z": -1.0}, {"x": 0.0, "y": 0.0, "z": -1.0}, {"x": 0.0, "y": 0.0, "z": -1.0}, {"x": 0.0, "y": 2.0, "z": -1.0}],
         "roll_speed": 0.5,
         "pitch_speed": 0.5,
         "yaw_speed": 1.2,
@@ -212,12 +166,12 @@
         "min_roll": -20,
         "max_pitch": 20,
         "min_pitch": -20,
-        "max_lift_force": 45000,
-        "min_lift_force": 30000,
-        "time_to_max": 1.6,
-        "time_to_min": 1.4,
+        "max_lift_force": 60000,
+        "min_lift_force": 55000,
+        "time_to_max": 0.5,
+        "time_to_min": 1.0,
         "mess": 6000,
-        "air_resistance_constant": 300,
+        "air_resistance_constant": 500,
         "rebound_constant": 0.5,
         "shape": {
             "A": {"x":  2.5, "y":  8.5, "z":  2.0},
@@ -230,9 +184,8 @@
             "H": {"x": -2.5, "y": -8.5, "z": -2.0}
         },
         "entry_point": {"x": -2.0, "y": 2.0, "z": -2.0},
-        "entry_area_radius": 3.0,
-        "exit_point": {"x": -2.5, "y": 0, "z": 0.0},
-        "camera_distance_ratio": 1.4
+        "entry_area_radius": 2.5,
+        "exit_point": {"x": -2.5, "y": 0, "z": -1.0}
     },
     {
         "name": "Zetatech Valgus",
@@ -241,50 +194,93 @@
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "zetatech",
         "type": [
-            "zetatech_valgus_border_patrol_q000_no_interior"
+            "zetatech_valgus_max_tac",
+            "zetatech_valgus_border_patrol",
+            "zetatech_valgus_arasaka",
+            "zetatech_valgus_valgus_01"
+
         ],
-        "is_default_mount": true,
-        "active_door": ["Always Closed"],
         "actual_allocated_door": ["seat_front_left"],
-        "active_seat": ["Cockpit"],
-        "actual_allocated_seat": ["seat_front_left"],
-        "is_default_seat_position": false,
-        "seat_position": [
-            {"x":  0.0 , "y": 6.8, "z":  1.2, "yaw":  0.0}
-        ],
-        "sit_pose": {
-            "female": "sit_chair_lean180__2h_on_lap__01",
-            "male": "sit_chair_lean180__2h_on_lap__01"
-        },
+        "active_seat": ["Cockpit", "Passenger Seat"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right"],
+        "camera_distance_ratio": [2.0, 2.0],
+        "camera_center_offset": [{"x": 0.0, "y": -5.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}],
         "roll_speed": 0.5,
         "pitch_speed": 0.5,
         "yaw_speed": 1.2,
-        "roll_restore_speed": 0.1,
-        "pitch_restore_speed": 0.1,
-        "max_roll": 20,
-        "min_roll": -20,
-        "max_pitch": 20,
-        "min_pitch": -20,
-        "max_lift_force": 40000,
-        "min_lift_force": 20000,
-        "time_to_max": 1.8,
-        "time_to_min": 1.8,
-        "mess": 5000,
-        "air_resistance_constant": 300,
+        "roll_restore_speed": 0.08,
+        "pitch_restore_speed": 0.08,
+        "max_roll": 25,
+        "min_roll": -25,
+        "max_pitch": 25,
+        "min_pitch": -25,
+        "max_lift_force": 50000,
+        "min_lift_force": 35000,
+        "time_to_max": 1.0,
+        "time_to_min": 1.5,
+        "mess": 4000,
+        "air_resistance_constant": 550,
         "rebound_constant": 0.5,
         "shape": {
             "A": {"x":  1.5, "y":  8.5, "z":  3.0},
-            "B": {"x":  1.5, "y":  8.5, "z":  0.0},
+            "B": {"x":  1.5, "y":  8.5, "z":  0.2},
             "C": {"x":  2.5, "y":-11.5, "z":  3.0},
-            "D": {"x":  2.5, "y":-11.5, "z":  0.0},
+            "D": {"x":  2.5, "y":-11.5, "z":  0.2},
             "E": {"x": -1.5, "y":  8.5, "z":  3.0},
-            "F": {"x": -1.5, "y":  8.5, "z":  0.0},
+            "F": {"x": -1.5, "y":  8.5, "z":  0.2},
             "G": {"x": -2.5, "y":-11.5, "z":  3.0},
-            "H": {"x": -2.5, "y":-11.5, "z":  0.0}
+            "H": {"x": -2.5, "y":-11.5, "z":  0.2}
         },
-        "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
-        "entry_area_radius": 5.0,
-        "exit_point": {"x": -2.5, "y": 0, "z": 0.0},
-        "camera_distance_ratio": 2.0
+        "entry_point": {"x": -1.0, "y": 1.0, "z": -1.0},
+        "entry_area_radius": 2.5,
+        "exit_point": {"x": -2.5, "y": 0, "z": 0.0}
+    },
+    {
+        "name": "Zetatech Valgus(Closed Door)",
+        "tweakdb_id": "Vehicle.q000_nomad_border_patrol_heli_dav_closed",
+        "display_name_lockey": 77065,
+        "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
+        "logo_inkatlas_part_name" : "zetatech",
+        "type": [
+            "zetatech_valgus_max_tac",
+            "zetatech_valgus_border_patrol",
+            "zetatech_valgus_arasaka",
+            "zetatech_valgus_valgus_01"
+
+        ],
+        "actual_allocated_door": ["seat_front_left"],
+        "active_seat": ["Cockpit", "Passenger Seat"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right"],
+        "camera_distance_ratio": [2.0, 2.0],
+        "camera_center_offset": [{"x": 0.0, "y": -5.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}],
+        "roll_speed": 0.5,
+        "pitch_speed": 0.5,
+        "yaw_speed": 1.2,
+        "roll_restore_speed": 0.08,
+        "pitch_restore_speed": 0.08,
+        "max_roll": 25,
+        "min_roll": -25,
+        "max_pitch": 25,
+        "min_pitch": -25,
+        "max_lift_force": 50000,
+        "min_lift_force": 35000,
+        "time_to_max": 1.0,
+        "time_to_min": 1.5,
+        "mess": 4000,
+        "air_resistance_constant": 550,
+        "rebound_constant": 0.5,
+        "shape": {
+            "A": {"x":  1.5, "y":  8.5, "z":  3.0},
+            "B": {"x":  1.5, "y":  8.5, "z":  0.2},
+            "C": {"x":  2.5, "y":-11.5, "z":  3.0},
+            "D": {"x":  2.5, "y":-11.5, "z":  0.2},
+            "E": {"x": -1.5, "y":  8.5, "z":  3.0},
+            "F": {"x": -1.5, "y":  8.5, "z":  0.2},
+            "G": {"x": -2.5, "y":-11.5, "z":  3.0},
+            "H": {"x": -2.5, "y":-11.5, "z":  0.2}
+        },
+        "entry_point": {"x": -1.0, "y": 1.0, "z": -1.0},
+        "entry_area_radius": 2.5,
+        "exit_point": {"x": -2.5, "y": 0, "z": 0.0}
     }
 ]

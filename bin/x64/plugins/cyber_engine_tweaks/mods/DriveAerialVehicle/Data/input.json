@@ -50,13 +50,13 @@
         "value": "ZERO"
     },
     "KEY_WORLD_ENTER_AV": {
-        "name": "Choice1",
-        "type": "BUTTON_RELEASED",
-        "value": "ZERO"
+        "name": "dav_get_on",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
     },
     "KEY_AV_EXIT_AV": {
         "name": "dav_get_off",
-        "type": "BUTTON_PRESSED",
+        "type": "BUTTON_HOLD_PROGRESS",
         "value": "POSITIVE"
     },
     "KEY_AV_CAMERA": {
@@ -69,44 +69,9 @@
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
-    "KEY_AV_UP_CAMERA_MOUSE": {
-        "name": "dav_y_camera_mouse",
-        "type": "RELATIVE_CHANGE",
-        "value": "NEGATIVE"
-    },
-    "KEY_AV_DOWN_CAMERA_MOUSE": {
-        "name": "dav_y_camera_mouse",
-        "type": "RELATIVE_CHANGE",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_LEFT_CAMERA_MOUSE": {
-        "name": "dav_x_camera_mouse",
-        "type": "RELATIVE_CHANGE",
-        "value": "NEGATIVE"
-    },
-    "KEY_AV_RIGHT_CAMERA_MOUSE": {
-        "name": "dav_x_camera_mouse",
-        "type": "RELATIVE_CHANGE",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_UP_CAMERA_JOYSTICK": {
-        "name": "dav_y_camera_joystick",
-        "type": "AXIS_CHANGE",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_DOWN_CAMERA_JOYSTICK": {
-        "name": "dav_y_camera_joystick",
-        "type": "AXIS_CHANGE",
-        "value": "NEGATIVE"
-    },
-    "KEY_AV_LEFT_CAMERA_JOYSTICK": {
-        "name": "dav_x_camera_joystick",
-        "type": "AXIS_CHANGE",
-        "value": "NEGATIVE"
-    },
-    "KEY_AV_RIGHT_CAMERA_JOYSTICK": {
-        "name": "dav_x_camera_joystick",
-        "type": "AXIS_CHANGE",
+    "KEY_AV_TOGGLE_AUTO_PILOT": {
+        "name": "dav_toggle_auto_pilot",
+        "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     }
 }

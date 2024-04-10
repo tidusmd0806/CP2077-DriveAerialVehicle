@@ -48,9 +48,9 @@
         "enableHoldAnimation": false
     },
     {
-        "source": "Door",
-        "action": "dav_toggle_door_1",
-        "localizedLabel": "LocKey#90595",
+        "source": "Auto",
+        "action": "dav_toggle_auto_pilot",
+        "localizedLabel": "LocKey#38916",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
         "enableHoldAnimation": false
@@ -60,7 +60,7 @@
         "action": "dav_get_off",
         "localizedLabel": "LocKey#36196",
         "sortingPriority": 0,
-        "holdIndicationType": "FromInputConfig",
-        "enableHoldAnimation": false
+        "holdIndicationType": "Hold",
+        "enableHoldAnimation": true
     }
 ]

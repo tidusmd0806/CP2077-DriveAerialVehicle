@@ -1,5 +1,4 @@
 local AV = require("Modules/av.lua")
-local Player = require("Modules/player.lua")
 local Def = require("Tools/def.lua")
 local Event = require("Modules/event.lua")
 local Log = require("Tools/log.lua")
@@ -16,7 +15,6 @@ function Core:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Core")
     obj.queue_obj = Queue:New()
     obj.av_obj = nil
-    obj.player_obj = nil
     obj.event_obj = nil
 
     obj.all_models = nil
@@ -28,9 +26,11 @@ function Core:New()
     obj.relative_dead_zone = 0.01
     obj.relative_table = {}
     obj.relative_resolution = 0.1
+    obj.hold_progress = 0.9
 
     -- set default parameters
     obj.input_table = {}
+    obj.current_custom_mappin_position = {x = 0, y = 0, z = 0}
 
     return setmetatable(obj, self)
 
@@ -46,9 +46,6 @@ function Core:Init()
         return
     end
 
-    self.player_obj = Player:New(Game.GetPlayer())
-    self.player_obj:Init()
-
     self.av_obj = AV:New(self.all_models)
     self.av_obj:Init()
 
@@ -60,17 +57,83 @@ function Core:Init()
         self:GetActions()
     end)
 
+    self:SetInputListener()
+    self:SetCustomMappinPosition()
+
 end
 
 function Core:Reset()
-
-    self.player_obj = Player:New(Game.GetPlayer())
-    self.player_obj:Init()
 
     self.av_obj = AV:New(self.all_models)
     self.av_obj:Init()
 
     self.event_obj:Init(self.av_obj)
+
+end
+
+function Core:SetInputListener()
+
+    local player = Game.GetPlayer()
+
+    player:UnregisterInputListener(player, "dav_accelerate")
+    player:UnregisterInputListener(player, "dav_y_move")
+    player:UnregisterInputListener(player, "dav_x_move")
+    player:UnregisterInputListener(player, "dav_rotate_move")
+    player:UnregisterInputListener(player, "dav_hover")
+    player:UnregisterInputListener(player, "dav_get_on")
+    player:UnregisterInputListener(player, "dav_get_off")
+    player:UnregisterInputListener(player, "dav_change_view")
+    player:UnregisterInputListener(player, "dav_toggle_door_1")
+    player:UnregisterInputListener(player, "dav_toggle_auto_pilot")
+
+    player:RegisterInputListener(player, "dav_accelerate")
+    player:RegisterInputListener(player, "dav_y_move")
+    player:RegisterInputListener(player, "dav_x_move")
+    player:RegisterInputListener(player, "dav_rotate_move")
+    player:RegisterInputListener(player, "dav_hover")
+    player:RegisterInputListener(player, "dav_get_on")
+    player:RegisterInputListener(player, "dav_get_off")
+    player:RegisterInputListener(player, "dav_change_view")
+    player:RegisterInputListener(player, "dav_toggle_door_1")
+    player:RegisterInputListener(player, "dav_toggle_auto_pilot")
+
+    local exception_list = Utils:ReadJson("Data/exception_input.json")
+
+    Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
+        local action_name = action:GetName(action).value
+		local action_type = action:GetType(action).value
+        local action_value = action:GetValue(action)
+
+        if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
+            for _, exception in pairs(exception_list) do
+                if string.find(action_name, exception) then
+                    consumer:Consume()
+                    return
+                end
+            end
+        end
+
+        if DAV.is_debug_mode then
+            DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
+        end
+
+        self:StorePlayerAction(action_name, action_type, action_value)
+
+    end)
+
+end
+
+function Core:SetCustomMappinPosition()
+
+    Observe('BaseWorldMapMappinController', 'SelectMappin', function(this)
+		local mappin = this.mappin
+        if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
+            local pos = mappin:GetWorldPosition()
+            self.current_custom_mappin_position = {x = pos.x, y = pos.y, z = pos.z}
+            self.av_obj:SetDestination(pos)
+        end
+
+	end)
 
 end
 
@@ -107,6 +170,12 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
             action_value_type = "POSITIVE"
         elseif action_value < -self.relative_dead_zone then
             action_value_type = "NEGATIVE"
+        else
+            action_value_type = "ZERO"
+        end
+    elseif action_type == "BUTTON_HOLD_PROGRESS" then
+        if action_value > self.hold_progress then
+            action_value_type = "POSITIVE"
         else
             action_value_type = "ZERO"
         end
@@ -164,26 +233,8 @@ function Core:ConvertActionList(action_name, action_type, action_value_type, act
         action_command = Def.ActionList.ChangeCamera
     elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_DOOR_1) then
         action_command = Def.ActionList.ChangeDoor1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_UP_CAMERA_MOUSE) then
-        action_command = Def.ActionList.CamUp
-        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_UP_CAMERA_JOYSTICK) then
-        action_command = Def.ActionList.CamUp
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_DOWN_CAMERA_MOUSE) then
-        action_command = Def.ActionList.CamDown
-        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_DOWN_CAMERA_JOYSTICK) then
-        action_command = Def.ActionList.CamDown
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_CAMERA_MOUSE) then
-        action_command = Def.ActionList.CamRight
-        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_CAMERA_JOYSTICK) then
-        action_command = Def.ActionList.CamRight
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_CAMERA_MOUSE) then
-        action_command = Def.ActionList.CamLeft
-        loop_count = math.floor(math.abs(action_value) * self.relative_resolution) + 1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_CAMERA_JOYSTICK) then
-        action_command = Def.ActionList.CamLeft
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_AUTO_PILOT) then
+        action_command = Def.ActionList.AutoPilot
     else
         action_command = Def.ActionList.Nothing
     end
@@ -195,7 +246,6 @@ end
 function Core:GetActions()
 
     local move_actions = {}
-    local cam_actions = {}
 
     if self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.queue_obj:Clear()
@@ -204,10 +254,8 @@ function Core:GetActions()
 
     while not self.queue_obj:IsEmpty() do
         local action = self.queue_obj:Dequeue()
-        if action >= Def.ActionList.Enter and action < Def.ActionList.CamReset then
+        if action >= Def.ActionList.Enter then
             self:SetEvent(action)
-        elseif action >= Def.ActionList.CamReset then
-            table.insert(cam_actions, action)
         else
             table.insert(move_actions, action)
         end
@@ -218,36 +266,33 @@ function Core:GetActions()
     end
 
     self:OperateAerialVehicle(move_actions)
-    self:OperateCamera(cam_actions)
 
 end
 
 function Core:OperateAerialVehicle(actions)
 
-    if self.event_obj:IsInVehicle() then
-        self.av_obj:Operate(actions)
-    elseif self.event_obj:IsWaiting() then
-        self.av_obj:Operate({Def.ActionList.Nothing})
-    end
-
-end
-
-function Core:OperateCamera(actions)
-
-    for _, action in pairs(actions) do
-        self.av_obj.camera_obj:SetLocalPosition(action)
+    if not self.is_locked_operation then
+        if self.event_obj:IsInVehicle() then
+            self.av_obj:Operate(actions)
+        elseif self.event_obj:IsWaiting() then
+            self.av_obj:Operate({Def.ActionList.Nothing})
+        end
     end
 
 end
 
 function Core:SetEvent(action)
 
-    if action == Def.ActionList.Enter or action == Def.ActionList.Exit then
-        self.event_obj:EnterOrExitVehicle(self.player_obj)
+    if action == Def.ActionList.Enter then
+        self.event_obj:EnterVehicle()
+    elseif action == Def.ActionList.Exit then
+        self.event_obj:ExitVehicle()
     elseif action == Def.ActionList.ChangeCamera then
         self:ToggleCamera()
     elseif action == Def.ActionList.ChangeDoor1 then
         self.event_obj:ChangeDoor()
+    elseif action == Def.ActionList.AutoPilot then
+        self.event_obj:ToggleAutoMode()
     end
 
 end
@@ -255,12 +300,7 @@ end
 function Core:ToggleCamera()
 
     if self.event_obj:IsInVehicle() then
-        local res = self.av_obj.camera_obj:Toggle()
-        if res == Def.CameraDistanceLevel.Fpp then
-            self.player_obj:ActivateTPPHead(false)
-        elseif res == Def.CameraDistanceLevel.TppClose then
-            self.player_obj:ActivateTPPHead(true)
-        end
+        self.av_obj.camera_obj:Toggle()
     end
 
 end

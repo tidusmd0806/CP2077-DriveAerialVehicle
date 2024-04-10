@@ -6,14 +6,21 @@
         <action name="dav_x_move" map ="dav_x_move"/>
         <action name="dav_rotate_move" map ="dav_rotate_move"/>
         <action name="dav_hover" map ="dav_hover"/>
+        <action name="dav_get_on" map ="dav_get_on"/>
         <action name="dav_get_off" map ="dav_get_off"/>
         <action name="dav_change_view" map ="dav_change_view"/>
         <action name="dav_toggle_door_1" map ="dav_toggle_door_1"/>
-        <action name="dav_x_camera_mouse" map ="dav_x_camera_mouse"/>
-        <action name="dav_y_camera_mouse" map ="dav_y_camera_mouse"/>
-        <action name="dav_x_camera_joystick" map ="dav_x_camera_joystick"/>
-        <action name="dav_y_camera_joystick" map ="dav_y_camera_joystick"/>
+        <action name="dav_toggle_auto_pilot" map ="dav_toggle_auto_pilot"/>
     </context>
+
+    <hold action="dav_get_off" timeout="0.3"/>
+
+    <acceptedEvents action="dav_get_off">
+		<event name="BUTTON_PRESSED" />
+		<event name="BUTTON_RELEASED" />
+		<event name="BUTTON_HOLD_PROGRESS" />
+		<event name="BUTTON_HOLD_COMPLETE" />
+	</acceptedEvents>
     
     <mapping name="dav_accelerate" type="Button">
         <button id ="IK_LeftMouse"/>
@@ -44,9 +51,14 @@
         <button id="IK_Pad_RightTrigger"/>
     </mapping>
 
-    <mapping name="dav_get_off" type="Button">
+    <mapping name="dav_get_on" type="Button">
         <button id="IK_F"/>
         <button id="IK_Pad_X_SQUARE"/>
+    </mapping>
+
+    <mapping name="dav_get_off" type="Button">
+        <button id="IK_F"/>
+        <button id="IK_Pad_B_CIRCLE"/>
     </mapping>
 
     <mapping name="dav_change_view" type="Button">
@@ -59,19 +71,9 @@
         <button id="IK_Pad_DigitLeft"/>
     </mapping>
 
-    <mapping name="dav_x_camera_mouse" type="Relative">
-        <button id="IK_MouseX"/>
+    <mapping name="dav_toggle_auto_pilot" type="Button">
+        <button id="IK_T"/>
+        <button id="IK_Pad_Y_TRIANGLE"/>
     </mapping>
 
-    <mapping name="dav_y_camera_mouse" type="Relative">
-        <button id="IK_MouseY"/>
-    </mapping>
-
-    <mapping name="dav_x_camera_joystick" type="Axis">
-        <button id="IK_Pad_RightAxisX"/>
-    </mapping>
-
-    <mapping name="dav_y_camera_joystick" type="Axis">
-        <button id="IK_Pad_RightAxisY"/>
-    </mapping>
 </bindings>

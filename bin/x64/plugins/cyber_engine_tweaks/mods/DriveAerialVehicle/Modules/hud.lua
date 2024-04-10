@@ -1,4 +1,5 @@
 local GameSettings = require('External/GameSettings.lua')
+local GameHUD = require('External/GameHUD.lua')
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Hud = {}
@@ -32,6 +33,7 @@ function Hud:Init(av_obj)
     if not DAV.ready then
         self:SetOverride()
         self:SetObserve()
+        GameHUD.Initialize()
     end
     self:SetChoiceTitle()
     self:SetCustomHint()
@@ -71,20 +73,34 @@ function Hud:SetObserve()
         Observe("hudCarController", "OnMountingEvent", function(this)
             self.hud_car_controller = this
         end)
+
+        -- hide unnecessary input hint
+        Observe("UISystem", "QueueEvent", function(this, event)
+            if DAV.core_obj.event_obj:IsInEntryArea() or DAV.core_obj.event_obj:IsInVehicle() then
+                if event:ToString() == "gameuiUpdateInputHintEvent" then
+                    if event.data.source == CName.new("VehicleDriver") then
+                        local delete_hint_source_event = DeleteInputHintBySourceEvent.new()
+                        delete_hint_source_event.targetHintContainer = CName.new("GameplayInputHelper")
+                        delete_hint_source_event.source = CName.new("VehicleDriver")
+                        Game.GetUISystem():QueueEvent(delete_hint_source_event)
+                    end
+                end
+            end
+        end)
     end
 
 end
 
 function Hud:SetChoiceTitle()
     local index = DAV.model_index
-    self.choice_title = self.av_obj.all_models[index].name
+    self.choice_title = GetLocalizedText("LocKey#" .. tostring(self.av_obj.all_models[index].display_name_lockey))
 end
 
 function Hud:ShowChoice()
 
     local choice = gameinteractionsvisListChoiceData.new()
     choice.localizedName = GetLocalizedText("LocKey#81569")
-    choice.inputActionName = CName.new("click")
+    choice.inputActionName = CName.new("Choice2")
 
     local hub = gameinteractionsvisListChoiceHubData.new()
     hub.title = self.choice_title
@@ -127,7 +143,7 @@ function Hud:ShowMeter()
         DAV.Cron.Every(self.speed_meter_refresh_rate, function()
             local mph = self.av_obj.engine_obj.current_speed * (3600 / 1600)
             local power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
-            self.hud_car_controller:OnSpeedValueChanged(mph / 3)
+            self.hud_car_controller:OnSpeedValueChanged(mph / 4.58)
             self.hud_car_controller:OnRpmValueChanged(power_level)
             self.hud_car_controller:EvaluateRPMMeterWidget(power_level)
             if not self.is_speed_meter_shown then
@@ -190,6 +206,22 @@ end
 function Hud:HideActionButtons()
     GameSettings.Set('/interface/hud/action_buttons', false)
 end
+
+function Hud:ShowAutoModeDisplay()
+    local text = GetLocalizedText("LocKey#84945")
+    GameHUD.ShowMessage(text)
+end
+
+function Hud:ShowDriveModeDisplay()
+    local text = GetLocalizedText("LocKey#84944")
+    GameHUD.ShowMessage(text)
+end
+
+function Hud:ShowArrivalDisplay()
+    local text = GetLocalizedText("LocKey#77994")
+    GameHUD.ShowMessage(text)
+end
+
 
 
 return Hud

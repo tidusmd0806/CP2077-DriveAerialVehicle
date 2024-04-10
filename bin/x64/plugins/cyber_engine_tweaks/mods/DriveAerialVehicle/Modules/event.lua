@@ -24,6 +24,7 @@ function Event:New()
     obj.is_in_menu = false
     obj.is_in_popup = false
     obj.is_in_photo = false
+    obj.is_locked_operation = false
 
     return setmetatable(obj, self)
 
@@ -144,6 +145,7 @@ function Event:CheckAllEvents()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
         self:CheckCollision()
+        self:CheckAutoModeChange()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
     else
@@ -237,6 +239,16 @@ function Event:CheckDespawn()
     end
 end
 
+function Event:CheckAutoModeChange()
+    if self:IsAutoMode() and not self.is_locked_operation then
+        self.is_locked_operation = true
+    elseif not self:IsAutoMode() and self.is_locked_operation then
+        self.is_locked_operation = false
+        self.hud_obj:ShowArrivalDisplay()
+    end
+
+end
+
 function Event:IsNotSpawned()
     if self.current_situation == Def.Situation.Normal then
         return true
@@ -270,6 +282,14 @@ function Event:IsInVehicle()
     end
 end
 
+function Event:IsAutoMode()
+    if self.av_obj.is_auto_pilot then
+        return true
+    else
+        return false
+    end
+end
+
 function Event:IsInMenuOrPopupOrPhoto()
     if self.is_in_menu or self.is_in_popup or self.is_in_photo then
         return true
@@ -288,18 +308,29 @@ function Event:ChangeDoor()
     end
 end
 
-function Event:EnterOrExitVehicle(player)
+function Event:EnterVehicle()
     if self:IsInEntryArea()then
-        self.av_obj:TakeOn(player)
         self.av_obj:Mount()
-    elseif self:IsInVehicle() then
+    end
+end
+
+function Event:ExitVehicle()
+    if self:IsInVehicle() then
         self.av_obj:Unmount()
-        DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
-            if not self.av_obj:IsPlayerIn() then
-                self.av_obj:TakeOff()
-                DAV.Cron.Halt(timer)
-            end
-        end)
+    end
+end
+
+function Event:ToggleAutoMode()
+    if self:IsInVehicle() then
+        if not self.av_obj.is_auto_pilot then
+            self.hud_obj:ShowAutoModeDisplay()
+            self.is_locked_operation = true
+            self.av_obj:AutoPilot()
+        else
+            self.hud_obj:ShowDriveModeDisplay()
+            self.is_locked_operation = false
+            self.av_obj:InterruptAutoPilot()
+        end
     end
 end
 
