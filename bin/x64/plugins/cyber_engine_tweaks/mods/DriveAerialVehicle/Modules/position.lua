@@ -301,4 +301,39 @@ function Position:GetExitPosition()
     return self:ChangeWorldCordinate(basic_vector, {self.exit_point})[1]
 end
 
+function Position:CalculateVectorField(radius)
+
+    local current_position = self:GetPosition()
+    local spherical_vectors = Utils:SphericalVectors(50, radius)
+    local vector_field = {}
+
+    for _, spherical_vector in ipairs(spherical_vectors) do
+        print(spherical_vector.x, spherical_vector.y, spherical_vector.z)
+    end
+
+    for _, spherical_vector in ipairs(spherical_vectors) do
+        local world_spherical_vector = Vector4.new(spherical_vector.x + current_position.x, spherical_vector.y + current_position.y, spherical_vector.z + current_position.z, 1.0)
+        for _, filter in ipairs(self.collision_filters) do
+            local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, world_spherical_vector, filter, false, false)
+            if is_success then
+                spherical_vector.x = trace_result.position.x - current_position.x
+                spherical_vector.y = trace_result.position.y - current_position.y
+                spherical_vector.z = trace_result.position.z - current_position.z
+                break
+            end
+        end
+        table.insert(vector_field, spherical_vector)
+    end
+
+    local sum_vector = Vector4.new(0, 0, 0, 1.0)
+    for _, vector in ipairs(vector_field) do
+        sum_vector.x = sum_vector.x + vector.x
+        sum_vector.y = sum_vector.y + vector.y
+        sum_vector.z = sum_vector.z + vector.z
+    end
+
+    return sum_vector
+
+end
+
 return Position

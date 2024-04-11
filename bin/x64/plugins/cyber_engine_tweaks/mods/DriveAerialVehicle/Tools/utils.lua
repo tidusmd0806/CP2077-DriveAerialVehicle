@@ -47,6 +47,34 @@ function Utils:Normalize(v)
    return v
 end
 
+function Utils:SphericalVectors(sample_num, radius)
+   local vectors = {}
+   local golden_angle = Pi() * (3 - math.sqrt(5)) -- golden angle
+
+   local n = sample_num * 2 -- even
+
+   for i = 1, n - 1 do
+      local y_ = 1 - (i / (n - 1)) * 2
+      local r = math.sqrt(1 - y_*y_)
+
+      local theta = golden_angle * i
+
+      local x_ = math.cos(theta) * r
+      local z_ = math.sin(theta) * r
+
+      local Normalized_vector = self:Normalize({x = x_, y = y_, z = z_}) 
+      local x = Normalized_vector.x * radius
+      local y = Normalized_vector.y * radius
+      local z = Normalized_vector.z * radius
+
+      -- add vector and its opposite
+      table.insert(vectors, Vector4.new(x, y, z, 1))
+      table.insert(vectors, Vector4.new(-x, -y, -z, 1))
+   end
+
+   return vectors
+end
+
 -- wheather table2 elements are in table1
 function Utils:IsTablesNearlyEqual(big_table, small_table)
    for key, value in pairs(small_table) do

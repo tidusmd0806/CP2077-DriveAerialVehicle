@@ -325,7 +325,7 @@ function Event:ToggleAutoMode()
         if not self.av_obj.is_auto_pilot then
             self.hud_obj:ShowAutoModeDisplay()
             self.is_locked_operation = true
-            self.av_obj:AutoPilot()
+            self.av_obj:AutoPilotNew()
         else
             self.hud_obj:ShowDriveModeDisplay()
             self.is_locked_operation = false

@@ -526,6 +526,50 @@ function AV:AutoPilot()
 	end)
 end
 
+function AV:AutoPilotNew()
+	self.is_auto_pilot = true
+	local current_position = self.position_obj:GetPosition()
+	local direction_vector = {x = self.destination_position.x - current_position.x, y = self.destination_position.y - current_position.y, z = 0}
+	self:AutoLeaving(direction_vector)
+
+	DAV.Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
+		timer.tick = timer.tick + 1
+
+		if self.is_leaving then
+			return
+		end
+
+		if not self.is_auto_pilot then
+			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted")
+			DAV.Cron.Halt(timer)
+			return
+		end
+
+		current_position = self.position_obj:GetPosition()
+		direction_vector = {x = self.destination_position.x - current_position.x, y = self.destination_position.y - current_position.y, z = 0}
+
+		local sum_vector = self.position_obj:CalculateVectorField(0.5)
+
+		local direction_vector_norm = math.sqrt(direction_vector.x * direction_vector.x + direction_vector.y * direction_vector.y)
+
+		if direction_vector_norm < self.error_range then
+			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
+			self:AutoLanding(current_position.z)
+			DAV.Cron.Halt(timer)
+			return
+		end
+
+		local fix_direction_vector = {x = self.auto_pilot_speed * direction_vector.x / direction_vector_norm, y = self.auto_pilot_speed * direction_vector.y / direction_vector_norm, z = 0}
+		local next_positon = {x = fix_direction_vector.x + sum_vector.x, y = fix_direction_vector.y + sum_vector.y, z = sum_vector.z}
+		if not self:Move(next_positon.x, next_positon.y, next_positon.z, 0.0, 0.0, 0.0) then
+			self.log_obj:Record(LogLevel.Error, "AutoPilot Move Error")
+			DAV.Cron.Halt(timer)
+			self.is_auto_pilot = false
+			return
+		end
+	end)
+end
+
 function AV:AutoLeaving(dist_vector)
 	self.is_leaving = true
 

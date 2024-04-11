@@ -295,13 +295,13 @@ end
 
 function Ui:ShowInfo()
 	ImGui.Text("Drive an Aerial Vehicle v" .. DAV.version)
-	if DAV.cet_version_num < DAV.cet_required_version then
-		ImGui.TextColored(1, 0, 0, 1, "CET Version: " .. GetVersion() .. "(This version is not supported)")
+	if DAV.cet_version_num < DAV.cet_recommended_version then
+		ImGui.TextColored(1, 0, 0, 1, "CET Version: " .. GetVersion() .. "(Not Recommended Version)")
 	else
 		ImGui.Text("CET Version: " .. GetVersion())
 	end
-	if DAV.codeware_version_num < DAV.codeware_required_version then
-		ImGui.TextColored(1, 0, 0, 1, "CodeWare Version: " .. Codeware.Version() .. "(This version is not supported)")
+	if DAV.codeware_version_num < DAV.codeware_recommended_version then
+		ImGui.TextColored(1, 0, 0, 1, "CodeWare Version: " .. Codeware.Version() .. "(Not Recommended Version)")
 	else
 		ImGui.Text("CodeWare Version: " .. Codeware.Version())
 	end
