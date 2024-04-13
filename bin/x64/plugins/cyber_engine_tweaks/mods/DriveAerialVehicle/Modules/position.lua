@@ -18,7 +18,10 @@ function Position:New(all_models)
     obj.collision_max_count = 80
     obj.dividing_rate = 0.5
 
-    obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
+    obj.judged_stack_length = 30
+
+    -- obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
+    obj.collision_filters = {"Static", "Terrain", "Water"}
 
     -- set default parameters
     obj.collision_count = 0
@@ -30,6 +33,12 @@ function Position:New(all_models)
     obj.corners = {}
     obj.entry_point = {}
     obj.entry_area_radius = 0
+
+    obj.stack_distance = 0
+    obj.stack_count = 0
+    obj.sensor_vector_pair_num = 15
+
+    obj.collision_trace_result = nil
 
     return setmetatable(obj, self)
 end
@@ -219,6 +228,7 @@ function Position:CheckCollision(current_pos, next_pos)
         for _, filter in ipairs(self.collision_filters) do
             local success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_corner, next_corner, filter, false, false)
             if success then
+                self.collision_trace_result = trace_result
                 self.stack_corner_num = i
                 self.is_collision = true
                 self:CalculateReflection(current_corner, trace_result)
@@ -296,6 +306,85 @@ end
 function Position:GetExitPosition()
     local basic_vector = self:GetPosition()
     return self:ChangeWorldCordinate(basic_vector, {self.exit_point})[1]
+end
+
+function Position:CalculateVectorField(radius_in, radius_out, max_length, sensing_constant)
+
+    local current_position = self:GetPosition()
+    local dividing_vector = Vector4.new(0, 0, 0, 1.0)
+    local spherical_vectors = Utils:GenerateUniformVectorsOnSphere(self.sensor_vector_pair_num, radius_out)
+    local vector_field = {}
+
+    local k = radius_out - radius_in / radius_out
+
+    for _, spherical_vector in ipairs(spherical_vectors) do
+        local world_spherical_vector = Vector4.new(spherical_vector.x + current_position.x, spherical_vector.y + current_position.y, spherical_vector.z + current_position.z, 1.0)
+        dividing_vector.x = (1 - k) * current_position.x + k * world_spherical_vector.x
+        dividing_vector.y = (1 - k) * current_position.y + k * world_spherical_vector.y
+        dividing_vector.z = (1 - k) * current_position.z + k * world_spherical_vector.z
+
+        for _, filter in ipairs(self.collision_filters) do
+            local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(dividing_vector, world_spherical_vector, filter, false, false)
+            if is_success then
+                spherical_vector.x = trace_result.position.x - dividing_vector.x
+                spherical_vector.y = trace_result.position.y - dividing_vector.y
+                spherical_vector.z = trace_result.position.z - dividing_vector.z
+                break
+            end
+        end
+        table.insert(vector_field, spherical_vector)
+
+    end
+
+    local sum_vector = Vector4.new(0, 0, 0, 1.0)
+    for _, vector in ipairs(vector_field) do
+        sum_vector.x = sum_vector.x + vector.x * sensing_constant
+        sum_vector.y = sum_vector.y + vector.y * sensing_constant
+        sum_vector.z = sum_vector.z + vector.z * sensing_constant
+    end
+
+    local norm = math.sqrt(sum_vector.x * sum_vector.x + sum_vector.y * sum_vector.y + sum_vector.z * sum_vector.z)
+    if norm > max_length then
+        sum_vector.x = sum_vector.x * max_length / norm
+        sum_vector.y = sum_vector.y * max_length / norm
+        sum_vector.z = sum_vector.z * max_length / norm
+    end
+
+    return sum_vector
+
+end
+
+function Position:CheckAutoPilotStackCount(distination_position)
+    local current_position = self:GetPosition()
+
+    local distance = math.sqrt((current_position.x - distination_position.x) * (current_position.x - distination_position.x) + (current_position.y - distination_position.y) * (current_position.y - distination_position.y) + (current_position.z - distination_position.z) * (current_position.z - distination_position.z))
+
+    if self.stack_count == 0 then
+        self.stack_distance = distance
+    end
+
+    if math.abs(distance - self.stack_distance) < self.judged_stack_length then
+        self.stack_count = self.stack_count + 1
+    else
+        self.stack_count = 0
+    end
+
+    return self.stack_count
+end
+
+function Position:ResetStackCount()
+    self.stack_count = 0
+end
+
+function Position:GetFarCornerDistance()
+    local max_distance = 0
+    for _, corner in ipairs(self.local_corners) do
+        local curner_distance = math.sqrt(corner.x * corner.x + corner.y * corner.y + corner.z * corner.z)
+        if curner_distance > max_distance then
+            max_distance = curner_distance
+        end
+    end
+    return max_distance
 end
 
 return Position

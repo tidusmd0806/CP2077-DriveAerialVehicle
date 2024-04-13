@@ -73,7 +73,7 @@
 
     <mapping name="dav_toggle_auto_pilot" type="Button">
         <button id="IK_T"/>
-        <button id="IK_Pad_Y_TRIANGLE"/>
+        <button id="IK_Pad_DigitRight"/>
     </mapping>
 
 </bindings>

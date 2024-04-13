@@ -47,6 +47,39 @@ function Utils:Normalize(v)
    return v
 end
 
+function Utils:GenerateUniformVectorsOnSphere(sample_num, radius)
+   local vectors = {}
+   local golden_angle = Pi() * (3 - math.sqrt(5)) -- golden angle
+
+   local n = sample_num * 2 -- even
+
+   if n < 1 then
+      self.log_obj:Record(LogLevel.Error, "sample_num should be larger than 0")
+      return nil
+   end
+
+   for i = 1, n do
+      local y_ = 1 - (i / n) * 2
+      local r = math.sqrt(1 - y_*y_)
+
+      local theta = golden_angle * i
+
+      local x_ = math.cos(theta) * r
+      local z_ = math.sin(theta) * r
+
+      local Normalized_vector = self:Normalize({x = x_, y = y_, z = z_})
+      local x = Normalized_vector.x * radius
+      local y = Normalized_vector.y * radius
+      local z = Normalized_vector.z * radius
+
+      -- add vector and its opposite
+      table.insert(vectors, Vector4.new(x, y, z, 1))
+      table.insert(vectors, Vector4.new(-x, -y, -z, 1))
+   end
+
+   return vectors
+end
+
 -- wheather table2 elements are in table1
 function Utils:IsTablesNearlyEqual(big_table, small_table)
    for key, value in pairs(small_table) do
@@ -60,6 +93,14 @@ end
 -- y = k(x - a)^2 + b and cross point is (0, c). Calculate Slope.
 function Utils:CalculationQuadraticFuncSlope(a, b, c, x)
    return 2*(c - b)*(x - a)/(a * a)
+end
+
+function Utils:GetSpecificLogarithmFunction(index)
+   local ratio_list = {0.37, 1.0, 2.72, 7.39, 20.1} -- y=exp(x-1)
+   if index < 1 or index > 5 then
+      return nil
+   end
+   return ratio_list[index]
 end
 
 function Utils:ChangePolarCoordinates(x, y, z)

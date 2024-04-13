@@ -51,7 +51,7 @@ function Event:SetObserve()
 
     GameUI.Observe("SessionStart", function()
         DAV.Cron.After(0.5, function()
-            DAV.core_obj:Reset()
+            -- DAV.core_obj:Reset()
             self.ui_obj:ActivateAVSummon(true)
         end)
     end)
@@ -146,6 +146,7 @@ function Event:CheckAllEvents()
         self:CheckInAV()
         self:CheckCollision()
         self:CheckAutoModeChange()
+        self:CheckFailAutoPilot()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
     else
@@ -154,7 +155,7 @@ function Event:CheckAllEvents()
 end
 
 function Event:CheckCallVehicle()
-    if self.ui_obj:GetCallStatus() then
+    if self.ui_obj:GetCallStatus() and not self.av_obj:IsSpawning() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
         self.sound_obj:PlaySound("101_call_vehicle")
         self.sound_obj:PlaySound("211_landing")
@@ -249,6 +250,12 @@ function Event:CheckAutoModeChange()
 
 end
 
+function Event:CheckFailAutoPilot()
+    if self.av_obj:IsFailedAutoPilot() then
+        self.hud_obj:ShowInterruptAutoPilotDisplay()
+    end
+end
+
 function Event:IsNotSpawned()
     if self.current_situation == Def.Situation.Normal then
         return true
@@ -326,7 +333,7 @@ function Event:ToggleAutoMode()
             self.hud_obj:ShowAutoModeDisplay()
             self.is_locked_operation = true
             self.av_obj:AutoPilot()
-        else
+        elseif not self.av_obj.is_leaving then
             self.hud_obj:ShowDriveModeDisplay()
             self.is_locked_operation = false
             self.av_obj:InterruptAutoPilot()

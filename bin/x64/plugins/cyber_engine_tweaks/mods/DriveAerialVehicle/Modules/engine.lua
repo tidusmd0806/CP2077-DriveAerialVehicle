@@ -101,6 +101,10 @@ function Engine:GetNextPosition(movement)
     return x, y, z, roll, pitch, yaw
 end
 
+function Engine:SetSpeedForcibly(vel)
+    self.current_speed = vel
+end
+
 function Engine:CalculateIndication(movement)
 
     local actually_indication = self.position_obj:GetEulerAngles()

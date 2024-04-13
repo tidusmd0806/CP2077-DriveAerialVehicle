@@ -6,7 +6,7 @@
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "1.0.0",
+	version = "1.0.2",
     ready = false,
     is_debug_mode = false,
     is_opening_overlay = false,
@@ -17,7 +17,9 @@ DAV = {
 	seat_index = 1,
     horizenal_boost_ratio = 2.0,
     cet_required_version = 32.1, -- 1.32.1
+    cet_recommended_version = 32.2, -- 1.32.2
     codeware_required_version = 8.2, -- 1.8.2
+    codeware_recommended_version = 8.2, -- 1.8.2
     cet_version_num = 0,
     codeware_version_num = 0
 }
@@ -100,10 +102,6 @@ registerForEvent("onDraw", function()
     if DAV.is_opening_overlay then
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
-end)
-
-registerHotkey("DAV_Toggle_Debug_Mode", "Toggle Debug Mode", function()
-    DAV.core_obj:ToggleAutoPilot()
 end)
 
 registerForEvent('onUpdate', function(delta)
