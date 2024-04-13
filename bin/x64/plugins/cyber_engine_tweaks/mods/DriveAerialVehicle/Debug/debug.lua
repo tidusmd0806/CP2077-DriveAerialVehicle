@@ -171,10 +171,26 @@ end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("Test Function 1",300, 60) then
-        local event = VisibleObjectTypeEvent.new()
-        event.type = gamedataSenseObjectType.Npc
-        Game.GetPlayer():QueueEvent(event)
+        -- local event = VisibleObjectTypeEvent.new()
+        -- event.type = gamedataSenseObjectType.Npc
+        -- Game.GetPlayer():QueueEvent(event)
+        local ui_interaction_define = GetAllBlackboardDefs().UIInteractions
+        local interaction_blackboard = Game.GetBlackboardSystem():Get(ui_interaction_define)
+        local data = interaction_blackboard:GetVariant(ui_interaction_define.DialogChoiceHubs)
+        DAV.core_obj.event_obj.hud_obj.interaction_ui_base:OnDialogsSelectIndex(0)
+        DAV.core_obj.event_obj.hud_obj.interaction_ui_base:OnDialogsData(data)
+        DAV.core_obj.event_obj.hud_obj.interaction_ui_base:OnInteractionsChanged()
+        DAV.core_obj.event_obj.hud_obj.interaction_ui_base:UpdateListBlackboard()
+        DAV.core_obj.event_obj.hud_obj.interaction_ui_base:OnDialogsActivateHub(DAV.core_obj.event_obj.hud_obj.interaction_hub.id)
+        -- local ui_interaction_define = GetAllBlackboardDefs().UIInteractions
+        -- local interaction_blackboard = Game.GetBlackboardSystem():Get(ui_interaction_define)
+        -- interaction_blackboard:SetInt(ui_interaction_define.SelectedIndex, 0, true)
         print("Excute Test Function 1")
+    end
+    InGui.SameLine()
+    if ImGui.Button("Test Function 2",300, 60) then
+        DAV.core_obj.event_obj.hud_obj:ShowChoice()
+        print("Excute Test Function 2")
     end
 end
 

@@ -235,6 +235,10 @@ function Core:ConvertActionList(action_name, action_type, action_value_type, act
         action_command = Def.ActionList.ChangeDoor1
     elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_AUTO_PILOT) then
         action_command = Def.ActionList.AutoPilot
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
+        action_command = Def.ActionList.SelectUp
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
+        action_command = Def.ActionList.SelectDown
     else
         action_command = Def.ActionList.Nothing
     end
@@ -293,6 +297,10 @@ function Core:SetEvent(action)
         self.event_obj:ChangeDoor()
     elseif action == Def.ActionList.AutoPilot then
         self.event_obj:ToggleAutoMode()
+    elseif action == Def.ActionList.SelectUp then
+        self.event_obj:SelectChoice(Def.ActionList.SelectUp)
+    elseif action == Def.ActionList.SelectDown then
+        self.event_obj:SelectChoice(Def.ActionList.SelectDown)
     end
 
 end

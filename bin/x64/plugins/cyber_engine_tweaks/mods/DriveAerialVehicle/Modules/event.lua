@@ -25,6 +25,7 @@ function Event:New()
     obj.is_in_popup = false
     obj.is_in_photo = false
     obj.is_locked_operation = false
+    obj.selected_seat_index = 1
 
     return setmetatable(obj, self)
 
@@ -177,7 +178,7 @@ end
 function Event:CheckInEntryArea()
     if self.av_obj.position_obj:IsPlayerInEntryArea() then
         self.log_obj:Record(LogLevel.Trace, "InEntryArea detected")
-        self.hud_obj:ShowChoice()
+        self.hud_obj:ShowChoice(self.selected_seat_index)
     else
         self.hud_obj:HideChoice()
     end
@@ -338,6 +339,28 @@ function Event:ToggleAutoMode()
             self.is_locked_operation = false
             self.av_obj:InterruptAutoPilot()
         end
+    end
+end
+
+function Event:SelectChoice(direction)
+    local max_seat_index = #self.av_obj.all_models[DAV.model_index].actual_allocated_seat
+    if self:IsInEntryArea() then
+        if direction == Def.ActionList.SelectUp then
+            self.selected_seat_index = self.selected_seat_index - 1
+            if self.selected_seat_index < 1 then
+                self.selected_seat_index = max_seat_index
+                
+            end
+        elseif direction == Def.ActionList.SelectDown then
+            self.selected_seat_index = self.selected_seat_index + 1
+            if self.selected_seat_index > max_seat_index then
+                self.selected_seat_index = 1
+            end
+        else
+            self.log_obj:Record(LogLevel.Critical, "Invalid direction detected")
+            return
+        end
+        DAV.seat_index = self.selected_seat_index
     end
 end
 

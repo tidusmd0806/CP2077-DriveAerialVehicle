@@ -35,7 +35,7 @@ function Hud:Init(av_obj)
         self:SetObserve()
         GameHUD.Initialize()
     end
-    self:SetChoiceTitle()
+    self:SetChoiceList()
     self:SetCustomHint()
 
 end
@@ -55,13 +55,21 @@ function Hud:SetOverride()
                 wrapped_method(value)
             end
         end)
+
+        Override("InteractionUIBase", "OnDialogsSelectIndex", function(_, index, wrapped_method)
+            if self.av_obj.position_obj:IsPlayerInEntryArea() then
+                wrapped_method(index)
+            else
+                wrapped_method(index)
+            end
+        end)
     end
 
 end
 
 function Hud:SetObserve()
 
-    if not DAV.ready then   
+    if not DAV.ready then
         Observe("InteractionUIBase", "OnInitialize", function(this)
             self.interaction_ui_base = this
         end)
@@ -95,32 +103,82 @@ function Hud:SetObserve()
 
 end
 
-function Hud:SetChoiceTitle()
+function Hud:GetChoiceTitle()
     local index = DAV.model_index
-    self.choice_title = GetLocalizedText("LocKey#" .. tostring(self.av_obj.all_models[index].display_name_lockey))
+    return GetLocalizedText("LocKey#" .. tostring(self.av_obj.all_models[index].display_name_lockey))
 end
 
-function Hud:ShowChoice()
+function Hud:UpdateChoice()
 
-    local choice = gameinteractionsvisListChoiceData.new()
-    choice.localizedName = GetLocalizedText("LocKey#81569")
-    choice.inputActionName = CName.new("Choice2")
+    -- local ui_interaction_define = GetAllBlackboardDefs().UIInteractions
+    -- local interaction_blackboard = Game.GetBlackboardSystem():Get(ui_interaction_define)
+    -- interaction_blackboard:SetInt(ui_interaction_define.SelectedIndex, 0, true)
 
-    local hub = gameinteractionsvisListChoiceHubData.new()
-    hub.title = self.choice_title
-    hub.choices = {choice}
-    hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
-    hub.hubPriority = 1
-    hub.id = 6083991
+end
 
-    self.interaction_hub = hub
+function Hud:SetChoiceList()
 
-    local ui_interaction_define = GetAllBlackboardDefs().UIInteractions;
+    local model_index = DAV.model_index
+    self.interaction_hub = gameinteractionsvisListChoiceHubData.new()
+
+    self.interaction_hub.title = self:GetChoiceTitle()
+    self.interaction_hub.choices = {}
+    self.interaction_hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
+    self.interaction_hub.hubPriority = 1
+    self.interaction_hub.id = 6083991
+
+    for index = 1, #self.av_obj.all_models[model_index].actual_allocated_seat do
+        local choice = gameinteractionsvisListChoiceData.new()
+        local icon = TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceCaptionParts.CourierIcon")
+        local caption_part = gameinteractionsChoiceCaption.new()
+        caption_part:AddPartFromRecord(icon)
+        local choice_type = gameinteractionsChoiceTypeWrapper.new()
+        choice_type:SetType(gameinteractionsChoiceType.Selected)
+
+        choice.localizedName = GetLocalizedText("LocKey#81569" .. "[" .. self.av_obj.all_models[model_index].active_seat[index] .. "]")
+        choice.inputActionName = CName.new("Choice1")
+        choice.captionParts = caption_part
+        choice.type = choice_type
+        table.insert(self.interaction_hub.choices, choice)
+    end
+
+end
+
+function Hud:ShowChoice(selected_index)
+
+    -- local choice = gameinteractionsvisListChoiceData.new()
+    -- choice.localizedName = GetLocalizedText("LocKey#81569")
+    -- choice.inputActionName = CName.new("Choice2")
+
+    -- local icon = TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceCaptionParts.CourierIcon")
+    -- local part = gameinteractionsChoiceCaption.new()
+    -- part:AddPartFromRecord(icon)
+    -- choice.captionParts = part
+
+    -- local choice2 = gameinteractionsvisListChoiceData.new()
+    -- choice2.localizedName = GetLocalizedText("LocKey#81569") .. " test2"
+    -- choice2.inputActionName = CName.new("Choice2")
+
+    -- local hub = gameinteractionsvisListChoiceHubData.new()
+    -- hub.title = self.choice_title
+    -- hub.choices = {choice, choice2}
+    -- hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
+    -- hub.hubPriority = 1
+    -- hub.id = 6083991
+
+    -- self.interaction_hub = hub
+
+    local ui_interaction_define = GetAllBlackboardDefs().UIInteractions
     local interaction_blackboard = Game.GetBlackboardSystem():Get(ui_interaction_define)
 
-    interaction_blackboard:SetInt(ui_interaction_define.ActiveChoiceHubID, self.interaction_hub.id)
+    -- interaction_blackboard:SetInt(ui_interaction_define.ActiveChoiceHubID, self.interaction_hub.id)
     local data = interaction_blackboard:GetVariant(ui_interaction_define.DialogChoiceHubs)
+    self.dialogIsScrollable = true
+    self.interaction_ui_base:OnDialogsSelectIndex(selected_index - 1)
     self.interaction_ui_base:OnDialogsData(data)
+    self.interaction_ui_base:OnInteractionsChanged()
+    self.interaction_ui_base:UpdateListBlackboard()
+    self.interaction_ui_base:OnDialogsActivateHub(self.interaction_hub.id)
 
 end
 
@@ -179,7 +237,7 @@ function Hud:SetCustomHint()
             input_hint_data.holdIndicationType = inkInputHintHoldIndicationType.Hold
         elseif hint.holdIndicationType == "Press" then
             input_hint_data.holdIndicationType = inkInputHintHoldIndicationType.Press
-        else 
+        else
             input_hint_data.holdIndicationType = inkInputHintHoldIndicationType.FromInputConfig
         end
         input_hint_data.sortingPriority = hint.sortingPriority
@@ -208,7 +266,7 @@ function Hud:ShowActionButtons()
 end
 
 function Hud:HideActionButtons()
-    -- GameSettings.Set('/interface/hud/action_buttons', false)
+    GameSettings.Set('/interface/hud/action_buttons', false)
 end
 
 function Hud:ShowAutoModeDisplay()
