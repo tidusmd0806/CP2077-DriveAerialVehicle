@@ -23,6 +23,7 @@ Def.ActionList = {
 }
 
 Def.Situation = {
+    Idel = -1,
     Normal = 0,
     Landing = 1,
     Waiting = 2,

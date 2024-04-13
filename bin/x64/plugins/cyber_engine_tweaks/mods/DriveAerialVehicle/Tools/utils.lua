@@ -47,14 +47,19 @@ function Utils:Normalize(v)
    return v
 end
 
-function Utils:SphericalVectors(sample_num, radius)
+function Utils:GenerateUniformVectorsOnSphere(sample_num, radius)
    local vectors = {}
    local golden_angle = Pi() * (3 - math.sqrt(5)) -- golden angle
 
    local n = sample_num * 2 -- even
 
-   for i = 1, n - 1 do
-      local y_ = 1 - (i / (n - 1)) * 2
+   if n < 1 then
+      self.log_obj:Record(LogLevel.Error, "sample_num should be larger than 0")
+      return nil
+   end
+
+   for i = 1, n do
+      local y_ = 1 - (i / n) * 2
       local r = math.sqrt(1 - y_*y_)
 
       local theta = golden_angle * i
@@ -62,7 +67,7 @@ function Utils:SphericalVectors(sample_num, radius)
       local x_ = math.cos(theta) * r
       local z_ = math.sin(theta) * r
 
-      local Normalized_vector = self:Normalize({x = x_, y = y_, z = z_}) 
+      local Normalized_vector = self:Normalize({x = x_, y = y_, z = z_})
       local x = Normalized_vector.x * radius
       local y = Normalized_vector.y * radius
       local z = Normalized_vector.z * radius

@@ -70,6 +70,10 @@ function Hud:SetObserve()
             self.interaction_ui_base = this
         end)
 
+        Observe("hudCarController", "OnInitialize", function(this)
+            self.hud_car_controller = this
+        end)
+
         Observe("hudCarController", "OnMountingEvent", function(this)
             self.hud_car_controller = this
         end)
@@ -204,7 +208,7 @@ function Hud:ShowActionButtons()
 end
 
 function Hud:HideActionButtons()
-    GameSettings.Set('/interface/hud/action_buttons', false)
+    -- GameSettings.Set('/interface/hud/action_buttons', false)
 end
 
 function Hud:ShowAutoModeDisplay()
@@ -222,6 +226,9 @@ function Hud:ShowArrivalDisplay()
     GameHUD.ShowMessage(text)
 end
 
-
+function Hud:ShowInterruptAutoPilotDisplay()
+    local text = "Auto Pilot has been interrupted"
+    GameHUD.ShowWarning(text, 2)
+end
 
 return Hud

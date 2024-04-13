@@ -16,6 +16,7 @@ function Ui:New()
     -- set default value
     obj.dummy_vehicle_record_hash = nil
     obj.is_vehicle_call = false
+	obj.is_locaked_call = true
     obj.vehicle_model_list = {}
 	obj.selected_vehicle_model_name = ""
     obj.selected_vehicle_model_number = 1
@@ -83,11 +84,10 @@ function Ui:ResetTweekDB()
 end
 
 function Ui:SetOverride()
+
 	if not DAV.ready then
 		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
-
 			local record_hash = this:GetActivePlayerVehicle(vehicle_type).recordID.hash
-
 			if record_hash == self.dummy_vehicle_record_hash then
 				self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
 				self.is_vehicle_call = true
@@ -99,6 +99,7 @@ function Ui:SetOverride()
 			end
 		end)
 	end
+
 end
 
 function Ui:ActivateAVSummon(is_avtive)

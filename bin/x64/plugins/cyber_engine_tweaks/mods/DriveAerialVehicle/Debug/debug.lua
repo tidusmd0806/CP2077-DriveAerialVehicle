@@ -48,6 +48,7 @@ function Debug:ImGuiMain()
     self:ImGuiCurrentEngineInfo()
     self:ImGuiSoundCheck()
     self:ImGuiMappinPosition()
+    self:ImGuiExcuteFunction()
     self:SelectPrint()
 
 end
@@ -165,6 +166,15 @@ function Debug:ImGuiMappinPosition()
         local y = string.format("%.2f", self.core_obj.current_custom_mappin_position.y)
         local z = string.format("%.2f", self.core_obj.current_custom_mappin_position.z)
         ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
+    end
+end
+
+function Debug:ImGuiExcuteFunction()
+    if ImGui.Button("Test Function 1",300, 60) then
+        local event = VisibleObjectTypeEvent.new()
+        event.type = gamedataSenseObjectType.Npc
+        Game.GetPlayer():QueueEvent(event)
+        print("Excute Test Function 1")
     end
 end
 
