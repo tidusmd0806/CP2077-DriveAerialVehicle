@@ -50,13 +50,6 @@ end
 
 function Event:SetObserve()
 
-    GameUI.Observe("SessionStart", function()
-        DAV.Cron.After(0.5, function()
-            -- DAV.core_obj:Reset()
-            self.ui_obj:ActivateAVSummon(true)
-        end)
-    end)
-
     GameUI.Observe("MenuOpen", function()
         self.is_in_menu = true
     end)
@@ -84,12 +77,11 @@ function Event:SetObserve()
     GameUI.Observe("LoadingFinish", function()
         DAV.Cron.After(0.5, function()
             DAV.core_obj:Reset()
-            self.ui_obj:ActivateAVSummon(true)
         end)
     end)
 
     GameUI.Observe("SessionEnd", function()
-        self.ui_obj:ActivateAVSummon(false)
+        self.ui_obj:ActivateDummySummon(false)
     end)
 end
 
@@ -136,12 +128,16 @@ end
 
 function Event:CheckAllEvents()
     if self.current_situation == Def.Situation.Normal then
+        self:CheckCallPurchasedVehicle()
         self:CheckCallVehicle()
+        self:CheckGarage()
+        self:CheckAvailableFreeCall()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
     elseif self.current_situation == Def.Situation.Waiting then
         self:CheckInEntryArea()
         self:CheckInAV()
+        self:CheckReturnPurchasedVehicle()
         self:CheckReturnVehicle()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
@@ -155,13 +151,35 @@ function Event:CheckAllEvents()
     end
 end
 
+function Event:CheckGarage()
+    DAV.core_obj:UpdateGarageInfo()
+end
+
+function Event:CheckAvailableFreeCall()
+    if self:IsAvailableFreeCall() then
+        self.ui_obj:ActivateDummySummon(true)
+    else
+        self.ui_obj:ActivateDummySummon(false)
+    end
+end
+
 function Event:CheckCallVehicle()
     if self.ui_obj:GetCallStatus() and not self.av_obj:IsSpawning() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
         self.sound_obj:PlaySound("101_call_vehicle")
         self.sound_obj:PlaySound("211_landing")
         self:SetSituation(Def.Situation.Landing)
-        self.av_obj:SpawnToSky(5.5, 50)
+        self.av_obj:SpawnToSky()
+    end
+end
+
+function Event:CheckCallPurchasedVehicle()
+    if self.ui_obj:GetPurchasedCallStatus() and not self.av_obj:IsSpawning() then
+        self.log_obj:Record(LogLevel.Trace, "Purchased vehicle call detected")
+        self.sound_obj:PlaySound("101_call_vehicle")
+        self.sound_obj:PlaySound("211_landing")
+        self:SetSituation(Def.Situation.Landing)
+        self.av_obj:SpawnToSky()
     end
 end
 
@@ -232,6 +250,17 @@ function Event:CheckReturnVehicle()
     end
 end
 
+function Event:CheckReturnPurchasedVehicle()
+    if self.ui_obj:GetPurchasedCallStatus() then
+        self.log_obj:Record(LogLevel.Trace, "Purchased vehicle return detected")
+        self.sound_obj:PlaySound("243_leaving")
+        self.sound_obj:PlaySound("104_call_vehicle")
+        self:SetSituation(Def.Situation.TalkingOff)
+        self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
+        self.av_obj:DespawnFromGround()
+    end
+end
+
 function Event:CheckDespawn()
     if self.av_obj:IsDespawned() then
         self.log_obj:Record(LogLevel.Trace, "Despawn detected")
@@ -255,6 +284,10 @@ function Event:CheckFailAutoPilot()
     if self.av_obj:IsFailedAutoPilot() then
         self.hud_obj:ShowInterruptAutoPilotDisplay()
     end
+end
+
+function Event:IsAvailableFreeCall()
+    return self.ui_obj:IsSelectedFreeCallMode()
 end
 
 function Event:IsNotSpawned()
@@ -360,7 +393,7 @@ function Event:SelectChoice(direction)
             self.log_obj:Record(LogLevel.Critical, "Invalid direction detected")
             return
         end
-        DAV.seat_index = self.selected_seat_index
+        self.av_obj.seat_index = self.selected_seat_index
     end
 end
 

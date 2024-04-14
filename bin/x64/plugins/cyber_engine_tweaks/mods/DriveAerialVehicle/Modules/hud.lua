@@ -23,6 +23,8 @@ function Hud:New()
     obj.key_input_hide_hint_event = nil
     obj.speed_meter_refresh_rate = 0.2
 
+    obj.selected_choice_index = 1
+
     return setmetatable(obj, self)
 end
 
@@ -35,7 +37,6 @@ function Hud:Init(av_obj)
         self:SetObserve()
         GameHUD.Initialize()
     end
-    self:SetChoiceList()
     self:SetCustomHint()
 
 end
@@ -58,7 +59,7 @@ function Hud:SetOverride()
 
         Override("InteractionUIBase", "OnDialogsSelectIndex", function(_, index, wrapped_method)
             if self.av_obj.position_obj:IsPlayerInEntryArea() then
-                wrapped_method(index)
+                wrapped_method(self.selected_choice_index - 1)
             else
                 wrapped_method(index)
             end
@@ -108,65 +109,42 @@ function Hud:GetChoiceTitle()
     return GetLocalizedText("LocKey#" .. tostring(self.av_obj.all_models[index].display_name_lockey))
 end
 
-function Hud:UpdateChoice()
-
-    -- local ui_interaction_define = GetAllBlackboardDefs().UIInteractions
-    -- local interaction_blackboard = Game.GetBlackboardSystem():Get(ui_interaction_define)
-    -- interaction_blackboard:SetInt(ui_interaction_define.SelectedIndex, 0, true)
-
-end
-
 function Hud:SetChoiceList()
 
     local model_index = DAV.model_index
-    self.interaction_hub = gameinteractionsvisListChoiceHubData.new()
+    local tmp_list = {}
 
-    self.interaction_hub.title = self:GetChoiceTitle()
-    self.interaction_hub.choices = {}
-    self.interaction_hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
-    self.interaction_hub.hubPriority = 1
-    self.interaction_hub.id = 6083991
+    local hub = gameinteractionsvisListChoiceHubData.new()
+    hub.title = self:GetChoiceTitle()
+    hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
+    hub.hubPriority = 1
+    hub.id = 6083991
 
-    for index = 1, #self.av_obj.all_models[model_index].actual_allocated_seat do
+    local icon = TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceCaptionParts.CourierIcon")
+    local caption_part = gameinteractionsChoiceCaption.new()
+    local choice_type = gameinteractionsChoiceTypeWrapper.new()
+    caption_part:AddPartFromRecord(icon)
+    choice_type:SetType(gameinteractionsChoiceType.Selected)
+
+    for index = 1, #self.av_obj.active_seat do
         local choice = gameinteractionsvisListChoiceData.new()
-        local icon = TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceCaptionParts.CourierIcon")
-        local caption_part = gameinteractionsChoiceCaption.new()
-        caption_part:AddPartFromRecord(icon)
-        local choice_type = gameinteractionsChoiceTypeWrapper.new()
-        choice_type:SetType(gameinteractionsChoiceType.Selected)
 
-        choice.localizedName = GetLocalizedText("LocKey#81569" .. "[" .. self.av_obj.all_models[model_index].active_seat[index] .. "]")
-        choice.inputActionName = CName.new("Choice1")
+        choice.localizedName = GetLocalizedText("LocKey#81569") .. "[" .. self.av_obj.all_models[model_index].active_seat[index] .. "]"
+        choice.inputActionName = CName.new("Anything")
         choice.captionParts = caption_part
         choice.type = choice_type
-        table.insert(self.interaction_hub.choices, choice)
+        table.insert(tmp_list, choice)
     end
+    hub.choices = tmp_list
 
+    self.interaction_hub = hub
 end
 
 function Hud:ShowChoice(selected_index)
 
-    -- local choice = gameinteractionsvisListChoiceData.new()
-    -- choice.localizedName = GetLocalizedText("LocKey#81569")
-    -- choice.inputActionName = CName.new("Choice2")
+    self.selected_choice_index = selected_index
 
-    -- local icon = TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceCaptionParts.CourierIcon")
-    -- local part = gameinteractionsChoiceCaption.new()
-    -- part:AddPartFromRecord(icon)
-    -- choice.captionParts = part
-
-    -- local choice2 = gameinteractionsvisListChoiceData.new()
-    -- choice2.localizedName = GetLocalizedText("LocKey#81569") .. " test2"
-    -- choice2.inputActionName = CName.new("Choice2")
-
-    -- local hub = gameinteractionsvisListChoiceHubData.new()
-    -- hub.title = self.choice_title
-    -- hub.choices = {choice, choice2}
-    -- hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
-    -- hub.hubPriority = 1
-    -- hub.id = 6083991
-
-    -- self.interaction_hub = hub
+    self:SetChoiceList()
 
     local ui_interaction_define = GetAllBlackboardDefs().UIInteractions
     local interaction_blackboard = Game.GetBlackboardSystem():Get(ui_interaction_define)
