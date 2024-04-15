@@ -73,5 +73,15 @@
         "name": "dav_toggle_auto_pilot",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
-    }
+    },
+    "KEY_WORLD_SELECT_UPPER_CHOICE": {
+        "name": "ChoiceScrollUp",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    },
+    "KEY_WORLD_SELECT_LOWER_CHOICE": {
+        "name": "ChoiceScrollDown",
+        "type": "BUTTON_PRESSED",
+        "value": "POSITIVE"
+    },
 }

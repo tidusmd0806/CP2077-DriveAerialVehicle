@@ -171,10 +171,22 @@ end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("Test Function 1",300, 60) then
-        local event = VisibleObjectTypeEvent.new()
-        event.type = gamedataSenseObjectType.Npc
-        Game.GetPlayer():QueueEvent(event)
+        local vehicle_system = Game.GetVehicleSystem()
+        local list = vehicle_system:GetPlayerUnlockedVehicles()
+        for _, vehicle in ipairs(list) do
+            print(vehicle.recordID.value)
+        end
         print("Excute Test Function 1")
+    end
+    if ImGui.Button("Test Function 2",300, 60) then
+        DAV.core_obj:UpdateGarageInfo()
+        for _, garage_info in ipairs(DAV.garage_info_list) do
+            print(garage_info.name)
+            print(garage_info.model_index)
+            print(garage_info.type_index)
+            print(garage_info.is_purchased)
+        end
+        print("Excute Test Function 2")
     end
 end
 

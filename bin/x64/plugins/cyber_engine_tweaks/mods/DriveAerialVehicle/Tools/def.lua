@@ -18,6 +18,9 @@ Def.ActionList = {
 	Exit = 101,
 	ChangeCamera = 102,
 	ChangeDoor1 = 103,
+    ChangeDoor2 = 104,
+    SelectUp = 105,
+    SelectDown = 106,
     ----------
     AutoPilot = 200,
 }

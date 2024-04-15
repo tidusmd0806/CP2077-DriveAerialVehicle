@@ -1,0 +1,29 @@
+{
+    "language": "English",
+    "version": "1.1.0",
+
+    "ui_main_window_title": "Drive an Aerial Vehicle Menu",
+    "ui_tab_garage": "Garage",
+    "ui_tab_free_summon": "Free Summon",
+    "ui_tab_control_setting": "Control Settings",
+    "ui_tab_camera_setting": "Camera Settings",
+    "ui_tab_general_setting": "General Settings",
+    "ui_tab_info": "Info",
+
+    "ui_garage_title": "List of all AVs and selected types",
+    "ui_garage_purchased": "Purchased",
+    "ui_garage_not_purchased": "Not Purchased",
+
+    "ui_free_summon_select_model": "Model",
+    "ui_free_summon_select_type": "Type",
+    "ui_free_summon_warning_message_in_summoning_1": "The settings menu is currently unavailable.",
+    "ui_free_summon_warning_message_in_summoning_2": "Please despawn your AV by pushing vehicle button.",
+    "ui_free_summon_warning_message_in_summoning_3": "Please check the \"Enable Free Summon\" checkbox.",
+    "ui_free_summon_enable_summon": "Enable Free Summon",
+    "ui_free_summon_select_model_explain": "Select the AV you want to drive",
+    "ui_free_summon_select_type_explain": "Select the type of AV",
+    "ui_free_summon_update": "Update",
+
+    "ui_setting_language": "Language"
+
+}

@@ -37,6 +37,7 @@ function AV:New(all_models)
 	obj.turn_speed = 0.8
 
 	-- This parameter is used for collision when player done not operate AV
+	obj.seat_index = 1
 	obj.is_collision = false
 	obj.max_collision_count = obj.position_obj.collision_max_count
 	obj.colison_count = 0
@@ -248,9 +249,9 @@ end
 function AV:Mount()
 
 	self.is_landed = false
-	self.camera_obj:SetPerspective()
+	self.camera_obj:SetPerspective(self.seat_index)
 
-	local seat_number = DAV.seat_index
+	local seat_number = self.seat_index
 
 	self.log_obj:Record(LogLevel.Debug, "Mount Aerial Vehicle : " .. seat_number)
 	if self.entity_id == nil then
@@ -311,7 +312,7 @@ function AV:Unmount()
 
 	self.camera_obj:ResetPerspective()
 
-	local seat_number = DAV.seat_index
+	local seat_number = self.seat_index
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to unmount")
 		return false

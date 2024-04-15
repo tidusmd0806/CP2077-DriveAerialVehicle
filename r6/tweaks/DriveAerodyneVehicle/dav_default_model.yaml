@@ -1,0 +1,71 @@
+Vehicle.av_rayfield_excalibur_dav_dummy:
+  $base: Vehicle.v_sport2_quadra_type66_02_player
+  displayName: LocKey#77051
+  manufacturer: Vehicle.Rayfield
+  icon:
+    atlasResourcePath: base/gameplay/gui/common/icons/weapon_manufacturers.inkatlas
+    atlasPartName: rayfield
+
+Vehicle.av_rayfield_excalibur_dav_dummy.dealerAtlasPath: "base/gameplay/gui/common/icons/codex/assets_fullscreen25.inkatlas"
+Vehicle.av_rayfield_excalibur_dav_dummy.dealerPartName: "v_rayfield_excalibur_full"
+Vehicle.av_rayfield_excalibur_dav_dummy.dealerPrice: 250000
+Vehicle.av_rayfield_excalibur_dav_dummy.dealerCred: 20
+
+Vehicle.av_militech_manticore_dav_dummy:
+  $base:  Vehicle.v_sport2_quadra_type66_02_player
+  displayName: LocKey#77967
+  manufacturer: Vehicle.Militech
+  icon:
+    atlasResourcePath: base/gameplay/gui/common/icons/weapon_manufacturers.inkatlas
+    atlasPartName: militech_l
+
+Vehicle.av_militech_manticore_dav_dummy.dealerAtlasPath: "base/gameplay/gui/common/icons/codex/assets_fullscreen26.inkatlas"
+Vehicle.av_militech_manticore_dav_dummy.dealerPartName: "v_militech_manticore_full"
+Vehicle.av_militech_manticore_dav_dummy.dealerPrice: 300000
+Vehicle.av_militech_manticore_dav_dummy.dealerCred: 20
+
+Vehicle.av_zetatech_atlus_dav_dummy:
+  $base:  Vehicle.v_sport2_quadra_type66_02_player
+  displayName: LocKey#77962
+  manufacturer: Vehicle.Zetatech
+  icon:
+    atlasResourcePath: base/gameplay/gui/common/icons/weapon_manufacturers.inkatlas
+    atlasPartName: zetatech
+
+Vehicle.av_zetatech_atlus_dav_dummy.dealerAtlasPath: "base/gameplay/gui/common/icons/codex/assets_fullscreen26.inkatlas"
+Vehicle.av_zetatech_atlus_dav_dummy.dealerPartName: "v_zetatech_atlus_trauma_team_full"
+Vehicle.av_zetatech_atlus_dav_dummy.dealerPrice: 150000
+Vehicle.av_zetatech_atlus_dav_dummy.dealerCred: 20
+
+Vehicle.av_zetatech_surveyor_dav_dummy:
+  $base:  Vehicle.v_sport2_quadra_type66_02_player
+  displayName: LocKey#77063
+  manufacturer: Vehicle.Zetatech
+  icon:
+    atlasResourcePath: base/gameplay/gui/common/icons/weapon_manufacturers.inkatlas
+    atlasPartName: zetatech
+
+Vehicle.av_zetatech_surveyor_dav_dummy.dealerAtlasPath: "base/gameplay/gui/common/icons/codex/assets_fullscreen21.inkatlas"
+Vehicle.av_zetatech_surveyor_dav_dummy.dealerPartName: "v_zetatech_surveyor_full"
+Vehicle.av_zetatech_surveyor_dav_dummy.dealerPrice: 350000
+Vehicle.av_zetatech_surveyor_dav_dummy.dealerCred: 20
+
+Vehicle.q000_nomad_border_patrol_heli_dav_dummy:
+  $base:  Vehicle.v_sport2_quadra_type66_02_player
+  displayName: LocKey#77065
+  manufacturer: Vehicle.Zetatech
+  icon:
+    atlasResourcePath: base/gameplay/gui/common/icons/weapon_manufacturers.inkatlas
+    atlasPartName: zetatech
+
+Vehicle.q000_nomad_border_patrol_heli_dav_dummy.dealerAtlasPath: "base/gameplay/gui/common/icons/codex/assets_fullscreen21.inkatlas"
+Vehicle.q000_nomad_border_patrol_heli_dav_dummy.dealerPartName: "v_zetatech_valgus_full"
+Vehicle.q000_nomad_border_patrol_heli_dav_dummy.dealerPrice: 200000
+Vehicle.q000_nomad_border_patrol_heli_dav_dummy.dealerCred: 20
+
+Vehicle.vehicle_list.list:
+  - !append Vehicle.av_rayfield_excalibur_dav_dummy
+  - !append Vehicle.av_militech_manticore_dav_dummy
+  - !append Vehicle.av_zetatech_atlus_dav_dummy
+  - !append Vehicle.av_zetatech_surveyor_dav_dummy
+  - !append Vehicle.q000_nomad_border_patrol_heli_dav_dummy

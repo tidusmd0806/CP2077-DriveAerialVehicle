@@ -28,15 +28,22 @@ function Core:New()
     obj.relative_resolution = 0.1
     obj.hold_progress = 0.9
 
+    obj.language_file_list = {}
+    obj.language_name_list = {}
+
     -- set default parameters
     obj.input_table = {}
     obj.current_custom_mappin_position = {x = 0, y = 0, z = 0}
+    obj.current_purchased_vehicle_count = 0
 
     return setmetatable(obj, self)
 
 end
 
 function Core:Init()
+
+    self:LoadSetting()
+    self:SetTranslationNameList()
 
     self.all_models = self:GetAllModel()
     self.input_table = self:GetInputTable(self.input_path)
@@ -68,6 +75,54 @@ function Core:Reset()
     self.av_obj:Init()
 
     self.event_obj:Init(self.av_obj)
+
+end
+
+function Core:LoadSetting()
+    local setting_data = DAV.Utils:ReadJson(DAV.user_setting_path)
+    if setting_data.version == DAV.version then
+        DAV.user_setting_table = setting_data
+
+        DAV.model_index = DAV.user_setting_table.model_index
+        DAV.model_type_index = DAV.user_setting_table.model_type_index
+        DAV.is_free_summon_mode = DAV.user_setting_table.is_free_summon_mode
+        DAV.language_index = DAV.user_setting_table.language_index
+        DAV.garage_info_list = DAV.user_setting_table.garage_info_list
+        DAV.horizenal_boost_ratio = DAV.user_setting_table.horizenal_boost_ratio
+    end
+end
+
+function Core:SetTranslationNameList()
+
+    self.language_file_list = dir(DAV.language_path)
+    for _, file in ipairs(self.language_file_list) do
+        local language_table = Utils:ReadJson(DAV.language_path .. "/" .. file.name)
+        table.insert(self.language_name_list, language_table.language)
+    end
+
+end
+
+function Core:GetTranslationText(text)
+
+    local language_table = Utils:ReadJson((DAV.language_path .. "/" .. self.language_file_list[DAV.language_index].name))
+
+    if table == nil then
+        self.log_obj:Record(LogLevel.Critical, "Language File is invalid")
+        return nil
+    end
+    local translated_text = language_table[text]
+    if translated_text == nil then
+        self.log_obj:Record(LogLevel.Warning, "Translation is not found")
+        language_table = Utils:ReadJson((DAV.language_path .. "/" .. self.language_file_list[1].name))
+        translated_text = language_table[text]
+        if translated_text == nil then
+            self.log_obj:Record(LogLevel.Error, "Translation is not found in default language")
+            translated_text = "???"
+        end
+        return translated_text
+    end
+
+    return translated_text
 
 end
 
@@ -146,6 +201,56 @@ function Core:GetAllModel()
         return nil
     end
     return model
+
+end
+
+function Core:UpdateGarageInfo()
+
+    local vehicle_system = Game.GetVehicleSystem()
+    local list = vehicle_system:GetPlayerUnlockedVehicles()
+
+    if self.current_purchased_vehicle_count == #list then
+        return
+    else
+        self.current_purchased_vehicle_count = #list
+    end
+
+    DAV.garage_info_list = {}
+
+    for index, model in ipairs(self.av_obj.all_models) do
+        local garage_info = {name = "", model_index = 1, type_index = 1, is_purchased = false}
+        garage_info.name = model.tweakdb_id
+        garage_info.model_index = index
+        table.insert(DAV.garage_info_list, garage_info)
+    end
+
+    for _, purchased_vehicle in ipairs(list) do
+        if string.match(purchased_vehicle.recordID.value, "_dummy") then
+            local purchased_vehicle_name = string.gsub(purchased_vehicle.recordID.value, "_dummy", "")
+            for index, garage_info in ipairs(DAV.garage_info_list) do
+                if garage_info.name == purchased_vehicle_name then
+                    DAV.garage_info_list[index].is_purchased = true
+                    break
+                end
+            end
+        end
+    end
+
+    DAV.user_setting_table.garage_info_list = DAV.garage_info_list
+	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+
+end
+
+function Core:ChangeGarageAVType(name, index)
+
+    self:UpdateGarageInfo()
+
+    for _, garage_info in ipairs(DAV.garage_info_list) do
+        if garage_info.name == name then
+            garage_info.type_index = index
+            break
+        end
+    end
 
 end
 
@@ -235,6 +340,10 @@ function Core:ConvertActionList(action_name, action_type, action_value_type, act
         action_command = Def.ActionList.ChangeDoor1
     elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_AUTO_PILOT) then
         action_command = Def.ActionList.AutoPilot
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
+        action_command = Def.ActionList.SelectUp
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
+        action_command = Def.ActionList.SelectDown
     else
         action_command = Def.ActionList.Nothing
     end
@@ -293,6 +402,10 @@ function Core:SetEvent(action)
         self.event_obj:ChangeDoor()
     elseif action == Def.ActionList.AutoPilot then
         self.event_obj:ToggleAutoMode()
+    elseif action == Def.ActionList.SelectUp then
+        self.event_obj:SelectChoice(Def.ActionList.SelectUp)
+    elseif action == Def.ActionList.SelectDown then
+        self.event_obj:SelectChoice(Def.ActionList.SelectDown)
     end
 
 end
