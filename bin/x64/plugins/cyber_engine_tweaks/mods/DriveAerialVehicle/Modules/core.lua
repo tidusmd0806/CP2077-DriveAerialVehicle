@@ -82,6 +82,13 @@ function Core:LoadSetting()
     local setting_data = DAV.Utils:ReadJson(DAV.user_setting_path)
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
+
+        DAV.model_index = DAV.user_setting_table.model_index
+        DAV.model_type_index = DAV.user_setting_table.model_type_index
+        DAV.is_free_summon_mode = DAV.user_setting_table.is_free_summon_mode
+        DAV.language_index = DAV.user_setting_table.language_index
+        DAV.garage_info_list = DAV.user_setting_table.garage_info_list
+        DAV.horizenal_boost_ratio = DAV.user_setting_table.horizenal_boost_ratio
     end
 end
 
@@ -218,9 +225,10 @@ function Core:UpdateGarageInfo()
     end
 
     for _, purchased_vehicle in ipairs(list) do
-        if string.match(purchased_vehicle.recordID.value, "dav") then
+        if string.match(purchased_vehicle.recordID.value, "_dummy") then
+            local purchased_vehicle_name = string.gsub(purchased_vehicle.recordID.value, "_dummy", "")
             for index, garage_info in ipairs(DAV.garage_info_list) do
-                if garage_info.name == purchased_vehicle.recordID.value then
+                if garage_info.name == purchased_vehicle_name then
                     DAV.garage_info_list[index].is_purchased = true
                     break
                 end

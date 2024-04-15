@@ -43,15 +43,8 @@ function Ui:Init(av_obj)
     self:SetTweekDB()
 	if not DAV.ready then
     	self:SetOverride()
-		self:SetInitialParameters()
 		self:InitVehicleModelList()
 	end
-end
-
-function Ui:SetInitialParameters()
-	DAV.model_index = DAV.user_setting_table.model_index
-	DAV.model_type_index = DAV.user_setting_table.model_type_index
-	DAV.horizenal_boost_ratio = DAV.user_setting_table.horizenal_boost_ratio
 end
 
 function Ui:SetTweekDB()
@@ -92,14 +85,17 @@ function Ui:SetOverride()
 
 	if not DAV.ready then
 		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
-			local record_hash = this:GetActivePlayerVehicle(vehicle_type).recordID.hash
-			if self.dummy_av_record.hash == record_hash then
+			local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
+
+			if self.dummy_av_record.hash == record_id.hash then
 				self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
 				self.is_vehicle_call = true
 				return false
 			end
+			local str = string.gsub(record_id.value, "_dummy", "")
+			local new_record_id = TweakDBID.new(str)
 			for _, record in ipairs(self.av_record_list) do
-				if record_hash == record.hash then
+				if record.hash == new_record_id.hash then
 					self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
 					for key, value in ipairs(self.av_obj.all_models) do
 						if value.tweakdb_id == record.value then
@@ -237,7 +233,7 @@ function Ui:ShowGarage()
 			ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_garage_not_purchased"))
 		end
 
-		if ImGui.BeginListBox(self.av_obj.all_models[garage_info.model_index].type[garage_info.type_index], 600.0, 220.0) then
+		if ImGui.BeginListBox(self.av_obj.all_models[garage_info.model_index].type[garage_info.type_index], 600.0, 180.0) then
 			for index, value in ipairs(self.av_obj.all_models[garage_info.model_index].type) do
 				if self.av_obj.all_models[garage_info.model_index].type[garage_info.type_index] == value then
 					selected = true
