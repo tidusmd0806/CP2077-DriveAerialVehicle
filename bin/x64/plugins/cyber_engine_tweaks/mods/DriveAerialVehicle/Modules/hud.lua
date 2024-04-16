@@ -2,14 +2,14 @@ local GameSettings = require('External/GameSettings.lua')
 local GameHUD = require('External/GameHUD.lua')
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
-local Hud = {}
-Hud.__index = Hud
+local HUD = {}
+HUD.__index = HUD
 
-function Hud:New()
+function HUD:New()
 
     local obj = {}
     obj.log_obj = Log:New()
-    obj.log_obj:SetLevel(LogLevel.Info, "Hud")
+    obj.log_obj:SetLevel(LogLevel.Info, "HUD")
 
     -- set default parameters
     obj.av_obj = nil
@@ -28,7 +28,7 @@ function Hud:New()
     return setmetatable(obj, self)
 end
 
-function Hud:Init(av_obj)
+function HUD:Init(av_obj)
 
     self.av_obj = av_obj
 
@@ -41,7 +41,7 @@ function Hud:Init(av_obj)
 
 end
 
-function Hud:SetOverride()
+function HUD:SetOverride()
 
     if not DAV.ready then
         -- Overside choice ui (refer to https://www.nexusmods.com/cyberpunk2077/mods/7299)
@@ -61,14 +61,24 @@ function Hud:SetOverride()
             if self.av_obj.position_obj:IsPlayerInEntryArea() then
                 wrapped_method(self.selected_choice_index - 1)
             else
+                self.selected_choice_index = index + 1
                 wrapped_method(index)
+            end
+        end)
+
+        Override("dialogWidgetGameController", "OnDialogsActivateHub", function(_, id, wrapped_metthod) -- Avoid interaction getting overriden by game
+            if self.av_obj.position_obj:IsPlayerInEntryArea() then
+                local id_ = self.interaction_hub.id or id
+                return wrapped_metthod(id_)
+            else
+                return wrapped_metthod(id)
             end
         end)
     end
 
 end
 
-function Hud:SetObserve()
+function HUD:SetObserve()
 
     if not DAV.ready then
         Observe("InteractionUIBase", "OnInitialize", function(this)
@@ -104,12 +114,12 @@ function Hud:SetObserve()
 
 end
 
-function Hud:GetChoiceTitle()
+function HUD:GetChoiceTitle()
     local index = DAV.model_index
     return GetLocalizedText("LocKey#" .. tostring(self.av_obj.all_models[index].display_name_lockey))
 end
 
-function Hud:SetChoiceList()
+function HUD:SetChoiceList()
 
     local model_index = DAV.model_index
     local tmp_list = {}
@@ -118,7 +128,7 @@ function Hud:SetChoiceList()
     hub.title = self:GetChoiceTitle()
     hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
     hub.hubPriority = 1
-    hub.id = 6083991
+    hub.id = 69420 + math.random(99999)
 
     local icon = TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceCaptionParts.CourierIcon")
     local caption_part = gameinteractionsChoiceCaption.new()
@@ -129,8 +139,9 @@ function Hud:SetChoiceList()
     for index = 1, #self.av_obj.active_seat do
         local choice = gameinteractionsvisListChoiceData.new()
 
-        choice.localizedName = GetLocalizedText("LocKey#81569") .. "[" .. self.av_obj.all_models[model_index].active_seat[index] .. "]"
-        choice.inputActionName = CName.new("Anything")
+        local lockey_enter = GetLocalizedText("LocKey#81569") or "Enter"
+        choice.localizedName = lockey_enter .. "[" .. self.av_obj.all_models[model_index].active_seat[index] .. "]"
+        choice.inputActionName = CName.new("None")
         choice.captionParts = caption_part
         choice.type = choice_type
         table.insert(tmp_list, choice)
@@ -140,7 +151,7 @@ function Hud:SetChoiceList()
     self.interaction_hub = hub
 end
 
-function Hud:ShowChoice(selected_index)
+function HUD:ShowChoice(selected_index)
 
     self.selected_choice_index = selected_index
 
@@ -149,7 +160,7 @@ function Hud:ShowChoice(selected_index)
     local ui_interaction_define = GetAllBlackboardDefs().UIInteractions
     local interaction_blackboard = Game.GetBlackboardSystem():Get(ui_interaction_define)
 
-    -- interaction_blackboard:SetInt(ui_interaction_define.ActiveChoiceHubID, self.interaction_hub.id)
+    interaction_blackboard:SetInt(ui_interaction_define.ActiveChoiceHubID, self.interaction_hub.id)
     local data = interaction_blackboard:GetVariant(ui_interaction_define.DialogChoiceHubs)
     self.dialogIsScrollable = true
     self.interaction_ui_base:OnDialogsSelectIndex(selected_index - 1)
@@ -160,7 +171,7 @@ function Hud:ShowChoice(selected_index)
 
 end
 
-function Hud:HideChoice()
+function HUD:HideChoice()
 
     self.interaction_hub = nil
 
@@ -172,7 +183,7 @@ function Hud:HideChoice()
 
 end
 
-function Hud:ShowMeter()
+function HUD:ShowMeter()
     self.hud_car_controller:ShowRequest()
     self.hud_car_controller:OnCameraModeChanged(true)
 
@@ -193,13 +204,13 @@ function Hud:ShowMeter()
     end
 end
 
-function Hud:HideMeter()
+function HUD:HideMeter()
     self.hud_car_controller:HideRequest()
     self.hud_car_controller:OnCameraModeChanged(false)
     self.is_speed_meter_shown = false
 end
 
-function Hud:SetCustomHint()
+function HUD:SetCustomHint()
     local hint_table = Utils:ReadJson("Data/key_hint.json")
     self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()
     self.key_input_hide_hint_event = UpdateInputHintMultipleEvent.new()
@@ -231,40 +242,40 @@ function Hud:SetCustomHint()
     end
 end
 
-function Hud:ShowCustomHint()
+function HUD:ShowCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_show_hint_event)
 end
 
-function Hud:HideCustomHint()
+function HUD:HideCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_hide_hint_event)
 end
 
-function Hud:ShowActionButtons()
+function HUD:ShowActionButtons()
     GameSettings.Set('/interface/hud/action_buttons', true)
 end
 
-function Hud:HideActionButtons()
+function HUD:HideActionButtons()
     GameSettings.Set('/interface/hud/action_buttons', false)
 end
 
-function Hud:ShowAutoModeDisplay()
+function HUD:ShowAutoModeDisplay()
     local text = GetLocalizedText("LocKey#84945")
     GameHUD.ShowMessage(text)
 end
 
-function Hud:ShowDriveModeDisplay()
+function HUD:ShowDriveModeDisplay()
     local text = GetLocalizedText("LocKey#84944")
     GameHUD.ShowMessage(text)
 end
 
-function Hud:ShowArrivalDisplay()
+function HUD:ShowArrivalDisplay()
     local text = GetLocalizedText("LocKey#77994")
     GameHUD.ShowMessage(text)
 end
 
-function Hud:ShowInterruptAutoPilotDisplay()
+function HUD:ShowInterruptAutoPilotDisplay()
     local text = "Auto Pilot has been interrupted"
     GameHUD.ShowWarning(text, 2)
 end
 
-return Hud
+return HUD

@@ -81,7 +81,7 @@ function Event:SetObserve()
     end)
 
     GameUI.Observe("SessionEnd", function()
-        self.ui_obj:ActivateDummySummon(false)
+        DAV.core_obj:ActivateDummySummon(false)
     end)
 end
 
@@ -157,14 +157,14 @@ end
 
 function Event:CheckAvailableFreeCall()
     if self:IsAvailableFreeCall() then
-        self.ui_obj:ActivateDummySummon(true)
+        DAV.core_obj:ActivateDummySummon(true)
     else
-        self.ui_obj:ActivateDummySummon(false)
+        DAV.core_obj:ActivateDummySummon(false)
     end
 end
 
 function Event:CheckCallVehicle()
-    if self.ui_obj:GetCallStatus() and not self.av_obj:IsSpawning() then
+    if DAV.core_obj:GetCallStatus() and not self.av_obj:IsSpawning() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
         self.sound_obj:PlaySound("101_call_vehicle")
         self.sound_obj:PlaySound("211_landing")
@@ -174,7 +174,7 @@ function Event:CheckCallVehicle()
 end
 
 function Event:CheckCallPurchasedVehicle()
-    if self.ui_obj:GetPurchasedCallStatus() and not self.av_obj:IsSpawning() then
+    if DAV.core_obj:GetPurchasedCallStatus() and not self.av_obj:IsSpawning() then
         self.log_obj:Record(LogLevel.Trace, "Purchased vehicle call detected")
         self.sound_obj:PlaySound("101_call_vehicle")
         self.sound_obj:PlaySound("211_landing")
@@ -240,7 +240,7 @@ function Event:CheckCollision()
 end
 
 function Event:CheckReturnVehicle()
-    if self.ui_obj:GetCallStatus() then
+    if DAV.core_obj:GetCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected")
         self.sound_obj:PlaySound("243_leaving")
         self.sound_obj:PlaySound("104_call_vehicle")
@@ -251,7 +251,7 @@ function Event:CheckReturnVehicle()
 end
 
 function Event:CheckReturnPurchasedVehicle()
-    if self.ui_obj:GetPurchasedCallStatus() then
+    if DAV.core_obj:GetPurchasedCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Purchased vehicle return detected")
         self.sound_obj:PlaySound("243_leaving")
         self.sound_obj:PlaySound("104_call_vehicle")
@@ -287,7 +287,7 @@ function Event:CheckFailAutoPilot()
 end
 
 function Event:IsAvailableFreeCall()
-    return self.ui_obj:IsSelectedFreeCallMode()
+    return DAV.is_free_summon_mode
 end
 
 function Event:IsNotSpawned()

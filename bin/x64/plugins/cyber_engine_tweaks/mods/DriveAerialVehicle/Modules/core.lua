@@ -36,6 +36,9 @@ function Core:New()
     obj.current_custom_mappin_position = {x = 0, y = 0, z = 0}
     obj.current_purchased_vehicle_count = 0
 
+    obj.is_vehicle_call = false
+    obj.is_purchased_vehicle_call = false
+
     return setmetatable(obj, self)
 
 end
@@ -67,6 +70,8 @@ function Core:Init()
     self:SetInputListener()
     self:SetCustomMappinPosition()
 
+    self:SetOverride()
+
 end
 
 function Core:Reset()
@@ -90,6 +95,59 @@ function Core:LoadSetting()
         DAV.garage_info_list = DAV.user_setting_table.garage_info_list
         DAV.horizenal_boost_ratio = DAV.user_setting_table.horizenal_boost_ratio
     end
+end
+
+function Core:SetOverride()
+
+	if not DAV.ready then
+		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
+			local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
+
+			if self.event_obj.ui_obj.dummy_av_record.hash == record_id.hash then
+				self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
+				self.is_vehicle_call = true
+				return false
+			end
+			local str = string.gsub(record_id.value, "_dummy", "")
+			local new_record_id = TweakDBID.new(str)
+			for _, record in ipairs(self.event_obj.ui_obj.av_record_list) do
+				if record.hash == new_record_id.hash then
+					self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
+					for key, value in ipairs(self.av_obj.all_models) do
+						if value.tweakdb_id == record.value then
+							DAV.model_index = key
+							DAV.model_type_index = DAV.garage_info_list[key].type_index
+							self.av_obj:Init()
+							break
+						end
+					end
+					self.is_purchased_vehicle_call = true
+					return false
+				end
+			end
+			local res = wrapped_method(vehicle_type)
+			self.is_vehicle_call = false
+			self.is_purchased_vehicle_call = false
+			return res
+		end)
+	end
+
+end
+
+function Core:ActivateDummySummon(is_avtive)
+    Game.GetVehicleSystem():EnablePlayerVehicle(self.event_obj.ui_obj.dummy_vehicle_record, is_avtive, true)
+end
+
+function Core:GetCallStatus()
+    local call_status = self.is_vehicle_call
+    self.is_vehicle_call = false
+    return call_status
+end
+
+function Core:GetPurchasedCallStatus()
+    local call_status = self.is_purchased_vehicle_call
+    self.is_purchased_vehicle_call = false
+    return call_status
 end
 
 function Core:SetTranslationNameList()

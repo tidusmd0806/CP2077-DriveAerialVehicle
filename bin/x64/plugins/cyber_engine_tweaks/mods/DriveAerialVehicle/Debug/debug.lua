@@ -18,6 +18,8 @@ function Debug:New(core_obj)
     obj.is_im_gui_sound_check = false
     obj.is_im_gui_mappin_position = false
 
+    DAV.debug_param_1 = false
+
     obj.selected_sound = "first"
     return setmetatable(obj, self)
 end
@@ -171,22 +173,101 @@ end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("Test Function 1",300, 60) then
-        local vehicle_system = Game.GetVehicleSystem()
-        local list = vehicle_system:GetPlayerUnlockedVehicles()
-        for _, vehicle in ipairs(list) do
-            print(vehicle.recordID.value)
-        end
+        local seat_number = DAV.core_obj.av_obj.seat_index
+    
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local player = Game.GetPlayer()
+        local ent_id = entity:GetEntityID()
+        local seat = DAV.core_obj.av_obj.active_seat[seat_number]
+    
+        local data = NewObject('handle:gameMountEventData')
+        data.isInstant = true
+        data.slotName = seat
+        data.mountParentEntityId = ent_id
+        data.entryAnimName = "forcedTransition"
+    
+        local slotID = NewObject('gamemountingMountingSlotId')
+        slotID.id = seat
+    
+        local mounting_info = NewObject('gamemountingMountingInfo')
+        mounting_info.childId = player:GetEntityID()
+        mounting_info.parentId = ent_id
+        mounting_info.slotId = slotID
+    
+        local mount_event = NewObject('handle:gamemountingUnmountingRequest')
+        mount_event.lowLevelMountingInfo = mounting_info
+        mount_event.mountData = data
+    
+        Game.GetMountingFacility():Unmount(mount_event)
+
+        local player_past_pos = Game.GetPlayer():GetWorldPosition()
+        -- set entity id to position object
+        DAV.Cron.Every(0.001, {tick = 1}, function(timer)
+            local player_current_pos = Game.GetPlayer():GetWorldPosition()
+            local distance = Vector4.Distance(player_past_pos, player_current_pos)
+            if distance > 1 then
+            
+                local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+                local player = Game.GetPlayer()
+                local ent_id = entity:GetEntityID()
+                local seat = DAV.core_obj.av_obj.active_seat[seat_number]
+            
+            
+                local data = NewObject('handle:gameMountEventData')
+                data.isInstant = false
+                data.slotName = seat
+                data.mountParentEntityId = ent_id
+                data.entryAnimName = "stand__2h_on_sides__01__to__sit_couch__AV_excalibur__01__turn270__getting_into_AV__01"
+            
+            
+                local slot_id = NewObject('gamemountingMountingSlotId')
+                slot_id.id = seat
+            
+                local mounting_info = NewObject('gamemountingMountingInfo')
+                mounting_info.childId = player:GetEntityID()
+                mounting_info.parentId = ent_id
+                mounting_info.slotId = slot_id
+            
+                local mounting_request = NewObject('handle:gamemountingMountingRequest')
+                mounting_request.lowLevelMountingInfo = mounting_info
+                mounting_request.mountData = data
+            
+                Game.GetMountingFacility():Mount(mounting_request)
+            
+                DAV.core_obj.av_obj.position_obj:ChangePosition()
+            
+                -- return position near mounted vehicle	
+                DAV.Cron.Every(1, {tick = 1}, function(timer)
+                    local entity = player:GetMountedVehicle()
+                    if entity ~= nil then
+                        DAV.Cron.Halt(timer)
+                    end
+                end)
+                DAV.Cron.Halt(timer)
+            end
+        end)
+
+        
         print("Excute Test Function 1")
     end
     if ImGui.Button("Test Function 2",300, 60) then
-        DAV.core_obj:UpdateGarageInfo()
-        for _, garage_info in ipairs(DAV.garage_info_list) do
-            print(garage_info.name)
-            print(garage_info.model_index)
-            print(garage_info.type_index)
-            print(garage_info.is_purchased)
-        end
+        DAV.core_obj.av_obj:Unmount()
         print("Excute Test Function 2")
+    end
+    if ImGui.Button("Test Function 3",300, 60) then
+        if DAV.debug_param_1 == false then
+            DAV.debug_param_1 = true
+            DAV.Cron.Every(1, {tick = 0}, function(timer)
+                timer.tick = timer.tick + 1
+                if DAV.debug_param_1 == false then
+                    print("Telep Stop Time:" .. timer.tick .. "s")
+                    DAV.Cron.Halt(timer)
+                end
+            end)
+        else
+            DAV.debug_param_1 = false
+        end
+        print("Excute Test Function 3")
     end
 end
 

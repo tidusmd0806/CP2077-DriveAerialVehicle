@@ -87,7 +87,7 @@ registerForEvent('onInit', function()
         print('Drive an Aerial Vehicle Mod failed to load due to missing dependencies.')
         return
     end
-
+    
     DAV.core_obj:Init()
 
     DAV.ready = true

@@ -1,12 +1,12 @@
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
-local Ui = {}
-Ui.__index = Ui
+local UI = {}
+UI.__index = UI
 
-function Ui:New()
+function UI:New()
     local obj = {}
     obj.log_obj = Log:New()
-    obj.log_obj:SetLevel(LogLevel.Info, "Ui")
+    obj.log_obj:SetLevel(LogLevel.Info, "UI")
 
     obj.dummy_vehicle_record = "Vehicle.av_dav_dummy"
     obj.dummy_vehicle_record_path = "base\\vehicles\\special\\av_dav_dummy_99.ent"
@@ -14,9 +14,6 @@ function Ui:New()
 	obj.av_obj = nil
 
     -- set default value
-    obj.is_vehicle_call = false
-	obj.is_purchased_vehicle_call = false
-	obj.is_locaked_call = true
     obj.vehicle_model_list = {}
 	obj.selected_vehicle_model_name = ""
     obj.selected_vehicle_model_number = 1
@@ -30,26 +27,24 @@ function Ui:New()
 	obj.dummy_av_record = nil
 	obj.av_record_list = {}
 
-	self.selected_language_name = ""
+	obj.selected_language_name = ""
 
 	obj.max_boost_ratio = 5.0
 
     return setmetatable(obj, self)
 end
 
-function Ui:Init(av_obj)
+function UI:Init(av_obj)
 	self.av_obj = av_obj
 
     self:SetTweekDB()
 	if not DAV.ready then
-    	self:SetOverride()
 		self:InitVehicleModelList()
 	end
 end
 
-function Ui:SetTweekDB()
+function UI:SetTweekDB()
 	local index = DAV.model_index
-	-- local display_name_lockey = self.av_obj.all_models[index].display_name_lockey
     local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
     local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
     local lockey = "Story-base-gameplay-gui-quests-q103-q103_rogue-_localizationString47"
@@ -75,70 +70,13 @@ function Ui:SetTweekDB()
 	end
 end
 
-function Ui:ResetTweekDB()
+function UI:ResetTweekDB()
 	TweakDB:DeleteRecord(self.dummy_vehicle_record)
 	TweakDB:DeleteRecord(self.dummy_logo_record)
 	self.av_record_list = {}
 end
 
-function Ui:SetOverride()
-
-	if not DAV.ready then
-		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
-			local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
-
-			if self.dummy_av_record.hash == record_id.hash then
-				self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
-				self.is_vehicle_call = true
-				return false
-			end
-			local str = string.gsub(record_id.value, "_dummy", "")
-			local new_record_id = TweakDBID.new(str)
-			for _, record in ipairs(self.av_record_list) do
-				if record.hash == new_record_id.hash then
-					self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
-					for key, value in ipairs(self.av_obj.all_models) do
-						if value.tweakdb_id == record.value then
-							DAV.model_index = key
-							DAV.model_type_index = DAV.garage_info_list[key].type_index
-							self.av_obj:Init()
-							break
-						end
-					end
-					self.is_purchased_vehicle_call = true
-					return false
-				end
-			end
-			local res = wrapped_method(vehicle_type)
-			self.is_vehicle_call = false
-			self.is_purchased_vehicle_call = false
-			return res
-		end)
-	end
-
-end
-
-function Ui:ActivateDummySummon(is_avtive)
-    Game.GetVehicleSystem():EnablePlayerVehicle(self.dummy_vehicle_record, is_avtive, true)
-end
-
-function Ui:GetCallStatus()
-    local call_status = self.is_vehicle_call
-    self.is_vehicle_call = false
-    return call_status
-end
-
-function Ui:GetPurchasedCallStatus()
-    local call_status = self.is_purchased_vehicle_call
-    self.is_purchased_vehicle_call = false
-    return call_status
-end
-
-function Ui:IsSelectedFreeCallMode()
-	return DAV.is_free_summon_mode
-end
-
-function Ui:InitVehicleModelList()
+function UI:InitVehicleModelList()
 
 	for i, model in ipairs(self.av_obj.all_models) do
         self.vehicle_model_list[i] = model.name
@@ -157,7 +95,7 @@ function Ui:InitVehicleModelList()
 
 end
 
-function Ui:SetMenuColor()
+function UI:SetMenuColor()
 	ImGui.PushStyleColor(ImGuiCol.TitleBg, 0, 0.5, 0, 0.5)
 	ImGui.PushStyleColor(ImGuiCol.TitleBgCollapsed, 0, 0.5, 0, 0.5)
 	ImGui.PushStyleColor(ImGuiCol.TitleBgActive, 0, 0.5, 0, 0.5)
@@ -174,7 +112,7 @@ function Ui:SetMenuColor()
 	ImGui.PushStyleColor(ImGuiCol.CheckMark, 0, 0.7, 0, 0.8)
 end
 
-function Ui:ShowSettingMenu()
+function UI:ShowSettingMenu()
 
 	self:SetMenuColor()
     ImGui.SetNextWindowSize(1000, 1000, ImGuiCond.Appearing)
@@ -210,7 +148,7 @@ function Ui:ShowSettingMenu()
 
 end
 
-function Ui:ShowGarage()
+function UI:ShowGarage()
 
 	local selected = false
 
@@ -252,7 +190,7 @@ function Ui:ShowGarage()
 
 end
 
-function Ui:ShowFreeSummon()
+function UI:ShowFreeSummon()
 
 	local temp_is_free_summon_mode = DAV.is_free_summon_mode
 	local selected = false
@@ -364,7 +302,7 @@ function Ui:ShowFreeSummon()
 
 end
 
-function Ui:ShowGeneralSetting()
+function UI:ShowGeneralSetting()
 
 	local temp_language_index = DAV.language_index
 	local selected = false
@@ -393,7 +331,7 @@ function Ui:ShowGeneralSetting()
 
 end
 
-function Ui:ShowInfo()
+function UI:ShowInfo()
 	ImGui.Text("Drive an Aerial Vehicle Version: " .. DAV.version)
 	if DAV.cet_version_num < DAV.cet_recommended_version then
 		ImGui.TextColored(1, 0, 0, 1, "CET Version: " .. GetVersion() .. "(Not Recommended Version)")
@@ -408,7 +346,7 @@ function Ui:ShowInfo()
 	DAV.is_debug_mode = ImGui.Checkbox("Debug Window (Developer Mode)", DAV.is_debug_mode)
 end
 
-function Ui:SetParameters()
+function UI:SetParameters()
 
 	DAV.model_index = self.selected_vehicle_model_number
 	DAV.model_type_index = self.selected_vehicle_type_number
@@ -425,4 +363,4 @@ function Ui:SetParameters()
 
 end
 
-return Ui
+return UI
