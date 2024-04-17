@@ -18,8 +18,6 @@ function Debug:New(core_obj)
     obj.is_im_gui_sound_check = false
     obj.is_im_gui_mappin_position = false
 
-    DAV.debug_param_1 = false
-
     obj.selected_sound = "first"
     return setmetatable(obj, self)
 end
@@ -251,7 +249,6 @@ function Debug:ImGuiExcuteFunction()
         print("Excute Test Function 1")
     end
     if ImGui.Button("Test Function 2",300, 60) then
-        DAV.core_obj.av_obj:Unmount()
         print("Excute Test Function 2")
     end
     if ImGui.Button("Test Function 3",300, 60) then

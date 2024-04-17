@@ -60,6 +60,11 @@ function AV:New(all_models)
 	obj.min_stack_count = 10
 	obj.is_failture_auto_pilot = false
 
+	obj.freeze_count = 0
+	obj.x_total = 0
+	obj.y_total = 0
+	obj.z_total = 0
+
 	return setmetatable(obj, self)
 end
 
@@ -402,9 +407,9 @@ function AV:Operate(action_commands)
 
 	self.is_collision = false
 
-	x_total = x_total / #action_commands
-	y_total = y_total / #action_commands
-	z_total = z_total / #action_commands
+	x_total = x_total / #action_commands + self.x_total
+	y_total = y_total / #action_commands + self.y_total
+	z_total = z_total / #action_commands + self.z_total
 	roll_total = roll_total / #action_commands
 	pitch_total = pitch_total / #action_commands
 	yaw_total = yaw_total / #action_commands
@@ -412,6 +417,22 @@ function AV:Operate(action_commands)
 	if x_total == 0 and y_total == 0 and z_total == 0 and roll_total == 0 and pitch_total == 0 and yaw_total == 0 then
 		self.log_obj:Record(LogLevel.Debug, "No operation")
 		return false
+	end
+
+	-- to freeze for spawning vehicle and pedistrian
+	if self.freeze_count < 2 and DAV.core_obj:IsEnableFreeze() then
+		self.freeze_count = self.freeze_count + 1
+		self.x_total = x_total
+		self.y_total = y_total
+		self.z_total = z_total
+		return false
+	elseif self.freeze_count >= 50 then
+		self.freeze_count = 0
+	elseif self.freeze_count >= 1 then
+		self.freeze_count = self.freeze_count + 1
+		self.x_total = 0
+		self.y_total = 0
+		self.z_total = 0
 	end
 
 	local res = self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)

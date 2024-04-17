@@ -39,6 +39,8 @@ function Core:New()
     obj.is_vehicle_call = false
     obj.is_purchased_vehicle_call = false
 
+    obj.is_freezing = false
+
     return setmetatable(obj, self)
 
 end
@@ -88,12 +90,22 @@ function Core:LoadSetting()
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
 
+        --- garage
+        DAV.garage_info_list = DAV.user_setting_table.garage_info_list
+
+        --- free summon mode
+        DAV.is_free_summon_mode = DAV.user_setting_table.is_free_summon_mode
         DAV.model_index = DAV.user_setting_table.model_index
         DAV.model_type_index = DAV.user_setting_table.model_type_index
-        DAV.is_free_summon_mode = DAV.user_setting_table.is_free_summon_mode
-        DAV.language_index = DAV.user_setting_table.language_index
-        DAV.garage_info_list = DAV.user_setting_table.garage_info_list
+        
+        --- control
         DAV.horizenal_boost_ratio = DAV.user_setting_table.horizenal_boost_ratio
+
+        --- camera
+        DAV.is_active_temporarily_freeze = DAV.user_setting_table.is_active_temporarily_freeze
+
+        --- general
+        DAV.language_index = DAV.user_setting_table.language_index
     end
 end
 
@@ -226,6 +238,10 @@ function Core:SetInputListener()
             end
         end
 
+        if (string.match(action_name, "mouse") and action_value > 2) or (string.match(action_name, "right_stick") and action_value > 0.1) then
+            self.is_freezing = true
+        end
+
         if DAV.is_debug_mode then
             DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
         end
@@ -233,6 +249,22 @@ function Core:SetInputListener()
         self:StorePlayerAction(action_name, action_type, action_value)
 
     end)
+
+end
+
+function Core:IsEnableFreeze()
+
+    if DAV.is_active_temporarily_freeze then
+        return false
+    end
+
+    local freeze = self.is_freezing
+    self.is_freezing = false
+    if freeze and self.av_obj.engine_obj:GetSpeed() < 70 then
+        return true
+    else
+        return false
+    end
 
 end
 
@@ -299,16 +331,19 @@ function Core:UpdateGarageInfo()
 
 end
 
-function Core:ChangeGarageAVType(name, index)
+function Core:ChangeGarageAVType(name, type_index)
 
     self:UpdateGarageInfo()
 
-    for _, garage_info in ipairs(DAV.garage_info_list) do
+    for idx, garage_info in ipairs(DAV.garage_info_list) do
         if garage_info.name == name then
-            garage_info.type_index = index
+            DAV.garage_info_list[idx].type_index = type_index
             break
         end
     end
+
+    DAV.user_setting_table.garage_info_list = DAV.garage_info_list
+	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end
 

@@ -6,7 +6,7 @@
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "1.1.0",
+	version = "1.2.0",
     ready = false,
     is_debug_mode = false,
     is_opening_overlay = false,
@@ -14,6 +14,7 @@ DAV = {
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
     is_free_summon_mode = true,
+    is_active_temporarily_freeze = false,
 	model_index = 1,
 	model_type_index = 1,
     garage_info_list = {},
@@ -37,12 +38,18 @@ DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
 
 DAV.user_setting_table = {
     version = DAV.version,
+    --- garage
+    garage_info_list = DAV.garage_info_list,
+    --- free summon mode
+    is_free_summon_mode = DAV.is_free_summon_mode,
     model_index = DAV.model_index,
     model_type_index = DAV.model_type_index,
-    garage_info_list = DAV.garage_info_list,
-    is_free_summon_mode = DAV.is_free_summon_mode,
+    --- control
+    horizenal_boost_ratio = DAV.horizenal_boost_ratio,
+    --- camera
+    is_active_temporarily_freeze = DAV.is_active_temporarily_freeze,
+    --- general
     language_index = DAV.language_index,
-    horizenal_boost_ratio = DAV.horizenal_boost_ratio
 }
 
 registerForEvent("onOverlayOpen",function ()

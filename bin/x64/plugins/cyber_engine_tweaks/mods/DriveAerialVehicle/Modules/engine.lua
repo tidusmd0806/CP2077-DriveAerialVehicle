@@ -105,6 +105,10 @@ function Engine:SetSpeedForcibly(vel)
     self.current_speed = vel
 end
 
+function Engine:GetSpeed()
+    return self.current_speed
+end
+
 function Engine:CalculateIndication(movement)
 
     local actually_indication = self.position_obj:GetEulerAngles()

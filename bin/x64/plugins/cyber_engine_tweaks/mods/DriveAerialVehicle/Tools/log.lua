@@ -22,6 +22,7 @@ function Log:New()
 end
 
 function Log:SetLevel(level, file_name)
+
     if level < 0 or level > 5 or MasterLogLevel ~= LogLevel.Nothing then
         self.setting_level = MasterLogLevel
         self.setting_file_name = "[" .. file_name .. "]"
@@ -31,9 +32,11 @@ function Log:SetLevel(level, file_name)
         self.setting_file_name = "[" .. file_name .. "]"
         return true
     end
+
 end
 
 function Log:Record(level, message)
+
     if level > self.setting_level then
         return
     end
@@ -52,6 +55,7 @@ function Log:Record(level, message)
     else
         return
     end
+
 end
 
 return Log

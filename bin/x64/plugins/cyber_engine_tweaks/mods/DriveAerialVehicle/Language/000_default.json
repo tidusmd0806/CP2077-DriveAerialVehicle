@@ -1,6 +1,6 @@
 {
     "language": "English",
-    "version": "1.1.0",
+    "version": "1.2.0",
 
     "ui_main_window_title": "Drive an Aerial Vehicle Menu",
     "ui_tab_garage": "Garage",
@@ -23,6 +23,10 @@
     "ui_free_summon_select_model_explain": "Select the AV you want to drive",
     "ui_free_summon_select_type_explain": "Select the type of AV",
     "ui_free_summon_update": "Update",
+
+    "ui_free_control_update": "Update",
+
+    "ui_camera_frame_rate_stabilization": "Vehicle frame rate stabilization",
 
     "ui_setting_language": "Language"
 

@@ -130,6 +130,16 @@ function UI:ShowSettingMenu()
 			ImGui.EndTabItem()
 		end
 
+		if ImGui.BeginTabItem(DAV.core_obj:GetTranslationText("ui_tab_control_setting")) then
+			self:ShowControlSetting()
+			ImGui.EndTabItem()
+		end
+
+		if ImGui.BeginTabItem(DAV.core_obj:GetTranslationText("ui_tab_camera_setting")) then
+			self:ShowCameraSetting()
+			ImGui.EndTabItem()
+		end
+
 		if ImGui.BeginTabItem(DAV.core_obj:GetTranslationText("ui_tab_general_setting")) then
 			self:ShowGeneralSetting()
 			ImGui.EndTabItem()
@@ -201,9 +211,6 @@ function UI:ShowFreeSummon()
 	ImGui.Text(DAV.core_obj:GetTranslationText("ui_free_summon_select_type"))
 	ImGui.SameLine()
 	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_type_name)
-	ImGui.Text("Horizenal Boost Ratio : ")
-	ImGui.SameLine()
-	ImGui.TextColored(0, 1, 0, 1, string.format("%.1f", DAV.horizenal_boost_ratio))
 
 	ImGui.Separator()
 	ImGui.Spacing()
@@ -288,18 +295,30 @@ function UI:ShowFreeSummon()
 		ImGui.EndCombo()
 	end
 
+	ImGui.Spacing()
+
+	if ImGui.Button(DAV.core_obj:GetTranslationText("ui_free_summon_update"), 180, 60) then
+		self:SetFreeSummonParameters()
+	end
+
+end
+
+function UI:ShowControlSetting()
 	ImGui.Text("Horizenal Boost Ratio")
 	local is_used_slider = false
 	DAV.horizenal_boost_ratio, is_used_slider = ImGui.SliderFloat("##Horizenal Boost Ratio", DAV.horizenal_boost_ratio, 1.0, self.max_boost_ratio, "%.1f")
-
-	ImGui.Spacing()
-
 	if not is_used_slider then
-		if ImGui.Button(DAV.core_obj:GetTranslationText("ui_free_summon_update"), 180, 60) then
-			self:SetParameters()
+		if ImGui.Button(DAV.core_obj:GetTranslationText("ui_free_control_update"), 180, 60) then
+			DAV.user_setting_table.horizenal_boost_ratio = DAV.horizenal_boost_ratio
+			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		end
 	end
+end
 
+function UI:ShowCameraSetting()
+	DAV.is_active_temporarily_freeze = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_camera_frame_rate_stabilization"), DAV.is_active_temporarily_freeze)
+	DAV.user_setting_table.is_active_temporarily_freeze = DAV.is_active_temporarily_freeze
+	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 end
 
 function UI:ShowGeneralSetting()
@@ -346,7 +365,7 @@ function UI:ShowInfo()
 	DAV.is_debug_mode = ImGui.Checkbox("Debug Window (Developer Mode)", DAV.is_debug_mode)
 end
 
-function UI:SetParameters()
+function UI:SetFreeSummonParameters()
 
 	DAV.model_index = self.selected_vehicle_model_number
 	DAV.model_type_index = self.selected_vehicle_type_number

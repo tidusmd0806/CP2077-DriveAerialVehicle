@@ -207,10 +207,9 @@ function Position:ChangePosition()
         self.log_obj:Record(LogLevel.Error, "No vehicle entity for ChangePosition")
         return false
     end
-    if DAV.debug_param_1 then
-        return
-    end
+
     Game.GetTeleportationFacility():Teleport(self.entity, self.next_position, self.next_angle)
+
 end
 
 function Position:CheckCollision(current_pos, next_pos)
