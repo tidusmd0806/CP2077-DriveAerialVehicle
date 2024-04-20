@@ -1,5 +1,4 @@
 local AV = require("Modules/av.lua")
-local Def = require("Tools/def.lua")
 local Event = require("Modules/event.lua")
 local Log = require("Tools/log.lua")
 local Queue = require("Tools/queue.lua")
@@ -18,10 +17,10 @@ function Core:New()
     obj.event_obj = nil
 
     obj.all_models = nil
-    obj.input_table = nil
 
     obj.av_model_path = "Data/default_model.json"
-    obj.input_path = "Data/input.json"
+    obj.heli_input_path = "Data/heli_input.json"
+    obj.spinner_input_path = "Data/spinner_input.json"
     obj.axis_dead_zone = 0.5
     obj.relative_dead_zone = 0.01
     obj.relative_table = {}
@@ -31,8 +30,11 @@ function Core:New()
     obj.language_file_list = {}
     obj.language_name_list = {}
 
+    obj.max_speed_for_freezing = 100
+
     -- set default parameters
-    obj.input_table = {}
+    obj.heli_input_table = {}
+    obj.spinner_input_table = {}
     obj.current_custom_mappin_position = {x = 0, y = 0, z = 0}
     obj.current_purchased_vehicle_count = 0
 
@@ -51,7 +53,8 @@ function Core:Init()
     self:SetTranslationNameList()
 
     self.all_models = self:GetAllModel()
-    self.input_table = self:GetInputTable(self.input_path)
+    self.heli_input_table = self:GetInputTable(self.heli_input_path)
+    self.spinner_input_table = self:GetInputTable(self.spinner_input_path)
 
     if self.all_models == nil then
         self.log_obj:Record(LogLevel.Error, "Model is nil")
@@ -64,7 +67,7 @@ function Core:Init()
     self.event_obj = Event:New()
     self.event_obj:Init(self.av_obj)
 
-    DAV.Cron.Every(DAV.time_resolution, function()
+    Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
         self:GetActions()
     end)
@@ -86,7 +89,7 @@ function Core:Reset()
 end
 
 function Core:LoadSetting()
-    local setting_data = DAV.Utils:ReadJson(DAV.user_setting_path)
+    local setting_data = Utils:ReadJson(DAV.user_setting_path)
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
 
@@ -97,16 +100,50 @@ function Core:LoadSetting()
         DAV.is_free_summon_mode = DAV.user_setting_table.is_free_summon_mode
         DAV.model_index = DAV.user_setting_table.model_index
         DAV.model_type_index = DAV.user_setting_table.model_type_index
-        
-        --- control
-        DAV.horizenal_boost_ratio = DAV.user_setting_table.horizenal_boost_ratio
 
-        --- camera
-        DAV.is_active_temporarily_freeze = DAV.user_setting_table.is_active_temporarily_freeze
+        --- control
+        DAV.flight_mode = DAV.user_setting_table.flight_mode
+        DAV.is_disable_heli_roll_tilt = DAV.user_setting_table.is_disable_heli_roll_tilt
+        DAV.is_disable_heli_pitch_tilt = DAV.user_setting_table.is_disable_heli_pitch_tilt
+        DAV.heli_heli_horizenal_boost_ratio = DAV.user_setting_table.heli_horizenal_boost_ratio
+        DAV.is_disable_spinner_roll_tilt = DAV.user_setting_table.is_disable_spinner_roll_tilt
+
+        --- environment
+        DAV.is_enable_community_spawn = DAV.user_setting_table.is_enable_community_spawn
+        DAV.spawn_frequency = DAV.user_setting_table.spawn_frequency
 
         --- general
         DAV.language_index = DAV.user_setting_table.language_index
     end
+end
+
+function Core:ResetSetting()
+
+    DAV.user_setting_table = {
+        version = DAV.version,
+        --- garage
+        garage_info_list = DAV.garage_info_list,
+        --- free summon mode
+        is_free_summon_mode = DAV.is_free_summon_mode,
+        model_index = DAV.model_index,
+        model_type_index = DAV.model_type_index,
+        --- control
+        flight_mode = DAV.flight_mode,
+        is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt,
+        is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt,
+        heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio,
+        is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt,
+        --- environment
+        is_enable_community_spawn = DAV.is_enable_community_spawn,
+        spawn_frequency = DAV.spawn_frequency,
+        --- general
+        language_index = DAV.language_index,
+    }
+
+    Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+
+    self:LoadSetting()
+
 end
 
 function Core:SetOverride()
@@ -200,22 +237,30 @@ function Core:SetInputListener()
 
     local player = Game.GetPlayer()
 
-    player:UnregisterInputListener(player, "dav_accelerate")
-    player:UnregisterInputListener(player, "dav_y_move")
-    player:UnregisterInputListener(player, "dav_x_move")
-    player:UnregisterInputListener(player, "dav_rotate_move")
-    player:UnregisterInputListener(player, "dav_hover")
+    player:UnregisterInputListener(player, "dav_heli_lift")
+    player:UnregisterInputListener(player, "dav_heli_forward_backward")
+    player:UnregisterInputListener(player, "dav_heli_left_right")
+    player:UnregisterInputListener(player, "dav_heli_rotate")
+    player:UnregisterInputListener(player, "dav_heli_hover")
+    player:UnregisterInputListener(player, "dav_spinner_forward_backward")
+    player:UnregisterInputListener(player, "dav_spinner_left_right")
+    player:UnregisterInputListener(player, "dav_spinner_up")
+    player:UnregisterInputListener(player, "dav_spinner_down")
     player:UnregisterInputListener(player, "dav_get_on")
     player:UnregisterInputListener(player, "dav_get_off")
     player:UnregisterInputListener(player, "dav_change_view")
     player:UnregisterInputListener(player, "dav_toggle_door_1")
     player:UnregisterInputListener(player, "dav_toggle_auto_pilot")
 
-    player:RegisterInputListener(player, "dav_accelerate")
-    player:RegisterInputListener(player, "dav_y_move")
-    player:RegisterInputListener(player, "dav_x_move")
-    player:RegisterInputListener(player, "dav_rotate_move")
-    player:RegisterInputListener(player, "dav_hover")
+    player:RegisterInputListener(player, "dav_heli_lift")
+    player:RegisterInputListener(player, "dav_heli_forward_backward")
+    player:RegisterInputListener(player, "dav_heli_left_right")
+    player:RegisterInputListener(player, "dav_heli_rotate")
+    player:RegisterInputListener(player, "dav_heli_hover")
+    player:RegisterInputListener(player, "dav_spinner_forward_backward")
+    player:RegisterInputListener(player, "dav_spinner_left_right")
+    player:RegisterInputListener(player, "dav_spinner_up")
+    player:RegisterInputListener(player, "dav_spinner_down")
     player:RegisterInputListener(player, "dav_get_on")
     player:RegisterInputListener(player, "dav_get_off")
     player:RegisterInputListener(player, "dav_change_view")
@@ -254,13 +299,13 @@ end
 
 function Core:IsEnableFreeze()
 
-    if DAV.is_active_temporarily_freeze then
+    if not DAV.is_enable_community_spawn then
         return false
     end
 
     local freeze = self.is_freezing
     self.is_freezing = false
-    if freeze and self.av_obj.engine_obj:GetSpeed() < 70 then
+    if freeze and self.av_obj.engine_obj:GetSpeed() < self.max_speed_for_freezing then
         return true
     else
         return false
@@ -387,7 +432,13 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
         end
     end
 
-    local cmd, loop_count = self:ConvertActionList(action_name, action_type, action_value_type, action_value)
+    local cmd, loop_count = 0, 1
+
+    if DAV.flight_mode == Def.FlightMode.Heli then
+        cmd, loop_count = self:ConvertHeliActionList(action_name, action_type, action_value_type)
+    elseif DAV.flight_mode == Def.FlightMode.Spinner then
+        cmd, loop_count = self:ConvertSpinnerActionList(action_name, action_type, action_value_type)
+    end
 
     for _ = 1, loop_count do
         if cmd ~= Def.ActionList.Nothing then
@@ -397,45 +448,85 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
 
 end
 
-function Core:ConvertActionList(action_name, action_type, action_value_type, action_value)
+function Core:ConvertHeliActionList(action_name, action_type, action_value_type)
 
     local action_command = Def.ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
     local loop_count = 1
 
-    if Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_ACCELERTOR) then
-        action_command = Def.ActionList.Up
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_DOWN) then
-        action_command = Def.ActionList.Down
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_FORWARD_MOVE) then
-        action_command = Def.ActionList.Forward
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_BACK_MOVE) then
-        action_command = Def.ActionList.Backward
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_MOVE) then
-        action_command = Def.ActionList.Right
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_MOVE) then
-        action_command = Def.ActionList.Left
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_ROTATE) then
-        action_command = Def.ActionList.TurnRight
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_ROTATE) then
-        action_command = Def.ActionList.TurnLeft
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_HOVER) then
-        action_command = Def.ActionList.Hover
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_HOLD) then
-        action_command = Def.ActionList.Hold
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_ENTER_AV) then
+    if Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_ACCELERTOR) then
+        action_command = Def.ActionList.HeliUp
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_DOWN) then
+        action_command = Def.ActionList.HeliDown
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_FORWARD_MOVE) then
+        action_command = Def.ActionList.HeliForward
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_BACK_MOVE) then
+        action_command = Def.ActionList.HeliBackward
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_RIGHT_MOVE) then
+        action_command = Def.ActionList.HeliRight
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_LEFT_MOVE) then
+        action_command = Def.ActionList.HeliLeft
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_RIGHT_ROTATE) then
+        action_command = Def.ActionList.HeliTurnRight
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_LEFT_ROTATE) then
+        action_command = Def.ActionList.HeliTurnLeft
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_HOVER) then
+        action_command = Def.ActionList.HeliHover
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_HOLD) then
+        action_command = Def.ActionList.HeliHold
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_ENTER_AV) then
         action_command = Def.ActionList.Enter
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_EXIT_AV) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_EXIT_AV) then
         action_command = Def.ActionList.Exit
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_CAMERA) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_CAMERA) then
         action_command = Def.ActionList.ChangeCamera
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_DOOR_1) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_TOGGLE_DOOR_1) then
         action_command = Def.ActionList.ChangeDoor1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_AUTO_PILOT) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_TOGGLE_AUTO_PILOT) then
         action_command = Def.ActionList.AutoPilot
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
         action_command = Def.ActionList.SelectUp
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
+        action_command = Def.ActionList.SelectDown
+    else
+        action_command = Def.ActionList.Nothing
+    end
+
+    return action_command, loop_count
+
+end
+
+function Core:ConvertSpinnerActionList(action_name, action_type, action_value_type)
+
+    local action_command = Def.ActionList.Nothing
+    local action_dist = {name = action_name, type = action_type, value = action_value_type}
+    local loop_count = 1
+
+    if Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_FORWARD_MOVE) then
+        action_command = Def.ActionList.SpinnerForward
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_BACK_MOVE) then
+        action_command = Def.ActionList.SpinnerBackward
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_RIGHT_MOVE) then
+        action_command = Def.ActionList.SpinnerRight
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_LEFT_MOVE) then
+        action_command = Def.ActionList.SpinnerLeft
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_UP_MOVE) then
+        action_command = Def.ActionList.SpinnerUp
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_DOWN_MOVE) then
+        action_command = Def.ActionList.SpinnerDown
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_ENTER_AV) then
+        action_command = Def.ActionList.Enter
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_EXIT_AV) then
+        action_command = Def.ActionList.Exit
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_CAMERA) then
+        action_command = Def.ActionList.ChangeCamera
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_TOGGLE_DOOR_1) then
+        action_command = Def.ActionList.ChangeDoor1
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_TOGGLE_AUTO_PILOT) then
+        action_command = Def.ActionList.AutoPilot
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
+        action_command = Def.ActionList.SelectUp
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
         action_command = Def.ActionList.SelectDown
     else
         action_command = Def.ActionList.Nothing

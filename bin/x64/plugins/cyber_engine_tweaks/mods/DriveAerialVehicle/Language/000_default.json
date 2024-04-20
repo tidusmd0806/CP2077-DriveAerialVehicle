@@ -5,9 +5,9 @@
     "ui_main_window_title": "Drive an Aerial Vehicle Menu",
     "ui_tab_garage": "Garage",
     "ui_tab_free_summon": "Free Summon",
-    "ui_tab_control_setting": "Control Settings",
-    "ui_tab_camera_setting": "Camera Settings",
-    "ui_tab_general_setting": "General Settings",
+    "ui_tab_control_setting": "Control",
+    "ui_tab_environment_setting": "Environment",
+    "ui_tab_general_setting": "General",
     "ui_tab_info": "Info",
 
     "ui_garage_title": "List of all AVs and selected types",
@@ -22,12 +22,16 @@
     "ui_free_summon_enable_summon": "Enable Free Summon",
     "ui_free_summon_select_model_explain": "Select the AV you want to drive",
     "ui_free_summon_select_type_explain": "Select the type of AV",
-    "ui_free_summon_update": "Update",
 
-    "ui_free_control_update": "Update",
+    "ui_control_setting_select_flight_mode": "Select Flight Mode",
+    "ui_control_setting_horizenal_boost": "Horizenal Boost Ratio",
+    "ui_control_setting_disable_left_right": "Disable the tilt to the left and right",
+    "ui_control_setting_disable_forward_backward": "Disable the tilt to the forward and backward",
 
-    "ui_camera_frame_rate_stabilization": "Vehicle frame rate stabilization",
+    "ui_environment_enable_community_spawn": "Enable Community Spawn",
+    "ui_environment_spawn_frequency": "Spawn Frequency (Number of spawns per second)",
 
-    "ui_setting_language": "Language"
+    "ui_setting_language": "Language",
+    "ui_setting_reset_setting": "Reset Settings"
 
 }

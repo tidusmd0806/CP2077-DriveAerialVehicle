@@ -37,7 +37,6 @@ function HUD:Init(av_obj)
         self:SetObserve()
         GameHUD.Initialize()
     end
-    self:SetCustomHint()
 
 end
 
@@ -191,14 +190,19 @@ function HUD:ShowMeter()
         return
     else
         self.is_speed_meter_shown = true
-        DAV.Cron.Every(self.speed_meter_refresh_rate, function()
+        Cron.Every(self.speed_meter_refresh_rate, function()
             local mph = self.av_obj.engine_obj.current_speed * (3600 / 1600)
-            local power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
+            local power_level = 0
+            if DAV.flight_mode == Def.FlightMode.Heli then
+                power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
+            elseif DAV.flight_mode == Def.FlightMode.Spinner then 
+                power_level = math.floor(self.av_obj.engine_obj.spinner_horizenal_force / (self.av_obj.engine_obj.max_spinner_horizenal_force / 10))
+            end
             self.hud_car_controller:OnSpeedValueChanged(mph / 4.58)
             self.hud_car_controller:OnRpmValueChanged(power_level)
             self.hud_car_controller:EvaluateRPMMeterWidget(power_level)
             if not self.is_speed_meter_shown then
-                DAV.Cron.Halt()
+                Cron.Halt()
             end
         end)
     end
@@ -211,7 +215,12 @@ function HUD:HideMeter()
 end
 
 function HUD:SetCustomHint()
-    local hint_table = Utils:ReadJson("Data/key_hint.json")
+    local hint_table = {}
+    if DAV.flight_mode == Def.FlightMode.Heli then
+        hint_table = Utils:ReadJson("Data/heli_key_hint.json")
+    elseif DAV.flight_mode == Def.FlightMode.Spinner then
+        hint_table = Utils:ReadJson("Data/spinner_key_hint.json")
+    end
     self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()
     self.key_input_hide_hint_event = UpdateInputHintMultipleEvent.new()
     self.key_input_show_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
@@ -243,6 +252,7 @@ function HUD:SetCustomHint()
 end
 
 function HUD:ShowCustomHint()
+    self:SetCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_show_hint_event)
 end
 

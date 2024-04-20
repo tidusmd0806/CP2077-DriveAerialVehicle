@@ -4,22 +4,42 @@
 -- https://opensource.org/licenses/mit-license.php
 --------------------------------------------------------
 
+Cron = require('External/Cron.lua')
+Def = require("Tools/def.lua")
+
+local Core = require('Modules/core.lua')
+local Debug = require('Debug/debug.lua')
+
 DAV = {
 	description = "Drive an Aerial Vehicele",
 	version = "1.2.0",
     ready = false,
+
+    -- system
+    time_resolution = 0.01,
     is_debug_mode = false,
     is_opening_overlay = false,
-    time_resolution = 0.01,
+    -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
-    is_free_summon_mode = true,
-    is_active_temporarily_freeze = false,
 	model_index = 1,
 	model_type_index = 1,
+    -- garage
     garage_info_list = {},
+    --free summon mode
+    is_free_summon_mode = true,
+    -- control
+    flight_mode = Def.FlightMode.Heli,
+    is_disable_heli_roll_tilt = false,
+    is_disable_heli_pitch_tilt = false,
+    heli_horizenal_boost_ratio = 2.0,
+    is_disable_spinner_roll_tilt = false,
+    -- environment
+    is_enable_community_spawn = false,
+    spawn_frequency = 2,
+    -- general
     language_index = 1,
-    horizenal_boost_ratio = 2.0,
+    -- version check
     cet_required_version = 32.1, -- 1.32.1
     cet_recommended_version = 32.2, -- 1.32.2
     codeware_required_version = 8.2, -- 1.8.2
@@ -28,14 +48,7 @@ DAV = {
     codeware_version_num = 0
 }
 
-DAV.Cron = require('External/Cron.lua')
-DAV.Core = require('Modules/core.lua')
-DAV.Debug = require('Debug/debug.lua')
-DAV.Utils = require('Tools/utils.lua')
-
-DAV.core_obj = DAV.Core:New()
-DAV.debug_obj = DAV.Debug:New(DAV.core_obj)
-
+-- initial settings
 DAV.user_setting_table = {
     version = DAV.version,
     --- garage
@@ -45,9 +58,14 @@ DAV.user_setting_table = {
     model_index = DAV.model_index,
     model_type_index = DAV.model_type_index,
     --- control
-    horizenal_boost_ratio = DAV.horizenal_boost_ratio,
-    --- camera
-    is_active_temporarily_freeze = DAV.is_active_temporarily_freeze,
+    flight_mode = DAV.flight_mode,
+    is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt,
+    is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt,
+    heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio,
+    is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt,
+    --- environment
+    is_enable_community_spawn = DAV.is_enable_community_spawn,
+    spawn_frequency = DAV.spawn_frequency,
     --- general
     language_index = DAV.language_index,
 }
@@ -60,6 +78,7 @@ registerForEvent("onOverlayClose",function ()
 	DAV.is_opening_overlay = false
 end)
 
+-- set custom vehicle record
 registerForEvent("onTweak",function ()
 
      -- Custom excalibur record
@@ -91,10 +110,13 @@ end)
 registerForEvent('onInit', function()
 
     if not DAV:CheckDependencies() then
-        print('Drive an Aerial Vehicle Mod failed to load due to missing dependencies.')
+        print('[Error] Drive an Aerial Vehicle Mod failed to load due to missing dependencies.')
         return
     end
-    
+
+    DAV.core_obj = Core:New()
+    DAV.debug_obj = Debug:New(DAV.core_obj)
+
     DAV.core_obj:Init()
 
     DAV.ready = true
@@ -114,7 +136,7 @@ end)
 
 registerForEvent('onUpdate', function(delta)
     -- This is required for Cron to function
-    DAV.Cron.Update(delta)
+    Cron.Update(delta)
 end)
 
 function DAV:CheckDependencies()
