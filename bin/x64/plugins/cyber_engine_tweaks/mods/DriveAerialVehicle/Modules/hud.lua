@@ -2,14 +2,14 @@ local GameSettings = require('External/GameSettings.lua')
 local GameHUD = require('External/GameHUD.lua')
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
-local Hud = {}
-Hud.__index = Hud
+local HUD = {}
+HUD.__index = HUD
 
-function Hud:New()
+function HUD:New()
 
     local obj = {}
     obj.log_obj = Log:New()
-    obj.log_obj:SetLevel(LogLevel.Info, "Hud")
+    obj.log_obj:SetLevel(LogLevel.Info, "HUD")
 
     -- set default parameters
     obj.av_obj = nil
@@ -28,22 +28,21 @@ function Hud:New()
     return setmetatable(obj, self)
 end
 
-function Hud:Init(av_obj)
+function HUD:Init(av_obj)
 
     self.av_obj = av_obj
 
-    if not DAV.ready then
+    if not DAV.is_ready then
         self:SetOverride()
         self:SetObserve()
         GameHUD.Initialize()
     end
-    self:SetCustomHint()
 
 end
 
-function Hud:SetOverride()
+function HUD:SetOverride()
 
-    if not DAV.ready then
+    if not DAV.is_ready then
         -- Overside choice ui (refer to https://www.nexusmods.com/cyberpunk2077/mods/7299)
         Override("InteractionUIBase", "OnDialogsData", function(_, value, wrapped_method)
             if self.av_obj.position_obj:IsPlayerInEntryArea() then
@@ -61,16 +60,26 @@ function Hud:SetOverride()
             if self.av_obj.position_obj:IsPlayerInEntryArea() then
                 wrapped_method(self.selected_choice_index - 1)
             else
+                self.selected_choice_index = index + 1
                 wrapped_method(index)
+            end
+        end)
+
+        Override("dialogWidgetGameController", "OnDialogsActivateHub", function(_, id, wrapped_metthod) -- Avoid interaction getting overriden by game
+            if self.av_obj.position_obj:IsPlayerInEntryArea() then
+                local id_ = self.interaction_hub.id or id
+                return wrapped_metthod(id_)
+            else
+                return wrapped_metthod(id)
             end
         end)
     end
 
 end
 
-function Hud:SetObserve()
+function HUD:SetObserve()
 
-    if not DAV.ready then
+    if not DAV.is_ready then
         Observe("InteractionUIBase", "OnInitialize", function(this)
             self.interaction_ui_base = this
         end)
@@ -104,12 +113,12 @@ function Hud:SetObserve()
 
 end
 
-function Hud:GetChoiceTitle()
+function HUD:GetChoiceTitle()
     local index = DAV.model_index
     return GetLocalizedText("LocKey#" .. tostring(self.av_obj.all_models[index].display_name_lockey))
 end
 
-function Hud:SetChoiceList()
+function HUD:SetChoiceList()
 
     local model_index = DAV.model_index
     local tmp_list = {}
@@ -118,7 +127,7 @@ function Hud:SetChoiceList()
     hub.title = self:GetChoiceTitle()
     hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
     hub.hubPriority = 1
-    hub.id = 6083991
+    hub.id = 69420 + math.random(99999)
 
     local icon = TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceCaptionParts.CourierIcon")
     local caption_part = gameinteractionsChoiceCaption.new()
@@ -129,8 +138,9 @@ function Hud:SetChoiceList()
     for index = 1, #self.av_obj.active_seat do
         local choice = gameinteractionsvisListChoiceData.new()
 
-        choice.localizedName = GetLocalizedText("LocKey#81569") .. "[" .. self.av_obj.all_models[model_index].active_seat[index] .. "]"
-        choice.inputActionName = CName.new("Anything")
+        local lockey_enter = GetLocalizedText("LocKey#81569") or "Enter"
+        choice.localizedName = lockey_enter .. "[" .. self.av_obj.all_models[model_index].active_seat[index] .. "]"
+        choice.inputActionName = CName.new("None")
         choice.captionParts = caption_part
         choice.type = choice_type
         table.insert(tmp_list, choice)
@@ -140,7 +150,7 @@ function Hud:SetChoiceList()
     self.interaction_hub = hub
 end
 
-function Hud:ShowChoice(selected_index)
+function HUD:ShowChoice(selected_index)
 
     self.selected_choice_index = selected_index
 
@@ -149,7 +159,7 @@ function Hud:ShowChoice(selected_index)
     local ui_interaction_define = GetAllBlackboardDefs().UIInteractions
     local interaction_blackboard = Game.GetBlackboardSystem():Get(ui_interaction_define)
 
-    -- interaction_blackboard:SetInt(ui_interaction_define.ActiveChoiceHubID, self.interaction_hub.id)
+    interaction_blackboard:SetInt(ui_interaction_define.ActiveChoiceHubID, self.interaction_hub.id)
     local data = interaction_blackboard:GetVariant(ui_interaction_define.DialogChoiceHubs)
     self.dialogIsScrollable = true
     self.interaction_ui_base:OnDialogsSelectIndex(selected_index - 1)
@@ -160,7 +170,7 @@ function Hud:ShowChoice(selected_index)
 
 end
 
-function Hud:HideChoice()
+function HUD:HideChoice()
 
     self.interaction_hub = nil
 
@@ -172,7 +182,8 @@ function Hud:HideChoice()
 
 end
 
-function Hud:ShowMeter()
+function HUD:ShowMeter()
+
     self.hud_car_controller:ShowRequest()
     self.hud_car_controller:OnCameraModeChanged(true)
 
@@ -180,27 +191,45 @@ function Hud:ShowMeter()
         return
     else
         self.is_speed_meter_shown = true
-        DAV.Cron.Every(self.speed_meter_refresh_rate, function()
-            local mph = self.av_obj.engine_obj.current_speed * (3600 / 1600)
-            local power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
-            self.hud_car_controller:OnSpeedValueChanged(mph / 4.58)
+        Cron.Every(self.speed_meter_refresh_rate, {tick = 0}, function(timer)
+            if DAV.is_unit_km_per_hour then
+                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "KMH")
+                local kmh = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1000))
+                inkTextRef.SetText(self.hud_car_controller.SpeedValue, kmh)
+            else
+                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "MPH")
+                local mph = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609.34))
+                inkTextRef.SetText(self.hud_car_controller.SpeedValue, mph)
+            end
+            local power_level = 0
+            if DAV.flight_mode == Def.FlightMode.Heli then
+                power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
+            elseif DAV.flight_mode == Def.FlightMode.Spinner then 
+                power_level = math.floor(self.av_obj.engine_obj.spinner_horizenal_force / (self.av_obj.engine_obj.max_spinner_horizenal_force / 10))
+            end
             self.hud_car_controller:OnRpmValueChanged(power_level)
             self.hud_car_controller:EvaluateRPMMeterWidget(power_level)
             if not self.is_speed_meter_shown then
-                DAV.Cron.Halt()
+                Cron.Halt(timer)
             end
         end)
     end
+
 end
 
-function Hud:HideMeter()
+function HUD:HideMeter()
     self.hud_car_controller:HideRequest()
     self.hud_car_controller:OnCameraModeChanged(false)
     self.is_speed_meter_shown = false
 end
 
-function Hud:SetCustomHint()
-    local hint_table = Utils:ReadJson("Data/key_hint.json")
+function HUD:SetCustomHint()
+    local hint_table = {}
+    if DAV.flight_mode == Def.FlightMode.Heli then
+        hint_table = Utils:ReadJson("Data/heli_key_hint.json")
+    elseif DAV.flight_mode == Def.FlightMode.Spinner then
+        hint_table = Utils:ReadJson("Data/spinner_key_hint.json")
+    end
     self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()
     self.key_input_hide_hint_event = UpdateInputHintMultipleEvent.new()
     self.key_input_show_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
@@ -231,40 +260,41 @@ function Hud:SetCustomHint()
     end
 end
 
-function Hud:ShowCustomHint()
+function HUD:ShowCustomHint()
+    self:SetCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_show_hint_event)
 end
 
-function Hud:HideCustomHint()
+function HUD:HideCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_hide_hint_event)
 end
 
-function Hud:ShowActionButtons()
+function HUD:ShowActionButtons()
     GameSettings.Set('/interface/hud/action_buttons', true)
 end
 
-function Hud:HideActionButtons()
+function HUD:HideActionButtons()
     GameSettings.Set('/interface/hud/action_buttons', false)
 end
 
-function Hud:ShowAutoModeDisplay()
+function HUD:ShowAutoModeDisplay()
     local text = GetLocalizedText("LocKey#84945")
     GameHUD.ShowMessage(text)
 end
 
-function Hud:ShowDriveModeDisplay()
+function HUD:ShowDriveModeDisplay()
     local text = GetLocalizedText("LocKey#84944")
     GameHUD.ShowMessage(text)
 end
 
-function Hud:ShowArrivalDisplay()
+function HUD:ShowArrivalDisplay()
     local text = GetLocalizedText("LocKey#77994")
     GameHUD.ShowMessage(text)
 end
 
-function Hud:ShowInterruptAutoPilotDisplay()
+function HUD:ShowInterruptAutoPilotDisplay()
     local text = "Auto Pilot has been interrupted"
     GameHUD.ShowWarning(text, 2)
 end
 
-return Hud
+return HUD

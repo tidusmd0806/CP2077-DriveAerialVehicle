@@ -1,12 +1,12 @@
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
-local Ui = {}
-Ui.__index = Ui
+local UI = {}
+UI.__index = UI
 
-function Ui:New()
+function UI:New()
     local obj = {}
     obj.log_obj = Log:New()
-    obj.log_obj:SetLevel(LogLevel.Info, "Ui")
+    obj.log_obj:SetLevel(LogLevel.Info, "UI")
 
     obj.dummy_vehicle_record = "Vehicle.av_dav_dummy"
     obj.dummy_vehicle_record_path = "base\\vehicles\\special\\av_dav_dummy_99.ent"
@@ -14,9 +14,6 @@ function Ui:New()
 	obj.av_obj = nil
 
     -- set default value
-    obj.is_vehicle_call = false
-	obj.is_purchased_vehicle_call = false
-	obj.is_locaked_call = true
     obj.vehicle_model_list = {}
 	obj.selected_vehicle_model_name = ""
     obj.selected_vehicle_model_number = 1
@@ -30,26 +27,48 @@ function Ui:New()
 	obj.dummy_av_record = nil
 	obj.av_record_list = {}
 
-	self.selected_language_name = ""
+	-- garage
+	obj.selected_purchased_vehicle_type_list = {}
 
+	-- control setting
+	obj.selected_flight_mode = Def.FlightMode.Heli
 	obj.max_boost_ratio = 5.0
+
+	-- enviroment setting
+	obj.max_spawn_frequency = 5
+
+	-- general setting
+	obj.selected_language_name = ""
+
+	-- info
+	obj.dummy_check_1 = false
+	obj.dummy_check_2 = false
+	obj.dummy_check_3 = false
+	obj.dummy_check_4 = false
+	obj.dummy_check_5 = false
 
     return setmetatable(obj, self)
 end
 
-function Ui:Init(av_obj)
+function UI:Init(av_obj)
+
 	self.av_obj = av_obj
 
-    self:SetTweekDB()
-	if not DAV.ready then
-    	self:SetOverride()
-		self:InitVehicleModelList()
+	if DAV.is_ready then
+		self:ResetTweekDB()
 	end
+
+	self:SetTweekDB()
+
+	-- if not DAV.is_ready then
+		self:SetDefaultValue()
+	-- end
+
 end
 
-function Ui:SetTweekDB()
+function UI:SetTweekDB()
+
 	local index = DAV.model_index
-	-- local display_name_lockey = self.av_obj.all_models[index].display_name_lockey
     local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
     local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
     local lockey = "Story-base-gameplay-gui-quests-q103-q103_rogue-_localizationString47"
@@ -73,73 +92,26 @@ function Ui:SetTweekDB()
 		local av_record = TweakDBID.new(model.tweakdb_id)
 		table.insert(self.av_record_list, av_record)
 	end
+
 end
 
-function Ui:ResetTweekDB()
+function UI:ResetTweekDB()
+
 	TweakDB:DeleteRecord(self.dummy_vehicle_record)
 	TweakDB:DeleteRecord(self.dummy_logo_record)
 	self.av_record_list = {}
+
 end
 
-function Ui:SetOverride()
+function UI:SetDefaultValue()
 
-	if not DAV.ready then
-		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
-			local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
-
-			if self.dummy_av_record.hash == record_id.hash then
-				self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
-				self.is_vehicle_call = true
-				return false
-			end
-			local str = string.gsub(record_id.value, "_dummy", "")
-			local new_record_id = TweakDBID.new(str)
-			for _, record in ipairs(self.av_record_list) do
-				if record.hash == new_record_id.hash then
-					self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
-					for key, value in ipairs(self.av_obj.all_models) do
-						if value.tweakdb_id == record.value then
-							DAV.model_index = key
-							DAV.model_type_index = DAV.garage_info_list[key].type_index
-							self.av_obj:Init()
-							break
-						end
-					end
-					self.is_purchased_vehicle_call = true
-					return false
-				end
-			end
-			local res = wrapped_method(vehicle_type)
-			self.is_vehicle_call = false
-			self.is_purchased_vehicle_call = false
-			return res
-		end)
+	self.selected_purchased_vehicle_type_list = {}
+	-- garage
+	for _, garage_info in ipairs(DAV.garage_info_list) do
+		table.insert(self.selected_purchased_vehicle_type_list, self.av_obj.all_models[garage_info.model_index].type[garage_info.type_index])
 	end
 
-end
-
-function Ui:ActivateDummySummon(is_avtive)
-    Game.GetVehicleSystem():EnablePlayerVehicle(self.dummy_vehicle_record, is_avtive, true)
-end
-
-function Ui:GetCallStatus()
-    local call_status = self.is_vehicle_call
-    self.is_vehicle_call = false
-    return call_status
-end
-
-function Ui:GetPurchasedCallStatus()
-    local call_status = self.is_purchased_vehicle_call
-    self.is_purchased_vehicle_call = false
-    return call_status
-end
-
-function Ui:IsSelectedFreeCallMode()
-	return DAV.is_free_summon_mode
-end
-
-function Ui:InitVehicleModelList()
-
+	--free summon mode
 	for i, model in ipairs(self.av_obj.all_models) do
         self.vehicle_model_list[i] = model.name
 	end
@@ -155,9 +127,22 @@ function Ui:InitVehicleModelList()
 	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
 	self.current_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
 
+	-- control
+	self.selected_flight_mode = DAV.flight_mode
+
+	-- general
+	self.selected_language_name = DAV.core_obj.language_name_list[DAV.language_index]
+
+	-- info
+	self.dummy_check_1 = false
+	self.dummy_check_2 = false
+	self.dummy_check_3 = false
+	self.dummy_check_4 = false
+	self.dummy_check_5 = false
+
 end
 
-function Ui:SetMenuColor()
+function UI:SetMenuColor()
 	ImGui.PushStyleColor(ImGuiCol.TitleBg, 0, 0.5, 0, 0.5)
 	ImGui.PushStyleColor(ImGuiCol.TitleBgCollapsed, 0, 0.5, 0, 0.5)
 	ImGui.PushStyleColor(ImGuiCol.TitleBgActive, 0, 0.5, 0, 0.5)
@@ -174,10 +159,10 @@ function Ui:SetMenuColor()
 	ImGui.PushStyleColor(ImGuiCol.CheckMark, 0, 0.7, 0, 0.8)
 end
 
-function Ui:ShowSettingMenu()
+function UI:ShowSettingMenu()
 
 	self:SetMenuColor()
-    ImGui.SetNextWindowSize(1000, 1000, ImGuiCond.Appearing)
+    -- ImGui.SetNextWindowSize(1200, 800, ImGuiCond.Appearing)
     ImGui.Begin(DAV.core_obj:GetTranslationText("ui_main_window_title"))
 
 	if ImGui.BeginTabBar("DAV Menu") then
@@ -189,6 +174,16 @@ function Ui:ShowSettingMenu()
 
 		if ImGui.BeginTabItem(DAV.core_obj:GetTranslationText("ui_tab_free_summon")) then
 			self:ShowFreeSummon()
+			ImGui.EndTabItem()
+		end
+
+		if ImGui.BeginTabItem(DAV.core_obj:GetTranslationText("ui_tab_control_setting")) then
+			self:ShowControlSetting()
+			ImGui.EndTabItem()
+		end
+
+		if ImGui.BeginTabItem(DAV.core_obj:GetTranslationText("ui_tab_environment_setting")) then
+			self:ShowEnviromentSetting()
 			ImGui.EndTabItem()
 		end
 
@@ -210,7 +205,7 @@ function Ui:ShowSettingMenu()
 
 end
 
-function Ui:ShowGarage()
+function UI:ShowGarage()
 
 	local selected = false
 
@@ -233,18 +228,19 @@ function Ui:ShowGarage()
 			ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_garage_not_purchased"))
 		end
 
-		if ImGui.BeginListBox(self.av_obj.all_models[garage_info.model_index].type[garage_info.type_index], 600.0, 180.0) then
+		if ImGui.BeginCombo("##" .. self.av_obj.all_models[garage_info.model_index].name, self.selected_purchased_vehicle_type_list[model_index]) then
 			for index, value in ipairs(self.av_obj.all_models[garage_info.model_index].type) do
-				if self.av_obj.all_models[garage_info.model_index].type[garage_info.type_index] == value then
+				if self.selected_purchased_vehicle_type_list[model_index] == value.name then
 					selected = true
 				else
 					selected = false
 				end
 				if(ImGui.Selectable(value, selected)) then
+					self.selected_purchased_vehicle_type_list[model_index] = value
 					DAV.core_obj:ChangeGarageAVType(garage_info.name, index)
 				end
 			end
-			ImGui.EndListBox()
+			ImGui.EndCombo()
 		end
 
 		ImGui.Separator()
@@ -252,23 +248,10 @@ function Ui:ShowGarage()
 
 end
 
-function Ui:ShowFreeSummon()
+function UI:ShowFreeSummon()
 
 	local temp_is_free_summon_mode = DAV.is_free_summon_mode
 	local selected = false
-
-	ImGui.Text(DAV.core_obj:GetTranslationText("ui_free_summon_select_model"))
-	ImGui.SameLine()
-	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_model_name)
-	ImGui.Text(DAV.core_obj:GetTranslationText("ui_free_summon_select_type"))
-	ImGui.SameLine()
-	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_type_name)
-	ImGui.Text("Horizenal Boost Ratio : ")
-	ImGui.SameLine()
-	ImGui.TextColored(0, 1, 0, 1, string.format("%.1f", DAV.horizenal_boost_ratio))
-
-	ImGui.Separator()
-	ImGui.Spacing()
 
 	if not DAV.core_obj.event_obj:IsNotSpawned() then
 		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_1"))
@@ -286,6 +269,16 @@ function Ui:ShowFreeSummon()
 		ImGui.TextColored(1, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_3"))
 		return
 	end
+
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_free_summon_select_model"))
+	ImGui.SameLine()
+	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_model_name)
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_free_summon_select_type"))
+	ImGui.SameLine()
+	ImGui.TextColored(0, 1, 0, 1, self.current_vehicle_type_name)
+
+	ImGui.Separator()
+	ImGui.Spacing()
 
 	if self.selected_vehicle_model_name == nil then
 		self.selected_vehicle_model_name = self.vehicle_model_list[1]
@@ -350,21 +343,109 @@ function Ui:ShowFreeSummon()
 		ImGui.EndCombo()
 	end
 
-	ImGui.Text("Horizenal Boost Ratio")
-	local is_used_slider = false
-	DAV.horizenal_boost_ratio, is_used_slider = ImGui.SliderFloat("##Horizenal Boost Ratio", DAV.horizenal_boost_ratio, 1.0, self.max_boost_ratio, "%.1f")
+	if DAV.user_setting_table.model_index ~= self.selected_vehicle_model_number or DAV.user_setting_table.model_type_index ~= self.selected_vehicle_type_number then
+		self:SetFreeSummonParameters()
+	end
+
+end
+
+function UI:ShowControlSetting()
+
+	if not DAV.core_obj.event_obj:IsNotSpawned() then
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_1"))
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_2"))
+		return
+	end
+
+	local selected = false
+
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_control_setting_select_flight_mode"))
+	if ImGui.BeginCombo("##Flight Mode", self.selected_flight_mode) then
+		for _, value in pairs(Def.FlightMode) do
+			if self.selected_flight_mode == value then
+				selected = true
+			else
+				selected = false
+			end
+			if(ImGui.Selectable(value, selected)) then
+				DAV.flight_mode = value
+				self.selected_flight_mode = value
+				DAV.user_setting_table.flight_mode = DAV.flight_mode
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
+		end
+		ImGui.EndCombo()
+	end
 
 	ImGui.Spacing()
 
-	if not is_used_slider then
-		if ImGui.Button(DAV.core_obj:GetTranslationText("ui_free_summon_update"), 180, 60) then
-			self:SetParameters()
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_control_setting_explain_spinner"))
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_control_setting_explain_Heli"))
+
+	ImGui.Separator()
+	ImGui.Spacing()
+
+	-- local is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt
+	-- local is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt
+	local is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt
+	if DAV.flight_mode == Def.FlightMode.Heli then
+		-- DAV.is_disable_heli_roll_tilt = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_control_setting_disable_left_right"), DAV.is_disable_heli_roll_tilt)
+		-- if is_disable_heli_roll_tilt ~= DAV.is_disable_heli_roll_tilt then
+		-- 	DAV.user_setting_table.is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt
+		-- 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		-- end
+		-- DAV.is_disable_heli_pitch_tilt = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_control_setting_disable_forward_backward"), DAV.is_disable_heli_pitch_tilt)
+		-- if is_disable_heli_pitch_tilt ~= DAV.is_disable_heli_pitch_tilt then
+		-- 	DAV.user_setting_table.is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt
+		-- 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		-- end
+		ImGui.Text(DAV.core_obj:GetTranslationText("ui_control_setting_horizenal_boost"))
+		local is_used_slider = false
+		DAV.heli_horizenal_boost_ratio, is_used_slider = ImGui.SliderFloat("##Horizenal Boost Ratio", DAV.heli_horizenal_boost_ratio, 1.0, self.max_boost_ratio, "%.1f")
+		if not is_used_slider and DAV.user_setting_table.heli_horizenal_boost_ratio ~= DAV.heli_horizenal_boost_ratio then
+			DAV.user_setting_table.heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio
+			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		end
+	elseif DAV.flight_mode == Def.FlightMode.Spinner then
+		DAV.is_disable_spinner_roll_tilt = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_control_setting_disable_left_right"), DAV.is_disable_spinner_roll_tilt)
+		if is_disable_spinner_roll_tilt ~= DAV.is_disable_spinner_roll_tilt then
+			DAV.user_setting_table.is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt
+			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		end
 	end
 
 end
 
-function Ui:ShowGeneralSetting()
+function UI:ShowEnviromentSetting()
+
+	if not DAV.core_obj.event_obj:IsNotSpawned() then
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_1"))
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_2"))
+		return
+	end
+
+	DAV.is_enable_community_spawn = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_environment_enable_community_spawn"), DAV.is_enable_community_spawn)
+	if DAV.user_setting_table.is_enable_community_spawn ~= DAV.is_enable_community_spawn then
+		DAV.user_setting_table.is_enable_community_spawn = DAV.is_enable_community_spawn
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	end
+
+	if DAV.is_enable_community_spawn then
+		ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_spawn_frequency"))
+		local is_used_slider = false
+		DAV.spawn_frequency, is_used_slider = ImGui.SliderInt("##spawn frequency", DAV.spawn_frequency, 1, self.max_spawn_frequency, "%d")
+		if not is_used_slider and DAV.user_setting_table.spawn_frequency ~= DAV.spawn_frequency then
+			self.av_obj.max_freeze_count = math.floor(100 / DAV.spawn_frequency)
+			DAV.user_setting_table.spawn_frequency = DAV.spawn_frequency
+			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		end
+	end
+
+	ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_community_spawn"))
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_spawn_frequency"))
+end
+
+function UI:ShowGeneralSetting()
 
 	local temp_language_index = DAV.language_index
 	local selected = false
@@ -391,9 +472,26 @@ function Ui:ShowGeneralSetting()
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
 
+	ImGui.Separator()
+
+	DAV.is_unit_km_per_hour = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_setting_unit_setting"), DAV.is_unit_km_per_hour)
+	if DAV.user_setting_table.is_unit_km_per_hour ~= DAV.is_unit_km_per_hour then
+		DAV.user_setting_table.is_unit_km_per_hour = DAV.is_unit_km_per_hour
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	end
+
+	ImGui.Separator()
+
+	if DAV.core_obj.event_obj:IsNotSpawned() then
+		ImGui.Text(DAV.core_obj:GetTranslationText("ui_setting_reset_setting"))
+		if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting_button"), 180, 60) then
+			DAV.core_obj:ResetSetting()
+		end
+	end
+
 end
 
-function Ui:ShowInfo()
+function UI:ShowInfo()
 	ImGui.Text("Drive an Aerial Vehicle Version: " .. DAV.version)
 	if DAV.cet_version_num < DAV.cet_recommended_version then
 		ImGui.TextColored(1, 0, 0, 1, "CET Version: " .. GetVersion() .. "(Not Recommended Version)")
@@ -405,14 +503,31 @@ function Ui:ShowInfo()
 	else
 		ImGui.Text("CodeWare Version: " .. Codeware.Version())
 	end
-	DAV.is_debug_mode = ImGui.Checkbox("Debug Window (Developer Mode)", DAV.is_debug_mode)
+
+	ImGui.Separator()
+
+	ImGui.Text("Debug Checkbox (Developer Mode)")
+	self.dummy_check_1 = ImGui.Checkbox("1", self.dummy_check_1)
+	ImGui.SameLine()
+	self.dummy_check_2 = ImGui.Checkbox("2", self.dummy_check_2)
+	ImGui.SameLine()
+	self.dummy_check_3 = ImGui.Checkbox("3", self.dummy_check_3)
+	ImGui.SameLine()
+	self.dummy_check_4 = ImGui.Checkbox("4", self.dummy_check_4)
+	ImGui.SameLine()
+	self.dummy_check_5 = ImGui.Checkbox("5", self.dummy_check_5)
+
+	if not self.dummy_check_1 and self.dummy_check_2 and not self.dummy_check_3 and not self.dummy_check_4 and self.dummy_check_5 then
+		DAV.is_debug_mode = true
+	else
+		DAV.is_debug_mode = false
+	end
 end
 
-function Ui:SetParameters()
+function UI:SetFreeSummonParameters()
 
 	DAV.model_index = self.selected_vehicle_model_number
 	DAV.model_type_index = self.selected_vehicle_type_number
-	self:ResetTweekDB()
 	DAV.core_obj:Reset()
 
 	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
@@ -420,9 +535,8 @@ function Ui:SetParameters()
 
 	DAV.user_setting_table.model_index = DAV.model_index
 	DAV.user_setting_table.model_type_index = DAV.model_type_index
-	DAV.user_setting_table.horizenal_boost_ratio = DAV.horizenal_boost_ratio
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end
 
-return Ui
+return UI

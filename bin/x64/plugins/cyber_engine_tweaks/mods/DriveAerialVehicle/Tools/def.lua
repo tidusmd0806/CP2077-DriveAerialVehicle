@@ -3,17 +3,24 @@ Def.__index = Def
 
 Def.ActionList = {
     Nothing = 0,
-    Up = 1,
-    Down = 2,
-    Forward = 3,
-    Backward = 4,
-    Right = 5,
-    Left = 6,
-    TurnRight = 7,
-    TurnLeft = 8,
-    Hover = 9,
-    Hold = 10,
+    HeliUp = 1,
+    HeliDown = 2,
+    HeliForward = 3,
+    HeliBackward = 4,
+    HeliRight = 5,
+    HeliLeft = 6,
+    HeliTurnRight = 7,
+    HeliTurnLeft = 8,
+    HeliHover = 9,
+    HeliHold = 10,
 	---------
+    SpinnerForward = 31,
+    SpinnerBackward = 32,
+    SpinnerRight = 33,
+    SpinnerLeft = 34,
+    SpinnerUp = 35,
+    SpinnerDown = 36,
+    ----------
 	Enter= 100,
 	Exit = 101,
 	ChangeCamera = 102,
@@ -23,6 +30,11 @@ Def.ActionList = {
     SelectDown = 106,
     ----------
     AutoPilot = 200,
+}
+
+Def.FlightMode = {
+    Heli = "Helicopter",
+    Spinner = "Spinner",
 }
 
 Def.Situation = {

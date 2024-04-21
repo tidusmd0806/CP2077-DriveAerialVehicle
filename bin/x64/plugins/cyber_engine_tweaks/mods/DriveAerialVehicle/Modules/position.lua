@@ -1,4 +1,3 @@
-local Def = require("Tools/def.lua")
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Position = {}
@@ -209,6 +208,7 @@ function Position:ChangePosition()
     end
 
     Game.GetTeleportationFacility():Teleport(self.entity, self.next_position, self.next_angle)
+
 end
 
 function Position:CheckCollision(current_pos, next_pos)

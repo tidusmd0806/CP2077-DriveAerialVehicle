@@ -27,6 +27,7 @@ end
 
 -- Dequeue an element from the front of the queue
 function Queue:Dequeue()
+
     if self:IsEmpty() then
         error("Queue is empty")
     end
@@ -34,21 +35,26 @@ function Queue:Dequeue()
     self._data[self._front] = nil
     self._front = self._front + 1
     return element
+
 end
 
 -- Get the element at the front of the queue without removing it
 function Queue:Front()
+
     if self:IsEmpty() then
         error("Queue is empty")
     end
     return self._data[self._front]
+
 end
 
 -- Clear the queue
 function Queue:Clear()
+
     self._data = {}
     self._front = 1
     self._back = 0
+
 end
 
 return Queue

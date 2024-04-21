@@ -1,5 +1,4 @@
 local AV = require("Modules/av.lua")
-local Def = require("Tools/def.lua")
 local Event = require("Modules/event.lua")
 local Log = require("Tools/log.lua")
 local Queue = require("Tools/queue.lua")
@@ -18,10 +17,10 @@ function Core:New()
     obj.event_obj = nil
 
     obj.all_models = nil
-    obj.input_table = nil
 
     obj.av_model_path = "Data/default_model.json"
-    obj.input_path = "Data/input.json"
+    obj.heli_input_path = "Data/heli_input.json"
+    obj.spinner_input_path = "Data/spinner_input.json"
     obj.axis_dead_zone = 0.5
     obj.relative_dead_zone = 0.01
     obj.relative_table = {}
@@ -31,10 +30,22 @@ function Core:New()
     obj.language_file_list = {}
     obj.language_name_list = {}
 
+    obj.max_speed_for_freezing = 75
+
     -- set default parameters
-    obj.input_table = {}
+    obj.heli_input_table = {}
+    obj.spinner_input_table = {}
     obj.current_custom_mappin_position = {x = 0, y = 0, z = 0}
     obj.current_purchased_vehicle_count = 0
+
+    obj.is_vehicle_call = false
+    obj.is_purchased_vehicle_call = false
+
+    obj.is_freezing = false
+    obj.freeze_detect_range_mouse = 1
+    obj.freeze_detect_range_stick = 0.1
+
+    obj.initial_user_setting_table = {}
 
     return setmetatable(obj, self)
 
@@ -42,11 +53,18 @@ end
 
 function Core:Init()
 
+    self.all_models = self:GetAllModel()
+
+    self:InitGarageInfo()
+
+    -- set initial user setting
+    self.initial_user_setting_table = DAV.user_setting_table
+
     self:LoadSetting()
     self:SetTranslationNameList()
 
-    self.all_models = self:GetAllModel()
-    self.input_table = self:GetInputTable(self.input_path)
+    self.heli_input_table = self:GetInputTable(self.heli_input_path)
+    self.spinner_input_table = self:GetInputTable(self.spinner_input_path)
 
     if self.all_models == nil then
         self.log_obj:Record(LogLevel.Error, "Model is nil")
@@ -59,13 +77,15 @@ function Core:Init()
     self.event_obj = Event:New()
     self.event_obj:Init(self.av_obj)
 
-    DAV.Cron.Every(DAV.time_resolution, function()
+    Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
         self:GetActions()
     end)
 
     self:SetInputListener()
     self:SetCustomMappinPosition()
+
+    self:SetOverride()
 
 end
 
@@ -79,25 +99,145 @@ function Core:Reset()
 end
 
 function Core:LoadSetting()
-    local setting_data = DAV.Utils:ReadJson(DAV.user_setting_path)
+
+    local setting_data = Utils:ReadJson(DAV.user_setting_path)
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
 
+        --- garage
+        DAV.garage_info_list = DAV.user_setting_table.garage_info_list
+
+        --- free summon mode
+        DAV.is_free_summon_mode = DAV.user_setting_table.is_free_summon_mode
         DAV.model_index = DAV.user_setting_table.model_index
         DAV.model_type_index = DAV.user_setting_table.model_type_index
-        DAV.is_free_summon_mode = DAV.user_setting_table.is_free_summon_mode
+
+        --- control
+        DAV.flight_mode = DAV.user_setting_table.flight_mode
+        DAV.is_disable_heli_roll_tilt = DAV.user_setting_table.is_disable_heli_roll_tilt
+        DAV.is_disable_heli_pitch_tilt = DAV.user_setting_table.is_disable_heli_pitch_tilt
+        DAV.heli_heli_horizenal_boost_ratio = DAV.user_setting_table.heli_horizenal_boost_ratio
+        DAV.is_disable_spinner_roll_tilt = DAV.user_setting_table.is_disable_spinner_roll_tilt
+
+        --- environment
+        DAV.is_enable_community_spawn = DAV.user_setting_table.is_enable_community_spawn
+        DAV.spawn_frequency = DAV.user_setting_table.spawn_frequency
+
+        --- general
         DAV.language_index = DAV.user_setting_table.language_index
-        DAV.garage_info_list = DAV.user_setting_table.garage_info_list
-        DAV.horizenal_boost_ratio = DAV.user_setting_table.horizenal_boost_ratio
+        DAV.is_unit_km_per_hour = DAV.user_setting_table.is_unit_km_per_hour
     end
+
+end
+
+function Core:ResetSetting()
+
+    DAV.user_setting_table = self.initial_user_setting_table
+
+    self:UpdateGarageInfo(true)
+    for key, _ in ipairs(DAV.user_setting_table.garage_info_list) do
+        DAV.garage_info_list[key].type_index = 1
+    end
+
+    Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+
+    self:LoadSetting()
+
+    self:Reset()
+
+end
+
+function Core:SetOverride()
+
+	if not DAV.is_ready then
+		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
+			local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
+
+			if self.event_obj.ui_obj.dummy_av_record.hash == record_id.hash then
+				self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
+				self.is_vehicle_call = true
+				return false
+			end
+			local str = string.gsub(record_id.value, "_dummy", "")
+			local new_record_id = TweakDBID.new(str)
+			for _, record in ipairs(self.event_obj.ui_obj.av_record_list) do
+				if record.hash == new_record_id.hash then
+					self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
+					for key, value in ipairs(self.av_obj.all_models) do
+						if value.tweakdb_id == record.value then
+							DAV.model_index = key
+							DAV.model_type_index = DAV.garage_info_list[key].type_index
+							self.av_obj:Init()
+							break
+						end
+					end
+					self.is_purchased_vehicle_call = true
+					return false
+				end
+			end
+			local res = wrapped_method(vehicle_type)
+			self.is_vehicle_call = false
+			self.is_purchased_vehicle_call = false
+			return res
+		end)
+	end
+
+end
+
+function Core:ActivateDummySummon(is_avtive)
+    Game.GetVehicleSystem():EnablePlayerVehicle(self.event_obj.ui_obj.dummy_vehicle_record, is_avtive, true)
+end
+
+function Core:GetCallStatus()
+    local call_status = self.is_vehicle_call
+    self.is_vehicle_call = false
+    return call_status
+end
+
+function Core:GetPurchasedCallStatus()
+    local call_status = self.is_purchased_vehicle_call
+    self.is_purchased_vehicle_call = false
+    return call_status
 end
 
 function Core:SetTranslationNameList()
 
-    self.language_file_list = dir(DAV.language_path)
-    for _, file in ipairs(self.language_file_list) do
+    self.language_file_list = {}
+    self.language_name_list = {}
+
+    local files = dir(DAV.language_path)
+    local default_file
+    local other_files = {}
+
+    for _, file in ipairs(files) do
+        print(file.name)
+        if string.match(file.name, 'default.json') then
+            default_file = file
+            print("def")
+        elseif string.match(file.name, '%a%a%-%a%a.json') then
+            table.insert(other_files, file)
+            print("def2")
+        end
+        print("end")
+    end
+
+    if default_file then
+        local default_language_table = Utils:ReadJson(DAV.language_path .. "/" .. default_file.name)
+        if default_language_table and default_language_table.language then
+            table.insert(self.language_file_list, default_file)
+            table.insert(self.language_name_list, default_language_table.language)
+        end
+    else
+        self.log_obj:Record(LogLevel.Critical, "Default Language File is not found")
+        return
+    end
+
+    for _, file in ipairs(other_files) do
         local language_table = Utils:ReadJson(DAV.language_path .. "/" .. file.name)
-        table.insert(self.language_name_list, language_table.language)
+        if language_table and language_table.language then
+            table.insert(self.language_file_list, file)
+            table.insert(self.language_name_list, language_table.language)
+        end
     end
 
 end
@@ -130,22 +270,30 @@ function Core:SetInputListener()
 
     local player = Game.GetPlayer()
 
-    player:UnregisterInputListener(player, "dav_accelerate")
-    player:UnregisterInputListener(player, "dav_y_move")
-    player:UnregisterInputListener(player, "dav_x_move")
-    player:UnregisterInputListener(player, "dav_rotate_move")
-    player:UnregisterInputListener(player, "dav_hover")
+    player:UnregisterInputListener(player, "dav_heli_lift")
+    player:UnregisterInputListener(player, "dav_heli_forward_backward")
+    player:UnregisterInputListener(player, "dav_heli_left_right")
+    player:UnregisterInputListener(player, "dav_heli_rotate")
+    player:UnregisterInputListener(player, "dav_heli_hover")
+    player:UnregisterInputListener(player, "dav_spinner_forward_backward")
+    player:UnregisterInputListener(player, "dav_spinner_left_right")
+    player:UnregisterInputListener(player, "dav_spinner_up")
+    player:UnregisterInputListener(player, "dav_spinner_down")
     player:UnregisterInputListener(player, "dav_get_on")
     player:UnregisterInputListener(player, "dav_get_off")
     player:UnregisterInputListener(player, "dav_change_view")
     player:UnregisterInputListener(player, "dav_toggle_door_1")
     player:UnregisterInputListener(player, "dav_toggle_auto_pilot")
 
-    player:RegisterInputListener(player, "dav_accelerate")
-    player:RegisterInputListener(player, "dav_y_move")
-    player:RegisterInputListener(player, "dav_x_move")
-    player:RegisterInputListener(player, "dav_rotate_move")
-    player:RegisterInputListener(player, "dav_hover")
+    player:RegisterInputListener(player, "dav_heli_lift")
+    player:RegisterInputListener(player, "dav_heli_forward_backward")
+    player:RegisterInputListener(player, "dav_heli_left_right")
+    player:RegisterInputListener(player, "dav_heli_rotate")
+    player:RegisterInputListener(player, "dav_heli_hover")
+    player:RegisterInputListener(player, "dav_spinner_forward_backward")
+    player:RegisterInputListener(player, "dav_spinner_left_right")
+    player:RegisterInputListener(player, "dav_spinner_up")
+    player:RegisterInputListener(player, "dav_spinner_down")
     player:RegisterInputListener(player, "dav_get_on")
     player:RegisterInputListener(player, "dav_get_off")
     player:RegisterInputListener(player, "dav_change_view")
@@ -168,6 +316,10 @@ function Core:SetInputListener()
             end
         end
 
+        if (string.match(action_name, "mouse") and action_value > self.freeze_detect_range_mouse) or (string.match(action_name, "right_stick") and action_value > self.freeze_detect_range_stick) then
+            self.is_freezing = true
+        end
+
         if DAV.is_debug_mode then
             DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
         end
@@ -175,6 +327,22 @@ function Core:SetInputListener()
         self:StorePlayerAction(action_name, action_type, action_value)
 
     end)
+
+end
+
+function Core:IsEnableFreeze()
+
+    if not DAV.is_enable_community_spawn then
+        return false
+    end
+
+    local freeze = self.is_freezing
+    self.is_freezing = false
+    if freeze and self.av_obj.engine_obj:GetSpeed() < self.max_speed_for_freezing then
+        return true
+    else
+        return false
+    end
 
 end
 
@@ -204,24 +372,30 @@ function Core:GetAllModel()
 
 end
 
-function Core:UpdateGarageInfo()
-
-    local vehicle_system = Game.GetVehicleSystem()
-    local list = vehicle_system:GetPlayerUnlockedVehicles()
-
-    if self.current_purchased_vehicle_count == #list then
-        return
-    else
-        self.current_purchased_vehicle_count = #list
-    end
+function Core:InitGarageInfo()
 
     DAV.garage_info_list = {}
 
-    for index, model in ipairs(self.av_obj.all_models) do
+    for index, model in ipairs(self.all_models) do
         local garage_info = {name = "", model_index = 1, type_index = 1, is_purchased = false}
         garage_info.name = model.tweakdb_id
         garage_info.model_index = index
         table.insert(DAV.garage_info_list, garage_info)
+    end
+
+    DAV.user_setting_table.garage_info_list = DAV.garage_info_list
+
+end
+
+function Core:UpdateGarageInfo(is_force_update)
+
+    local vehicle_system = Game.GetVehicleSystem()
+    local list = vehicle_system:GetPlayerUnlockedVehicles()
+
+    if self.current_purchased_vehicle_count == #list and not is_force_update then
+        return
+    else
+        self.current_purchased_vehicle_count = #list
     end
 
     for _, purchased_vehicle in ipairs(list) do
@@ -241,16 +415,19 @@ function Core:UpdateGarageInfo()
 
 end
 
-function Core:ChangeGarageAVType(name, index)
+function Core:ChangeGarageAVType(name, type_index)
 
-    self:UpdateGarageInfo()
+    self:UpdateGarageInfo(false)
 
-    for _, garage_info in ipairs(DAV.garage_info_list) do
+    for idx, garage_info in ipairs(DAV.garage_info_list) do
         if garage_info.name == name then
-            garage_info.type_index = index
+            DAV.garage_info_list[idx].type_index = type_index
             break
         end
     end
+
+    DAV.user_setting_table.garage_info_list = DAV.garage_info_list
+	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end
 
@@ -294,7 +471,13 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
         end
     end
 
-    local cmd, loop_count = self:ConvertActionList(action_name, action_type, action_value_type, action_value)
+    local cmd, loop_count = 0, 1
+
+    if DAV.flight_mode == Def.FlightMode.Heli then
+        cmd, loop_count = self:ConvertHeliActionList(action_name, action_type, action_value_type)
+    elseif DAV.flight_mode == Def.FlightMode.Spinner then
+        cmd, loop_count = self:ConvertSpinnerActionList(action_name, action_type, action_value_type)
+    end
 
     for _ = 1, loop_count do
         if cmd ~= Def.ActionList.Nothing then
@@ -304,45 +487,85 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
 
 end
 
-function Core:ConvertActionList(action_name, action_type, action_value_type, action_value)
+function Core:ConvertHeliActionList(action_name, action_type, action_value_type)
 
     local action_command = Def.ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
     local loop_count = 1
 
-    if Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_ACCELERTOR) then
-        action_command = Def.ActionList.Up
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_DOWN) then
-        action_command = Def.ActionList.Down
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_FORWARD_MOVE) then
-        action_command = Def.ActionList.Forward
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_BACK_MOVE) then
-        action_command = Def.ActionList.Backward
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_MOVE) then
-        action_command = Def.ActionList.Right
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_MOVE) then
-        action_command = Def.ActionList.Left
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_RIGHT_ROTATE) then
-        action_command = Def.ActionList.TurnRight
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_LEFT_ROTATE) then
-        action_command = Def.ActionList.TurnLeft
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_HOVER) then
-        action_command = Def.ActionList.Hover
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_HOLD) then
-        action_command = Def.ActionList.Hold
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_ENTER_AV) then
+    if Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_ACCELERTOR) then
+        action_command = Def.ActionList.HeliUp
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_DOWN) then
+        action_command = Def.ActionList.HeliDown
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_FORWARD_MOVE) then
+        action_command = Def.ActionList.HeliForward
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_BACK_MOVE) then
+        action_command = Def.ActionList.HeliBackward
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_RIGHT_MOVE) then
+        action_command = Def.ActionList.HeliRight
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_LEFT_MOVE) then
+        action_command = Def.ActionList.HeliLeft
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_RIGHT_ROTATE) then
+        action_command = Def.ActionList.HeliTurnRight
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_LEFT_ROTATE) then
+        action_command = Def.ActionList.HeliTurnLeft
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_HOVER) then
+        action_command = Def.ActionList.HeliHover
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_HOLD) then
+        action_command = Def.ActionList.HeliHold
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_ENTER_AV) then
         action_command = Def.ActionList.Enter
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_EXIT_AV) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_EXIT_AV) then
         action_command = Def.ActionList.Exit
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_CAMERA) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_CAMERA) then
         action_command = Def.ActionList.ChangeCamera
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_DOOR_1) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_TOGGLE_DOOR_1) then
         action_command = Def.ActionList.ChangeDoor1
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_AV_TOGGLE_AUTO_PILOT) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_TOGGLE_AUTO_PILOT) then
         action_command = Def.ActionList.AutoPilot
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
         action_command = Def.ActionList.SelectUp
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
+        action_command = Def.ActionList.SelectDown
+    else
+        action_command = Def.ActionList.Nothing
+    end
+
+    return action_command, loop_count
+
+end
+
+function Core:ConvertSpinnerActionList(action_name, action_type, action_value_type)
+
+    local action_command = Def.ActionList.Nothing
+    local action_dist = {name = action_name, type = action_type, value = action_value_type}
+    local loop_count = 1
+
+    if Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_FORWARD_MOVE) then
+        action_command = Def.ActionList.SpinnerForward
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_BACK_MOVE) then
+        action_command = Def.ActionList.SpinnerBackward
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_RIGHT_MOVE) then
+        action_command = Def.ActionList.SpinnerRight
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_LEFT_MOVE) then
+        action_command = Def.ActionList.SpinnerLeft
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_UP_MOVE) then
+        action_command = Def.ActionList.SpinnerUp
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_DOWN_MOVE) then
+        action_command = Def.ActionList.SpinnerDown
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_ENTER_AV) then
+        action_command = Def.ActionList.Enter
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_EXIT_AV) then
+        action_command = Def.ActionList.Exit
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_CAMERA) then
+        action_command = Def.ActionList.ChangeCamera
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_TOGGLE_DOOR_1) then
+        action_command = Def.ActionList.ChangeDoor1
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_TOGGLE_AUTO_PILOT) then
+        action_command = Def.ActionList.AutoPilot
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
+        action_command = Def.ActionList.SelectUp
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
         action_command = Def.ActionList.SelectDown
     else
         action_command = Def.ActionList.Nothing

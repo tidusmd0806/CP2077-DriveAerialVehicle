@@ -26,14 +26,14 @@ end
 
 function Sound:PlaySoundComplex(sound_name, delay_time, is_loop, duration, loop_time)
 
-    DAV.Cron:After(delay_time, function()
+    Cron.After(delay_time, function()
         if is_loop then
-            DAV.Cron:Every(duration, {tick = 1} , function(timer)
+            Cron.Every(duration, {tick = 1} , function(timer)
                 timer.tick = timer.tick + 1
                 Game.GetPlayer():PlaySoundEvent(self.sound_data[sound_name])
                 if timer.tick * duration >= loop_time then
                     Game.GetPlayer():StopSoundEvent(self.sound_data[sound_name])
-                    DAV.Cron.Halt(timer)
+                    Cron.Halt(timer)
                 end
             end)
         else

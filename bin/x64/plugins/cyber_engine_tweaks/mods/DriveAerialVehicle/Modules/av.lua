@@ -1,6 +1,5 @@
 local Camera = require("Modules/camera.lua")
 local Position = require("Modules/position.lua")
-local Def = require("Tools/def.lua")
 local Engine = require("Modules/engine.lua")
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
@@ -34,7 +33,7 @@ function AV:New(all_models)
 	obj.collision_aboidance_max_step = 20
 	obj.collision_aboidance_default_step = 500
 	obj.error_range = 0.5
-	obj.turn_speed = 0.8
+	obj.turn_speed = 0.5
 
 	-- This parameter is used for collision when player done not operate AV
 	obj.seat_index = 1
@@ -59,6 +58,15 @@ function AV:New(all_models)
 	obj.max_stack_count = 200
 	obj.min_stack_count = 10
 	obj.is_failture_auto_pilot = false
+
+	obj.freeze_count = 0
+	obj.x_total = 0
+	obj.y_total = 0
+	obj.z_total = 0
+	obj.roll_total = 0
+	obj.pitch_total = 0
+	obj.yaw_total = 0
+	obj.max_freeze_count = 50
 
 	return setmetatable(obj, self)
 end
@@ -110,13 +118,13 @@ function AV:Spawn(position, angle)
 	self.entity_id = entity_system:CreateEntity(entity_spec)
 
 	-- set entity id to position object
-	DAV.Cron.Every(0.1, {tick = 1}, function(timer)
+	Cron.Every(0.1, {tick = 1}, function(timer)
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
 			self.is_spawning = false
 			self.position_obj:SetEntity(entity)
 			self.engine_obj:Init()
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 		end
 	end)
 
@@ -128,17 +136,17 @@ function AV:SpawnToSky()
 	position.z = position.z + self.spawn_high
 	local angle = self.position_obj:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
-	DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
+	Cron.Every(0.01, { tick = 1 }, function(timer)
 		timer.tick = timer.tick + 1
 		if timer.tick == self.spawn_wait_count then
 			self:LockDoor()
 		elseif timer.tick > self.spawn_wait_count then
 			if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
 				self.is_landed = true
-				DAV.Cron.Halt(timer)
+				Cron.Halt(timer)
 			elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
 				self.is_landed = true
-				DAV.Cron.Halt(timer)
+				Cron.Halt(timer)
 			end
 		end
 	end)
@@ -156,14 +164,14 @@ function AV:Despawn()
 end
 
 function AV:DespawnFromGround()
-	DAV.Cron.Every(0.01, { tick = 1 }, function(timer)
+	Cron.Every(0.01, { tick = 1 }, function(timer)
 		timer.tick = timer.tick + 1
 
 		if timer.tick > self.spawn_wait_count then
 			self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1 + self.down_time_count), 0.0, 0.0, 0.0)
 			if timer.tick >= self.spawn_wait_count + self.down_time_count then
 				self:Despawn()
-				DAV.Cron.Halt(timer)
+				Cron.Halt(timer)
 			end
 		end
 	end)
@@ -288,13 +296,13 @@ function AV:Mount()
 	self.position_obj:ChangePosition()
 
 	-- return position near mounted vehicle	
-	DAV.Cron.Every(0.01, {tick = 1}, function(timer)
+	Cron.Every(0.01, {tick = 1}, function(timer)
 		local entity = player:GetMountedVehicle()
 		if entity ~= nil then
-			DAV.Cron.After(1.5, function()
+			Cron.After(1.5, function()
 				self.is_player_in = true
 			end)
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 		end
 	end)
 
@@ -346,12 +354,12 @@ function AV:Unmount()
 		open_door_wait = 0.1
 	end
 
-	DAV.Cron.After(open_door_wait, function()
+	Cron.After(open_door_wait, function()
 
 		Game.GetMountingFacility():Unmount(mount_event)
 
 		-- set entity id to position object
-		DAV.Cron.Every(0.01, {tick = 1}, function(timer)
+		Cron.Every(0.01, {tick = 1}, function(timer)
 			local entity = Game.FindEntityByID(self.entity_id)
 			if entity ~= nil then
 				local angle = entity:GetWorldOrientation():ToEulerAngles()
@@ -360,7 +368,7 @@ function AV:Unmount()
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
 				self.is_player_in = false
 				self.is_ummounting = false
-				DAV.Cron.Halt(timer)
+				Cron.Halt(timer)
 			end
 		end)
 	end)
@@ -402,16 +410,45 @@ function AV:Operate(action_commands)
 
 	self.is_collision = false
 
-	x_total = x_total / #action_commands
-	y_total = y_total / #action_commands
-	z_total = z_total / #action_commands
-	roll_total = roll_total / #action_commands
-	pitch_total = pitch_total / #action_commands
-	yaw_total = yaw_total / #action_commands
+	x_total = x_total / #action_commands + self.x_total
+	y_total = y_total / #action_commands + self.y_total
+	z_total = z_total / #action_commands + self.z_total
+	roll_total = roll_total / #action_commands + self.roll_total
+	pitch_total = pitch_total / #action_commands + self.pitch_total
+	yaw_total = yaw_total / #action_commands + self.yaw_total
 
 	if x_total == 0 and y_total == 0 and z_total == 0 and roll_total == 0 and pitch_total == 0 and yaw_total == 0 then
 		self.log_obj:Record(LogLevel.Debug, "No operation")
 		return false
+	end
+
+	-- to freeze for spawning vehicle and pedistrian
+	if self.freeze_count < 2 and DAV.core_obj:IsEnableFreeze() then
+		self.freeze_count = self.freeze_count + 1
+		self.x_total = x_total
+		self.y_total = y_total
+		self.z_total = z_total
+		self.roll_total = roll_total
+		self.pitch_total = pitch_total
+		self.yaw_total = yaw_total
+		return false
+	elseif self.freeze_count >= self.max_freeze_count then
+		self.freeze_count = 0
+	elseif self.freeze_count >= 1 then
+		self.freeze_count = self.freeze_count + 1
+		self.x_total = 0
+		self.y_total = 0
+		self.z_total = 0
+		self.roll_total = 0
+		self.pitch_total = 0
+		self.yaw_total = 0
+	end
+
+	if DAV.is_disable_heli_roll_tilt or DAV.is_disable_spinner_roll_tilt then
+		roll_total = 0
+	end
+	if DAV.is_disable_heli_pitch_tilt then
+		pitch_total = 0
 	end
 
 	local res = self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
@@ -458,7 +495,7 @@ function AV:AutoPilot()
 
 	self.is_auto_avoidance = false
 
-	DAV.Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
+	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 
 		if self.is_leaving or DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
@@ -467,7 +504,7 @@ function AV:AutoPilot()
 
 		if not self.is_auto_pilot then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted")
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 			return
 		end
 
@@ -476,7 +513,7 @@ function AV:AutoPilot()
 		if stack_count > self.limit_stack_count then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
 			self:InterruptAutoPilot()
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 			return
 		end
 
@@ -496,7 +533,7 @@ function AV:AutoPilot()
 		if direction_vector_norm < self.error_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self:AutoLanding(current_position.z)
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 			return
 		end
 
@@ -528,7 +565,7 @@ function AV:AutoPilot()
 		if not self:Move(next_positon.x, next_positon.y, next_positon.z, 0.0, 0.0, yaw_diff_half) then
 			self.log_obj:Record(LogLevel.Error, "AutoPilot Move Error")
 			self:InterruptAutoPilot()
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 			return
 		end
 		if stack_count > self.max_stack_count then
@@ -540,25 +577,25 @@ end
 function AV:AutoLeaving(dist_vector)
 	self.is_leaving = true
 
-	DAV.Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
+	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted")
 			self.is_leaving = false
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 			return
 		end
 		local angle = self.position_obj:GetEulerAngles()
 		local current_position = self.position_obj:GetPosition()
 		self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset, 200 - current_position.z, timer.tick + self.down_time_count + 1), -angle.roll * 0.8, -angle.pitch * 0.8, 0.0)
 		if timer.tick >= self.down_time_count then
-			DAV.Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
+			Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 				timer.tick = timer.tick + 1
 				if not self.is_auto_pilot then
 					self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted")
 					self:InterruptAutoPilot()
 					self.is_leaving = false
-					DAV.Cron.Halt(timer)
+					Cron.Halt(timer)
 					return
 				end
 
@@ -576,38 +613,38 @@ function AV:AutoLeaving(dist_vector)
 				if not self:Move(0.0, 0.0, 0.0, 0.0, 0.0, sign * self.turn_speed) then
 					self.is_leaving = false
 					self:InterruptAutoPilot()
-					DAV.Cron.Halt(timer)
+					Cron.Halt(timer)
 				end
 				local inner_product = current_direction.x * target_direction.x + current_direction.y * target_direction.y
 				if inner_product > 0.99 then
 					local angle_difference = math.acos(current_direction.x * target_direction.x + current_direction.y * target_direction.y + current_direction.z * target_direction.z)
 					self:Move(0.0, 0.0, 0.0, 0.0, 0.0, sign * math.abs(angle_difference * 180 / Pi()))
 					self.is_leaving = false
-					DAV.Cron.Halt(timer)
+					Cron.Halt(timer)
 				end
 			end)
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 		end
 	end)
 end
 
 function AV:AutoLanding(hight)
-	DAV.Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
+	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted")
 			self:InterruptAutoPilot()
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 			return
 		end
 		if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset, hight, timer.tick + 1), 0.0, 0.0, 0.0) then
 			self.is_landed = true
 			self:InterruptAutoPilot()
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 		elseif timer.tick >= self.down_time_count then
 			self.is_landed = true
 			self:SeccessAutoPilot()
-			DAV.Cron.Halt(timer)
+			Cron.Halt(timer)
 		end
 	end)
 end

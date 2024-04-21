@@ -1,5 +1,4 @@
 local Log = require("Tools/log.lua")
-local Def = require("Tools/def.lua")
 local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
 local Sound = require("Modules/sound.lua")
@@ -20,6 +19,7 @@ function Event:New()
     obj.re_enter_wait = 8.0
 
     -- set default parameters
+    obj.is_finished_initial_loading = false
     obj.current_situation = Def.Situation.Normal
     obj.is_in_menu = false
     obj.is_in_popup = false
@@ -41,7 +41,7 @@ function Event:Init(av_obj)
     self.hud_obj:Init(self.av_obj)
     self.sound_obj:Init(self.av_obj)
 
-    if not DAV.ready then
+    if not DAV.is_ready then
         self:SetObserve()
         self:SetOverride()
     end
@@ -75,13 +75,18 @@ function Event:SetObserve()
     end)
 
     GameUI.Observe("LoadingFinish", function()
-        DAV.Cron.After(0.5, function()
-            DAV.core_obj:Reset()
-        end)
+        if not self.is_finished_initial_loading then
+            self.is_finished_initial_loading = true
+            self.log_obj:Record(LogLevel.Info, "Initial loading finished")
+        else
+            Cron.After(0.5, function()
+                DAV.core_obj:Reset()
+            end)
+        end
     end)
 
     GameUI.Observe("SessionEnd", function()
-        self.ui_obj:ActivateDummySummon(false)
+        DAV.core_obj:ActivateDummySummon(false)
     end)
 end
 
@@ -152,19 +157,19 @@ function Event:CheckAllEvents()
 end
 
 function Event:CheckGarage()
-    DAV.core_obj:UpdateGarageInfo()
+    DAV.core_obj:UpdateGarageInfo(false)
 end
 
 function Event:CheckAvailableFreeCall()
     if self:IsAvailableFreeCall() then
-        self.ui_obj:ActivateDummySummon(true)
+        DAV.core_obj:ActivateDummySummon(true)
     else
-        self.ui_obj:ActivateDummySummon(false)
+        DAV.core_obj:ActivateDummySummon(false)
     end
 end
 
 function Event:CheckCallVehicle()
-    if self.ui_obj:GetCallStatus() and not self.av_obj:IsSpawning() then
+    if DAV.core_obj:GetCallStatus() and not self.av_obj:IsSpawning() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
         self.sound_obj:PlaySound("101_call_vehicle")
         self.sound_obj:PlaySound("211_landing")
@@ -174,7 +179,7 @@ function Event:CheckCallVehicle()
 end
 
 function Event:CheckCallPurchasedVehicle()
-    if self.ui_obj:GetPurchasedCallStatus() and not self.av_obj:IsSpawning() then
+    if DAV.core_obj:GetPurchasedCallStatus() and not self.av_obj:IsSpawning() then
         self.log_obj:Record(LogLevel.Trace, "Purchased vehicle call detected")
         self.sound_obj:PlaySound("101_call_vehicle")
         self.sound_obj:PlaySound("211_landing")
@@ -240,22 +245,24 @@ function Event:CheckCollision()
 end
 
 function Event:CheckReturnVehicle()
-    if self.ui_obj:GetCallStatus() then
+    if DAV.core_obj:GetCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected")
         self.sound_obj:PlaySound("243_leaving")
         self.sound_obj:PlaySound("104_call_vehicle")
         self:SetSituation(Def.Situation.TalkingOff)
+        self.hud_obj:HideChoice()
         self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
         self.av_obj:DespawnFromGround()
     end
 end
 
 function Event:CheckReturnPurchasedVehicle()
-    if self.ui_obj:GetPurchasedCallStatus() then
+    if DAV.core_obj:GetPurchasedCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Purchased vehicle return detected")
         self.sound_obj:PlaySound("243_leaving")
         self.sound_obj:PlaySound("104_call_vehicle")
         self:SetSituation(Def.Situation.TalkingOff)
+        self.hud_obj:HideChoice()
         self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
         self.av_obj:DespawnFromGround()
     end
@@ -287,7 +294,7 @@ function Event:CheckFailAutoPilot()
 end
 
 function Event:IsAvailableFreeCall()
-    return self.ui_obj:IsSelectedFreeCallMode()
+    return DAV.is_free_summon_mode
 end
 
 function Event:IsNotSpawned()

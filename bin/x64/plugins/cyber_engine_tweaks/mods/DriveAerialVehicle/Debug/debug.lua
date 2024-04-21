@@ -1,4 +1,3 @@
-local Def = require("Tools/def.lua")
 local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Debug = {}
@@ -13,10 +12,12 @@ function Debug:New(core_obj)
     obj.is_im_gui_situation = false
     obj.is_im_gui_player_position = false
     obj.is_im_gui_av_position = false
-    obj.is_im_gui_lift_force = false
+    obj.is_im_gui_heli_info = false
+    obj.is_im_gui_spinner_info = false
     obj.is_im_gui_engine_info = false
     obj.is_im_gui_sound_check = false
     obj.is_im_gui_mappin_position = false
+    obj.is_im_gui_model_type_status = false
 
     obj.selected_sound = "first"
     return setmetatable(obj, self)
@@ -44,10 +45,12 @@ function Debug:ImGuiMain()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
-    self:ImGuiLiftForceAndSpeed()
+    self:ImGuiHeliInfo()
+    self:ImGuiSpinnerInfo()
     self:ImGuiCurrentEngineInfo()
     self:ImGuiSoundCheck()
     self:ImGuiMappinPosition()
+    self:ImGuiModelTypeStatus()
     self:ImGuiExcuteFunction()
     self:SelectPrint()
 
@@ -116,16 +119,32 @@ function Debug:ImGuiAVPosition()
     end
 end
 
-function Debug:ImGuiLiftForceAndSpeed()
-    self.is_im_gui_lift_force = ImGui.Checkbox("[ImGui] Lift Force And Speed", self.is_im_gui_lift_force)
-    if self.is_im_gui_lift_force then
+function Debug:ImGuiHeliInfo()
+    self.is_im_gui_heli_info = ImGui.Checkbox("[ImGui] Heli Info", self.is_im_gui_heli_info)
+    if self.is_im_gui_heli_info then
         if self.core_obj.av_obj.position_obj.entity == nil then
             return
         end
+        local f = string.format("%.2f", self.core_obj.av_obj.engine_obj.lift_force)
         local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
         local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
         local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
-        ImGui.Text("F: " .. self.core_obj.av_obj.engine_obj.lift_force .. ", v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z)
+        ImGui.Text("F: " .. f .. ", v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z)
+    end
+end
+
+function Debug:ImGuiSpinnerInfo()
+    self.is_im_gui_spinner_info = ImGui.Checkbox("[ImGui] Spinner Info", self.is_im_gui_spinner_info)
+    if self.is_im_gui_spinner_info then
+        if self.core_obj.av_obj.position_obj.entity == nil then
+            return
+        end
+        local f_h = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_horizenal_force)
+        local f_v = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_vertical_force)
+        local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
+        local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
+        local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
+        ImGui.Text("F_h: " .. f_h .. ", F_v : " .. f_v .. ", v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z)
     end
 end
 
@@ -133,7 +152,7 @@ function Debug:ImGuiCurrentEngineInfo()
     self.is_im_gui_engine_info = ImGui.Checkbox("[ImGui] Current Engine Info", self.is_im_gui_engine_info)
     if self.is_im_gui_engine_info then
         local v = string.format("%.2f", self.core_obj.av_obj.engine_obj.current_speed)
-        ImGui.Text("Current Power Mode : " .. self.core_obj.av_obj.engine_obj.current_mode .. ", Current Speed : " .. v)
+        ImGui.Text("Current Power Mode : " .. self.core_obj.av_obj.engine_obj.current_mode .. ", Current Speed : " .. v .. " , Clock: " .. self.core_obj.av_obj.engine_obj.clock)
     end
 end
 
@@ -169,24 +188,28 @@ function Debug:ImGuiMappinPosition()
     end
 end
 
+function Debug:ImGuiModelTypeStatus()
+    self.is_im_gui_model_type_status = ImGui.Checkbox("[ImGui] Model Index Status", self.is_im_gui_model_type_status)
+    if self.is_im_gui_model_type_status then
+        local model_index = DAV.model_index
+        local model_type_index = DAV.model_type_index
+        ImGui.Text("Model Index : " .. model_index .. ", Model Type Index : " .. model_type_index)
+        local garage_info_list = DAV.garage_info_list
+        for _, value in pairs(garage_info_list) do
+            ImGui.Text("name : " .. value.name .. ", model_index : " .. value.model_index .. ", model_type_index : " .. value.type_index .. ", is_unlocked : " .. tostring(value.is_purchased))
+        end
+    end
+end
+
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("Test Function 1",300, 60) then
-        local vehicle_system = Game.GetVehicleSystem()
-        local list = vehicle_system:GetPlayerUnlockedVehicles()
-        for _, vehicle in ipairs(list) do
-            print(vehicle.recordID.value)
-        end
         print("Excute Test Function 1")
     end
     if ImGui.Button("Test Function 2",300, 60) then
-        DAV.core_obj:UpdateGarageInfo()
-        for _, garage_info in ipairs(DAV.garage_info_list) do
-            print(garage_info.name)
-            print(garage_info.model_index)
-            print(garage_info.type_index)
-            print(garage_info.is_purchased)
-        end
         print("Excute Test Function 2")
+    end
+    if ImGui.Button("Test Function 3",300, 60) then
+        print("Excute Test Function 3")
     end
 end
 
