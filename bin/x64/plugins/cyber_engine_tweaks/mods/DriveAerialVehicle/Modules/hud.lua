@@ -32,7 +32,7 @@ function HUD:Init(av_obj)
 
     self.av_obj = av_obj
 
-    if not DAV.ready then
+    if not DAV.is_ready then
         self:SetOverride()
         self:SetObserve()
         GameHUD.Initialize()
@@ -42,7 +42,7 @@ end
 
 function HUD:SetOverride()
 
-    if not DAV.ready then
+    if not DAV.is_ready then
         -- Overside choice ui (refer to https://www.nexusmods.com/cyberpunk2077/mods/7299)
         Override("InteractionUIBase", "OnDialogsData", function(_, value, wrapped_method)
             if self.av_obj.position_obj:IsPlayerInEntryArea() then
@@ -79,7 +79,7 @@ end
 
 function HUD:SetObserve()
 
-    if not DAV.ready then
+    if not DAV.is_ready then
         Observe("InteractionUIBase", "OnInitialize", function(this)
             self.interaction_ui_base = this
         end)
@@ -183,6 +183,7 @@ function HUD:HideChoice()
 end
 
 function HUD:ShowMeter()
+
     self.hud_car_controller:ShowRequest()
     self.hud_car_controller:OnCameraModeChanged(true)
 
@@ -190,22 +191,30 @@ function HUD:ShowMeter()
         return
     else
         self.is_speed_meter_shown = true
-        Cron.Every(self.speed_meter_refresh_rate, function()
-            local mph = self.av_obj.engine_obj.current_speed * (3600 / 1600)
+        Cron.Every(self.speed_meter_refresh_rate, {tick = 0}, function(timer)
+            if DAV.is_unit_km_per_hour then
+                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "KMH")
+                local kmh = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1000))
+                inkTextRef.SetText(self.hud_car_controller.SpeedValue, kmh)
+            else
+                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "MPH")
+                local mph = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609.34))
+                inkTextRef.SetText(self.hud_car_controller.SpeedValue, mph)
+            end
             local power_level = 0
             if DAV.flight_mode == Def.FlightMode.Heli then
                 power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
             elseif DAV.flight_mode == Def.FlightMode.Spinner then 
                 power_level = math.floor(self.av_obj.engine_obj.spinner_horizenal_force / (self.av_obj.engine_obj.max_spinner_horizenal_force / 10))
             end
-            self.hud_car_controller:OnSpeedValueChanged(mph / 4.58)
             self.hud_car_controller:OnRpmValueChanged(power_level)
             self.hud_car_controller:EvaluateRPMMeterWidget(power_level)
             if not self.is_speed_meter_shown then
-                Cron.Halt()
+                Cron.Halt(timer)
             end
         end)
     end
+
 end
 
 function HUD:HideMeter()

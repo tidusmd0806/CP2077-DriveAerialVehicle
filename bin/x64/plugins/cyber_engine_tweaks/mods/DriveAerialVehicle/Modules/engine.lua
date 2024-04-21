@@ -30,7 +30,7 @@ function Engine:New(position_obj, all_models)
     obj.rebound_constant = nil
     obj.max_speed = 280
 
-    obj.power_on_off_wait = 5 -- 0.5s
+    obj.power_on_off_wait = 2 -- 0.2s
     obj.max_spinner_horizenal_force = nil
     obj.max_spinner_vertical_force = nil
     obj.time_to_max_spinner_horizenal_force = nil
@@ -378,6 +378,14 @@ end
 
 function Engine:CalculateSpinnerPower(movement)
 
+    -- natural power down
+    if self.spinner_horizenal_force ~= 0 then
+        self:SetSpinnerHorizenalPowerDown(self.time_to_max_spinner_natural_horizenal_force)
+    end
+    if self.spinner_vertical_force ~= 0 then
+        self:SetSpinnerVerticalPowerDown(self.time_to_max_spinner_natural_horizenal_force)
+    end
+
     if movement == Def.ActionList.SpinnerForward then
         self.log_obj:Record(LogLevel.Trace, "Forward Move")
         if self.current_mode == Def.PowerMode.Off then
@@ -385,19 +393,12 @@ function Engine:CalculateSpinnerPower(movement)
                 self.current_mode = Def.PowerMode.On
                 self.clock = 0
                 self.position_obj:SetEngineState(self.current_mode)
-            else
-                self.spinner_horizenal_force = 0
-                self.spinner_vertical_force = 0
             end
         elseif self.spinner_horizenal_force_sign < 0 then
-            if self.spinner_horizenal_force ~= 0 then
-                self:SetSpinnerHorizenalPowerDownCurve(self.clock)
-            else
                 self.spinner_horizenal_force_sign = 1
-            end
+                self.spinner_horizenal_force = 0
         else
-            self:SetSpinnerHorizenalPowerUpCurve(self.clock)
-            self.spinner_horizenal_force_sign = 1
+            self:SetSpinnerHorizenalPowerUp(self.time_to_max_spinner_horizenal_force)
         end
     elseif movement == Def.ActionList.SpinnerBackward then
         self.log_obj:Record(LogLevel.Trace, "Backward Move")
@@ -406,19 +407,12 @@ function Engine:CalculateSpinnerPower(movement)
                 self.current_mode = Def.PowerMode.On
                 self.clock = 0
                 self.position_obj:SetEngineState(self.current_mode)
-            else
-                self.spinner_horizenal_force = 0
-                self.spinner_vertical_force = 0
             end
         elseif self.spinner_horizenal_force_sign > 0 then
-            if self.spinner_horizenal_force ~= 0 then
-                self:SetSpinnerHorizenalPowerDownCurve(self.clock)
-            else
-                self.spinner_horizenal_force_sign = -1
-            end
-        else
-            self:SetSpinnerHorizenalPowerUpCurve(self.clock)
             self.spinner_horizenal_force_sign = -1
+            self.spinner_horizenal_force = 0
+        else
+            self:SetSpinnerHorizenalPowerUp(self.time_to_max_spinner_horizenal_force)
         end
     elseif movement == Def.ActionList.SpinnerUp then
         self.log_obj:Record(LogLevel.Trace, "Up Move")
@@ -427,19 +421,12 @@ function Engine:CalculateSpinnerPower(movement)
                 self.current_mode = Def.PowerMode.On
                 self.clock = 0
                 self.position_obj:SetEngineState(self.current_mode)
-            else
-                self.spinner_horizenal_force = 0
-                self.spinner_vertical_force = 0
             end
         elseif self.spinner_vertical_force_sign < 0 then
-            if self.spinner_vertical_force ~= 0 then
-                self:SetSpinnerVerticalPowerDownCurve(self.clock)
-            else
-                self.spinner_vertical_force_sign = 1
-            end
-        else
-            self:SetSpinnerVerticalPowerUpCurve(self.clock)
             self.spinner_vertical_force_sign = 1
+            self.spinner_vertical_force = 0
+        else
+            self:SetSpinnerVerticalPowerUp(self.time_to_max_spinner_vertical_force)
         end
     elseif movement == Def.ActionList.SpinnerDown then
         self.log_obj:Record(LogLevel.Trace, "Down Move")
@@ -448,19 +435,13 @@ function Engine:CalculateSpinnerPower(movement)
                 self.current_mode = Def.PowerMode.On
                 self.clock = 0
                 self.position_obj:SetEngineState(self.current_mode)
-            else
-                self.spinner_horizenal_force = 0
-                self.spinner_vertical_force = 0
             end
         elseif self.spinner_vertical_force_sign > 0 then
-            if self.spinner_vertical_force ~= 0 then
-                self:SetSpinnerVerticalPowerDownCurve(self.clock)
-            else
-                self.spinner_vertical_force_sign = -1
-            end
-        else
-            self:SetSpinnerVerticalPowerUpCurve(self.clock)
             self.spinner_vertical_force_sign = -1
+            self.spinner_vertical_force = 0
+        else
+            self:SetSpinnerVerticalPowerUp(self.time_to_max_spinner_vertical_force)
+
         end
     else
         if self.current_mode == Def.PowerMode.On and self.spinner_horizenal_force == 0 and self.spinner_vertical_force == 0 then
@@ -468,80 +449,40 @@ function Engine:CalculateSpinnerPower(movement)
             self.current_mode = Def.PowerMode.Off
             self.position_obj:SetEngineState(self.current_mode)
         end
-        if self.spinner_horizenal_force ~= 0 then
-            self:SetSpinnerHorizenalNaturalPowerDownCurve(self.clock)
-        end
-        if self.spinner_vertical_force ~= 0 then
-            self:SetSpinnerVerticalNaturalPowerDownCurve(self.clock)
-        end
     end
 
 end
 
-function Engine:SetSpinnerHorizenalPowerUpCurve(time)
-    if time <= self.time_to_max_spinner_horizenal_force then
-        self.spinner_horizenal_force = self.max_spinner_horizenal_force * (time / self.time_to_max_spinner_horizenal_force)
-        if self.spinner_horizenal_force > self.max_spinner_horizenal_force then
-            self.spinner_horizenal_force = self.max_spinner_horizenal_force
-        end
-    else
+function Engine:SetSpinnerHorizenalPowerUp(time)
+    self.spinner_horizenal_force = self.spinner_horizenal_force + (self.max_spinner_horizenal_force / time)
+    if self.spinner_horizenal_force > self.max_spinner_horizenal_force then
         self.spinner_horizenal_force = self.max_spinner_horizenal_force
     end
 end
 
-function Engine:SetSpinnerHorizenalPowerDownCurve(time)
-    if time <= self.time_to_max_spinner_horizenal_force then
-        self.spinner_horizenal_force = self.max_spinner_horizenal_force * ( 1 - (time / self.time_to_max_spinner_horizenal_force))
-        if self.spinner_horizenal_force < 0 then
-            self.spinner_horizenal_force = 0
-        end
-    else
+function Engine:SetSpinnerHorizenalPowerDown(time)
+    self.spinner_horizenal_force = self.spinner_horizenal_force - (self.max_spinner_horizenal_force / time)
+    if self.spinner_horizenal_force < 0 then
         self.spinner_horizenal_force = 0
     end
 end
 
-function Engine:SetSpinnerVerticalPowerUpCurve(time)
-    if time <= self.time_to_max_spinner_vertical_force then
-        self.spinner_vertical_force = self.max_spinner_vertical_force * (time / self.time_to_max_spinner_vertical_force)
-        if self.spinner_vertical_force > self.max_spinner_vertical_force then
-            self.spinner_vertical_force = self.max_spinner_vertical_force
-        end
-    else
+function Engine:SetSpinnerVerticalPowerUp(time)
+
+    self.spinner_vertical_force = self.spinner_vertical_force + (self.max_spinner_vertical_force / time)
+    if self.spinner_vertical_force > self.max_spinner_vertical_force then
         self.spinner_vertical_force = self.max_spinner_vertical_force
     end
+
 end
 
-function Engine:SetSpinnerVerticalPowerDownCurve(time)
-    if time <= self.time_to_max_spinner_vertical_force then
-        self.spinner_vertical_force = self.max_spinner_vertical_force * (1 - (time / self.time_to_max_spinner_vertical_force))
-        if self.spinner_vertical_force < 0 then
-            self.spinner_vertical_force = 0
-        end
-    else
+function Engine:SetSpinnerVerticalPowerDown(time)
+
+    self.spinner_vertical_force = self.spinner_vertical_force - (self.max_spinner_vertical_force / time)
+    if self.spinner_vertical_force < 0 then
         self.spinner_vertical_force = 0
     end
-end
 
-function Engine:SetSpinnerHorizenalNaturalPowerDownCurve(time)
-    if time <= self.time_to_max_spinner_natural_horizenal_force then
-        self.spinner_horizenal_force = self.max_spinner_horizenal_force * ( 1 - (time / self.time_to_max_spinner_natural_horizenal_force))
-        if self.spinner_horizenal_force < 0 then
-            self.spinner_horizenal_force = 0
-        end
-    else
-        self.spinner_horizenal_force = 0
-    end
-end
-
-function Engine:SetSpinnerVerticalNaturalPowerDownCurve(time)
-    if time <= self.time_to_max_spinner_natural_vertical_force then
-        self.spinner_vertical_force = self.max_spinner_vertical_force * (1 - (time / self.time_to_max_spinner_natural_vertical_force))
-        if self.spinner_vertical_force < 0 then
-            self.spinner_vertical_force = 0
-        end
-    else
-        self.spinner_vertical_force = 0
-    end
 end
 
 function Engine:CalcureteSpinnerVelocity()
@@ -550,10 +491,10 @@ function Engine:CalcureteSpinnerVelocity()
     local forward_xy_basic = {x = forward.x / forward_xy_lenght, y = forward.y / forward_xy_lenght}
 
     self.horizenal_x_speed = self.horizenal_x_speed + (DAV.time_resolution / self.mess)
-                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.x - self.spinner_air_resistance_constant * self.horizenal_x_speed)
+                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.x - self.spinner_air_resistance_constant * self.horizenal_x_speed * math.abs(self.horizenal_x_speed))
     self.horizenal_y_speed = self.horizenal_y_speed + (DAV.time_resolution / self.mess)
-                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.y - self.spinner_air_resistance_constant * self.horizenal_y_speed)
-    self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (self.spinner_vertical_force_sign * self.spinner_vertical_force - self.spinner_air_resistance_constant * self.vertical_speed)
+                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.y - self.spinner_air_resistance_constant * self.horizenal_y_speed * math.abs(self.horizenal_y_speed))
+    self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (self.spinner_vertical_force_sign * self.spinner_vertical_force - self.spinner_air_resistance_constant * self.vertical_speed * math.abs(self.vertical_speed))
 
     -- check limitation
     self.current_speed = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed + self.vertical_speed * self.vertical_speed)

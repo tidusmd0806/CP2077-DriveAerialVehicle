@@ -51,15 +51,23 @@ function UI:New()
 end
 
 function UI:Init(av_obj)
+
 	self.av_obj = av_obj
 
-    self:SetTweekDB()
-	if not DAV.ready then
-		self:SetDefaultValue()
+	if DAV.is_ready then
+		self:ResetTweekDB()
 	end
+
+	self:SetTweekDB()
+
+	-- if not DAV.is_ready then
+		self:SetDefaultValue()
+	-- end
+
 end
 
 function UI:SetTweekDB()
+
 	local index = DAV.model_index
     local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
     local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
@@ -84,16 +92,20 @@ function UI:SetTweekDB()
 		local av_record = TweakDBID.new(model.tweakdb_id)
 		table.insert(self.av_record_list, av_record)
 	end
+
 end
 
 function UI:ResetTweekDB()
+
 	TweakDB:DeleteRecord(self.dummy_vehicle_record)
 	TweakDB:DeleteRecord(self.dummy_logo_record)
 	self.av_record_list = {}
+
 end
 
 function UI:SetDefaultValue()
 
+	self.selected_purchased_vehicle_type_list = {}
 	-- garage
 	for _, garage_info in ipairs(DAV.garage_info_list) do
 		table.insert(self.selected_purchased_vehicle_type_list, self.av_obj.all_models[garage_info.model_index].type[garage_info.type_index])
@@ -150,7 +162,7 @@ end
 function UI:ShowSettingMenu()
 
 	self:SetMenuColor()
-    ImGui.SetNextWindowSize(1200, 800, ImGuiCond.Appearing)
+    -- ImGui.SetNextWindowSize(1200, 800, ImGuiCond.Appearing)
     ImGui.Begin(DAV.core_obj:GetTranslationText("ui_main_window_title"))
 
 	if ImGui.BeginTabBar("DAV Menu") then
@@ -462,12 +474,20 @@ function UI:ShowGeneralSetting()
 
 	ImGui.Separator()
 
-	-- if DAV.core_obj.event_obj:IsNotSpawned() then
-	-- 	ImGui.Text(DAV.core_obj:GetTranslationText("ui_setting_reset_setting"))
-	-- 	if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting_button"), 180, 60) then
-	-- 		DAV.core_obj:ResetSetting()
-	-- 	end
-	-- end
+	DAV.is_unit_km_per_hour = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_setting_unit_setting"), DAV.is_unit_km_per_hour)
+	if DAV.user_setting_table.is_unit_km_per_hour ~= DAV.is_unit_km_per_hour then
+		DAV.user_setting_table.is_unit_km_per_hour = DAV.is_unit_km_per_hour
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	end
+
+	ImGui.Separator()
+
+	if DAV.core_obj.event_obj:IsNotSpawned() then
+		ImGui.Text(DAV.core_obj:GetTranslationText("ui_setting_reset_setting"))
+		if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting_button"), 180, 60) then
+			DAV.core_obj:ResetSetting()
+		end
+	end
 
 end
 
@@ -483,7 +503,9 @@ function UI:ShowInfo()
 	else
 		ImGui.Text("CodeWare Version: " .. Codeware.Version())
 	end
+
 	ImGui.Separator()
+
 	ImGui.Text("Debug Checkbox (Developer Mode)")
 	self.dummy_check_1 = ImGui.Checkbox("1", self.dummy_check_1)
 	ImGui.SameLine()
@@ -506,7 +528,6 @@ function UI:SetFreeSummonParameters()
 
 	DAV.model_index = self.selected_vehicle_model_number
 	DAV.model_type_index = self.selected_vehicle_type_number
-	self:ResetTweekDB()
 	DAV.core_obj:Reset()
 
 	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
@@ -514,7 +535,6 @@ function UI:SetFreeSummonParameters()
 
 	DAV.user_setting_table.model_index = DAV.model_index
 	DAV.user_setting_table.model_type_index = DAV.model_type_index
-	DAV.user_setting_table.heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end

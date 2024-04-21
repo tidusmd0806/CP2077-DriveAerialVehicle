@@ -19,6 +19,7 @@ function Event:New()
     obj.re_enter_wait = 8.0
 
     -- set default parameters
+    obj.is_finished_initial_loading = false
     obj.current_situation = Def.Situation.Normal
     obj.is_in_menu = false
     obj.is_in_popup = false
@@ -40,7 +41,7 @@ function Event:Init(av_obj)
     self.hud_obj:Init(self.av_obj)
     self.sound_obj:Init(self.av_obj)
 
-    if not DAV.ready then
+    if not DAV.is_ready then
         self:SetObserve()
         self:SetOverride()
     end
@@ -74,9 +75,14 @@ function Event:SetObserve()
     end)
 
     GameUI.Observe("LoadingFinish", function()
-        Cron.After(0.5, function()
-            DAV.core_obj:Reset()
-        end)
+        if not self.is_finished_initial_loading then
+            self.is_finished_initial_loading = true
+            self.log_obj:Record(LogLevel.Info, "Initial loading finished")
+        else
+            Cron.After(0.5, function()
+                DAV.core_obj:Reset()
+            end)
+        end
     end)
 
     GameUI.Observe("SessionEnd", function()
@@ -151,7 +157,7 @@ function Event:CheckAllEvents()
 end
 
 function Event:CheckGarage()
-    DAV.core_obj:UpdateGarageInfo()
+    DAV.core_obj:UpdateGarageInfo(false)
 end
 
 function Event:CheckAvailableFreeCall()

@@ -63,6 +63,9 @@ function AV:New(all_models)
 	obj.x_total = 0
 	obj.y_total = 0
 	obj.z_total = 0
+	obj.roll_total = 0
+	obj.pitch_total = 0
+	obj.yaw_total = 0
 	obj.max_freeze_count = 50
 
 	return setmetatable(obj, self)
@@ -410,9 +413,9 @@ function AV:Operate(action_commands)
 	x_total = x_total / #action_commands + self.x_total
 	y_total = y_total / #action_commands + self.y_total
 	z_total = z_total / #action_commands + self.z_total
-	roll_total = roll_total / #action_commands
-	pitch_total = pitch_total / #action_commands
-	yaw_total = yaw_total / #action_commands
+	roll_total = roll_total / #action_commands + self.roll_total
+	pitch_total = pitch_total / #action_commands + self.pitch_total
+	yaw_total = yaw_total / #action_commands + self.yaw_total
 
 	if x_total == 0 and y_total == 0 and z_total == 0 and roll_total == 0 and pitch_total == 0 and yaw_total == 0 then
 		self.log_obj:Record(LogLevel.Debug, "No operation")
@@ -425,6 +428,9 @@ function AV:Operate(action_commands)
 		self.x_total = x_total
 		self.y_total = y_total
 		self.z_total = z_total
+		self.roll_total = roll_total
+		self.pitch_total = pitch_total
+		self.yaw_total = yaw_total
 		return false
 	elseif self.freeze_count >= self.max_freeze_count then
 		self.freeze_count = 0
@@ -433,6 +439,9 @@ function AV:Operate(action_commands)
 		self.x_total = 0
 		self.y_total = 0
 		self.z_total = 0
+		self.roll_total = 0
+		self.pitch_total = 0
+		self.yaw_total = 0
 	end
 
 	if DAV.is_disable_heli_roll_tilt or DAV.is_disable_spinner_roll_tilt then

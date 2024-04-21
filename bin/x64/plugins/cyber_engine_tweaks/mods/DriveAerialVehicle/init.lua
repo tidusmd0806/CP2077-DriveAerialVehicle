@@ -12,8 +12,8 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "1.2.0",
-    ready = false,
+	version = "1.2.1",
+    is_ready = false,
 
     -- system
     time_resolution = 0.01,
@@ -29,16 +29,17 @@ DAV = {
     --free summon mode
     is_free_summon_mode = true,
     -- control
-    flight_mode = Def.FlightMode.Heli,
+    flight_mode = Def.FlightMode.Spinner,
     is_disable_heli_roll_tilt = false,
     is_disable_heli_pitch_tilt = false,
     heli_horizenal_boost_ratio = 2.0,
     is_disable_spinner_roll_tilt = false,
     -- environment
-    is_enable_community_spawn = false,
+    is_enable_community_spawn = true,
     spawn_frequency = 2,
     -- general
     language_index = 1,
+    is_unit_km_per_hour = false,
     -- version check
     cet_required_version = 32.1, -- 1.32.1
     cet_recommended_version = 32.2, -- 1.32.2
@@ -68,6 +69,7 @@ DAV.user_setting_table = {
     spawn_frequency = DAV.spawn_frequency,
     --- general
     language_index = DAV.language_index,
+    is_unit_km_per_hour = DAV.is_unit_km_per_hour
 }
 
 registerForEvent("onOverlayOpen",function ()
@@ -119,7 +121,7 @@ registerForEvent('onInit', function()
 
     DAV.core_obj:Init()
 
-    DAV.ready = true
+    DAV.is_ready = true
 
     print('Drive an Aerial Vehicle Mod is ready!')
 
@@ -130,6 +132,9 @@ registerForEvent("onDraw", function()
         DAV.debug_obj:ImGuiMain()
     end
     if DAV.is_opening_overlay then
+        if DAV.core_obj == nil or DAV.core_obj.event_obj == nil or DAV.core_obj.event_obj.ui_obj == nil then
+            return
+        end
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
 end)

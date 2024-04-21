@@ -17,6 +17,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_engine_info = false
     obj.is_im_gui_sound_check = false
     obj.is_im_gui_mappin_position = false
+    obj.is_im_gui_model_type_status = false
 
     obj.selected_sound = "first"
     return setmetatable(obj, self)
@@ -49,6 +50,7 @@ function Debug:ImGuiMain()
     self:ImGuiCurrentEngineInfo()
     self:ImGuiSoundCheck()
     self:ImGuiMappinPosition()
+    self:ImGuiModelTypeStatus()
     self:ImGuiExcuteFunction()
     self:SelectPrint()
 
@@ -183,6 +185,19 @@ function Debug:ImGuiMappinPosition()
         local y = string.format("%.2f", self.core_obj.current_custom_mappin_position.y)
         local z = string.format("%.2f", self.core_obj.current_custom_mappin_position.z)
         ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
+    end
+end
+
+function Debug:ImGuiModelTypeStatus()
+    self.is_im_gui_model_type_status = ImGui.Checkbox("[ImGui] Model Index Status", self.is_im_gui_model_type_status)
+    if self.is_im_gui_model_type_status then
+        local model_index = DAV.model_index
+        local model_type_index = DAV.model_type_index
+        ImGui.Text("Model Index : " .. model_index .. ", Model Type Index : " .. model_type_index)
+        local garage_info_list = DAV.garage_info_list
+        for _, value in pairs(garage_info_list) do
+            ImGui.Text("name : " .. value.name .. ", model_index : " .. value.model_index .. ", model_type_index : " .. value.type_index .. ", is_unlocked : " .. tostring(value.is_purchased))
+        end
     end
 end
 

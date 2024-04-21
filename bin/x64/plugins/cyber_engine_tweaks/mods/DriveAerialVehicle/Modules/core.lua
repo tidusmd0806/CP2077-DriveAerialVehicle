@@ -30,7 +30,7 @@ function Core:New()
     obj.language_file_list = {}
     obj.language_name_list = {}
 
-    obj.max_speed_for_freezing = 100
+    obj.max_speed_for_freezing = 75
 
     -- set default parameters
     obj.heli_input_table = {}
@@ -42,6 +42,10 @@ function Core:New()
     obj.is_purchased_vehicle_call = false
 
     obj.is_freezing = false
+    obj.freeze_detect_range_mouse = 1
+    obj.freeze_detect_range_stick = 0.1
+
+    obj.initial_user_setting_table = {}
 
     return setmetatable(obj, self)
 
@@ -49,10 +53,16 @@ end
 
 function Core:Init()
 
+    self.all_models = self:GetAllModel()
+
+    self:InitGarageInfo()
+
+    -- set initial user setting
+    self.initial_user_setting_table = DAV.user_setting_table
+
     self:LoadSetting()
     self:SetTranslationNameList()
 
-    self.all_models = self:GetAllModel()
     self.heli_input_table = self:GetInputTable(self.heli_input_path)
     self.spinner_input_table = self:GetInputTable(self.spinner_input_path)
 
@@ -89,6 +99,7 @@ function Core:Reset()
 end
 
 function Core:LoadSetting()
+
     local setting_data = Utils:ReadJson(DAV.user_setting_path)
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
@@ -114,22 +125,31 @@ function Core:LoadSetting()
 
         --- general
         DAV.language_index = DAV.user_setting_table.language_index
+        DAV.is_unit_km_per_hour = DAV.user_setting_table.is_unit_km_per_hour
     end
+
 end
 
 function Core:ResetSetting()
 
     DAV.user_setting_table = self.initial_user_setting_table
 
+    self:UpdateGarageInfo(true)
+    for key, _ in ipairs(DAV.user_setting_table.garage_info_list) do
+        DAV.garage_info_list[key].type_index = 1
+    end
+
     Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
     self:LoadSetting()
+
+    self:Reset()
 
 end
 
 function Core:SetOverride()
 
-	if not DAV.ready then
+	if not DAV.is_ready then
 		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
 			local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
 
@@ -182,10 +202,42 @@ end
 
 function Core:SetTranslationNameList()
 
-    self.language_file_list = dir(DAV.language_path)
-    for _, file in ipairs(self.language_file_list) do
+    self.language_file_list = {}
+    self.language_name_list = {}
+
+    local files = dir(DAV.language_path)
+    local default_file
+    local other_files = {}
+
+    for _, file in ipairs(files) do
+        print(file.name)
+        if string.match(file.name, 'default.json') then
+            default_file = file
+            print("def")
+        elseif string.match(file.name, '%a%a%-%a%a.json') then
+            table.insert(other_files, file)
+            print("def2")
+        end
+        print("end")
+    end
+
+    if default_file then
+        local default_language_table = Utils:ReadJson(DAV.language_path .. "/" .. default_file.name)
+        if default_language_table and default_language_table.language then
+            table.insert(self.language_file_list, default_file)
+            table.insert(self.language_name_list, default_language_table.language)
+        end
+    else
+        self.log_obj:Record(LogLevel.Critical, "Default Language File is not found")
+        return
+    end
+
+    for _, file in ipairs(other_files) do
         local language_table = Utils:ReadJson(DAV.language_path .. "/" .. file.name)
-        table.insert(self.language_name_list, language_table.language)
+        if language_table and language_table.language then
+            table.insert(self.language_file_list, file)
+            table.insert(self.language_name_list, language_table.language)
+        end
     end
 
 end
@@ -264,7 +316,7 @@ function Core:SetInputListener()
             end
         end
 
-        if (string.match(action_name, "mouse") and action_value > 2) or (string.match(action_name, "right_stick") and action_value > 0.1) then
+        if (string.match(action_name, "mouse") and action_value > self.freeze_detect_range_mouse) or (string.match(action_name, "right_stick") and action_value > self.freeze_detect_range_stick) then
             self.is_freezing = true
         end
 
@@ -320,24 +372,30 @@ function Core:GetAllModel()
 
 end
 
-function Core:UpdateGarageInfo()
-
-    local vehicle_system = Game.GetVehicleSystem()
-    local list = vehicle_system:GetPlayerUnlockedVehicles()
-
-    if self.current_purchased_vehicle_count == #list then
-        return
-    else
-        self.current_purchased_vehicle_count = #list
-    end
+function Core:InitGarageInfo()
 
     DAV.garage_info_list = {}
 
-    for index, model in ipairs(self.av_obj.all_models) do
+    for index, model in ipairs(self.all_models) do
         local garage_info = {name = "", model_index = 1, type_index = 1, is_purchased = false}
         garage_info.name = model.tweakdb_id
         garage_info.model_index = index
         table.insert(DAV.garage_info_list, garage_info)
+    end
+
+    DAV.user_setting_table.garage_info_list = DAV.garage_info_list
+
+end
+
+function Core:UpdateGarageInfo(is_force_update)
+
+    local vehicle_system = Game.GetVehicleSystem()
+    local list = vehicle_system:GetPlayerUnlockedVehicles()
+
+    if self.current_purchased_vehicle_count == #list and not is_force_update then
+        return
+    else
+        self.current_purchased_vehicle_count = #list
     end
 
     for _, purchased_vehicle in ipairs(list) do
@@ -359,7 +417,7 @@ end
 
 function Core:ChangeGarageAVType(name, type_index)
 
-    self:UpdateGarageInfo()
+    self:UpdateGarageInfo(false)
 
     for idx, garage_info in ipairs(DAV.garage_info_list) do
         if garage_info.name == name then

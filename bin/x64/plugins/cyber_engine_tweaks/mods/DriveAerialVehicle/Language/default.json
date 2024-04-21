@@ -1,6 +1,6 @@
 {
     "language": "English",
-    "version": "1.2.0",
+    "version": "1.2.1",
 
     "ui_main_window_title": "Drive an Aerial Vehicle Menu",
     "ui_tab_garage": "Garage",
@@ -36,7 +36,7 @@
     "ui_environment_warning_message_about_spawn_frequency": "The higher the spawn frequency, the more likely it is to cause screen stuttering.",
 
     "ui_setting_language": "Language",
+    "ui_setting_unit_setting": "Enable KPH Notation",
     "ui_setting_reset_setting": "Reset all settings to their default state",
     "ui_setting_reset_setting_button": "Reset"
-
 }

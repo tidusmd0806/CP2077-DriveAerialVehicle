@@ -1,6 +1,6 @@
 {
     "language": "日本語",
-    "version": "1.2.0",
+    "version": "1.2.1",
 
     "ui_main_window_title": "Drive an Aerial Vehicle メニュー",
     "ui_tab_garage": "ガレージ",
@@ -36,6 +36,7 @@
     "ui_environment_warning_message_about_spawn_frequency": "スポーン頻度が高いほど、画面がカクつくことがあります。",
 
     "ui_setting_language": "言語",
+    "ui_setting_unit_setting": "Km/h表記に変更",
     "ui_setting_reset_setting": "設定をすべて初期状態に戻す",
     "ui_setting_reset_setting_button": "リセット"
 }
