@@ -6,10 +6,11 @@
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "rayfield",
         "type": [
-            "rayfield_excalibur__basic_arasaka_01",
-            "rayfield_excalibur__basic_delamain_01",
-            "rayfield_excalibur__basic_premium_01",
-            "rayfield_excalibur__basic_saburo_arasaka_01"
+            "premium",
+            "delamain",
+            "arasaka",
+            "saburo_arasaka",
+            "nusa_myers"
         ],
         "actual_allocated_door": ["seat_front_left"],
         "active_seat": ["Front Left Seat", "Front Right Seat", "Back Left Seat", "Back Right Seat"],
@@ -65,10 +66,10 @@
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "militech_l",
         "type": [
-            "militech_manticore__basic_manticore_01",
-            "militech_manticore__basic_manticore_dumdum_01",
-            "militech_manticore__basic_ncpd_01",
-            "militech_manticore_trauma_team_nusa_01"
+            "manticore",
+            "manticore_dumdum",
+            "ncpd",
+            "trauma_team_nusa"
         ],
         "actual_allocated_door": ["seat_front_left", "seat_front_right"],
         "active_seat": ["Left Passenger Seat", "Right Passenger Seat", "Cockpit(Left)", "Cockpit(Right)"],
@@ -124,11 +125,12 @@
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "zetatech",
         "type": [
-            "zetatech_atlus_arasaka_01",
-            "zetatech_atlus_ncpd_01",
-            "zetatech_atlus_news_01",
-            "zetatech_atlus_stealth_01",
-            "zetatech_atlus_trama_team"
+            "trama_team",
+            "arasaka",
+            "ncpd",
+            "n54_news",
+            "stealth",
+            "stealth_cloaked"
         ],
         "actual_allocated_door": ["seat_front_left"],
         "active_seat": ["Passenger Seat A", "Passenger Seat B", "Passenger Seat C", "Passenger Seat D", "Passenger Seat E"],
@@ -184,9 +186,9 @@
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "zetatech",
         "type": [
-            "zetatech_surveyor__basic_kangtao_01",
-            "zetatech_surveyor__basic_ep1_maxtac_01",
-            "zetatech_surveyor__basic_arasaka_01"
+            "kangtao",
+            "maxtac",
+            "arasaka"
         ],
         "actual_allocated_door": ["trunk"],
         "active_seat": ["Seat in Front", "Seat in Middle(Left)", "Seat in Middle(Right)", "Seat in Back"],
@@ -242,11 +244,10 @@
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "zetatech",
         "type": [
-            "zetatech_valgus_max_tac",
-            "zetatech_valgus_border_patrol",
-            "zetatech_valgus_arasaka",
-            "zetatech_valgus_valgus_01"
-
+            "valgus",
+            "max_tac",
+            "border_patrol",
+            "arasaka"
         ],
         "actual_allocated_door": ["seat_front_left"],
         "active_seat": ["Cockpit", "Passenger Seat"],
@@ -302,11 +303,10 @@
         "logo_inkatlas_path" : "base\\gameplay\\gui\\common\\icons\\weapon_manufacturers.inkatlas",
         "logo_inkatlas_part_name" : "zetatech",
         "type": [
-            "zetatech_valgus_max_tac",
-            "zetatech_valgus_border_patrol",
-            "zetatech_valgus_arasaka",
-            "zetatech_valgus_valgus_01"
-
+            "valgus",
+            "max_tac",
+            "border_patrol",
+            "arasaka"
         ],
         "actual_allocated_door": ["seat_front_left"],
         "active_seat": ["Cockpit", "Passenger Seat"],

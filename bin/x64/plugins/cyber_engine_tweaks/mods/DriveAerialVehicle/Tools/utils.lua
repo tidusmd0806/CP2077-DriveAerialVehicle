@@ -6,6 +6,18 @@ function Utils:New()
     return setmetatable(obj, self)
 end
 
+function Utils:DeepCopyTable(original)
+   local copy = {}
+   for key, value in pairs(original) do
+       if type(value) == "table" then
+           copy[key] = self:DeepCopyTable(value)
+       else
+           copy[key] = value
+       end
+   end
+   return copy
+end
+
 function Utils:IsTablesEqual(table1, table2)
     for key, value in pairs(table1) do
        if value ~= table2[key] then

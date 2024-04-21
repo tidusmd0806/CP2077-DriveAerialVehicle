@@ -119,26 +119,7 @@ end
 
 function Core:ResetSetting()
 
-    DAV.user_setting_table = {
-        version = DAV.version,
-        --- garage
-        garage_info_list = DAV.garage_info_list,
-        --- free summon mode
-        is_free_summon_mode = DAV.is_free_summon_mode,
-        model_index = DAV.model_index,
-        model_type_index = DAV.model_type_index,
-        --- control
-        flight_mode = DAV.flight_mode,
-        is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt,
-        is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt,
-        heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio,
-        is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt,
-        --- environment
-        is_enable_community_spawn = DAV.is_enable_community_spawn,
-        spawn_frequency = DAV.spawn_frequency,
-        --- general
-        language_index = DAV.language_index,
-    }
+    DAV.user_setting_table = self.initial_user_setting_table
 
     Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 

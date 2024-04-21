@@ -150,7 +150,7 @@ end
 function UI:ShowSettingMenu()
 
 	self:SetMenuColor()
-    ImGui.SetNextWindowSize(500, 800, ImGuiCond.Appearing)
+    ImGui.SetNextWindowSize(1200, 800, ImGuiCond.Appearing)
     ImGui.Begin(DAV.core_obj:GetTranslationText("ui_main_window_title"))
 
 	if ImGui.BeginTabBar("DAV Menu") then
@@ -366,6 +366,10 @@ function UI:ShowControlSetting()
 	end
 
 	ImGui.Spacing()
+
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_control_setting_explain_spinner"))
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_control_setting_explain_Heli"))
+
 	ImGui.Separator()
 	ImGui.Spacing()
 
@@ -424,6 +428,9 @@ function UI:ShowEnviromentSetting()
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		end
 	end
+
+	ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_community_spawn"))
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_spawn_frequency"))
 end
 
 function UI:ShowGeneralSetting()
@@ -453,9 +460,14 @@ function UI:ShowGeneralSetting()
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
 
-	if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting"), 180, 60) then
-		DAV.core_obj:ResetSetting()
-	end
+	ImGui.Separator()
+
+	-- if DAV.core_obj.event_obj:IsNotSpawned() then
+	-- 	ImGui.Text(DAV.core_obj:GetTranslationText("ui_setting_reset_setting"))
+	-- 	if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting_button"), 180, 60) then
+	-- 		DAV.core_obj:ResetSetting()
+	-- 	end
+	-- end
 
 end
 
