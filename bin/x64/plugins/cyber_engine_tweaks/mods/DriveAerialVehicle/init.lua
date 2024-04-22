@@ -103,10 +103,6 @@ registerForEvent("onTweak",function ()
      TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav", "Vehicle.q000_nomad_border_patrol_heli")
      TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
 
-     -- Custom valgus record(door close)
-    TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav_closed", "Vehicle.q000_nomad_border_patrol_heli")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav_closed.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav_closed.ent")
-
 end)
 
 registerForEvent('onInit', function()

@@ -210,15 +210,11 @@ function Core:SetTranslationNameList()
     local other_files = {}
 
     for _, file in ipairs(files) do
-        print(file.name)
         if string.match(file.name, 'default.json') then
             default_file = file
-            print("def")
         elseif string.match(file.name, '%a%a%-%a%a.json') then
             table.insert(other_files, file)
-            print("def2")
         end
-        print("end")
     end
 
     if default_file then
@@ -396,6 +392,10 @@ function Core:UpdateGarageInfo(is_force_update)
         return
     else
         self.current_purchased_vehicle_count = #list
+    end
+
+    for _, garage_info in ipairs(DAV.garage_info_list) do
+        garage_info.is_purchased = false
     end
 
     for _, purchased_vehicle in ipairs(list) do

@@ -214,10 +214,6 @@ function UI:ShowGarage()
 	ImGui.Separator()
 
 	for model_index, garage_info in ipairs(DAV.garage_info_list) do
-		if model_index == #DAV.garage_info_list then
-			-- remove valgus which closed its door
-			break
-		end
 		ImGui.Text(self.av_obj.all_models[garage_info.model_index].name)
 		ImGui.SameLine()
 		ImGui.Text(" : ")

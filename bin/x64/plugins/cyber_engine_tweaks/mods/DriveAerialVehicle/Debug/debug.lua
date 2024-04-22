@@ -203,6 +203,11 @@ end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("Test Function 1",300, 60) then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local animfeat = AnimFeature_PartData.new()
+        animfeat.state = 1
+        animfeat.duration = 0.75
+        AnimationControllerComponent.ApplyFeatureToReplicate(entity, "seat_front_left", animfeat)
         print("Excute Test Function 1")
     end
     if ImGui.Button("Test Function 2",300, 60) then
