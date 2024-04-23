@@ -104,18 +104,9 @@ function Position:ChangeWorldCordinate(basic_vector ,point_list)
     return result_list
 end
 
-function Position:SetEntryArea()
-    local vector = self:GetPosition()
-    local quaternion = self:GetQuaternion()
-    for i, corner in ipairs(self.local_entry_area) do
-        local rotated = Utils:RotateVectorByQuaternion(corner, quaternion)
-        self.entry_area[i] = {x = rotated.x + vector.x, y = rotated.y + vector.y, z = rotated.z + vector.z}
-    end
-end
-
 function Position:GetPosition()
     if self.entity == nil then
-        self.log_obj:Record(LogLevel.Error, "No vehicle entity for GetPosition")
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetPosition")
         return Vector4.new(0, 0, 0, 1.0)
     end
     return self.entity:GetWorldPosition()
@@ -123,7 +114,7 @@ end
 
 function Position:GetForward()
     if self.entity == nil then
-        self.log_obj:Record(LogLevel.Error, "No vehicle entity for GetForward")
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetForward")
         return Vector4.new(0, 0, 0, 1.0)
     end
     return self.entity:GetWorldForward()
@@ -131,7 +122,7 @@ end
 
 function Position:GetQuaternion()
     if self.entity == nil then
-        self.log_obj:Record(LogLevel.Error, "No vehicle entity for GetQuaternion")
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetQuaternion")
         return Quaternion.new(0, 0, 0, 1.0)
     end
     return self.entity:GetWorldOrientation()
@@ -139,7 +130,7 @@ end
 
 function Position:GetEulerAngles()
     if self.entity == nil then
-        self.log_obj:Record(LogLevel.Error, "No vehicle entity for GetEulerAngles")
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetEulerAngles")
         return EulerAngles.new(0, 0, 0)
     end
     return self.entity:GetWorldOrientation():ToEulerAngles()
@@ -262,6 +253,9 @@ end
 
 function Position:IsPlayerInEntryArea()
     local basic_vector = self:GetPosition()
+    if basic_vector:IsZero() then
+        return false
+    end
     local world_entry_point = self:ChangeWorldCordinate(basic_vector, {self.entry_point})
     local player_pos = Game.GetPlayer():GetWorldPosition()
     local player_vector = {x = player_pos.x, y = player_pos.y, z = player_pos.z}

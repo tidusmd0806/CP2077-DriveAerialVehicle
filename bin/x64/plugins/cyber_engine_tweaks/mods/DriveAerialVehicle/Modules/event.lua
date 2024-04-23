@@ -212,7 +212,7 @@ function Event:CheckInAV()
         -- when player take on AV
         if self.current_situation == Def.Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
-            SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
+            -- SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
             self.sound_obj:PlaySound("232_fly_loop")
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
@@ -230,7 +230,7 @@ function Event:CheckInAV()
             self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
             self.hud_obj:ShowActionButtons()
-            SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
+            -- SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
     end
 end

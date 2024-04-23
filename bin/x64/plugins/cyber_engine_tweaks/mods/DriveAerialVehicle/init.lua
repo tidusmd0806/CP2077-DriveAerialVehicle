@@ -12,7 +12,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "1.2.1",
+	version = "1.3.1",
     is_ready = false,
 
     -- system
@@ -22,12 +22,17 @@ DAV = {
     -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
-	model_index = 1,
+
+    -- grobal
+    model_index = 1,
 	model_type_index = 1,
+
     -- garage
     garage_info_list = {},
     --free summon mode
     is_free_summon_mode = true,
+    model_index_in_free = 1,
+	model_type_index_in_free = 1,
     -- control
     flight_mode = Def.FlightMode.Spinner,
     is_disable_heli_roll_tilt = false,
@@ -52,12 +57,15 @@ DAV = {
 -- initial settings
 DAV.user_setting_table = {
     version = DAV.version,
+    --grobal
+    model_index = DAV.model_index,
+    model_type_index = DAV.model_type_index,
     --- garage
     garage_info_list = DAV.garage_info_list,
     --- free summon mode
     is_free_summon_mode = DAV.is_free_summon_mode,
-    model_index = DAV.model_index,
-    model_type_index = DAV.model_type_index,
+    model_index_in_free = DAV.model_index_in_free,
+    model_type_index_in_free = DAV.model_type_index_in_free,
     --- control
     flight_mode = DAV.flight_mode,
     is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt,
@@ -102,10 +110,6 @@ registerForEvent("onTweak",function ()
      -- Custom valgus record
      TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav", "Vehicle.q000_nomad_border_patrol_heli")
      TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
-
-     -- Custom valgus record(door close)
-    TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav_closed", "Vehicle.q000_nomad_border_patrol_heli")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav_closed.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav_closed.ent")
 
 end)
 

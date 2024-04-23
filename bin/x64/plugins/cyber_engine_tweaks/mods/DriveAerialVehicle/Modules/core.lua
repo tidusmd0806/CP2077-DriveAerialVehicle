@@ -104,13 +104,17 @@ function Core:LoadSetting()
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
 
+        -- grobal
+        DAV.model_index = DAV.user_setting_table.model_index
+        DAV.model_type_index = DAV.user_setting_table.model_type_index
+
         --- garage
         DAV.garage_info_list = DAV.user_setting_table.garage_info_list
 
         --- free summon mode
         DAV.is_free_summon_mode = DAV.user_setting_table.is_free_summon_mode
-        DAV.model_index = DAV.user_setting_table.model_index
-        DAV.model_type_index = DAV.user_setting_table.model_type_index
+        DAV.model_index_in_free = DAV.user_setting_table.model_index_in_free
+        DAV.model_type_index_in_free = DAV.user_setting_table.model_type_index_in_free
 
         --- control
         DAV.flight_mode = DAV.user_setting_table.flight_mode
@@ -155,6 +159,9 @@ function Core:SetOverride()
 
 			if self.event_obj.ui_obj.dummy_av_record.hash == record_id.hash then
 				self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
+                DAV.model_index = DAV.model_index_in_free
+                DAV.model_type_index = DAV.model_type_index_in_free
+                self.av_obj:Init()
 				self.is_vehicle_call = true
 				return false
 			end
@@ -210,15 +217,11 @@ function Core:SetTranslationNameList()
     local other_files = {}
 
     for _, file in ipairs(files) do
-        print(file.name)
         if string.match(file.name, 'default.json') then
             default_file = file
-            print("def")
         elseif string.match(file.name, '%a%a%-%a%a.json') then
             table.insert(other_files, file)
-            print("def2")
         end
-        print("end")
     end
 
     if default_file then
@@ -396,6 +399,10 @@ function Core:UpdateGarageInfo(is_force_update)
         return
     else
         self.current_purchased_vehicle_count = #list
+    end
+
+    for _, garage_info in ipairs(DAV.garage_info_list) do
+        garage_info.is_purchased = false
     end
 
     for _, purchased_vehicle in ipairs(list) do
