@@ -178,6 +178,9 @@ function HUD:HideChoice()
     local interaction_blackboard = Game.GetBlackboardSystem():Get(ui_interaction_define)
 
     local data = interaction_blackboard:GetVariant(ui_interaction_define.DialogChoiceHubs)
+    if self.interaction_ui_base == nil then
+        return
+    end
     self.interaction_ui_base:OnDialogsData(data)
 
 end

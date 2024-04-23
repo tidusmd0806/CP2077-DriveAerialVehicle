@@ -60,15 +60,13 @@ function UI:Init(av_obj)
 
 	self:SetTweekDB()
 
-	-- if not DAV.is_ready then
-		self:SetDefaultValue()
-	-- end
+	self:SetDefaultValue()
 
 end
 
 function UI:SetTweekDB()
 
-	local index = DAV.model_index
+	local index = DAV.model_index_in_free
     local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
     local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
     local lockey = "Story-base-gameplay-gui-quests-q103-q103_rogue-_localizationString47"
@@ -115,13 +113,13 @@ function UI:SetDefaultValue()
 	for i, model in ipairs(self.av_obj.all_models) do
         self.vehicle_model_list[i] = model.name
 	end
-	self.selected_vehicle_model_number = DAV.model_index
+	self.selected_vehicle_model_number = DAV.model_index_in_free
 	self.selected_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
 
 	for i, type in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].type) do
 		self.vehicle_type_list[i] = type
 	end
-	self.selected_vehicle_type_number = DAV.model_type_index
+	self.selected_vehicle_type_number = DAV.model_type_index_in_free
 	self.selected_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
 
 	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
@@ -249,17 +247,15 @@ function UI:ShowFreeSummon()
 	local temp_is_free_summon_mode = DAV.is_free_summon_mode
 	local selected = false
 
-	if not DAV.core_obj.event_obj:IsNotSpawned() then
-		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_1"))
-		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_2"))
-		return
-	end
-
 	DAV.is_free_summon_mode = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_free_summon_enable_summon"), DAV.is_free_summon_mode)
 	if temp_is_free_summon_mode ~= DAV.is_free_summon_mode then
 		DAV.user_setting_table.is_free_summon_mode = DAV.is_free_summon_mode
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
+
+	ImGui.Separator()
+	ImGui.Spacing()
+
 	if not DAV.is_free_summon_mode then
 		ImGui.TextColored(1, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_1"))
 		ImGui.TextColored(1, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_3"))
@@ -275,6 +271,12 @@ function UI:ShowFreeSummon()
 
 	ImGui.Separator()
 	ImGui.Spacing()
+
+	if not DAV.core_obj.event_obj:IsNotSpawned() then
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_1"))
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_2"))
+		return
+	end
 
 	if self.selected_vehicle_model_name == nil then
 		self.selected_vehicle_model_name = self.vehicle_model_list[1]
@@ -339,7 +341,7 @@ function UI:ShowFreeSummon()
 		ImGui.EndCombo()
 	end
 
-	if DAV.user_setting_table.model_index ~= self.selected_vehicle_model_number or DAV.user_setting_table.model_type_index ~= self.selected_vehicle_type_number then
+	if DAV.user_setting_table.model_index_in_free ~= self.selected_vehicle_model_number or DAV.user_setting_table.model_type_index_in_free ~= self.selected_vehicle_type_number then
 		self:SetFreeSummonParameters()
 	end
 
@@ -522,15 +524,15 @@ end
 
 function UI:SetFreeSummonParameters()
 
-	DAV.model_index = self.selected_vehicle_model_number
-	DAV.model_type_index = self.selected_vehicle_type_number
+	DAV.model_index_in_free = self.selected_vehicle_model_number
+	DAV.model_type_index_in_free = self.selected_vehicle_type_number
 	DAV.core_obj:Reset()
 
 	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
 	self.current_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
 
-	DAV.user_setting_table.model_index = DAV.model_index
-	DAV.user_setting_table.model_type_index = DAV.model_type_index
+	DAV.user_setting_table.model_index_in_free = DAV.model_index_in_free
+	DAV.user_setting_table.model_type_index_in_free = DAV.model_type_index_in_free
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end
