@@ -258,6 +258,9 @@ function Position:IsPlayerInEntryArea()
     end
     local world_entry_point = self:ChangeWorldCordinate(basic_vector, {self.entry_point})
     local player_pos = Game.GetPlayer():GetWorldPosition()
+    if player_pos == nil then
+        return false
+    end
     local player_vector = {x = player_pos.x, y = player_pos.y, z = player_pos.z}
 
     local norm = math.sqrt((player_vector.x - world_entry_point[1].x) * (player_vector.x - world_entry_point[1].x) + (player_vector.y - world_entry_point[1].y) * (player_vector.y - world_entry_point[1].y) + (player_vector.z - world_entry_point[1].z) * (player_vector.z - world_entry_point[1].z))

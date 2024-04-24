@@ -67,7 +67,12 @@ function HUD:SetOverride()
 
         Override("dialogWidgetGameController", "OnDialogsActivateHub", function(_, id, wrapped_metthod) -- Avoid interaction getting overriden by game
             if self.av_obj.position_obj:IsPlayerInEntryArea() then
-                local id_ = self.interaction_hub.id or id
+                local id_
+                if self.interaction_hub == nil then
+                    id_ = id
+                else
+                    id_ = self.interaction_hub.id
+                end
                 return wrapped_metthod(id_)
             else
                 return wrapped_metthod(id)

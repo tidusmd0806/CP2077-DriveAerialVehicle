@@ -66,23 +66,23 @@ end
 
 function UI:SetTweekDB()
 
-	local index = DAV.model_index_in_free
-    local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
-    local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
-    local lockey = "Story-base-gameplay-gui-quests-q103-q103_rogue-_localizationString47"
+	-- local index = DAV.model_index_in_free
+    -- local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
+    -- local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
+    -- local lockey = 28782
 
     TweakDB:CloneRecord(self.dummy_logo_record, "UIIcon.quadra_type66__bulleat")
     TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasPartName"), logo_inkatlas_part_name)
     TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasResourcePath"), logo_inkatlas_path)
 
-    TweakDB:CloneRecord(self.dummy_vehicle_record, "Vehicle.v_sport2_quadra_type66_02_player")
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".entityTemplatePath"), self.dummy_vehicle_record)
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".displayName"), LocKey(lockey))
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".icon"), self.dummy_logo_record)
+    -- TweakDB:CloneRecord(self.dummy_vehicle_record, "Vehicle.v_sport2_quadra_type66_02_player")
+    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".entityTemplatePath"), self.dummy_vehicle_record)
+    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".displayName"), LocKey(lockey))
+    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".icon"), self.dummy_logo_record)
 
-    local vehicle_list = TweakDB:GetFlat(TweakDBID.new('Vehicle.vehicle_list.list'))
-    table.insert(vehicle_list, TweakDBID.new(self.dummy_vehicle_record))
-    TweakDB:SetFlat(TweakDBID.new('Vehicle.vehicle_list.list'), vehicle_list)
+    -- local vehicle_list = TweakDB:GetFlat(TweakDBID.new('Vehicle.vehicle_list.list'))
+    -- table.insert(vehicle_list, TweakDBID.new(self.dummy_vehicle_record))
+    -- TweakDB:SetFlat(TweakDBID.new('Vehicle.vehicle_list.list'), vehicle_list)
 
     self.dummy_av_record = TweakDBID.new(self.dummy_vehicle_record)
 

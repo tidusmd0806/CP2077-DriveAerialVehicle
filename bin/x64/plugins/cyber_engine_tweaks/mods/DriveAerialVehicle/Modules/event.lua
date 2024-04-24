@@ -16,10 +16,9 @@ function Event:New()
     obj.ui_obj = Ui:New()
     obj.sound_obj = Sound:New()
 
-    obj.re_enter_wait = 8.0
-
     -- set default parameters
     obj.is_finished_initial_loading = false
+    obj.is_enable_dummy_summon = false
     obj.current_situation = Def.Situation.Normal
     obj.is_in_menu = false
     obj.is_in_popup = false
@@ -161,9 +160,11 @@ function Event:CheckGarage()
 end
 
 function Event:CheckAvailableFreeCall()
-    if self:IsAvailableFreeCall() then
+    if self:IsAvailableFreeCall() and not self.is_enable_dummy_summon then
+        self.is_enable_dummy_summon = true
         DAV.core_obj:ActivateDummySummon(true)
-    else
+    elseif not self:IsAvailableFreeCall() and self.is_enable_dummy_summon then
+        self.is_enable_dummy_summon = false
         DAV.core_obj:ActivateDummySummon(false)
     end
 end

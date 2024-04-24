@@ -55,6 +55,11 @@ function Core:Init()
 
     self.all_models = self:GetAllModel()
 
+    if self.all_models == nil then
+        self.log_obj:Record(LogLevel.Error, "Model is nil")
+        return
+    end
+
     self:InitGarageInfo()
 
     -- set initial user setting
@@ -65,11 +70,6 @@ function Core:Init()
 
     self.heli_input_table = self:GetInputTable(self.heli_input_path)
     self.spinner_input_table = self:GetInputTable(self.spinner_input_path)
-
-    if self.all_models == nil then
-        self.log_obj:Record(LogLevel.Error, "Model is nil")
-        return
-    end
 
     self.av_obj = AV:New(self.all_models)
     self.av_obj:Init()
@@ -392,10 +392,9 @@ end
 
 function Core:UpdateGarageInfo(is_force_update)
 
-    local vehicle_system = Game.GetVehicleSystem()
-    local list = vehicle_system:GetPlayerUnlockedVehicles()
+    local list = Game.GetVehicleSystem():GetPlayerUnlockedVehicles()
 
-    if self.current_purchased_vehicle_count == #list and not is_force_update then
+    if (self.current_purchased_vehicle_count == #list or #list == 0) and not is_force_update then
         return
     else
         self.current_purchased_vehicle_count = #list
