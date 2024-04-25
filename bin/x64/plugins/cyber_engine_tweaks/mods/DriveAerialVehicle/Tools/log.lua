@@ -10,6 +10,8 @@ LogLevel = {
 
 -- Force the log level to be the same for all instances
 MasterLogLevel = LogLevel.Error
+-- Print debug messages to the console
+PrintDebugMode = false
 
 local Log = {}
 Log.__index = Log
@@ -37,8 +39,16 @@ end
 
 function Log:Record(level, message)
 
-    if level > self.setting_level then
+    local setting_level = self.setting_level
+    if MasterLogLevel > setting_level then
+        setting_level = MasterLogLevel
+    end
+
+    if level > setting_level then
         return
+    end
+    if PrintDebugMode then
+        print(self.setting_file_name .. "[" .. level .."]" .. message)
     end
     if level == LogLevel.Critical then
         spdlog.critical(self.setting_file_name .. "[CRITICAL] " .. message)

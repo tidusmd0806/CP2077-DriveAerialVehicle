@@ -1,7 +1,7 @@
 local Camera = require("Modules/camera.lua")
 local Position = require("Modules/position.lua")
 local Engine = require("Modules/engine.lua")
-local Log = require("Tools/log.lua")
+-- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local AV = {}
 AV.__index = AV

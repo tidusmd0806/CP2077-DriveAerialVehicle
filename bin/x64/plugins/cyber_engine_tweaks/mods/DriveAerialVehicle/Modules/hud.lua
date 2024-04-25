@@ -1,6 +1,6 @@
 local GameSettings = require('External/GameSettings.lua')
 local GameHUD = require('External/GameHUD.lua')
-local Log = require("Tools/log.lua")
+-- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local HUD = {}
 HUD.__index = HUD

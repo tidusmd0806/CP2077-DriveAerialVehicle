@@ -1,4 +1,4 @@
-local Log = require("Tools/log.lua")
+-- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 Engine = {}
 Engine.__index = Engine
@@ -490,11 +490,26 @@ function Engine:CalcureteSpinnerVelocity()
     local forward_xy_lenght = math.sqrt(forward.x * forward.x + forward.y * forward.y)
     local forward_xy_basic = {x = forward.x / forward_xy_lenght, y = forward.y / forward_xy_lenght}
 
+    -- Calculate the length of the velocity vector
+    local velocity_length = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed)
+
+    local velocity_x = 0
+    local velocity_y = 0
+    if velocity_length ~= 0 then
+        velocity_x = self.horizenal_x_speed / velocity_length
+        velocity_y = self.horizenal_y_speed / velocity_length
+    end
+
+    -- Calculate the angle between the direction of motion and the velocity vector
+    local angle = math.acos(forward_xy_basic.x * velocity_x + forward_xy_basic.y * velocity_y)
+    local resistance_force = 1000 * math.abs(math.sin(angle)) + 50
+    print("resistance_force: " .. resistance_force)
+
     self.horizenal_x_speed = self.horizenal_x_speed + (DAV.time_resolution / self.mess)
-                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.x - self.spinner_air_resistance_constant * self.horizenal_x_speed * math.abs(self.horizenal_x_speed))
+                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.x - resistance_force * self.horizenal_x_speed * math.abs(self.horizenal_x_speed))
     self.horizenal_y_speed = self.horizenal_y_speed + (DAV.time_resolution / self.mess)
-                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.y - self.spinner_air_resistance_constant * self.horizenal_y_speed * math.abs(self.horizenal_y_speed))
-    self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (self.spinner_vertical_force_sign * self.spinner_vertical_force - self.spinner_air_resistance_constant * self.vertical_speed * math.abs(self.vertical_speed))
+                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.y - resistance_force * self.horizenal_y_speed * math.abs(self.horizenal_y_speed))
+    self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (self.spinner_vertical_force_sign * self.spinner_vertical_force - resistance_force * self.vertical_speed * math.abs(self.vertical_speed))
 
     -- check limitation
     self.current_speed = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed + self.vertical_speed * self.vertical_speed)

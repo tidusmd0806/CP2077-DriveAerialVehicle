@@ -1,6 +1,6 @@
 local AV = require("Modules/av.lua")
 local Event = require("Modules/event.lua")
-local Log = require("Tools/log.lua")
+-- local Log = require("Tools/log.lua")
 local Queue = require("Tools/queue.lua")
 local Utils = require("Tools/utils.lua")
 
@@ -84,8 +84,7 @@ function Core:Init()
 
     self:SetInputListener()
     self:SetCustomMappinPosition()
-
-    self:SetOverride()
+    self:SetSummonTrigger()
 
 end
 
@@ -151,43 +150,41 @@ function Core:ResetSetting()
 
 end
 
-function Core:SetOverride()
+function Core:SetSummonTrigger()
 
-	if not DAV.is_ready then
-		Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
-			local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
+    Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
+        local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
 
-			if self.event_obj.ui_obj.dummy_av_record.hash == record_id.hash then
-				self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
-                DAV.model_index = DAV.model_index_in_free
-                DAV.model_type_index = DAV.model_type_index_in_free
-                self.av_obj:Init()
-				self.is_vehicle_call = true
-				return false
-			end
-			local str = string.gsub(record_id.value, "_dummy", "")
-			local new_record_id = TweakDBID.new(str)
-			for _, record in ipairs(self.event_obj.ui_obj.av_record_list) do
-				if record.hash == new_record_id.hash then
-					self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
-					for key, value in ipairs(self.av_obj.all_models) do
-						if value.tweakdb_id == record.value then
-							DAV.model_index = key
-							DAV.model_type_index = DAV.garage_info_list[key].type_index
-							self.av_obj:Init()
-							break
-						end
-					end
-					self.is_purchased_vehicle_call = true
-					return false
-				end
-			end
-			local res = wrapped_method(vehicle_type)
-			self.is_vehicle_call = false
-			self.is_purchased_vehicle_call = false
-			return res
-		end)
-	end
+        if self.event_obj.ui_obj.dummy_av_record.hash == record_id.hash then
+            self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
+            DAV.model_index = DAV.model_index_in_free
+            DAV.model_type_index = DAV.model_type_index_in_free
+            self.av_obj:Init()
+            self.is_vehicle_call = true
+            return false
+        end
+        local str = string.gsub(record_id.value, "_dummy", "")
+        local new_record_id = TweakDBID.new(str)
+        for _, record in ipairs(self.event_obj.ui_obj.av_record_list) do
+            if record.hash == new_record_id.hash then
+                self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
+                for key, value in ipairs(self.av_obj.all_models) do
+                    if value.tweakdb_id == record.value then
+                        DAV.model_index = key
+                        DAV.model_type_index = DAV.garage_info_list[key].type_index
+                        self.av_obj:Init()
+                        break
+                    end
+                end
+                self.is_purchased_vehicle_call = true
+                return false
+            end
+        end
+        local res = wrapped_method(vehicle_type)
+        self.is_vehicle_call = false
+        self.is_purchased_vehicle_call = false
+        return res
+    end)
 
 end
 
@@ -323,9 +320,7 @@ function Core:SetInputListener()
             self.is_freezing = true
         end
 
-        if DAV.is_debug_mode then
-            DAV.debug_obj:PrintActionCommand(action_name, action_type, action_value)
-        end
+        self.log_obj:Record(LogLevel.Debug, "Action Name: " .. action_name .. " Type: " .. action_type .. " Value: " .. action_value)
 
         self:StorePlayerAction(action_name, action_type, action_value)
 

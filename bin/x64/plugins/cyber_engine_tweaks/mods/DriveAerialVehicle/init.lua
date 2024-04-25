@@ -6,13 +6,14 @@
 
 Cron = require('External/Cron.lua')
 Def = require("Tools/def.lua")
+Log = require("Tools/log.lua")
 
 local Core = require('Modules/core.lua')
 local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "1.3.2",
+	version = "1.3.3",
     is_ready = false,
 
     -- system

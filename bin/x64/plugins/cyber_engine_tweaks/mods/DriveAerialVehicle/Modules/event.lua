@@ -1,4 +1,4 @@
-local Log = require("Tools/log.lua")
+-- local Log = require("Tools/log.lua")
 local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
 local Sound = require("Modules/sound.lua")
@@ -17,9 +17,9 @@ function Event:New()
     obj.sound_obj = Sound:New()
 
     -- set default parameters
-    obj.is_finished_initial_loading = false
-    obj.is_enable_dummy_summon = false
-    obj.current_situation = Def.Situation.Normal
+    obj.is_initial_load = false
+    obj.current_situation = Def.Situation.Idel
+    obj.is_unlocked_dummy_av = false
     obj.is_in_menu = false
     obj.is_in_popup = false
     obj.is_in_photo = false
@@ -31,8 +31,6 @@ function Event:New()
 end
 
 function Event:Init(av_obj)
-
-    self.current_situation = Def.Situation.Normal
 
     self.av_obj = av_obj
 
@@ -73,19 +71,24 @@ function Event:SetObserve()
         self.is_in_photo = false
     end)
 
-    GameUI.Observe("LoadingFinish", function()
-        if not self.is_finished_initial_loading then
-            self.is_finished_initial_loading = true
-            self.log_obj:Record(LogLevel.Info, "Initial loading finished")
+    GameUI.Observe("SessionStart", function()
+
+        if not self.is_initial_load then
+            self.log_obj:Record(LogLevel.Info, "Initial Session start detected")
+            self.is_initial_load = true
         else
-            Cron.After(0.5, function()
-                DAV.core_obj:Reset()
-            end)
+            self.log_obj:Record(LogLevel.Info, "Session start detected")
+            DAV.core_obj:Reset()
         end
+
+        self.is_unlocked_dummy_av = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(self.ui_obj.dummy_vehicle_record))
+        self.current_situation = Def.Situation.Normal
+
     end)
 
     GameUI.Observe("SessionEnd", function()
-        DAV.core_obj:ActivateDummySummon(false)
+        self.log_obj:Record(LogLevel.Info, "Session end detected")
+        self.current_situation = Def.Situation.Idel
     end)
 end
 
@@ -100,7 +103,9 @@ function Event:SetOverride()
 end
 
 function Event:SetSituation(situation)
-    if self.current_situation == Def.Situation.Normal and situation == Def.Situation.Landing then
+    if self.current_situation == Def.Situation.Idel then
+        return false
+    elseif self.current_situation == Def.Situation.Normal and situation == Def.Situation.Landing then
         self.log_obj:Record(LogLevel.Info, "Landing detected")
         self.current_situation = Def.Situation.Landing
         return true
@@ -150,8 +155,6 @@ function Event:CheckAllEvents()
         self:CheckFailAutoPilot()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
-    else
-        self.log_obj:Record(LogLevel.Critical, "Invalid situation detected")
     end
 end
 
@@ -160,11 +163,14 @@ function Event:CheckGarage()
 end
 
 function Event:CheckAvailableFreeCall()
-    if self:IsAvailableFreeCall() and not self.is_enable_dummy_summon then
-        self.is_enable_dummy_summon = true
+
+    if self:IsAvailableFreeCall() and not self.is_unlocked_dummy_av then
+        self.log_obj:Record(LogLevel.Info, "Unlock dummy vehicle for free call")
+        self.is_unlocked_dummy_av = true
         DAV.core_obj:ActivateDummySummon(true)
-    elseif not self:IsAvailableFreeCall() and self.is_enable_dummy_summon then
-        self.is_enable_dummy_summon = false
+    elseif not self:IsAvailableFreeCall() and self.is_unlocked_dummy_av then
+        self.log_obj:Record(LogLevel.Info, "Lock dummy vehicle for free call")
+        self.is_unlocked_dummy_av = false
         DAV.core_obj:ActivateDummySummon(false)
     end
 end
@@ -213,7 +219,7 @@ function Event:CheckInAV()
         -- when player take on AV
         if self.current_situation == Def.Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
-            -- SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
+            SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
             self.sound_obj:PlaySound("232_fly_loop")
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
@@ -231,7 +237,7 @@ function Event:CheckInAV()
             self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
             self.hud_obj:ShowActionButtons()
-            -- SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
+            SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
     end
 end
@@ -390,7 +396,7 @@ function Event:SelectChoice(direction)
             self.selected_seat_index = self.selected_seat_index - 1
             if self.selected_seat_index < 1 then
                 self.selected_seat_index = max_seat_index
-                
+
             end
         elseif direction == Def.ActionList.SelectDown then
             self.selected_seat_index = self.selected_seat_index + 1

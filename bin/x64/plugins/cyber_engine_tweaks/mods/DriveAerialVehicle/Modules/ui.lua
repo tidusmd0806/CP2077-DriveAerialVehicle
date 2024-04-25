@@ -1,4 +1,4 @@
-local Log = require("Tools/log.lua")
+-- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local UI = {}
 UI.__index = UI
@@ -9,7 +9,6 @@ function UI:New()
     obj.log_obj:SetLevel(LogLevel.Info, "UI")
 
     obj.dummy_vehicle_record = "Vehicle.av_dav_dummy"
-    obj.dummy_vehicle_record_path = "base\\vehicles\\special\\av_dav_dummy_99.ent"
     obj.dummy_logo_record = "UIIcon.av_dav_logo"
 	obj.av_obj = nil
 
@@ -54,9 +53,9 @@ function UI:Init(av_obj)
 
 	self.av_obj = av_obj
 
-	if DAV.is_ready then
-		self:ResetTweekDB()
-	end
+	-- if DAV.is_ready then
+	-- 	self:ResetTweekDB()
+	-- end
 
 	self:SetTweekDB()
 
@@ -71,9 +70,9 @@ function UI:SetTweekDB()
     -- local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
     -- local lockey = 28782
 
-    TweakDB:CloneRecord(self.dummy_logo_record, "UIIcon.quadra_type66__bulleat")
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasPartName"), logo_inkatlas_part_name)
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasResourcePath"), logo_inkatlas_path)
+    -- TweakDB:CloneRecord(self.dummy_logo_record, "UIIcon.quadra_type66__bulleat")
+    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasPartName"), logo_inkatlas_part_name)
+    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasResourcePath"), logo_inkatlas_path)
 
     -- TweakDB:CloneRecord(self.dummy_vehicle_record, "Vehicle.v_sport2_quadra_type66_02_player")
     -- TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".entityTemplatePath"), self.dummy_vehicle_record)

@@ -1,4 +1,4 @@
-local Log = require("Tools/log.lua")
+-- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Position = {}
 Position.__index = Position
