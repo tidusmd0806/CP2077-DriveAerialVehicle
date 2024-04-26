@@ -206,7 +206,7 @@ function HUD:ShowMeter()
                 inkTextRef.SetText(self.hud_car_controller.SpeedValue, kmh)
             else
                 inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "MPH")
-                local mph = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609.34))
+                local mph = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609))
                 inkTextRef.SetText(self.hud_car_controller.SpeedValue, mph)
             end
             local power_level = 0
