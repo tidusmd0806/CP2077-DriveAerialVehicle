@@ -1,4 +1,4 @@
-local Log = require("Tools/log.lua")
+-- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local UI = {}
 UI.__index = UI
@@ -9,7 +9,6 @@ function UI:New()
     obj.log_obj:SetLevel(LogLevel.Info, "UI")
 
     obj.dummy_vehicle_record = "Vehicle.av_dav_dummy"
-    obj.dummy_vehicle_record_path = "base\\vehicles\\special\\av_dav_dummy_99.ent"
     obj.dummy_logo_record = "UIIcon.av_dav_logo"
 	obj.av_obj = nil
 
@@ -54,9 +53,9 @@ function UI:Init(av_obj)
 
 	self.av_obj = av_obj
 
-	if DAV.is_ready then
-		self:ResetTweekDB()
-	end
+	-- if DAV.is_ready then
+	-- 	self:ResetTweekDB()
+	-- end
 
 	self:SetTweekDB()
 
@@ -66,23 +65,23 @@ end
 
 function UI:SetTweekDB()
 
-	local index = DAV.model_index_in_free
-    local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
-    local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
-    local lockey = "Story-base-gameplay-gui-quests-q103-q103_rogue-_localizationString47"
+	-- local index = DAV.model_index_in_free
+    -- local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
+    -- local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
+    -- local lockey = 28782
 
-    TweakDB:CloneRecord(self.dummy_logo_record, "UIIcon.quadra_type66__bulleat")
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasPartName"), logo_inkatlas_part_name)
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasResourcePath"), logo_inkatlas_path)
+    -- TweakDB:CloneRecord(self.dummy_logo_record, "UIIcon.quadra_type66__bulleat")
+    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasPartName"), logo_inkatlas_part_name)
+    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasResourcePath"), logo_inkatlas_path)
 
-    TweakDB:CloneRecord(self.dummy_vehicle_record, "Vehicle.v_sport2_quadra_type66_02_player")
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".entityTemplatePath"), self.dummy_vehicle_record)
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".displayName"), LocKey(lockey))
-    TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".icon"), self.dummy_logo_record)
+    -- TweakDB:CloneRecord(self.dummy_vehicle_record, "Vehicle.v_sport2_quadra_type66_02_player")
+    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".entityTemplatePath"), self.dummy_vehicle_record)
+    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".displayName"), LocKey(lockey))
+    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".icon"), self.dummy_logo_record)
 
-    local vehicle_list = TweakDB:GetFlat(TweakDBID.new('Vehicle.vehicle_list.list'))
-    table.insert(vehicle_list, TweakDBID.new(self.dummy_vehicle_record))
-    TweakDB:SetFlat(TweakDBID.new('Vehicle.vehicle_list.list'), vehicle_list)
+    -- local vehicle_list = TweakDB:GetFlat(TweakDBID.new('Vehicle.vehicle_list.list'))
+    -- table.insert(vehicle_list, TweakDBID.new(self.dummy_vehicle_record))
+    -- TweakDB:SetFlat(TweakDBID.new('Vehicle.vehicle_list.list'), vehicle_list)
 
     self.dummy_av_record = TweakDBID.new(self.dummy_vehicle_record)
 
@@ -383,20 +382,8 @@ function UI:ShowControlSetting()
 	ImGui.Separator()
 	ImGui.Spacing()
 
-	-- local is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt
-	-- local is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt
 	local is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt
 	if DAV.flight_mode == Def.FlightMode.Heli then
-		-- DAV.is_disable_heli_roll_tilt = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_control_setting_disable_left_right"), DAV.is_disable_heli_roll_tilt)
-		-- if is_disable_heli_roll_tilt ~= DAV.is_disable_heli_roll_tilt then
-		-- 	DAV.user_setting_table.is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt
-		-- 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-		-- end
-		-- DAV.is_disable_heli_pitch_tilt = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_control_setting_disable_forward_backward"), DAV.is_disable_heli_pitch_tilt)
-		-- if is_disable_heli_pitch_tilt ~= DAV.is_disable_heli_pitch_tilt then
-		-- 	DAV.user_setting_table.is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt
-		-- 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-		-- end
 		ImGui.Text(DAV.core_obj:GetTranslationText("ui_control_setting_horizenal_boost"))
 		local is_used_slider = false
 		DAV.heli_horizenal_boost_ratio, is_used_slider = ImGui.SliderFloat("##Horizenal Boost Ratio", DAV.heli_horizenal_boost_ratio, 1.0, self.max_boost_ratio, "%.1f")

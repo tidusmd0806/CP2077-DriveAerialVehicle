@@ -1,6 +1,6 @@
 local GameSettings = require('External/GameSettings.lua')
 local GameHUD = require('External/GameHUD.lua')
-local Log = require("Tools/log.lua")
+-- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local HUD = {}
 HUD.__index = HUD
@@ -21,7 +21,7 @@ function HUD:New()
     obj.is_speed_meter_shown = false
     obj.key_input_show_hint_event = nil
     obj.key_input_hide_hint_event = nil
-    obj.speed_meter_refresh_rate = 0.2
+    obj.speed_meter_refresh_rate = 0.05
 
     obj.selected_choice_index = 1
 
@@ -67,7 +67,12 @@ function HUD:SetOverride()
 
         Override("dialogWidgetGameController", "OnDialogsActivateHub", function(_, id, wrapped_metthod) -- Avoid interaction getting overriden by game
             if self.av_obj.position_obj:IsPlayerInEntryArea() then
-                local id_ = self.interaction_hub.id or id
+                local id_
+                if self.interaction_hub == nil then
+                    id_ = id
+                else
+                    id_ = self.interaction_hub.id
+                end
                 return wrapped_metthod(id_)
             else
                 return wrapped_metthod(id)
@@ -196,12 +201,12 @@ function HUD:ShowMeter()
         self.is_speed_meter_shown = true
         Cron.Every(self.speed_meter_refresh_rate, {tick = 0}, function(timer)
             if DAV.is_unit_km_per_hour then
-                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "KMH")
+                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "KPH")
                 local kmh = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1000))
                 inkTextRef.SetText(self.hud_car_controller.SpeedValue, kmh)
             else
                 inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "MPH")
-                local mph = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609.34))
+                local mph = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609))
                 inkTextRef.SetText(self.hud_car_controller.SpeedValue, mph)
             end
             local power_level = 0

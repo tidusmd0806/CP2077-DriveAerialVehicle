@@ -63,9 +63,18 @@ Vehicle.q000_nomad_border_patrol_heli_dav_dummy.dealerPartName: "v_zetatech_valg
 Vehicle.q000_nomad_border_patrol_heli_dav_dummy.dealerPrice: 200000
 Vehicle.q000_nomad_border_patrol_heli_dav_dummy.dealerCred: 20
 
+Vehicle.av_dav_dummy:
+  $base:  Vehicle.v_sport2_quadra_type66_02_player
+  displayName: LocKey#28782
+  manufacturer: Vehicle.Zetatech
+  icon:
+    atlasResourcePath: base/gameplay/gui/common/icons/weapon_manufacturers.inkatlas
+    atlasPartName: delamain
+
 Vehicle.vehicle_list.list:
   - !append Vehicle.av_rayfield_excalibur_dav_dummy
   - !append Vehicle.av_militech_manticore_dav_dummy
   - !append Vehicle.av_zetatech_atlus_dav_dummy
   - !append Vehicle.av_zetatech_surveyor_dav_dummy
   - !append Vehicle.q000_nomad_border_patrol_heli_dav_dummy
+  - !append Vehicle.av_dav_dummy

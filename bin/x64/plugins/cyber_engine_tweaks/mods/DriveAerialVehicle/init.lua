@@ -6,13 +6,14 @@
 
 Cron = require('External/Cron.lua')
 Def = require("Tools/def.lua")
+Log = require("Tools/log.lua")
 
 local Core = require('Modules/core.lua')
 local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "1.3.1",
+	version = "1.3.3",
     is_ready = false,
 
     -- system
@@ -35,8 +36,6 @@ DAV = {
 	model_type_index_in_free = 1,
     -- control
     flight_mode = Def.FlightMode.Spinner,
-    is_disable_heli_roll_tilt = false,
-    is_disable_heli_pitch_tilt = false,
     heli_horizenal_boost_ratio = 2.0,
     is_disable_spinner_roll_tilt = false,
     -- environment
@@ -68,8 +67,6 @@ DAV.user_setting_table = {
     model_type_index_in_free = DAV.model_type_index_in_free,
     --- control
     flight_mode = DAV.flight_mode,
-    is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt,
-    is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt,
     heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio,
     is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt,
     --- environment
@@ -91,25 +88,27 @@ end)
 -- set custom vehicle record
 registerForEvent("onTweak",function ()
 
-     -- Custom excalibur record
-     TweakDB:CloneRecord("Vehicle.av_rayfield_excalibur_dav", "Vehicle.av_rayfield_excalibur")
-     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.entityTemplatePath"), "base\\dav\\av_rayfield_excalibur__basic_01_dav.ent")
+    -- Custom excalibur record
+    TweakDB:CloneRecord("Vehicle.av_rayfield_excalibur_dav", "Vehicle.av_rayfield_excalibur")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.entityTemplatePath"), "base\\dav\\av_rayfield_excalibur__basic_01_dav.ent")
 
-     -- Custom manticore record
-     TweakDB:CloneRecord("Vehicle.av_militech_manticore_dav", "Vehicle.av_militech_manticore")
-     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav.ent")
+    -- Custom manticore record
+    TweakDB:CloneRecord("Vehicle.av_militech_manticore_dav", "Vehicle.av_militech_manticore")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav.ent")
 
-     -- Custom manticore record
-     TweakDB:CloneRecord("Vehicle.av_zetatech_atlus_dav", "Vehicle.av_zetatech_atlus")
-     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_dav.entityTemplatePath"), "base\\dav\\av_zetatech_atlus_basic_02_dav.ent")
+    -- Custom manticore record
+    TweakDB:CloneRecord("Vehicle.av_zetatech_atlus_dav", "Vehicle.av_zetatech_atlus")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_dav.entityTemplatePath"), "base\\dav\\av_zetatech_atlus_basic_02_dav.ent")
 
      -- Custom surveyor record
-     TweakDB:CloneRecord("Vehicle.av_zetatech_surveyor_dav", "Vehicle.av_zetatech_surveyor")
-     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
+    TweakDB:CloneRecord("Vehicle.av_zetatech_surveyor_dav", "Vehicle.av_zetatech_surveyor")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
 
-     -- Custom valgus record
-     TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav", "Vehicle.q000_nomad_border_patrol_heli")
-     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
+    -- Custom valgus record
+    TweakDB:CloneRecord("Vehicle.q000_nomad_border_patrol_heli_dav", "Vehicle.q000_nomad_border_patrol_heli")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.displayName"), LocKey(77966))
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.manufacturer"), "Vehicle.Zetatech")
 
 end)
 
