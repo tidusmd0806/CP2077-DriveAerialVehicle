@@ -1,9 +1,9 @@
--- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local UI = {}
 UI.__index = UI
 
 function UI:New()
+
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "UI")
@@ -47,41 +47,16 @@ function UI:New()
 	obj.dummy_check_5 = false
 
     return setmetatable(obj, self)
+
 end
 
 function UI:Init(av_obj)
-
 	self.av_obj = av_obj
-
-	-- if DAV.is_ready then
-	-- 	self:ResetTweekDB()
-	-- end
-
 	self:SetTweekDB()
-
 	self:SetDefaultValue()
-
 end
 
 function UI:SetTweekDB()
-
-	-- local index = DAV.model_index_in_free
-    -- local logo_inkatlas_path = self.av_obj.all_models[index].logo_inkatlas_path
-    -- local logo_inkatlas_part_name = self.av_obj.all_models[index].logo_inkatlas_part_name
-    -- local lockey = 28782
-
-    -- TweakDB:CloneRecord(self.dummy_logo_record, "UIIcon.quadra_type66__bulleat")
-    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasPartName"), logo_inkatlas_part_name)
-    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_logo_record .. ".atlasResourcePath"), logo_inkatlas_path)
-
-    -- TweakDB:CloneRecord(self.dummy_vehicle_record, "Vehicle.v_sport2_quadra_type66_02_player")
-    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".entityTemplatePath"), self.dummy_vehicle_record)
-    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".displayName"), LocKey(lockey))
-    -- TweakDB:SetFlat(TweakDBID.new(self.dummy_vehicle_record .. ".icon"), self.dummy_logo_record)
-
-    -- local vehicle_list = TweakDB:GetFlat(TweakDBID.new('Vehicle.vehicle_list.list'))
-    -- table.insert(vehicle_list, TweakDBID.new(self.dummy_vehicle_record))
-    -- TweakDB:SetFlat(TweakDBID.new('Vehicle.vehicle_list.list'), vehicle_list)
 
     self.dummy_av_record = TweakDBID.new(self.dummy_vehicle_record)
 
@@ -89,14 +64,6 @@ function UI:SetTweekDB()
 		local av_record = TweakDBID.new(model.tweakdb_id)
 		table.insert(self.av_record_list, av_record)
 	end
-
-end
-
-function UI:ResetTweekDB()
-
-	TweakDB:DeleteRecord(self.dummy_vehicle_record)
-	TweakDB:DeleteRecord(self.dummy_logo_record)
-	self.av_record_list = {}
 
 end
 
@@ -171,6 +138,11 @@ function UI:ShowSettingMenu()
 
 		if ImGui.BeginTabItem(DAV.core_obj:GetTranslationText("ui_tab_free_summon")) then
 			self:ShowFreeSummon()
+			ImGui.EndTabItem()
+		end
+
+		if ImGui.BeginTabItem(DAV.core_obj:GetTranslationText("ui_tab_auto_pilot_setting")) then
+			self:ShowAutoPilotSetting()
 			ImGui.EndTabItem()
 		end
 
@@ -343,6 +315,30 @@ function UI:ShowFreeSummon()
 	if DAV.user_setting_table.model_index_in_free ~= self.selected_vehicle_model_number or DAV.user_setting_table.model_type_index_in_free ~= self.selected_vehicle_type_number then
 		self:SetFreeSummonParameters()
 	end
+
+end
+
+function UI:ShowAutoPilotSetting()
+
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_info_1"))
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_info_2"))
+	local district_list = DAV.core_obj:GetNearbyDistrictList()
+	if district_list ~= nil then
+		for _, district in ipairs(district_list) do
+			ImGui.SameLine()
+			ImGui.TextColored(0, 1, 0, 1, district)
+		end
+	end
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_info_3"))
+	local nearby_location = DAV.core_obj:GetNearbyLocation()
+	if nearby_location ~= nil then
+		ImGui.SameLine()
+		ImGui.TextColored(0, 1, 0, 1, nearby_location)
+		ImGui.SameLine()
+		ImGui.TextColored(0, 1, 0, 1, "[" .. tostring(math.floor(DAV.core_obj:GetNearbyLocationDistance())) .. "m]")
+	end
+
+	ImGui.Separator()
 
 end
 

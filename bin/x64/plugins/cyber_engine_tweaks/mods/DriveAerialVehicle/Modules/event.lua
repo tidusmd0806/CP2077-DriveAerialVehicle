@@ -81,6 +81,8 @@ function Event:SetObserve()
             DAV.core_obj:Reset()
         end
 
+        DAV.core_obj:SetFastTravelPosition()
+
         self.is_unlocked_dummy_av = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(self.ui_obj.dummy_vehicle_record))
         self.current_situation = Def.Situation.Normal
 

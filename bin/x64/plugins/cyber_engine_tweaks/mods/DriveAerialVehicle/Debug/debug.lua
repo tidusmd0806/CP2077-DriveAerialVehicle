@@ -1,4 +1,3 @@
--- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Debug = {}
 Debug.__index = Debug
@@ -17,6 +16,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_sound_check = false
     obj.is_im_gui_mappin_position = false
     obj.is_im_gui_model_type_status = false
+    obj.is_im_gui_auto_pilot_status = false
 
     obj.selected_sound = "first"
     return setmetatable(obj, self)
@@ -40,6 +40,7 @@ function Debug:ImGuiMain()
     self:ImGuiSoundCheck()
     self:ImGuiMappinPosition()
     self:ImGuiModelTypeStatus()
+    self:ImGuiAutoPilotStatus()
     self:ImGuiExcuteFunction()
 
     ImGui.End()
@@ -197,19 +198,49 @@ function Debug:ImGuiModelTypeStatus()
     end
 end
 
+function Debug:ImGuiAutoPilotStatus()
+    self.is_im_gui_auto_pilot_status = ImGui.Checkbox("[ImGui] Auto Pilot Status", self.is_im_gui_auto_pilot_status)
+    if self.is_im_gui_auto_pilot_status then
+        local near_ft_name = DAV.core_obj.fast_travel_position_list[DAV.core_obj.fast_travel_position_list_index_nearest_mappin].name
+        ImGui.Text("Nearest FT Name : " .. near_ft_name)
+    end
+end
+
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("Test Function 1",300, 60) then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local animfeat = AnimFeature_PartData.new()
-        animfeat.state = 1
-        animfeat.duration = 0.75
-        AnimationControllerComponent.ApplyFeatureToReplicate(entity, "seat_front_left", animfeat)
+        local pcl = PhotoModeCameraLocation.new()
+        local pms = Game.GetPhotoModeSystem()
+        local pos = WorldPosition.new()
+        pms:GetCameraLocation(pos)
+        print(pos:GetX(), pos:GetY(), pos:GetZ())
+        pcl:RefreshValue(pms)
+
         print("Excute Test Function 1")
     end
     if ImGui.Button("Test Function 2",300, 60) then
+        local transform = Game.GetPlayer():GetWorldTransform()
+        local pos = Game.GetPlayer():GetWorldPosition()
+        pos.z = pos.z + 1.45
+        transform:SetPosition(pos)
+        local entity_id = exEntitySpawner.Spawn("base\\quest\\main_quests\\prologue\\q000\\entities\\q000_invisible_radio.ent", transform, '')
+        Cron.Every(1, {tick = 1} , function(timer)
+            self.ent = Game.FindEntityByID(entity_id)
+            if self.ent ~= nil then
+                self.ps = self.ent:GetDevicePS()
+                self.ps.activeStation = 3
+                self.ent:PlayGivenStation()
+                Cron.Halt(timer)
+            end
+        end)
+
         print("Excute Test Function 2")
     end
     if ImGui.Button("Test Function 3",300, 60) then
+        local index = self.ps:GetActiveStationIndex()
+        print(index)
+        self.ps:SetActiveStation(index + 1)
+        self.ent:PlayGivenStation()
+
         print("Excute Test Function 3")
     end
 end
