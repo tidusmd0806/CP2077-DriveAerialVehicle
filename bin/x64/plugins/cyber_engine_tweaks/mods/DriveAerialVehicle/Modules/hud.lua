@@ -21,7 +21,7 @@ function HUD:New()
     obj.is_speed_meter_shown = false
     obj.key_input_show_hint_event = nil
     obj.key_input_hide_hint_event = nil
-    obj.speed_meter_refresh_rate = 0.2
+    obj.speed_meter_refresh_rate = 0.05
 
     obj.selected_choice_index = 1
 
@@ -201,7 +201,7 @@ function HUD:ShowMeter()
         self.is_speed_meter_shown = true
         Cron.Every(self.speed_meter_refresh_rate, {tick = 0}, function(timer)
             if DAV.is_unit_km_per_hour then
-                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "KMH")
+                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "KPH")
                 local kmh = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1000))
                 inkTextRef.SetText(self.hud_car_controller.SpeedValue, kmh)
             else

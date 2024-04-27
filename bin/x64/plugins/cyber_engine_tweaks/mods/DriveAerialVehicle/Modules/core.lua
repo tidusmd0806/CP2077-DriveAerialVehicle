@@ -117,8 +117,6 @@ function Core:LoadSetting()
 
         --- control
         DAV.flight_mode = DAV.user_setting_table.flight_mode
-        DAV.is_disable_heli_roll_tilt = DAV.user_setting_table.is_disable_heli_roll_tilt
-        DAV.is_disable_heli_pitch_tilt = DAV.user_setting_table.is_disable_heli_pitch_tilt
         DAV.heli_heli_horizenal_boost_ratio = DAV.user_setting_table.heli_horizenal_boost_ratio
         DAV.is_disable_spinner_roll_tilt = DAV.user_setting_table.is_disable_spinner_roll_tilt
 

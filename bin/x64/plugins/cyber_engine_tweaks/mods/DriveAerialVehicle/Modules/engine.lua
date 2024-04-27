@@ -28,13 +28,16 @@ function Engine:New(position_obj, all_models)
     obj.gravity_constant = 9.8
     obj.air_resistance_constant = nil
     obj.rebound_constant = nil
-    obj.max_speed = 300
+    obj.max_speed = 400
 
-    obj.power_on_off_wait = 2 -- 0.2s
+    obj.power_on_off_wait = 1 -- 0.1s
     obj.max_spinner_horizenal_force = nil
     obj.max_spinner_vertical_force = nil
     obj.time_to_max_spinner_horizenal_force = nil
     obj.time_to_max_spinner_vertical_force = nil
+
+    -- Gradually adjust velocity towards desired direction
+    obj.spinner_adjustment_factor = 0.02
 
     -- set default parameters
     obj.next_indication = {roll = 0, pitch = 0, yaw = 0}
@@ -55,6 +58,8 @@ function Engine:New(position_obj, all_models)
     obj.spinner_vertical_force = 0
     obj.spinner_horizenal_force_sign = 1
     obj.spinner_vertical_force_sign = 1
+
+    obj.spinner_speed_angle = 0
 
     return setmetatable(obj, self)
 end
@@ -127,8 +132,8 @@ function Engine:GetNextPosition(movement)
         return x, y, z, roll, pitch, yaw
     elseif DAV.flight_mode == Def.FlightMode.Spinner then
         self:CalculateSpinnerPower(movement)
-        local roll, pitch, yaw = self:CalculateSpinnerIndication(movement)
         local x, y, z = self:CalcureteSpinnerVelocity()
+        local roll, pitch, yaw = self:CalculateSpinnerIndication(movement)
         return x, y, z, roll, pitch, yaw
     else
         return 0, 0, 0, 0, 0, 0
@@ -342,10 +347,18 @@ function Engine:CalculateSpinnerIndication(movement)
     local roll_speed = self.spinner_roll_speed * (self.current_speed / self.max_speed)
     if movement == Def.ActionList.SpinnerRight then
         self.next_indication["roll"] = actually_indication.roll + roll_speed
-        self.next_indication["yaw"] = actually_indication.yaw - self.spinner_yaw_speed * self.spinner_horizenal_force_sign
+        local sign = -1
+        if self.spinner_speed_angle <= Pi() / 2 then
+            sign = 1
+        end
+        self.next_indication["yaw"] = actually_indication.yaw - self.spinner_yaw_speed * sign
     elseif movement == Def.ActionList.SpinnerLeft then
         self.next_indication["roll"] = actually_indication.roll - roll_speed
-        self.next_indication["yaw"] = actually_indication.yaw + self.spinner_yaw_speed * self.spinner_horizenal_force_sign
+        local sign = -1
+        if self.spinner_speed_angle <= Pi() / 2 then
+            sign = 1
+        end
+        self.next_indication["yaw"] = actually_indication.yaw + self.spinner_yaw_speed * sign
     else
         -- set roll restoration
         local roll_restore_speed = self.spinner_roll_restore_speed * (1 - (self.current_speed / self.max_speed))
@@ -492,10 +505,16 @@ function Engine:CalcureteSpinnerVelocity()
 
     local current_xy_speed = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed)
 
+    local speed_xy_basic = {x = 0 , y = 0}
+    if current_xy_speed ~= 0 then
+        speed_xy_basic = {x = self.horizenal_x_speed / current_xy_speed, y = self.horizenal_y_speed / current_xy_speed}
+    end
+    self.spinner_speed_angle = math.acos(speed_xy_basic.x * forward_xy_basic.x + speed_xy_basic.y * forward_xy_basic.y)
+
     -- Calculate the difference between current velocity vector and desired direction
     local velocity_diff_x = 0
     local velocity_diff_y = 0
-    if self.spinner_horizenal_force_sign > 0 then
+    if self.spinner_speed_angle <= Pi() / 2 then
         velocity_diff_x = self.horizenal_x_speed - forward_xy_basic.x * current_xy_speed
         velocity_diff_y = self.horizenal_y_speed - forward_xy_basic.y * current_xy_speed
     else
@@ -503,16 +522,15 @@ function Engine:CalcureteSpinnerVelocity()
         velocity_diff_y = self.horizenal_y_speed + forward_xy_basic.y * current_xy_speed
     end
 
-    -- Gradually adjust velocity towards desired direction
-    local adjustment_factor = 0.1
-    self.horizenal_x_speed = self.horizenal_x_speed - adjustment_factor * velocity_diff_x
-    self.horizenal_y_speed = self.horizenal_y_speed - adjustment_factor * velocity_diff_y
+    self.horizenal_x_speed = self.horizenal_x_speed - self.spinner_adjustment_factor * velocity_diff_x
+    self.horizenal_y_speed = self.horizenal_y_speed - self.spinner_adjustment_factor * velocity_diff_y
+    self.vertical_speed = self.vertical_speed - self.spinner_adjustment_factor * self.vertical_speed
 
     self.horizenal_x_speed = self.horizenal_x_speed + (DAV.time_resolution / self.mess)
-                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.x - self.spinner_air_resistance_constant * self.horizenal_x_speed * math.abs(self.horizenal_x_speed))
+                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.x - self.spinner_air_resistance_constant * self.horizenal_x_speed)
     self.horizenal_y_speed = self.horizenal_y_speed + (DAV.time_resolution / self.mess)
-                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.y - self.spinner_air_resistance_constant * self.horizenal_y_speed * math.abs(self.horizenal_y_speed))
-    self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (self.spinner_vertical_force_sign * self.spinner_vertical_force - self.spinner_air_resistance_constant * self.vertical_speed * math.abs(self.vertical_speed))
+                            * (self.spinner_horizenal_force_sign * self.spinner_horizenal_force * forward_xy_basic.y - self.spinner_air_resistance_constant * self.horizenal_y_speed)
+    self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (self.spinner_vertical_force_sign * self.spinner_vertical_force - self.spinner_air_resistance_constant * self.vertical_speed)
 
     -- check limitation
     self.current_speed = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed + self.vertical_speed * self.vertical_speed)

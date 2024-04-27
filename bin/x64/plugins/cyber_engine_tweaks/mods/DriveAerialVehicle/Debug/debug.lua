@@ -138,7 +138,9 @@ function Debug:ImGuiSpinnerInfo()
         local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
         local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
         local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
-        ImGui.Text("F_h: " .. f_h .. ", F_v : " .. f_v .. ", v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z)
+        local v_angle = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_speed_angle * 180 / Pi())
+        ImGui.Text("F_h: " .. f_h .. ", F_v : " .. f_v)
+        ImGui.Text("v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z .. ", v_angle: " .. v_angle)
     end
 end
 

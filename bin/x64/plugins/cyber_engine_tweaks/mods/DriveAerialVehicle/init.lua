@@ -36,8 +36,6 @@ DAV = {
 	model_type_index_in_free = 1,
     -- control
     flight_mode = Def.FlightMode.Spinner,
-    is_disable_heli_roll_tilt = false,
-    is_disable_heli_pitch_tilt = false,
     heli_horizenal_boost_ratio = 2.0,
     is_disable_spinner_roll_tilt = false,
     -- environment
@@ -69,8 +67,6 @@ DAV.user_setting_table = {
     model_type_index_in_free = DAV.model_type_index_in_free,
     --- control
     flight_mode = DAV.flight_mode,
-    is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt,
-    is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt,
     heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio,
     is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt,
     --- environment

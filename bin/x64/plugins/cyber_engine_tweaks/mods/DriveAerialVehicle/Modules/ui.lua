@@ -382,20 +382,8 @@ function UI:ShowControlSetting()
 	ImGui.Separator()
 	ImGui.Spacing()
 
-	-- local is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt
-	-- local is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt
 	local is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt
 	if DAV.flight_mode == Def.FlightMode.Heli then
-		-- DAV.is_disable_heli_roll_tilt = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_control_setting_disable_left_right"), DAV.is_disable_heli_roll_tilt)
-		-- if is_disable_heli_roll_tilt ~= DAV.is_disable_heli_roll_tilt then
-		-- 	DAV.user_setting_table.is_disable_heli_roll_tilt = DAV.is_disable_heli_roll_tilt
-		-- 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-		-- end
-		-- DAV.is_disable_heli_pitch_tilt = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_control_setting_disable_forward_backward"), DAV.is_disable_heli_pitch_tilt)
-		-- if is_disable_heli_pitch_tilt ~= DAV.is_disable_heli_pitch_tilt then
-		-- 	DAV.user_setting_table.is_disable_heli_pitch_tilt = DAV.is_disable_heli_pitch_tilt
-		-- 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-		-- end
 		ImGui.Text(DAV.core_obj:GetTranslationText("ui_control_setting_horizenal_boost"))
 		local is_used_slider = false
 		DAV.heli_horizenal_boost_ratio, is_used_slider = ImGui.SliderFloat("##Horizenal Boost Ratio", DAV.heli_horizenal_boost_ratio, 1.0, self.max_boost_ratio, "%.1f")

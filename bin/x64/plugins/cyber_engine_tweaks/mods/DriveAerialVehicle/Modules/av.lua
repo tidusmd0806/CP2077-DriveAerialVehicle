@@ -444,11 +444,8 @@ function AV:Operate(action_commands)
 		self.yaw_total = 0
 	end
 
-	if DAV.is_disable_heli_roll_tilt or DAV.is_disable_spinner_roll_tilt then
+	if DAV.is_disable_spinner_roll_tilt then
 		roll_total = 0
-	end
-	if DAV.is_disable_heli_pitch_tilt then
-		pitch_total = 0
 	end
 
 	local res = self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
