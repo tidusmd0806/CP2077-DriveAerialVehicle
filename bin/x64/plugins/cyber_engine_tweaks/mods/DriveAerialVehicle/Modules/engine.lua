@@ -509,7 +509,13 @@ function Engine:CalcureteSpinnerVelocity()
     if current_xy_speed ~= 0 then
         speed_xy_basic = {x = self.horizenal_x_speed / current_xy_speed, y = self.horizenal_y_speed / current_xy_speed}
     end
-    self.spinner_speed_angle = math.acos(speed_xy_basic.x * forward_xy_basic.x + speed_xy_basic.y * forward_xy_basic.y)
+    local speed_dot_forward = speed_xy_basic.x * forward_xy_basic.x + speed_xy_basic.y * forward_xy_basic.y
+    if speed_dot_forward > 1 then
+        speed_dot_forward = 1
+    elseif speed_dot_forward < -1 then
+        speed_dot_forward = -1
+    end
+    self.spinner_speed_angle = math.acos(speed_dot_forward)
 
     -- Calculate the difference between current velocity vector and desired direction
     local velocity_diff_x = 0
