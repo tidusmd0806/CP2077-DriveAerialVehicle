@@ -14,20 +14,18 @@ local Debug = require('Debug/debug.lua')
 DAV = {
 	description = "Drive an Aerial Vehicele",
 	version = "1.4.0",
-    is_ready = false,
 
     -- system
+    is_ready = false,
     time_resolution = 0.01,
     is_debug_mode = false,
     is_opening_overlay = false,
     -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
-
     -- grobal
     model_index = 1,
 	model_type_index = 1,
-
     -- garage
     garage_info_list = {},
     --free summon mode
@@ -131,6 +129,7 @@ registerForEvent('onInit', function()
 end)
 
 registerForEvent("onDraw", function()
+
     if DAV.is_debug_mode then
         DAV.debug_obj:ImGuiMain()
     end
@@ -140,6 +139,7 @@ registerForEvent("onDraw", function()
         end
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
+
 end)
 
 registerForEvent('onUpdate', function(delta)

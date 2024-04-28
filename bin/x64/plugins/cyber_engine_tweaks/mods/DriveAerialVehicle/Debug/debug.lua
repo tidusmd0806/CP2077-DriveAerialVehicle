@@ -17,6 +17,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_mappin_position = false
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_status = false
+    obj.is_set_observer = false
 
     obj.selected_sound = "first"
     return setmetatable(obj, self)
@@ -29,6 +30,7 @@ function Debug:ImGuiMain()
     ImGui.Begin("DAV DEBUG WINDOW")
     ImGui.Text("Debug Mode : On")
 
+    self:SetObserver()
     self:SetLogLevel()
     self:SelectPrintDebug()
     self:ImGuiSituation()
@@ -44,6 +46,62 @@ function Debug:ImGuiMain()
     self:ImGuiExcuteFunction()
 
     ImGui.End()
+
+end
+
+function Debug:SetObserver()
+
+    if ImGui.Button("Debug Observer",300, 60) then
+        if not self.is_set_observer then
+            Observe('gamePhotoModeCameraObject', 'CanServiceEvent', function(this)
+                local class = this:GetClassName()
+                if class.value ~= "gamePhotoModeCameraObject" then
+                    return
+                end
+                print(class.value)
+            end)
+            Observe('gamePhotoModeCameraObject', 'Dispose', function(this)
+                local class = this:GetClassName()
+                if class.value ~= "gamePhotoModeCameraObject" then
+                    return
+                end
+                print(class.value)
+            end)
+            Observe('gamePhotoModeCameraObject', 'GetControllingPeerID', function(this)
+                local class = this:GetClassName()
+                if class.value ~= "gamePhotoModeCameraObject" then
+                    return
+                end
+                print(class.value)
+            end)
+            Observe('gamePhotoModeCameraObject', 'QueueEventForEntityID', function(this)
+                local class = this:GetClassName()
+                if class.value ~= "gamePhotoModeCameraObject" then
+                    return
+                end
+                print(class.value)
+            end)
+            Observe('gamePhotoModeCameraObject', 'GetEntity', function(this)
+                local class = this:GetClassName()
+                if not string.match(class.value, "Vehicle") then
+                    return
+                end
+                print(class.value)
+            end)
+            Observe('gamePhotoModeCameraObject', 'GetEntityID', function(this)
+                local class = this:GetClassName()
+                if not string.match(class.value, "Camera") then
+                    return
+                end
+                print(class.value)
+            end)
+        end
+        self.is_set_observer = true
+    end
+    if self.is_set_observer then
+        ImGui.SameLine()
+        ImGui.Text("On")
+    end
 
 end
 
@@ -207,17 +265,18 @@ function Debug:ImGuiAutoPilotStatus()
 end
 
 function Debug:ImGuiExcuteFunction()
-    if ImGui.Button("Test Function 1",300, 60) then
-        local pcl = PhotoModeCameraLocation.new()
-        local pms = Game.GetPhotoModeSystem()
-        local pos = WorldPosition.new()
-        pms:GetCameraLocation(pos)
-        print(pos:GetX(), pos:GetY(), pos:GetZ())
-        pcl:RefreshValue(pms)
+    if ImGui.Button("Test Func1",150, 60) then
+        local ent = GetSingleton('gamePhotoModeCameraObject')
+        print(ent:ToString())
+        local id = ent:GetEntityID()
+        local entity = Game.FindEntityByID(id)
+        local pos = entity:GetWorldPosition()
+        print(pos.x .. " " .. pos.y .. " " .. pos.z)
 
         print("Excute Test Function 1")
     end
-    if ImGui.Button("Test Function 2",300, 60) then
+    ImGui.SameLine()
+    if ImGui.Button("Test Func2",150, 60) then
         local transform = Game.GetPlayer():GetWorldTransform()
         local pos = Game.GetPlayer():GetWorldPosition()
         pos.z = pos.z + 1.45
@@ -235,7 +294,8 @@ function Debug:ImGuiExcuteFunction()
 
         print("Excute Test Function 2")
     end
-    if ImGui.Button("Test Function 3",300, 60) then
+    ImGui.SameLine()
+    if ImGui.Button("Test Func3",150, 60) then
         local index = self.ps:GetActiveStationIndex()
         print(index)
         self.ps:SetActiveStation(index + 1)
