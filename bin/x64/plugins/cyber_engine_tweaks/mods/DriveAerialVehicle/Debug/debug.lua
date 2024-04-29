@@ -18,6 +18,11 @@ function Debug:New(core_obj)
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_status = false
     obj.is_set_observer = false
+    obj.is_exist_av_1 = false
+    obj.is_exist_av_2 = false
+    obj.is_exist_av_3 = false
+    obj.is_exist_av_4 = false
+    obj.is_exist_av_5 = false
 
     obj.selected_sound = "first"
     return setmetatable(obj, self)
@@ -43,6 +48,7 @@ function Debug:ImGuiMain()
     self:ImGuiMappinPosition()
     self:ImGuiModelTypeStatus()
     self:ImGuiAutoPilotStatus()
+    self:ImGuiToggleGarageVehicle()
     self:ImGuiExcuteFunction()
 
     ImGui.End()
@@ -51,56 +57,14 @@ end
 
 function Debug:SetObserver()
 
-    if ImGui.Button("Debug Observer",300, 60) then
-        if not self.is_set_observer then
-            Observe('gamePhotoModeCameraObject', 'CanServiceEvent', function(this)
-                local class = this:GetClassName()
-                if class.value ~= "gamePhotoModeCameraObject" then
-                    return
-                end
-                print(class.value)
-            end)
-            Observe('gamePhotoModeCameraObject', 'Dispose', function(this)
-                local class = this:GetClassName()
-                if class.value ~= "gamePhotoModeCameraObject" then
-                    return
-                end
-                print(class.value)
-            end)
-            Observe('gamePhotoModeCameraObject', 'GetControllingPeerID', function(this)
-                local class = this:GetClassName()
-                if class.value ~= "gamePhotoModeCameraObject" then
-                    return
-                end
-                print(class.value)
-            end)
-            Observe('gamePhotoModeCameraObject', 'QueueEventForEntityID', function(this)
-                local class = this:GetClassName()
-                if class.value ~= "gamePhotoModeCameraObject" then
-                    return
-                end
-                print(class.value)
-            end)
-            Observe('gamePhotoModeCameraObject', 'GetEntity', function(this)
-                local class = this:GetClassName()
-                if not string.match(class.value, "Vehicle") then
-                    return
-                end
-                print(class.value)
-            end)
-            Observe('gamePhotoModeCameraObject', 'GetEntityID', function(this)
-                local class = this:GetClassName()
-                if not string.match(class.value, "Camera") then
-                    return
-                end
-                print(class.value)
-            end)
-        end
-        self.is_set_observer = true
+    if not self.is_set_observer then
+        -- reserved
     end
+    self.is_set_observer = true
+
     if self.is_set_observer then
         ImGui.SameLine()
-        ImGui.Text("On")
+        ImGui.Text("Observer : On")
     end
 
 end
@@ -249,7 +213,7 @@ function Debug:ImGuiModelTypeStatus()
         local model_index = DAV.model_index
         local model_type_index = DAV.model_type_index
         ImGui.Text("Model Index : " .. model_index .. ", Model Type Index : " .. model_type_index)
-        local garage_info_list = DAV.garage_info_list
+        local garage_info_list = DAV.user_setting_table.garage_info_list
         for _, value in pairs(garage_info_list) do
             ImGui.Text("name : " .. value.name .. ", model_index : " .. value.model_index .. ", model_type_index : " .. value.type_index .. ", is_unlocked : " .. tostring(value.is_purchased))
         end
@@ -259,24 +223,56 @@ end
 function Debug:ImGuiAutoPilotStatus()
     self.is_im_gui_auto_pilot_status = ImGui.Checkbox("[ImGui] Auto Pilot Status", self.is_im_gui_auto_pilot_status)
     if self.is_im_gui_auto_pilot_status then
+        if #DAV.core_obj.fast_travel_position_list == 0 then
+            return
+        end
         local near_ft_name = DAV.core_obj.fast_travel_position_list[DAV.core_obj.fast_travel_position_list_index_nearest_mappin].name
         ImGui.Text("Nearest FT Name : " .. near_ft_name)
+
+        for _, history_info in pairs(DAV.core_obj.mappin_history) do
+            for _, district in pairs(history_info.district) do
+                ImGui.SameLine()
+			    ImGui.Text("Dis" .. district)
+            end
+            ImGui.Text("Loc" .. history_info.location)
+            ImGui.Text("Pos" .. history_info.pos.x .. ", " .. history_info.pos.y .. ", " .. history_info.pos.z)
+        end
+    end
+end
+
+function Debug:ImGuiToggleGarageVehicle()
+    if ImGui.Button("av1",60, 30) then
+        self.is_exist_av_1 = not self.is_exist_av_1
+        Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_rayfield_excalibur_dav_dummy", self.is_exist_av_1, true)
+    end
+    ImGui.SameLine()
+    if ImGui.Button("av2",60, 30) then
+        self.is_exist_av_2 = not self.is_exist_av_2
+        Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_militech_manticore_dav_dummy", self.is_exist_av_2, true)
+    end
+    ImGui.SameLine()
+    if ImGui.Button("av3",60, 30) then
+        self.is_exist_av_3 = not self.is_exist_av_3
+        Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_zetatech_atlus_dav_dummy", self.is_exist_av_3, true)
+    end
+    ImGui.SameLine()
+    if ImGui.Button("av4",60, 30) then
+        self.is_exist_av_4 = not self.is_exist_av_4
+        Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_zetatech_surveyor_dav_dummy", self.is_exist_av_4, true)
+    end
+    ImGui.SameLine()
+    if ImGui.Button("av5",60, 30) then
+        self.is_exist_av_5 = not self.is_exist_av_5
+        Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.q000_nomad_border_patrol_heli_dav_dummy", self.is_exist_av_5, true)
     end
 end
 
 function Debug:ImGuiExcuteFunction()
-    if ImGui.Button("Test Func1",150, 60) then
-        local ent = GetSingleton('gamePhotoModeCameraObject')
-        print(ent:ToString())
-        local id = ent:GetEntityID()
-        local entity = Game.FindEntityByID(id)
-        local pos = entity:GetWorldPosition()
-        print(pos.x .. " " .. pos.y .. " " .. pos.z)
-
+    if ImGui.Button("Test Func1",150, 50) then
         print("Excute Test Function 1")
     end
     ImGui.SameLine()
-    if ImGui.Button("Test Func2",150, 60) then
+    if ImGui.Button("Test Func2",150, 50) then
         local transform = Game.GetPlayer():GetWorldTransform()
         local pos = Game.GetPlayer():GetWorldPosition()
         pos.z = pos.z + 1.45
@@ -295,7 +291,7 @@ function Debug:ImGuiExcuteFunction()
         print("Excute Test Function 2")
     end
     ImGui.SameLine()
-    if ImGui.Button("Test Func3",150, 60) then
+    if ImGui.Button("Test Func3",150, 50) then
         local index = self.ps:GetActiveStationIndex()
         print(index)
         self.ps:SetActiveStation(index + 1)

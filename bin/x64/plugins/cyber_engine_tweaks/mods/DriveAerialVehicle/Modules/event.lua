@@ -303,7 +303,7 @@ function Event:CheckFailAutoPilot()
 end
 
 function Event:IsAvailableFreeCall()
-    return DAV.is_free_summon_mode
+    return DAV.user_setting_table.is_free_summon_mode
 end
 
 function Event:IsNotSpawned()

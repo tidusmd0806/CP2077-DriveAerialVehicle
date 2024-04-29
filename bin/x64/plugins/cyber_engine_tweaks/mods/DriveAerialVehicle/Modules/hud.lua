@@ -200,7 +200,7 @@ function HUD:ShowMeter()
     else
         self.is_speed_meter_shown = true
         Cron.Every(self.speed_meter_refresh_rate, {tick = 0}, function(timer)
-            if DAV.is_unit_km_per_hour then
+            if DAV.user_setting_table.is_unit_km_per_hour then
                 inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "KPH")
                 local kmh = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1000))
                 inkTextRef.SetText(self.hud_car_controller.SpeedValue, kmh)
@@ -210,9 +210,9 @@ function HUD:ShowMeter()
                 inkTextRef.SetText(self.hud_car_controller.SpeedValue, mph)
             end
             local power_level = 0
-            if DAV.flight_mode == Def.FlightMode.Heli then
+            if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
                 power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
-            elseif DAV.flight_mode == Def.FlightMode.Spinner then 
+            elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then 
                 power_level = math.floor(self.av_obj.engine_obj.spinner_horizenal_force / (self.av_obj.engine_obj.max_spinner_horizenal_force / 10))
             end
             self.hud_car_controller:OnRpmValueChanged(power_level)
@@ -233,9 +233,9 @@ end
 
 function HUD:SetCustomHint()
     local hint_table = {}
-    if DAV.flight_mode == Def.FlightMode.Heli then
+    if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
         hint_table = Utils:ReadJson("Data/heli_key_hint.json")
-    elseif DAV.flight_mode == Def.FlightMode.Spinner then
+    elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then
         hint_table = Utils:ReadJson("Data/spinner_key_hint.json")
     end
     self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()

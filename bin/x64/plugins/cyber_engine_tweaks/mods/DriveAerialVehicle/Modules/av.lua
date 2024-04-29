@@ -115,6 +115,7 @@ function AV:Spawn(position, angle)
 	entity_spec.position = position
 	entity_spec.orientation = angle
 	entity_spec.persistState = false
+	entity_spec.persistSpawn = false
 	self.entity_id = entity_system:CreateEntity(entity_spec)
 
 	-- set entity id to position object
@@ -444,7 +445,7 @@ function AV:Operate(action_commands)
 		self.yaw_total = 0
 	end
 
-	if DAV.is_disable_spinner_roll_tilt then
+	if DAV.user_setting_table.is_disable_spinner_roll_tilt then
 		roll_total = 0
 	end
 
@@ -650,6 +651,7 @@ function AV:SeccessAutoPilot()
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = false
 	self.position_obj:ResetStackCount()
+	DAV.core_obj:SetAutoPilotHistory()
 end
 
 function AV:InterruptAutoPilot()

@@ -71,7 +71,7 @@ function UI:SetDefaultValue()
 
 	self.selected_purchased_vehicle_type_list = {}
 	-- garage
-	for _, garage_info in ipairs(DAV.garage_info_list) do
+	for _, garage_info in ipairs(DAV.user_setting_table.garage_info_list) do
 		table.insert(self.selected_purchased_vehicle_type_list, self.av_obj.all_models[garage_info.model_index].type[garage_info.type_index])
 	end
 
@@ -79,23 +79,23 @@ function UI:SetDefaultValue()
 	for i, model in ipairs(self.av_obj.all_models) do
         self.vehicle_model_list[i] = model.name
 	end
-	self.selected_vehicle_model_number = DAV.model_index_in_free
+	self.selected_vehicle_model_number = DAV.user_setting_table.model_index_in_free
 	self.selected_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
 
 	for i, type in ipairs(self.av_obj.all_models[self.selected_vehicle_model_number].type) do
 		self.vehicle_type_list[i] = type
 	end
-	self.selected_vehicle_type_number = DAV.model_type_index_in_free
+	self.selected_vehicle_type_number = DAV.user_setting_table.model_type_index_in_free
 	self.selected_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
 
 	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
 	self.current_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
 
 	-- control
-	self.selected_flight_mode = DAV.flight_mode
+	self.selected_flight_mode = DAV.user_setting_table.flight_mode
 
 	-- general
-	self.selected_language_name = DAV.core_obj.language_name_list[DAV.language_index]
+	self.selected_language_name = DAV.core_obj.language_name_list[DAV.user_setting_table.language_index]
 
 	-- info
 	self.dummy_check_1 = false
@@ -182,7 +182,7 @@ function UI:ShowGarage()
 
 	ImGui.Separator()
 
-	for model_index, garage_info in ipairs(DAV.garage_info_list) do
+	for model_index, garage_info in ipairs(DAV.user_setting_table.garage_info_list) do
 		ImGui.Text(self.av_obj.all_models[garage_info.model_index].name)
 		ImGui.SameLine()
 		ImGui.Text(" : ")
@@ -215,19 +215,18 @@ end
 
 function UI:ShowFreeSummon()
 
-	local temp_is_free_summon_mode = DAV.is_free_summon_mode
+	local temp_is_free_summon_mode = DAV.user_setting_table.is_free_summon_mode
 	local selected = false
 
-	DAV.is_free_summon_mode = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_free_summon_enable_summon"), DAV.is_free_summon_mode)
-	if temp_is_free_summon_mode ~= DAV.is_free_summon_mode then
-		DAV.user_setting_table.is_free_summon_mode = DAV.is_free_summon_mode
+	DAV.user_setting_table.is_free_summon_mode = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_free_summon_enable_summon"), DAV.user_setting_table.is_free_summon_mode)
+	if temp_is_free_summon_mode ~= DAV.user_setting_table.is_free_summon_mode then
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
 
 	ImGui.Separator()
 	ImGui.Spacing()
 
-	if not DAV.is_free_summon_mode then
+	if not DAV.user_setting_table.is_free_summon_mode then
 		ImGui.TextColored(1, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_1"))
 		ImGui.TextColored(1, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_3"))
 		return
@@ -335,7 +334,11 @@ function UI:ShowAutoPilotSetting()
 		ImGui.SameLine()
 		ImGui.TextColored(0, 1, 0, 1, nearby_location)
 		ImGui.SameLine()
-		ImGui.TextColored(0, 1, 0, 1, "[" .. tostring(math.floor(DAV.core_obj:GetNearbyLocationDistance())) .. "m]")
+		local custom_ft_distance = DAV.core_obj:GetNearbyLocationDistance()
+		if custom_ft_distance ~= DAV.core_obj.huge_distance then
+			ImGui.TextColored(0, 1, 0, 1, "[" .. tostring(math.floor(DAV.core_obj:GetNearbyLocationDistance())) .. "m]")
+		end
+
 	end
 
 	ImGui.Separator()
@@ -361,9 +364,8 @@ function UI:ShowControlSetting()
 				selected = false
 			end
 			if(ImGui.Selectable(value, selected)) then
-				DAV.flight_mode = value
 				self.selected_flight_mode = value
-				DAV.user_setting_table.flight_mode = DAV.flight_mode
+				DAV.user_setting_table.flight_mode = value
 				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			end
 		end
@@ -378,19 +380,18 @@ function UI:ShowControlSetting()
 	ImGui.Separator()
 	ImGui.Spacing()
 
-	local is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt
-	if DAV.flight_mode == Def.FlightMode.Heli then
+	local is_disable_spinner_roll_tilt = DAV.user_setting_table.is_disable_spinner_roll_tilt
+	if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
 		ImGui.Text(DAV.core_obj:GetTranslationText("ui_control_setting_horizenal_boost"))
 		local is_used_slider = false
-		DAV.heli_horizenal_boost_ratio, is_used_slider = ImGui.SliderFloat("##Horizenal Boost Ratio", DAV.heli_horizenal_boost_ratio, 1.0, self.max_boost_ratio, "%.1f")
-		if not is_used_slider and DAV.user_setting_table.heli_horizenal_boost_ratio ~= DAV.heli_horizenal_boost_ratio then
-			DAV.user_setting_table.heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio
+		local heli_horizenal_boost_ratio = DAV.user_setting_table.heli_horizenal_boost_ratio
+		DAV.user_setting_table.heli_horizenal_boost_ratio, is_used_slider = ImGui.SliderFloat("##Horizenal Boost Ratio", DAV.user_setting_table.heli_horizenal_boost_ratio, 1.0, self.max_boost_ratio, "%.1f")
+		if not is_used_slider and DAV.user_setting_table.heli_horizenal_boost_ratio ~= heli_horizenal_boost_ratio then
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		end
-	elseif DAV.flight_mode == Def.FlightMode.Spinner then
-		DAV.is_disable_spinner_roll_tilt = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_control_setting_disable_left_right"), DAV.is_disable_spinner_roll_tilt)
-		if is_disable_spinner_roll_tilt ~= DAV.is_disable_spinner_roll_tilt then
-			DAV.user_setting_table.is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt
+	elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then
+		DAV.user_setting_table.is_disable_spinner_roll_tilt = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_control_setting_disable_left_right"), DAV.user_setting_table.is_disable_spinner_roll_tilt)
+		if is_disable_spinner_roll_tilt ~= DAV.user_setting_table.is_disable_spinner_roll_tilt then
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		end
 	end
@@ -404,20 +405,19 @@ function UI:ShowEnviromentSetting()
 		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_2"))
 		return
 	end
-
-	DAV.is_enable_community_spawn = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_environment_enable_community_spawn"), DAV.is_enable_community_spawn)
-	if DAV.user_setting_table.is_enable_community_spawn ~= DAV.is_enable_community_spawn then
-		DAV.user_setting_table.is_enable_community_spawn = DAV.is_enable_community_spawn
+	local is_enable_community_spawn = DAV.user_setting_table.is_enable_community_spawn
+	DAV.user_setting_table.is_enable_community_spawn = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_environment_enable_community_spawn"), DAV.user_setting_table.is_enable_community_spawn)
+	if DAV.user_setting_table.is_enable_community_spawn ~= is_enable_community_spawn then
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
 
-	if DAV.is_enable_community_spawn then
+	if DAV.user_setting_table.is_enable_community_spawn then
 		ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_spawn_frequency"))
 		local is_used_slider = false
-		DAV.spawn_frequency, is_used_slider = ImGui.SliderInt("##spawn frequency", DAV.spawn_frequency, 1, self.max_spawn_frequency, "%d")
-		if not is_used_slider and DAV.user_setting_table.spawn_frequency ~= DAV.spawn_frequency then
-			self.av_obj.max_freeze_count = math.floor(100 / DAV.spawn_frequency)
-			DAV.user_setting_table.spawn_frequency = DAV.spawn_frequency
+		local spawn_frequency = DAV.user_setting_table.spawn_frequency
+		DAV.user_setting_table.spawn_frequency, is_used_slider = ImGui.SliderInt("##spawn frequency", DAV.user_setting_table.spawn_frequency, 1, self.max_spawn_frequency, "%d")
+		if not is_used_slider and DAV.user_setting_table.spawn_frequency ~= spawn_frequency then
+			self.av_obj.max_freeze_count = math.floor(100 / DAV.user_setting_table.spawn_frequency)
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		end
 	end
@@ -428,9 +428,9 @@ end
 
 function UI:ShowGeneralSetting()
 
-	local temp_language_index = DAV.language_index
+	local temp_language_index = DAV.user_setting_table.language_index
 	local selected = false
-	self.selected_language_name = DAV.core_obj.language_name_list[DAV.language_index]
+	self.selected_language_name = DAV.core_obj.language_name_list[DAV.user_setting_table.language_index]
 
 	ImGui.Text(DAV.core_obj:GetTranslationText("ui_setting_language"))
 	if ImGui.BeginCombo("##Language", self.selected_language_name) then
@@ -442,22 +442,21 @@ function UI:ShowGeneralSetting()
 			end
 			if(ImGui.Selectable(value, selected)) then
 				self.selected_language_name = value
-				DAV.language_index = index
+				DAV.user_setting_table.language_index = index
 			end
 		end
 		ImGui.EndCombo()
 	end
 
-	if temp_language_index ~= DAV.language_index then
-		DAV.user_setting_table.language_index = DAV.language_index
+	if temp_language_index ~= DAV.user_setting_table.language_index then
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
 
 	ImGui.Separator()
 
-	DAV.is_unit_km_per_hour = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_setting_unit_setting"), DAV.is_unit_km_per_hour)
-	if DAV.user_setting_table.is_unit_km_per_hour ~= DAV.is_unit_km_per_hour then
-		DAV.user_setting_table.is_unit_km_per_hour = DAV.is_unit_km_per_hour
+	local is_unit_km_per_hour = DAV.user_setting_table.is_unit_km_per_hour
+	DAV.user_setting_table.is_unit_km_per_hour = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_setting_unit_setting"), DAV.user_setting_table.is_unit_km_per_hour)
+	if DAV.user_setting_table.is_unit_km_per_hour ~= is_unit_km_per_hour then
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
 
@@ -507,15 +506,13 @@ end
 
 function UI:SetFreeSummonParameters()
 
-	DAV.model_index_in_free = self.selected_vehicle_model_number
-	DAV.model_type_index_in_free = self.selected_vehicle_type_number
+	DAV.user_setting_table.model_index_in_free = self.selected_vehicle_model_number
+	DAV.user_setting_table.model_type_index_in_free = self.selected_vehicle_type_number
 	DAV.core_obj:Reset()
 
 	self.current_vehicle_model_name = self.vehicle_model_list[self.selected_vehicle_model_number]
 	self.current_vehicle_type_name = self.vehicle_type_list[self.selected_vehicle_type_number]
 
-	DAV.user_setting_table.model_index_in_free = DAV.model_index_in_free
-	DAV.user_setting_table.model_type_index_in_free = DAV.model_type_index_in_free
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end

@@ -31,6 +31,10 @@ function Core:New()
 
     obj.max_speed_for_freezing = 75
 
+    -- custom mappin
+    obj.huge_distance = 1000000
+    obj.max_mappin_history = 5
+
     -- set default parameters
     obj.heli_input_table = {}
     obj.spinner_input_table = {}
@@ -46,10 +50,11 @@ function Core:New()
 
     obj.initial_user_setting_table = {}
 
+    -- custom mappin
     obj.fast_travel_position_list = {}
     obj.fast_travel_position_list_index_nearest_mappin = 1
-    obj.nearest_mappin_distance = 1000000
-    obj.current_district_info = {}
+    obj.nearest_mappin_distance = obj.huge_distance
+    obj.mappin_history = {}
 
     return setmetatable(obj, self)
 
@@ -93,12 +98,9 @@ function Core:Init()
 end
 
 function Core:Reset()
-
     self.av_obj = AV:New(self.all_models)
     self.av_obj:Init()
-
     self.event_obj:Init(self.av_obj)
-
 end
 
 function Core:LoadSetting()
@@ -106,31 +108,6 @@ function Core:LoadSetting()
     local setting_data = Utils:ReadJson(DAV.user_setting_path)
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
-
-        -- grobal
-        DAV.model_index = DAV.user_setting_table.model_index
-        DAV.model_type_index = DAV.user_setting_table.model_type_index
-
-        --- garage
-        DAV.garage_info_list = DAV.user_setting_table.garage_info_list
-
-        --- free summon mode
-        DAV.is_free_summon_mode = DAV.user_setting_table.is_free_summon_mode
-        DAV.model_index_in_free = DAV.user_setting_table.model_index_in_free
-        DAV.model_type_index_in_free = DAV.user_setting_table.model_type_index_in_free
-
-        --- control
-        DAV.flight_mode = DAV.user_setting_table.flight_mode
-        DAV.heli_heli_horizenal_boost_ratio = DAV.user_setting_table.heli_horizenal_boost_ratio
-        DAV.is_disable_spinner_roll_tilt = DAV.user_setting_table.is_disable_spinner_roll_tilt
-
-        --- environment
-        DAV.is_enable_community_spawn = DAV.user_setting_table.is_enable_community_spawn
-        DAV.spawn_frequency = DAV.user_setting_table.spawn_frequency
-
-        --- general
-        DAV.language_index = DAV.user_setting_table.language_index
-        DAV.is_unit_km_per_hour = DAV.user_setting_table.is_unit_km_per_hour
     end
 
 end
@@ -141,7 +118,7 @@ function Core:ResetSetting()
 
     self:UpdateGarageInfo(true)
     for key, _ in ipairs(DAV.user_setting_table.garage_info_list) do
-        DAV.garage_info_list[key].type_index = 1
+        DAV.user_setting_table.garage_info_list[key].type_index = 1
     end
 
     Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
@@ -159,8 +136,9 @@ function Core:SetSummonTrigger()
 
         if self.event_obj.ui_obj.dummy_av_record.hash == record_id.hash then
             self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
-            DAV.model_index = DAV.model_index_in_free
-            DAV.model_type_index = DAV.model_type_index_in_free
+            DAV.model_index = DAV.user_setting_table.model_index_in_free
+            DAV.model_type_index = DAV.user_setting_table.model_type_index_in_free
+
             self.av_obj:Init()
             self.is_vehicle_call = true
             return false
@@ -173,7 +151,7 @@ function Core:SetSummonTrigger()
                 for key, value in ipairs(self.av_obj.all_models) do
                     if value.tweakdb_id == record.value then
                         DAV.model_index = key
-                        DAV.model_type_index = DAV.garage_info_list[key].type_index
+                        DAV.model_type_index = DAV.user_setting_table.garage_info_list[key].type_index
                         self.av_obj:Init()
                         break
                     end
@@ -246,7 +224,7 @@ end
 
 function Core:GetTranslationText(text)
 
-    local language_table = Utils:ReadJson((DAV.language_path .. "/" .. self.language_file_list[DAV.language_index].name))
+    local language_table = Utils:ReadJson((DAV.language_path .. "/" .. self.language_file_list[DAV.user_setting_table.language_index].name))
 
     if table == nil then
         self.log_obj:Record(LogLevel.Critical, "Language File is invalid")
@@ -302,7 +280,8 @@ function Core:SetInputListener()
     player:RegisterInputListener(player, "dav_toggle_door_1")
     player:RegisterInputListener(player, "dav_toggle_auto_pilot")
 
-    local exception_list = Utils:ReadJson("Data/exception_input.json")
+    local exception_in_entry_list = Utils:ReadJson("Data/exception_in_entry_input.json")
+    local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
         local action_name = action:GetName(action).value
@@ -310,7 +289,14 @@ function Core:SetInputListener()
         local action_value = action:GetValue(action)
 
         if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
-            for _, exception in pairs(exception_list) do
+            for _, exception in pairs(exception_in_veh_list) do
+                if string.find(action_name, exception) then
+                    consumer:Consume()
+                    return
+                end
+            end
+        elseif self.event_obj:IsInEntryArea() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
+            for _, exception in pairs(exception_in_entry_list) do
                 if string.find(action_name, exception) then
                     consumer:Consume()
                     return
@@ -330,22 +316,6 @@ function Core:SetInputListener()
 
 end
 
-function Core:IsEnableFreeze()
-
-    if not DAV.is_enable_community_spawn then
-        return false
-    end
-
-    local freeze = self.is_freezing
-    self.is_freezing = false
-    if freeze and self.av_obj.engine_obj:GetSpeed() < self.max_speed_for_freezing then
-        return true
-    else
-        return false
-    end
-
-end
-
 function Core:GetAllModel()
 
     local model = Utils:ReadJson(self.av_model_path)
@@ -360,16 +330,14 @@ end
 
 function Core:InitGarageInfo()
 
-    DAV.garage_info_list = {}
+    DAV.user_setting_table.garage_info_list = {}
 
     for index, model in ipairs(self.all_models) do
         local garage_info = {name = "", model_index = 1, type_index = 1, is_purchased = false}
         garage_info.name = model.tweakdb_id
         garage_info.model_index = index
-        table.insert(DAV.garage_info_list, garage_info)
+        table.insert(DAV.user_setting_table.garage_info_list, garage_info)
     end
-
-    DAV.user_setting_table.garage_info_list = DAV.garage_info_list
 
 end
 
@@ -383,23 +351,22 @@ function Core:UpdateGarageInfo(is_force_update)
         self.current_purchased_vehicle_count = #list
     end
 
-    for _, garage_info in ipairs(DAV.garage_info_list) do
+    for _, garage_info in ipairs(DAV.user_setting_table.garage_info_list) do
         garage_info.is_purchased = false
     end
 
     for _, purchased_vehicle in ipairs(list) do
         if string.match(purchased_vehicle.recordID.value, "_dummy") then
             local purchased_vehicle_name = string.gsub(purchased_vehicle.recordID.value, "_dummy", "")
-            for index, garage_info in ipairs(DAV.garage_info_list) do
+            for index, garage_info in ipairs(DAV.user_setting_table.garage_info_list) do
                 if garage_info.name == purchased_vehicle_name then
-                    DAV.garage_info_list[index].is_purchased = true
+                    DAV.user_setting_table.garage_info_list[index].is_purchased = true
                     break
                 end
             end
         end
     end
 
-    DAV.user_setting_table.garage_info_list = DAV.garage_info_list
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end
@@ -408,14 +375,13 @@ function Core:ChangeGarageAVType(name, type_index)
 
     self:UpdateGarageInfo(false)
 
-    for idx, garage_info in ipairs(DAV.garage_info_list) do
+    for idx, garage_info in ipairs(DAV.user_setting_table.garage_info_list) do
         if garage_info.name == name then
-            DAV.garage_info_list[idx].type_index = type_index
+            DAV.user_setting_table.garage_info_list[idx].type_index = type_index
             break
         end
     end
 
-    DAV.user_setting_table.garage_info_list = DAV.garage_info_list
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end
@@ -462,9 +428,9 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
 
     local cmd, loop_count = 0, 1
 
-    if DAV.flight_mode == Def.FlightMode.Heli then
+    if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
         cmd, loop_count = self:ConvertHeliActionList(action_name, action_type, action_value_type)
-    elseif DAV.flight_mode == Def.FlightMode.Spinner then
+    elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then
         cmd, loop_count = self:ConvertSpinnerActionList(action_name, action_type, action_value_type)
     end
 
@@ -630,18 +596,54 @@ function Core:ToggleCamera()
 
 end
 
+function Core:IsEnableFreeze()
+
+    if not DAV.user_setting_table.is_enable_community_spawn then
+        return false
+    end
+
+    local freeze = self.is_freezing
+    self.is_freezing = false
+    if freeze and self.av_obj.engine_obj:GetSpeed() < self.max_speed_for_freezing then
+        return true
+    else
+        return false
+    end
+
+end
+
 function Core:SetCustomMappinPosition()
-
     Observe('BaseWorldMapMappinController', 'SelectMappin', function(this)
-		local mappin = this.mappin
-        if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
-            local pos = mappin:GetWorldPosition()
-            self.current_custom_mappin_position = pos
-            self.av_obj:SetDestination(pos)
-            self:FindNearestFastTravelPosition()
-        end
-
+        self:SetCustomMappin(this.mappin)
 	end)
+end
+
+function Core:SetCustomMappin(mappin)
+
+    if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
+        local pos = mappin:GetWorldPosition()
+        if Vector4.Distance(self.current_custom_mappin_position, pos) == 0 then
+            return
+        end
+        self.current_custom_mappin_position = pos
+        self.av_obj:SetDestination(pos)
+        self:FindNearestFastTravelPosition()
+    end
+
+end
+
+function Core:SetAutoPilotHistory()
+    repeat
+        if #self.mappin_history >= self.max_mappin_history then
+            table.remove(self.mappin_history)
+        end
+    until #self.mappin_history < self.max_mappin_history
+
+    local history_info = {}
+    history_info.district = self:GetCurrentDistrict()
+    history_info.location = self:GetNearbyLocation()
+    history_info.pos = self.current_custom_mappin_position
+    table.insert(self.mappin_history, 1, history_info)
 
 end
 
@@ -686,7 +688,7 @@ end
 function Core:FindNearestFastTravelPosition()
 
     self.fast_travel_position_list_index_nearest_mappin = 1
-    self.nearest_mappin_distance = 1000000
+    self.nearest_mappin_distance = self.huge_distance
 
     for index, position_info in ipairs(self.fast_travel_position_list) do
         local distance = Vector4.Distance(self.current_custom_mappin_position, position_info.pos)
@@ -721,18 +723,19 @@ function Core:GetNearbyLocationDistance()
     return self.nearest_mappin_distance
 end
 
-function Core:SetCurrentDistrict()
+function Core:GetCurrentDistrict()
 
-    self.current_district_info = {}
+    local current_district_info = {}
     local district_manager = Game.GetScriptableSystemsContainer():Get('PreventionSystem').districtManager
     local district = district_manager:GetCurrentDistrict()
     local district_record = district:GetDistrictRecord()
     if district_record ~= nil then
         repeat
-            table.insert(self.current_district_info, 1, GetLocalizedText(district_record:LocalizedName()))
+            table.insert(current_district_info, 1, GetLocalizedText(district_record:LocalizedName()))
             district_record = district_record:ParentDistrict()
         until district_record == nil
     end
+    return current_district_info
 
 end
 
