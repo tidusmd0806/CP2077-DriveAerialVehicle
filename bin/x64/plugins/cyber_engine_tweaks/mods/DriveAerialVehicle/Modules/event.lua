@@ -239,6 +239,7 @@ function Event:CheckInAV()
             self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
             self.hud_obj:ShowActionButtons()
+            
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
     end
@@ -300,6 +301,11 @@ function Event:CheckFailAutoPilot()
     if self.av_obj:IsFailedAutoPilot() then
         self.hud_obj:ShowInterruptAutoPilotDisplay()
     end
+end
+
+function Event:UnsetMappin()
+    DAV.core_obj.is_custom_mappin = false
+    DAV.core_obj:RemoveCustomMappin()
 end
 
 function Event:IsAvailableFreeCall()

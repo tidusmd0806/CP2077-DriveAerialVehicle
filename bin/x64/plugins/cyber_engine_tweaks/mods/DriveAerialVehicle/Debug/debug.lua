@@ -31,7 +31,7 @@ end
 function Debug:ImGuiMain()
 
     ImGui.SetNextWindowPos(100, 500, ImGuiCond.FirstUseEver) -- set window position x, y
-    ImGui.SetNextWindowSize(800, 1000, ImGuiCond.Appearing) -- set window size w, h
+    ImGui.SetNextWindowSize(800, 600, ImGuiCond.Appearing) -- set window size w, h
     ImGui.Begin("DAV DEBUG WINDOW")
     ImGui.Text("Debug Mode : On")
 
@@ -226,16 +226,23 @@ function Debug:ImGuiAutoPilotStatus()
         if #DAV.core_obj.fast_travel_position_list == 0 then
             return
         end
+        local near_fr_dist = DAV.core_obj.fast_travel_position_list[DAV.core_obj.fast_travel_position_list_index_nearest_mappin].district
         local near_ft_name = DAV.core_obj.fast_travel_position_list[DAV.core_obj.fast_travel_position_list_index_nearest_mappin].name
+        ImGui.Text("Nearest FT District : ")
+        for _, district in pairs(near_fr_dist) do
+            ImGui.SameLine()
+            ImGui.Text(district)
+        end
         ImGui.Text("Nearest FT Name : " .. near_ft_name)
 
         for _, history_info in pairs(DAV.core_obj.mappin_history) do
+            ImGui.Text("Dis :")
             for _, district in pairs(history_info.district) do
                 ImGui.SameLine()
-			    ImGui.Text("Dis" .. district)
+			    ImGui.Text(district)
             end
-            ImGui.Text("Loc" .. history_info.location)
-            ImGui.Text("Pos" .. history_info.pos.x .. ", " .. history_info.pos.y .. ", " .. history_info.pos.z)
+            ImGui.Text("Loc :" .. history_info.location)
+            ImGui.Text("Pos :" .. history_info.pos.x .. ", " .. history_info.pos.y .. ", " .. history_info.pos.z)
         end
     end
 end
@@ -268,11 +275,31 @@ function Debug:ImGuiToggleGarageVehicle()
 end
 
 function Debug:ImGuiExcuteFunction()
-    if ImGui.Button("Test Func1",150, 50) then
+    if ImGui.Button("Test Func1",150, 30) then
+        -- local mappin_data = MappinData.new()
+        -- mappin_data.mappinType = TweakDBID.new('Mappins.DynamicCourierPointOfInterestMappinDefinition')
+        -- mappin_data.variant = gamedataMappinVariant.ExclamationMarkVariant
+        -- mappin_data.variant = gamedataMappinVariant.FastTravelVariant
+        -- mappin_data.mappinType = TweakDBID.new('Mappins.QuestDynamicMappinDefinition')
+        -- mappin_data.variant = gamedataMappinVariant.VehicleVariant
+        -- mappin_data.visibleThroughWalls = true
+        -- local pos = Vector4.new(0, 0, 0, 1)
+        -- local pin_id = Game.GetMappinSystem():RegisterMappin(mappin_data, pos)
+        -- Cron.Every(1, {tick = 1}, function(timer)
+        --     timer.tick = timer.tick + 1
+        --     pos.x = pos.x + 100
+        --     -- Game.GetMappinSystem():SetMappinPosition(pin_id, pos)
+        --     if timer.tick > 10 then
+        --         print('UnregisterMappin')
+        --         Game.GetMappinSystem():UnregisterMappin(pin_id)
+        --         Cron.Halt(timer)
+        --     end
+        -- end)
+        Game.GetMappinSystem():SetMappinActive(DAV.core_obj.dist_mappin_id, false)
         print("Excute Test Function 1")
     end
     ImGui.SameLine()
-    if ImGui.Button("Test Func2",150, 50) then
+    if ImGui.Button("Test Func2",150, 30) then
         local transform = Game.GetPlayer():GetWorldTransform()
         local pos = Game.GetPlayer():GetWorldPosition()
         pos.z = pos.z + 1.45
@@ -291,7 +318,7 @@ function Debug:ImGuiExcuteFunction()
         print("Excute Test Function 2")
     end
     ImGui.SameLine()
-    if ImGui.Button("Test Func3",150, 50) then
+    if ImGui.Button("Test Func3",150, 30) then
         local index = self.ps:GetActiveStationIndex()
         print(index)
         self.ps:SetActiveStation(index + 1)

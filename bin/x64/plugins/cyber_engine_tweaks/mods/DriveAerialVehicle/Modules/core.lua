@@ -7,63 +7,62 @@ local Core = {}
 Core.__index = Core
 
 function Core:New()
-
+    -- instance --
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Core")
     obj.queue_obj = Queue:New()
     obj.av_obj = nil
     obj.event_obj = nil
-
-    obj.all_models = nil
-
+    -- static --
+    -- import path
     obj.av_model_path = "Data/default_model.json"
     obj.heli_input_path = "Data/heli_input.json"
     obj.spinner_input_path = "Data/spinner_input.json"
+    -- input setting
     obj.axis_dead_zone = 0.5
     obj.relative_dead_zone = 0.01
-    obj.relative_table = {}
     obj.relative_resolution = 0.1
     obj.hold_progress = 0.9
-
-    obj.language_file_list = {}
-    obj.language_name_list = {}
-
+    -- enviroment
     obj.max_speed_for_freezing = 75
-
+    obj.freeze_detect_range_mouse = 1
+    obj.freeze_detect_range_stick = 0.1
     -- custom mappin
     obj.huge_distance = 1000000
     obj.max_mappin_history = 5
-
-    -- set default parameters
+    -- dynamic --
+    -- model table
+    obj.all_models = nil
+    -- input table
     obj.heli_input_table = {}
     obj.spinner_input_table = {}
-    obj.current_custom_mappin_position = nil
+    obj.relative_table = {}
+    -- user setting table
+    obj.initial_user_setting_table = {}
+    -- language table
+    obj.language_file_list = {}
+    obj.language_name_list = {}
+    -- summon
     obj.current_purchased_vehicle_count = 0
-
     obj.is_vehicle_call = false
     obj.is_purchased_vehicle_call = false
-
+    -- enviroment
     obj.is_freezing = false
-    obj.freeze_detect_range_mouse = 1
-    obj.freeze_detect_range_stick = 0.1
-
-    obj.initial_user_setting_table = {}
-
     -- custom mappin
+    obj.current_custom_mappin_position = nil
     obj.fast_travel_position_list = {}
     obj.fast_travel_position_list_index_nearest_mappin = 1
     obj.nearest_mappin_distance = obj.huge_distance
     obj.mappin_history = {}
-
+    obj.dist_mappin_id = nil
+    obj.is_custom_mappin = false
     return setmetatable(obj, self)
-
 end
 
 function Core:Init()
 
     self.all_models = self:GetAllModel()
-
     if self.all_models == nil then
         self.log_obj:Record(LogLevel.Error, "Model is nil")
         return
@@ -73,7 +72,6 @@ function Core:Init()
 
     -- set initial user setting
     self.initial_user_setting_table = DAV.user_setting_table
-
     self:LoadSetting()
     self:SetTranslationNameList()
 
@@ -91,6 +89,9 @@ function Core:Init()
         self:GetActions()
     end)
 
+    self:InitMappin()
+
+    -- set observer
     self:SetInputListener()
     self:SetCustomMappinPosition()
     self:SetSummonTrigger()
@@ -115,16 +116,11 @@ end
 function Core:ResetSetting()
 
     DAV.user_setting_table = self.initial_user_setting_table
-
     self:UpdateGarageInfo(true)
     for key, _ in ipairs(DAV.user_setting_table.garage_info_list) do
         DAV.user_setting_table.garage_info_list[key].type_index = 1
     end
-
     Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-
-    self:LoadSetting()
-
     self:Reset()
 
 end
@@ -319,7 +315,6 @@ end
 function Core:GetAllModel()
 
     local model = Utils:ReadJson(self.av_model_path)
-
     if model == nil then
         self.log_obj:Record(LogLevel.Error, "Default Model is nil")
         return nil
@@ -344,7 +339,6 @@ end
 function Core:UpdateGarageInfo(is_force_update)
 
     local list = Game.GetVehicleSystem():GetPlayerUnlockedVehicles()
-
     if (self.current_purchased_vehicle_count == #list or #list == 0) and not is_force_update then
         return
     else
@@ -389,7 +383,6 @@ end
 function Core:GetInputTable(input_path)
 
     local input = Utils:ReadJson(input_path)
-
     if input == nil then
         self.log_obj:Record(LogLevel.Error, "Input is nil")
         return nil
@@ -401,7 +394,6 @@ end
 function Core:StorePlayerAction(action_name, action_type, action_value)
 
     local action_value_type = "ZERO"
-
     if action_type == "RELATIVE_CHANGE" then
         if action_value > self.relative_dead_zone then
             action_value_type = "POSITIVE"
@@ -612,27 +604,87 @@ function Core:IsEnableFreeze()
 
 end
 
-function Core:SetCustomMappinPosition()
-    Observe('BaseWorldMapMappinController', 'SelectMappin', function(this)
-        self:SetCustomMappin(this.mappin)
-	end)
+function Core:InitMappin()
+
+    self.current_custom_mappin_position = Vector4.new(0, 0, 0, 1)
+    self:SetDistinationMappin()
+
 end
 
+function Core:SetCustomMappinPosition()
+
+    ObserveAfter('BaseWorldMapMappinController', 'SelectMappin', function(this)
+        local mappin = this.mappin
+        if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
+            self:SetCustomMappin(mappin)
+        end
+	end)
+
+    ObserveAfter('BaseWorldMapMappinController', 'UnselectMappin', function(this)
+        local mappin = this.mappin
+        if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
+            self.log_obj:Record(LogLevel.Trace, "Custom Mappin is unselected")
+            self.is_custom_mappin = false
+        end
+	end)
+
+end
+
+---@param mappin IMappin 
 function Core:SetCustomMappin(mappin)
 
-    if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
-        local pos = mappin:GetWorldPosition()
-        if Vector4.Distance(self.current_custom_mappin_position, pos) == 0 then
+    local mappin_position = self.current_custom_mappin_position
+    if self.event_obj:IsInVehicle() then
+        self.log_obj:Record(LogLevel.Info, "Custom Mappin is set")
+        local mappin_pos = mappin:GetWorldPosition()
+        self.current_custom_mappin_position = mappin_pos
+        if Vector4.Distance(mappin_position, mappin_pos) == 0 then
+            self.log_obj:Record(LogLevel.Trace, "Same Mappin is selected")
             return
         end
-        self.current_custom_mappin_position = pos
-        self.av_obj:SetDestination(pos)
-        self:FindNearestFastTravelPosition()
+        self:SetDistinationMappin()
+        self.is_custom_mappin = true
+    end
+
+end
+
+function Core:SetDistinationMappin()
+    self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
+    self.fast_travel_position_list_index_nearest_mappin, self.nearest_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
+end
+
+function Core:SetFavoriteMappin(pos)
+    self.av_obj:SetFavoriteDestination(pos)
+    self:CreateFavoriteMappin(pos)
+    if not self.is_custom_mappin then
+        self:SetAutoPilotHistory()
+        self.fast_travel_position_list_index_nearest_mappin, self.nearest_mappin_distance = self:FindNearestFastTravelPosition(pos)
+    end
+end
+
+---@param position Vector4
+function Core:CreateFavoriteMappin(position)
+
+    self:RemoveFavoriteMappin()
+    local mappin_data = MappinData.new()
+    mappin_data.mappinType = TweakDBID.new('Mappins.DefaultStaticMappin')
+    mappin_data.variant = gamedataMappinVariant.VehicleVariant
+    mappin_data.visibleThroughWalls = true
+    self.dist_mappin_id = Game.GetMappinSystem():RegisterMappin(mappin_data, position)
+
+end
+
+function Core:RemoveFavoriteMappin()
+
+    if self.dist_mappin_id ~= nil then
+        Game.GetMappinSystem():UnregisterMappin(self.dist_mappin_id)
+        self.dist_mappin_id = nil
     end
 
 end
 
 function Core:SetAutoPilotHistory()
+
     repeat
         if #self.mappin_history >= self.max_mappin_history then
             table.remove(self.mappin_history)
@@ -641,9 +693,13 @@ function Core:SetAutoPilotHistory()
 
     local history_info = {}
     history_info.district = self:GetCurrentDistrict()
-    history_info.location = self:GetNearbyLocation()
+    history_info.location = self:GetNearbyLocation(self.fast_travel_position_list_index_nearest_mappin)
+    history_info.distance = self:GetNearbyLocationDistance()
     history_info.pos = self.current_custom_mappin_position
     table.insert(self.mappin_history, 1, history_info)
+
+    DAV.user_setting_table.mappin_history = self.mappin_history
+    Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end
 
@@ -685,57 +741,74 @@ function Core:SetFastTravelPosition()
 
 end
 
-function Core:FindNearestFastTravelPosition()
+---@return number
+function Core:GetNearbyFastTravelPositionIndex()
+    return self.fast_travel_position_list_index_nearest_mappin
+end
 
-    self.fast_travel_position_list_index_nearest_mappin = 1
-    self.nearest_mappin_distance = self.huge_distance
+---@param current_pos Vector4
+---@return number, number
+function Core:FindNearestFastTravelPosition(current_pos)
 
+    local fast_travel_position_list_index_nearest_mappin = 1
+    local nearest_mappin_distance = self.huge_distance
     for index, position_info in ipairs(self.fast_travel_position_list) do
-        local distance = Vector4.Distance(self.current_custom_mappin_position, position_info.pos)
-        if distance < self.nearest_mappin_distance then
-            self.nearest_mappin_distance = distance
-            self.fast_travel_position_list_index_nearest_mappin = index
+        local distance = Vector4.Distance(current_pos, position_info.pos)
+        if distance < nearest_mappin_distance then
+            nearest_mappin_distance = distance
+            fast_travel_position_list_index_nearest_mappin = index
         end
     end
+    return fast_travel_position_list_index_nearest_mappin, nearest_mappin_distance
 
 end
 
-function Core:GetNearbyDistrictList()
+---@param index number
+---@return table | nil
+function Core:GetNearbyDistrictList(index)
 
-    if self.fast_travel_position_list[self.fast_travel_position_list_index_nearest_mappin] == nil then
+    if self.fast_travel_position_list[index] == nil then
         return nil
     else
-        return self.fast_travel_position_list[self.fast_travel_position_list_index_nearest_mappin].district
+        return self.fast_travel_position_list[index].district
     end
 
 end
 
-function Core:GetNearbyLocation()
+---@param index number
+---@return string | nil
+function Core:GetNearbyLocation(index)
 
-    if self.fast_travel_position_list[self.fast_travel_position_list_index_nearest_mappin] == nil then
+    if self.fast_travel_position_list[index] == nil then
         return nil
     else
-        return self.fast_travel_position_list[self.fast_travel_position_list_index_nearest_mappin].name
+        return self.fast_travel_position_list[index].name
     end
+
 end
 
+---@return number
 function Core:GetNearbyLocationDistance()
     return self.nearest_mappin_distance
 end
 
+---@return table
 function Core:GetCurrentDistrict()
 
-    local current_district_info = {}
+    local current_district_list = {}
     local district_manager = Game.GetScriptableSystemsContainer():Get('PreventionSystem').districtManager
     local district = district_manager:GetCurrentDistrict()
+    if district == nil then
+        return current_district_list
+    end
     local district_record = district:GetDistrictRecord()
     if district_record ~= nil then
         repeat
-            table.insert(current_district_info, 1, GetLocalizedText(district_record:LocalizedName()))
+            table.insert(current_district_list, 1, GetLocalizedText(district_record:LocalizedName()))
             district_record = district_record:ParentDistrict()
         until district_record == nil
     end
-    return current_district_info
+    return current_district_list
 
 end
 

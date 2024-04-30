@@ -43,6 +43,16 @@ DAV.user_setting_table = {
     is_free_summon_mode = true,
     model_index_in_free = 1,
     model_type_index_in_free = 1,
+    --- autopilot
+    mappin_history = {},
+    favorite_location_list = {
+                                {name = "No Registered", pos = nil, is_selected = true},
+                                {name = "No Registered", pos = nil, is_selected = false},
+                                {name = "No Registered", pos = nil, is_selected = false},
+                                {name = "No Registered", pos = nil, is_selected = false},
+                                {name = "No Registered", pos = nil, is_selected = false},
+                             },
+    autopilot_speed_level = Def.AutopilotSpeedLevel.Normal,
     --- control
     flight_mode = Def.FlightMode.Spinner,
     heli_horizenal_boost_ratio = 2.0,
@@ -123,7 +133,6 @@ registerForEvent("onDraw", function()
 end)
 
 registerForEvent('onUpdate', function(delta)
-    -- This is required for Cron to function
     Cron.Update(delta)
 end)
 

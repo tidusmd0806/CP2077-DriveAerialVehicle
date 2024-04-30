@@ -47,7 +47,8 @@ function AV:New(all_models)
 	obj.is_unmounting = false
 	obj.is_spawning = false
 
-	obj.destination_position = {x = 0, y = 0, z = 0}
+	obj.mappin_destination_position = Vector4.new(0, 0, 0, 1)
+	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.auto_pilot_speed = 1
 	obj.avoidance_range = 5
 	obj.max_avoidance_speed = 10
@@ -475,20 +476,30 @@ function AV:Operate(action_commands)
 	return true
 end
 
-function AV:SetDestination(position)
-	self.destination_position.x = position.x
-	self.destination_position.y = position.y
-	self.destination_position.z = position.z
+---@param position Vector4
+function AV:SetMappinDestination(position)
+	self.mappin_destination_position = position
+end
+
+---@param position Vector4
+function AV:SetFavoriteDestination(position)
+	self.favorite_destination_position = position
 end
 
 function AV:AutoPilot()
 	self.is_auto_pilot = true
+	local destination_position = Vector4.new(0, 0, 0, 1)
+	if DAV.core_obj.is_custom_mappin then
+		destination_position = self.mappin_destination_position
+	else
+		destination_position = self.favorite_destination_position
+	end
 
 	local far_corner_distance = self.position_obj:GetFarCornerDistance()
 
 	local current_position = self.position_obj:GetPosition()
 
-	local direction_vector = {x = self.destination_position.x - current_position.x, y = self.destination_position.y - current_position.y, z = 0}
+	local direction_vector = {x = destination_position.x - current_position.x, y = destination_position.y - current_position.y, z = 0}
 	self:AutoLeaving(direction_vector)
 
 	self.is_auto_avoidance = false
@@ -506,7 +517,7 @@ function AV:AutoPilot()
 			return
 		end
 
-		local stack_count = self.position_obj:CheckAutoPilotStackCount(self.destination_position)
+		local stack_count = self.position_obj:CheckAutoPilotStackCount(destination_position)
 
 		if stack_count > self.limit_stack_count then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
@@ -524,7 +535,7 @@ function AV:AutoPilot()
 			self.is_auto_avoidance = false
 		end
 
-		direction_vector = {x = self.destination_position.x - current_position.x, y = self.destination_position.y - current_position.y, z = 0}
+		direction_vector = {x = destination_position.x - current_position.x, y = destination_position.y - current_position.y, z = 0}
 
 		local direction_vector_norm = math.sqrt(direction_vector.x * direction_vector.x + direction_vector.y * direction_vector.y)
 
