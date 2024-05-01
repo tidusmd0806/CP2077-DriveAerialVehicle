@@ -28,6 +28,7 @@ function UI:New()
 	obj.current_vehicle_type_name = ""
 	obj.temp_vehicle_model_name = ""
 	-- auto pilot setting
+	obj.selected_auto_pilot_history_index = 1
 	obj.selected_auto_pilot_history_name = ""
 	obj.history_list = {}
 	-- control setting
@@ -89,8 +90,10 @@ function UI:SetDefaultValue()
 
 	-- auto pilot setting
 	self:CreateStringHistory()
-	self.selected_auto_pilot_history_name = self.history_list[1]
+	self.selected_auto_pilot_history_index = 1
+	self.selected_auto_pilot_history_name = self.history_list[self.selected_auto_pilot_history_index]
 	self.selected_auto_pilot_favorite_index = 1
+	DAV.core_obj:SetFavoriteMappin(DAV.user_setting_table.favorite_location_list[self.selected_auto_pilot_favorite_index].pos)
 
 	-- control
 	self.selected_flight_mode = DAV.user_setting_table.flight_mode
@@ -320,46 +323,59 @@ end
 
 function UI:ShowAutoPilotSetting()
 
-	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_distination"))
-	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_distination_info"))
-	local dist_near_ft_index = DAV.core_obj:GetNearbyFastTravelPositionIndex()
-	local dist_district_list = DAV.core_obj:GetNearbyDistrictList(dist_near_ft_index)
-	if dist_district_list ~= nil then
-		for _, district in ipairs(dist_district_list) do
-			ImGui.SameLine()
-			ImGui.TextColored(0, 1, 0, 1, district)
-		end
-	end
-	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_location_info"))
-	local nearby_location = DAV.core_obj:GetNearbyLocation(dist_near_ft_index)
-	if nearby_location ~= nil then
-		ImGui.SameLine()
-		ImGui.TextColored(0, 1, 0, 1, nearby_location)
-		ImGui.SameLine()
-		local custom_ft_distance = DAV.core_obj:GetNearbyLocationDistance()
-		if custom_ft_distance ~= DAV.core_obj.huge_distance then
-			ImGui.TextColored(0, 1, 0, 1, "[" .. tostring(math.floor(custom_ft_distance)) .. "m]")
+	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_current_position"))
+	if DAV.core_obj.event_obj:IsNotSpawned() then
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_not_spawned"))
+	else
+		local current_district_list = DAV.core_obj:GetCurrentDistrict()
+		local entity = Game.FindEntityByID(self.av_obj.entity_id)
+		if entity ~= nil then
+			local current_nearby_ft_index, _ = DAV.core_obj:FindNearestFastTravelPosition(entity:GetWorldPosition())
+			local current_nearby_ft_name = DAV.core_obj:GetNearbyLocation(current_nearby_ft_index)
+			ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_district_info"))
+			if current_district_list ~= nil then
+				for _, district in ipairs(current_district_list) do
+					ImGui.SameLine()
+					ImGui.TextColored(0, 1, 0, 1, district)
+				end
+			end
+			ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_location_info"))
+			if current_nearby_ft_name ~= nil then
+				ImGui.SameLine()
+				ImGui.TextColored(0, 1, 0, 1, current_nearby_ft_name)
+			end
+		else
+			ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_not_spawned"))
 		end
 	end
 
 	ImGui.Spacing()
 	ImGui.Separator()
 
-	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_current_position"))
-	local current_district_list = DAV.core_obj:GetCurrentDistrict()
-	local current_nearby_ft_index, _ = DAV.core_obj:FindNearestFastTravelPosition(Game.GetPlayer():GetWorldPosition())
-	local current_nearby_ft_name = DAV.core_obj:GetNearbyLocation(current_nearby_ft_index)
-	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_distination_info"))
-	if current_district_list ~= nil then
-		for _, district in ipairs(current_district_list) do
-			ImGui.SameLine()
-			ImGui.TextColored(0, 1, 0, 1, district)
+	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_mappin"))
+	if DAV.core_obj.is_custom_mappin then
+		ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_district_info"))
+		local dist_near_ft_index = DAV.core_obj:GetFTIndexNearbyMappin()
+		local dist_district_list = DAV.core_obj:GetNearbyDistrictList(dist_near_ft_index)
+		if dist_district_list ~= nil then
+			for _, district in ipairs(dist_district_list) do
+				ImGui.SameLine()
+				ImGui.TextColored(0, 1, 0, 1, district)
+			end
 		end
-	end
-	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_location_info"))
-	if current_nearby_ft_name ~= nil then
-		ImGui.SameLine()
-		ImGui.TextColored(0, 1, 0, 1, current_nearby_ft_name)
+		ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_location_info"))
+		local nearby_location = DAV.core_obj:GetNearbyLocation(dist_near_ft_index)
+		if nearby_location ~= nil then
+			ImGui.SameLine()
+			ImGui.TextColored(0, 1, 0, 1, nearby_location)
+			ImGui.SameLine()
+			local custom_ft_distance = DAV.core_obj:GetFT2MappinDistance()
+			if custom_ft_distance ~= DAV.core_obj.huge_distance then
+				ImGui.TextColored(0, 1, 0, 1, "[" .. tostring(math.floor(custom_ft_distance)) .. "m]")
+			end
+		end
+	else
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_not_put_mappin"))
 	end
 
 	ImGui.Spacing()
@@ -375,20 +391,39 @@ function UI:ShowAutoPilotSetting()
 			else
 				selected = false
 			end
-			if(ImGui.Selectable(favorite_info.name, selected)) then
+			if(ImGui.Selectable("[" .. tostring(index - 1) .. "]" .. favorite_info.name, selected)) then
 				self.selected_auto_pilot_favorite_index = index
 				if selected_auto_pilot_favorite_index ~= self.selected_auto_pilot_favorite_index then
-					for fav_index, favorite_info in ipairs(DAV.user_setting_table.favorite_location_list) do
-						favorite_info.is_selected = false
+					for fav_index, _ in ipairs(DAV.user_setting_table.favorite_location_list) do
+						DAV.user_setting_table.favorite_location_list[fav_index].is_selected = false
 						if fav_index == index then
-							favorite_info.is_selected = true
+							DAV.user_setting_table.favorite_location_list[fav_index].is_selected = true
+							DAV.core_obj:SetFavoriteMappin(DAV.user_setting_table.favorite_location_list[fav_index].pos)
+							Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 						end
 					end
-					DAV.core_obj:SetFavoriteMappin(favorite_info.pos)
 				end
 			end
 		end
 		ImGui.EndCombo()
+	end
+
+	if #self.history_list ~= 0 then
+		ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_favorite_info"))
+		for index, _ in ipairs(DAV.user_setting_table.favorite_location_list) do
+			if index ~= 1 then
+				if ImGui.Button(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_favorite_" .. tostring(index - 1)), 60, 30) then
+					local history_string = self.selected_auto_pilot_history_name
+					history_string = string.sub(history_string, 4)
+					DAV.user_setting_table.favorite_location_list[index].name = history_string
+					DAV.user_setting_table.favorite_location_list[index].pos = DAV.user_setting_table.mappin_history[self.selected_auto_pilot_history_index].position
+					Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+				end
+				if index ~= #DAV.user_setting_table.favorite_location_list then
+					ImGui.SameLine()
+				end
+			end
+		end
 	end
 
 	ImGui.Spacing()
@@ -397,8 +432,9 @@ function UI:ShowAutoPilotSetting()
 	self:CreateStringHistory()
 	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_history"))
 	local selected = false
-	if ImGui.BeginListBox("##History", 500, 500) then
-		for _, history_string in ipairs(self.history_list) do
+	if ImGui.BeginListBox("##History", 500, 100) then
+		for index = #self.history_list, 1, -1 do
+			local history_string = self.history_list[index]
 			if self.selected_auto_pilot_history_name == history_string then
 				selected = true
 			else
@@ -406,18 +442,10 @@ function UI:ShowAutoPilotSetting()
 			end
 			if(ImGui.Selectable(history_string, selected)) then
 				self.selected_auto_pilot_history_name = history_string
+				self.selected_auto_pilot_history_index = index
 			end
 		end
 		ImGui.EndListBox()
-	end
-
-	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_favorite_info"))
-	if ImGui.Button(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_favorite_1"), 120, 40) then
-		local history_string = history_list[self.selected_auto_pilot_history_index]
-		local pos = history_info[self.selected_auto_pilot_history_index].pos
-		local favorite_info = {name = history_string, pos = pos}
-		table.insert(DAV.user_setting_table.favorite_location_list, 1, favorite_info)
-		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
 
 end
@@ -595,6 +623,7 @@ function UI:SetFreeSummonParameters()
 end
 
 function UI:CreateStringHistory()
+	self.history_list = {}
 	for index, history in ipairs(DAV.user_setting_table.mappin_history) do
 		local history_string = tostring(index) .. ": "
 		for _, district in ipairs(history.district) do

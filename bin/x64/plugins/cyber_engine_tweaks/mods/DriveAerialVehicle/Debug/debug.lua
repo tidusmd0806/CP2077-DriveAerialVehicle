@@ -45,8 +45,8 @@ function Debug:ImGuiMain()
     self:ImGuiSpinnerInfo()
     self:ImGuiCurrentEngineInfo()
     self:ImGuiSoundCheck()
-    self:ImGuiMappinPosition()
     self:ImGuiModelTypeStatus()
+    self:ImGuiMappinPosition()
     self:ImGuiAutoPilotStatus()
     self:ImGuiToggleGarageVehicle()
     self:ImGuiExcuteFunction()
@@ -197,16 +197,6 @@ function Debug:ImGuiSoundCheck()
     end
 end
 
-function Debug:ImGuiMappinPosition()
-    self.is_im_gui_mappin_position = ImGui.Checkbox("[ImGui] Custom Mappin Position", self.is_im_gui_mappin_position)
-    if self.is_im_gui_mappin_position then
-        local x = string.format("%.2f", self.core_obj.current_custom_mappin_position.x)
-        local y = string.format("%.2f", self.core_obj.current_custom_mappin_position.y)
-        local z = string.format("%.2f", self.core_obj.current_custom_mappin_position.z)
-        ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
-    end
-end
-
 function Debug:ImGuiModelTypeStatus()
     self.is_im_gui_model_type_status = ImGui.Checkbox("[ImGui] Model Index Status", self.is_im_gui_model_type_status)
     if self.is_im_gui_model_type_status then
@@ -220,29 +210,55 @@ function Debug:ImGuiModelTypeStatus()
     end
 end
 
+function Debug:ImGuiMappinPosition()
+    self.is_im_gui_mappin_position = ImGui.Checkbox("[ImGui] Custom Mappin Position", self.is_im_gui_mappin_position)
+    if self.is_im_gui_mappin_position then
+        local x = string.format("%.2f", self.core_obj.current_custom_mappin_position.x)
+        local y = string.format("%.2f", self.core_obj.current_custom_mappin_position.y)
+        local z = string.format("%.2f", self.core_obj.current_custom_mappin_position.z)
+        ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
+        if DAV.core_obj.is_custom_mappin then
+            ImGui.Text("Custom Mappin : On")
+        else
+            ImGui.Text("Custom Mappin : Off")
+        end
+    end
+end
+
 function Debug:ImGuiAutoPilotStatus()
     self.is_im_gui_auto_pilot_status = ImGui.Checkbox("[ImGui] Auto Pilot Status", self.is_im_gui_auto_pilot_status)
     if self.is_im_gui_auto_pilot_status then
-        if #DAV.core_obj.fast_travel_position_list == 0 then
-            return
-        end
-        local near_fr_dist = DAV.core_obj.fast_travel_position_list[DAV.core_obj.fast_travel_position_list_index_nearest_mappin].district
-        local near_ft_name = DAV.core_obj.fast_travel_position_list[DAV.core_obj.fast_travel_position_list_index_nearest_mappin].name
-        ImGui.Text("Nearest FT District : ")
-        for _, district in pairs(near_fr_dist) do
-            ImGui.SameLine()
-            ImGui.Text(district)
-        end
-        ImGui.Text("Nearest FT Name : " .. near_ft_name)
-
-        for _, history_info in pairs(DAV.core_obj.mappin_history) do
-            ImGui.Text("Dis :")
-            for _, district in pairs(history_info.district) do
+        local selected_history_index = DAV.core_obj.event_obj.ui_obj.selected_auto_pilot_history_index
+        ImGui.Text("Selected History Index : " .. selected_history_index)
+        ImGui.Text("-----History-----")
+        local mappin_history = DAV.user_setting_table.mappin_history
+        if #mappin_history ~= 0 then
+            for i, value in ipairs(mappin_history) do
+                ImGui.Text("[" .. i .. "] : " .. value.district[1])
                 ImGui.SameLine()
-			    ImGui.Text(district)
+                ImGui.Text("/ " .. value.location)
+                ImGui.SameLine()
+                ImGui.Text("/ " .. value.distance)
+                if value.position ~= nil then
+                    ImGui.Text("[" .. i .. "] : " .. value.position.x .. ", " .. value.position.y .. ", " .. value.position.z)
+                else
+                    ImGui.Text("[" .. i .. "] : nil")
+                end
             end
-            ImGui.Text("Loc :" .. history_info.location)
-            ImGui.Text("Pos :" .. history_info.pos.x .. ", " .. history_info.pos.y .. ", " .. history_info.pos.z)
+        else
+            ImGui.Text("No History")
+        end
+        local selected_favorite_index = DAV.core_obj.event_obj.ui_obj.selected_auto_pilot_favorite_index
+        ImGui.Text("Selected Favorite Index : " .. selected_favorite_index)
+        ImGui.Text("------Favorite Location------")
+        local favorite_location_list = DAV.user_setting_table.favorite_location_list
+        for i, value in ipairs(favorite_location_list) do
+            ImGui.Text("[" .. i .. "] : " .. value.name)
+            if value.pos ~= nil then
+                ImGui.Text("[" .. i .. "] : " .. value.pos.x .. ", " .. value.pos.y .. ", " .. value.pos.z)
+            else
+                ImGui.Text("[" .. i .. "] : nil")
+            end
         end
     end
 end
@@ -276,26 +292,13 @@ end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("Test Func1",150, 30) then
-        -- local mappin_data = MappinData.new()
-        -- mappin_data.mappinType = TweakDBID.new('Mappins.DynamicCourierPointOfInterestMappinDefinition')
-        -- mappin_data.variant = gamedataMappinVariant.ExclamationMarkVariant
-        -- mappin_data.variant = gamedataMappinVariant.FastTravelVariant
-        -- mappin_data.mappinType = TweakDBID.new('Mappins.QuestDynamicMappinDefinition')
-        -- mappin_data.variant = gamedataMappinVariant.VehicleVariant
-        -- mappin_data.visibleThroughWalls = true
-        -- local pos = Vector4.new(0, 0, 0, 1)
-        -- local pin_id = Game.GetMappinSystem():RegisterMappin(mappin_data, pos)
-        -- Cron.Every(1, {tick = 1}, function(timer)
-        --     timer.tick = timer.tick + 1
-        --     pos.x = pos.x + 100
-        --     -- Game.GetMappinSystem():SetMappinPosition(pin_id, pos)
-        --     if timer.tick > 10 then
-        --         print('UnregisterMappin')
-        --         Game.GetMappinSystem():UnregisterMappin(pin_id)
-        --         Cron.Halt(timer)
-        --     end
-        -- end)
-        Game.GetMappinSystem():SetMappinActive(DAV.core_obj.dist_mappin_id, false)
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local components = entity:GetComponents()
+        for i,component in ipairs(components) do
+            if(NameToString(component:GetName()) == "crystaldome_a") then
+                component:TemporaryHide(true)
+            end
+        end
         print("Excute Test Function 1")
     end
     ImGui.SameLine()

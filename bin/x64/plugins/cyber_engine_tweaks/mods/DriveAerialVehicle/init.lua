@@ -46,11 +46,12 @@ DAV.user_setting_table = {
     --- autopilot
     mappin_history = {},
     favorite_location_list = {
-                                {name = "No Registered", pos = nil, is_selected = true},
-                                {name = "No Registered", pos = nil, is_selected = false},
-                                {name = "No Registered", pos = nil, is_selected = false},
-                                {name = "No Registered", pos = nil, is_selected = false},
-                                {name = "No Registered", pos = nil, is_selected = false},
+                                {name = "Disable", pos = {x=0,y=0,z=0}, is_selected = true},
+                                {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+                                {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+                                {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+                                {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+                                {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
                              },
     autopilot_speed_level = Def.AutopilotSpeedLevel.Normal,
     --- control

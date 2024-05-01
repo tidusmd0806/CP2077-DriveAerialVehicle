@@ -1,10 +1,8 @@
 local Utils = {}
 Utils.__index = Utils
 
-function Utils:New()
-    local obj = {}
-    return setmetatable(obj, self)
-end
+Utils.log_obj = Log:New()
+Utils.log_obj:SetLevel(LogLevel.Info, "Utils")
 
 function Utils:IsTablesEqual(table1, table2)
     for key, value in pairs(table1) do
@@ -141,25 +139,49 @@ function Utils:WorldToBodyCoordinates(world_coordinates, body_world_coordinates,
    return {x = result.i, y = result.j, z = result.k}
 end
 
+---@param fill_path string
+---@return table | nil
 function Utils:ReadJson(fill_path)
-   local file = io.open(fill_path, "r")
-   if file then
-      local contents = file:read( "*a" )
-      local data = json.decode(contents)
-      file:close()
-      return data
+   local success, result = pcall(function()
+      local file = io.open(fill_path, "r")
+      if file then
+         local contents = file:read("*a")
+         local data = json.decode(contents)
+         file:close()
+         return data
+      else
+         self.log_obj:Record(LogLevel.Error, "Failed to open file for reading")
+         return nil
+      end
+   end)
+   if not success then
+      self.log_obj:Record(LogLevel.Critical, result)
+      return nil
    end
-   self.log_obj:Record(LogLevel.Error, "Failed to read json file")
-   return nil
+   return result
 end
 
+---@param fill_path string
+---@param write_data table
+---@return boolean
 function Utils:WriteJson(fill_path, write_data)
-   local file = io.open(fill_path, "w")
-   if file then
-      local contents = json.encode(write_data)
-      file:write(contents)
-      file:close()
+   local success, result = pcall(function()
+      local file = io.open(fill_path, "w")
+      if file then
+         local contents = json.encode(write_data)
+         file:write(contents)
+         file:close()
+         return true
+      else
+         self.log_obj:Record(LogLevel.Error, "Failed to open file for writing")
+         return false
+      end
+   end)
+   if not success then
+      self.log_obj:Record(LogLevel.Critical, result)
+      return false
    end
- end
+   return result
+end
 
 return Utils

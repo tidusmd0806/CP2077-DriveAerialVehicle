@@ -43,6 +43,7 @@ function Core:New()
     -- language table
     obj.language_file_list = {}
     obj.language_name_list = {}
+    obj.translation_table_list = {}
     -- summon
     obj.current_purchased_vehicle_count = 0
     obj.is_vehicle_call = false
@@ -50,11 +51,14 @@ function Core:New()
     -- enviroment
     obj.is_freezing = false
     -- custom mappin
-    obj.current_custom_mappin_position = nil
+    obj.current_custom_mappin_position = Vector4.new(0, 0, 0, 1)
     obj.fast_travel_position_list = {}
-    obj.fast_travel_position_list_index_nearest_mappin = 1
-    obj.nearest_mappin_distance = obj.huge_distance
-    obj.mappin_history = {}
+    obj.ft_index_nearest_mappin = 1
+    obj.ft_to_mappin_distance = obj.huge_distance
+    obj.ft_index_nearest_favorite = 1
+    obj.ft_to_favorite_distance = obj.huge_distance
+    obj.mappin_controller = nil
+    obj.custom_mappin_id = nil
     obj.dist_mappin_id = nil
     obj.is_custom_mappin = false
     return setmetatable(obj, self)
@@ -74,6 +78,7 @@ function Core:Init()
     self.initial_user_setting_table = DAV.user_setting_table
     self:LoadSetting()
     self:SetTranslationNameList()
+    self:StoreTranslationtableList()
 
     self.heli_input_table = self:GetInputTable(self.heli_input_path)
     self.spinner_input_table = self:GetInputTable(self.spinner_input_path)
@@ -88,8 +93,6 @@ function Core:Init()
         self.event_obj:CheckAllEvents()
         self:GetActions()
     end)
-
-    self:InitMappin()
 
     -- set observer
     self:SetInputListener()
@@ -107,6 +110,11 @@ end
 function Core:LoadSetting()
 
     local setting_data = Utils:ReadJson(DAV.user_setting_path)
+    if setting_data == nil then
+        self.log_obj:Record(LogLevel.Error, "Failed to load setting data. Restore default setting")
+        Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+        return
+    end
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
     end
@@ -218,19 +226,28 @@ function Core:SetTranslationNameList()
 
 end
 
+function Core:StoreTranslationtableList()
+
+    self.translation_table_list = {}
+    for _, file in ipairs(self.language_file_list) do
+        local language_table = Utils:ReadJson(DAV.language_path .. "/" .. file.name)
+        if language_table then
+            table.insert(self.translation_table_list, language_table)
+        end
+    end
+
+end
+
 function Core:GetTranslationText(text)
 
-    local language_table = Utils:ReadJson((DAV.language_path .. "/" .. self.language_file_list[DAV.user_setting_table.language_index].name))
-
-    if table == nil then
+    if self.translation_table_list == {} then
         self.log_obj:Record(LogLevel.Critical, "Language File is invalid")
         return nil
     end
-    local translated_text = language_table[text]
+    local translated_text = self.translation_table_list[DAV.user_setting_table.language_index][text]
     if translated_text == nil then
         self.log_obj:Record(LogLevel.Warning, "Translation is not found")
-        language_table = Utils:ReadJson((DAV.language_path .. "/" .. self.language_file_list[1].name))
-        translated_text = language_table[text]
+        translated_text = self.translation_table_list[1][text]
         if translated_text == nil then
             self.log_obj:Record(LogLevel.Error, "Translation is not found in default language")
             translated_text = "???"
@@ -604,29 +621,15 @@ function Core:IsEnableFreeze()
 
 end
 
-function Core:InitMappin()
-
-    self.current_custom_mappin_position = Vector4.new(0, 0, 0, 1)
-    self:SetDistinationMappin()
-
-end
-
 function Core:SetCustomMappinPosition()
 
-    ObserveAfter('BaseWorldMapMappinController', 'SelectMappin', function(this)
-        local mappin = this.mappin
+    ObserveAfter("BaseMappinBaseController", "UpdateRootState", function(this)
+        local mappin = this:GetMappin()
         if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
-            self:SetCustomMappin(mappin)
+            self.custom_mappin_id = mappin:GetNewMappinID()
+            self.mappin_controller = this
         end
-	end)
-
-    ObserveAfter('BaseWorldMapMappinController', 'UnselectMappin', function(this)
-        local mappin = this.mappin
-        if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
-            self.log_obj:Record(LogLevel.Trace, "Custom Mappin is unselected")
-            self.is_custom_mappin = false
-        end
-	end)
+   end)
 
 end
 
@@ -650,15 +653,16 @@ end
 
 function Core:SetDistinationMappin()
     self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
-    self.fast_travel_position_list_index_nearest_mappin, self.nearest_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
+    self.ft_index_nearest_mappin, self.ft_to_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
 end
 
 function Core:SetFavoriteMappin(pos)
-    self.av_obj:SetFavoriteDestination(pos)
-    self:CreateFavoriteMappin(pos)
+    local position = Vector4.new(pos.x, pos.y, pos.z, 1)
+    self.current_custom_mappin_position = position
+    self.av_obj:SetFavoriteDestination(position)
+    self:CreateFavoriteMappin(position)
     if not self.is_custom_mappin then
-        self:SetAutoPilotHistory()
-        self.fast_travel_position_list_index_nearest_mappin, self.nearest_mappin_distance = self:FindNearestFastTravelPosition(pos)
+        self.ft_index_nearest_favorite, self.ft_to_favorite_distance = self:FindNearestFastTravelPosition(position)
     end
 end
 
@@ -668,7 +672,7 @@ function Core:CreateFavoriteMappin(position)
     self:RemoveFavoriteMappin()
     local mappin_data = MappinData.new()
     mappin_data.mappinType = TweakDBID.new('Mappins.DefaultStaticMappin')
-    mappin_data.variant = gamedataMappinVariant.VehicleVariant
+    mappin_data.variant = gamedataMappinVariant.ExclamationMarkVariant
     mappin_data.visibleThroughWalls = true
     self.dist_mappin_id = Game.GetMappinSystem():RegisterMappin(mappin_data, position)
 
@@ -686,19 +690,23 @@ end
 function Core:SetAutoPilotHistory()
 
     repeat
-        if #self.mappin_history >= self.max_mappin_history then
-            table.remove(self.mappin_history)
+        if #DAV.user_setting_table.mappin_history >= self.max_mappin_history then
+            table.remove(DAV.user_setting_table.mappin_history)
         end
-    until #self.mappin_history < self.max_mappin_history
+    until #DAV.user_setting_table.mappin_history < self.max_mappin_history
 
     local history_info = {}
     history_info.district = self:GetCurrentDistrict()
-    history_info.location = self:GetNearbyLocation(self.fast_travel_position_list_index_nearest_mappin)
-    history_info.distance = self:GetNearbyLocationDistance()
-    history_info.pos = self.current_custom_mappin_position
-    table.insert(self.mappin_history, 1, history_info)
+    if self.is_custom_mappin then
+        history_info.location = self:GetNearbyLocation(self.ft_index_nearest_mappin)
+        history_info.distance = self:GetFT2MappinDistance()
+    else
+        history_info.location = self:GetNearbyLocation(self.ft_index_nearest_favorite)
+        history_info.distance = self:GetFT2FavoriteDistance()
+    end
+    history_info.position = {x = self.current_custom_mappin_position.x, y = self.current_custom_mappin_position.y, z = self.current_custom_mappin_position.z}
+    table.insert(DAV.user_setting_table.mappin_history, 1, history_info)
 
-    DAV.user_setting_table.mappin_history = self.mappin_history
     Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end
@@ -742,24 +750,29 @@ function Core:SetFastTravelPosition()
 end
 
 ---@return number
-function Core:GetNearbyFastTravelPositionIndex()
-    return self.fast_travel_position_list_index_nearest_mappin
+function Core:GetFTIndexNearbyMappin()
+    return self.ft_index_nearest_mappin
+end
+
+---@return number
+function Core:GetFTIndexNearbyFavorite()
+    return self.ft_index_nearest_favorite
 end
 
 ---@param current_pos Vector4
 ---@return number, number
 function Core:FindNearestFastTravelPosition(current_pos)
 
-    local fast_travel_position_list_index_nearest_mappin = 1
-    local nearest_mappin_distance = self.huge_distance
+    local ft_index = 1
+    local ft_distance = self.huge_distance
     for index, position_info in ipairs(self.fast_travel_position_list) do
         local distance = Vector4.Distance(current_pos, position_info.pos)
-        if distance < nearest_mappin_distance then
-            nearest_mappin_distance = distance
-            fast_travel_position_list_index_nearest_mappin = index
+        if distance < ft_distance then
+            ft_distance = distance
+            ft_index = index
         end
     end
-    return fast_travel_position_list_index_nearest_mappin, nearest_mappin_distance
+    return ft_index, ft_distance
 
 end
 
@@ -788,8 +801,13 @@ function Core:GetNearbyLocation(index)
 end
 
 ---@return number
-function Core:GetNearbyLocationDistance()
-    return self.nearest_mappin_distance
+function Core:GetFT2MappinDistance()
+    return self.ft_to_mappin_distance
+end
+
+---@return number
+function Core:GetFT2FavoriteDistance()
+    return self.ft_to_favorite_distance
 end
 
 ---@return table

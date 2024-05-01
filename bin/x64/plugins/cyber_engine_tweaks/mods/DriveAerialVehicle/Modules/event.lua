@@ -155,6 +155,7 @@ function Event:CheckAllEvents()
         self:CheckCollision()
         self:CheckAutoModeChange()
         self:CheckFailAutoPilot()
+        self:CheckCustomMappinPsition()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
     end
@@ -239,7 +240,7 @@ function Event:CheckInAV()
             self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
             self.hud_obj:ShowActionButtons()
-            
+            self.UnsetMappin()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
     end
@@ -303,9 +304,25 @@ function Event:CheckFailAutoPilot()
     end
 end
 
+function Event:CheckCustomMappinPsition()
+
+    local success, mappin =pcall(function() return DAV.core_obj.mappin_controller:GetMappin() end)
+    if not success then
+        DAV.core_obj.is_custom_mappin = false
+        return
+    else
+        DAV.core_obj.is_custom_mappin = true
+    end
+    local mappin_pos = mappin:GetWorldPosition()
+    if Vector4.Distance(DAV.core_obj.current_custom_mappin_position ,mappin_pos) ~= 0 then
+        DAV.core_obj:SetCustomMappin(mappin)
+    end
+
+end
+
 function Event:UnsetMappin()
     DAV.core_obj.is_custom_mappin = false
-    DAV.core_obj:RemoveCustomMappin()
+    DAV.core_obj:RemoveFavoriteMappin()
 end
 
 function Event:IsAvailableFreeCall()
