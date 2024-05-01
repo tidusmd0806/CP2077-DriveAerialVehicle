@@ -1,7 +1,6 @@
 local Camera = require("Modules/camera.lua")
 local Position = require("Modules/position.lua")
 local Engine = require("Modules/engine.lua")
--- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local AV = {}
 AV.__index = AV
@@ -49,6 +48,7 @@ function AV:New(all_models)
 
 	obj.mappin_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
+	obj.auto_pilot_info = {location = "Not Registered", type = "Not Registered", time = 0}
 	obj.auto_pilot_speed = 1
 	obj.avoidance_range = 5
 	obj.max_avoidance_speed = 10
@@ -486,6 +486,44 @@ function AV:SetFavoriteDestination(position)
 	self.favorite_destination_position = position
 end
 
+function AV:SetAutoPilotInfo(destination_position)
+	local x, y, z = destination_position.x, destination_position.y, destination_position.z
+	if x == 0 and y == 0 and z == 0 then
+		self.log_obj:Record(LogLevel.Warning, "Destination is not set")
+		self.auto_pilot_info.location = "Not Registered"
+		self.auto_pilot_info.type = "Not Registered"
+		return false
+	end
+	if DAV.core_obj.is_custom_mappin then
+		local dist_near_ft_index = DAV.core_obj:GetFTIndexNearbyMappin()
+		local dist_district_list = DAV.core_obj:GetNearbyDistrictList(dist_near_ft_index)
+		self.auto_pilot_info.location = ""
+		if dist_district_list ~= nil then
+			for index, district in ipairs(dist_district_list) do
+				if index == 1 then
+					self.auto_pilot_info.location = district
+				else
+					self.auto_pilot_info.location = self.auto_pilot_info.location .. "/" .. district
+				end
+			end
+		end
+		local nearby_location = DAV.core_obj:GetNearbyLocation(dist_near_ft_index)
+		if nearby_location ~= nil then
+			self.auto_pilot_info.location = self.auto_pilot_info.location .. "/" .. nearby_location
+		end
+		self.auto_pilot_info.type = "Custom Mappin"
+	else
+		for index = 1, #DAV.user_setting_table.favorite_location_list do
+			if DAV.user_setting_table.favorite_location_list[index].is_selected then
+				self.auto_pilot_info.location = DAV.user_setting_table.favorite_location_list[index].name
+				break
+			end
+		end
+		self.auto_pilot_info.type = "Favorite Location"
+	end
+	return true
+end
+
 function AV:AutoPilot()
 	self.is_auto_pilot = true
 	local destination_position = Vector4.new(0, 0, 0, 1)
@@ -493,6 +531,12 @@ function AV:AutoPilot()
 		destination_position = self.mappin_destination_position
 	else
 		destination_position = self.favorite_destination_position
+	end
+
+	if not self:SetAutoPilotInfo(destination_position) then
+		self.log_obj:Record(LogLevel.Warning, "AutoPilot Destination is not set")
+		self.is_auto_pilot = false
+		return false
 	end
 
 	local far_corner_distance = self.position_obj:GetFarCornerDistance()

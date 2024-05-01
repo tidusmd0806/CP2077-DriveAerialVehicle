@@ -46,14 +46,15 @@ DAV.user_setting_table = {
     --- autopilot
     mappin_history = {},
     favorite_location_list = {
-                                {name = "Disable", pos = {x=0,y=0,z=0}, is_selected = true},
-                                {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
-                                {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
-                                {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
-                                {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
-                                {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
-                             },
+        {name = "Disable", pos = {x=0,y=0,z=0}, is_selected = true},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+    },
     autopilot_speed_level = Def.AutopilotSpeedLevel.Normal,
+    is_autopilot_info_panel = false,
     --- control
     flight_mode = Def.FlightMode.Spinner,
     heli_horizenal_boost_ratio = 2.0,
@@ -130,6 +131,7 @@ registerForEvent("onDraw", function()
         end
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
+    DAV.core_obj.event_obj.hud_obj:ShowAutoPilotInfo()
 
 end)
 

@@ -31,6 +31,8 @@
     "ui_control_setting_disable_left_right": "Disable the tilt to the left and right",
     "ui_control_setting_disable_forward_backward": "Disable the tilt to the forward and backward",
 
+    "ui_auto_pilot_setting_main": "Autopilot Setting",
+    "ui_auto_pilot_setting_enable_panel": "Enable Autopilot Infomaion Panel",
     "ui_auto_pilot_setting_mappin" : "Custom Mappin Position",
     "ui_auto_pilot_setting_not_put_mappin" : "Not Put Custom Mappin",
     "ui_auto_pilot_setting_district_info" : "District : ",

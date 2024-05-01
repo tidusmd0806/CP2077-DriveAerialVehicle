@@ -305,4 +305,36 @@ function HUD:ShowInterruptAutoPilotDisplay()
     GameHUD.ShowWarning(text, 2)
 end
 
+function HUD:ShowAutoPilotInfo()
+    if DAV.user_setting_table.is_autopilot_info_panel and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and DAV.core_obj.event_obj:IsInVehicle() then
+		local windowWidth = 500
+		local screenWidth, screenHeight = GetDisplayResolution()
+		local screenRatioX, screenRatioY = screenWidth / 1920, screenHeight / 1200
+
+		ImGui.SetNextWindowPos(screenWidth - windowWidth - 320 * screenRatioX, 68 * screenRatioY)
+		ImGui.SetNextWindowSize(windowWidth, 0)
+
+		ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 8)
+		ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 8, 7)
+		ImGui.PushStyleColor(ImGuiCol.WindowBg, 0xaa000000)
+		ImGui.PushStyleColor(ImGuiCol.Border, 0x8ffefd01)
+
+		ImGui.Begin('AutoPilotInfo', ImGuiWindowFlags.NoDecoration)
+
+        local location = DAV.core_obj.av_obj.auto_pilot_info.location
+        local type = DAV.core_obj.av_obj.auto_pilot_info.type
+        ImGui.TextColored(0.8, 0.8, 0.5, 1, "Distination: ")
+        ImGui.SameLine()
+		ImGui.TextColored(0.058, 1, 0.937, 1, location)
+        ImGui.TextColored(0.8, 0.8, 0.5, 1, "Selection Type: ")
+        ImGui.SameLine()
+        ImGui.TextColored(0.058, 1, 0.937, 1, type)
+
+		ImGui.End()
+
+		ImGui.PopStyleColor(2)
+		ImGui.PopStyleVar(2)
+	end
+end
+
 return HUD

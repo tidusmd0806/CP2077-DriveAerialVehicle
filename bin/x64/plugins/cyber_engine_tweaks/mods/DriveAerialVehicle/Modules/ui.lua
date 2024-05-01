@@ -323,6 +323,16 @@ end
 
 function UI:ShowAutoPilotSetting()
 
+	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_main"))
+	local is_autopilot_info_panel = DAV.user_setting_table.is_autopilot_info_panel
+	DAV.user_setting_table.is_autopilot_info_panel = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_enable_panel"), DAV.user_setting_table.is_autopilot_info_panel)
+	if is_autopilot_info_panel ~= DAV.user_setting_table.is_autopilot_info_panel then
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	end
+
+	ImGui.Spacing()
+	ImGui.Separator()
+
 	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_current_position"))
 	if DAV.core_obj.event_obj:IsNotSpawned() then
 		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_not_spawned"))
@@ -459,7 +469,6 @@ function UI:ShowControlSetting()
 	end
 
 	local selected = false
-
 	ImGui.Text(DAV.core_obj:GetTranslationText("ui_control_setting_select_flight_mode"))
 	if ImGui.BeginCombo("##Flight Mode", self.selected_flight_mode) then
 		for _, value in pairs(Def.FlightMode) do
