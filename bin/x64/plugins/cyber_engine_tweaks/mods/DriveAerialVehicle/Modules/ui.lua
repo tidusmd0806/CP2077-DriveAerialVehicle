@@ -92,7 +92,12 @@ function UI:SetDefaultValue()
 	self:CreateStringHistory()
 	self.selected_auto_pilot_history_index = 1
 	self.selected_auto_pilot_history_name = self.history_list[self.selected_auto_pilot_history_index]
-	self.selected_auto_pilot_favorite_index = 1
+	for index, favorite_info in ipairs(DAV.user_setting_table.favorite_location_list) do
+		if favorite_info.is_selected then
+			self.selected_auto_pilot_favorite_index = index
+			break
+		end
+	end
 	DAV.core_obj:SetFavoriteMappin(DAV.user_setting_table.favorite_location_list[self.selected_auto_pilot_favorite_index].pos)
 
 	-- control
@@ -327,6 +332,23 @@ function UI:ShowAutoPilotSetting()
 	local is_autopilot_info_panel = DAV.user_setting_table.is_autopilot_info_panel
 	DAV.user_setting_table.is_autopilot_info_panel = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_enable_panel"), DAV.user_setting_table.is_autopilot_info_panel)
 	if is_autopilot_info_panel ~= DAV.user_setting_table.is_autopilot_info_panel then
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	end
+
+	local is_used_slider = false
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_level"))
+	if DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Slow then
+		ImGui.SameLine()
+		ImGui.TextColored(0, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_slow"))
+	elseif DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Normal then
+		ImGui.SameLine()
+		ImGui.TextColored(0, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_normal"))
+	elseif DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Fast then
+		ImGui.SameLine()
+		ImGui.TextColored(0, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_fast"))
+	end
+    DAV.user_setting_table.autopilot_speed_level, is_used_slider = ImGui.SliderInt("##Autopilot Speed Level", DAV.user_setting_table.autopilot_speed_level, 1, 3, "%d")
+	if is_used_slider then
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
 
@@ -578,7 +600,7 @@ function UI:ShowGeneralSetting()
 
 	if DAV.core_obj.event_obj:IsNotSpawned() then
 		ImGui.Text(DAV.core_obj:GetTranslationText("ui_setting_reset_setting"))
-		if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting_button"), 180, 60) then
+		if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting_button"), 120, 30) then
 			DAV.core_obj:ResetSetting()
 		end
 	end
@@ -593,11 +615,12 @@ function UI:ShowInfo()
 		ImGui.Text("CET Version: " .. GetVersion())
 	end
 	if DAV.codeware_version_num < DAV.codeware_recommended_version then
-		ImGui.TextColored(1, 0, 0, 1, "CodeWare Version: " .. Codeware.Version() .. "(Not Recommended Version)")
+		ImGui.TextColored(1, 0, 0, 1, "Codeware Version: " .. Codeware.Version() .. "(Not Recommended Version)")
 	else
 		ImGui.Text("CodeWare Version: " .. Codeware.Version())
 	end
 
+	ImGui.Spacing()
 	ImGui.Separator()
 
 	ImGui.Text("Debug Checkbox (Developer Mode)")

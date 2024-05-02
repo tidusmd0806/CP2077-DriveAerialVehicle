@@ -17,7 +17,7 @@ function Position:New(all_models)
     obj.collision_max_count = 80
     obj.dividing_rate = 0.5
 
-    obj.judged_stack_length = 30
+    obj.judged_stack_length = 3
 
     -- obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
     obj.collision_filters = {"Static", "Terrain", "Water"}
@@ -35,7 +35,7 @@ function Position:New(all_models)
 
     obj.stack_distance = 0
     obj.stack_count = 0
-    obj.sensor_vector_pair_num = 15
+    obj.sensor_pair_vector_num = 15
 
     obj.collision_trace_result = nil
 
@@ -92,6 +92,14 @@ function Position:SetEngineState(mode)
     else
         self.log_obj:Record(LogLevel.Critical, "Set Invalid Power Mode")
     end
+end
+
+function Position:SetSensorPairVectorNum(num)
+    self.sensor_pair_vector_num = num
+end
+
+function Position:SetJudgedStackLength(length)
+    self.judged_stack_length = length
 end
 
 function Position:ChangeWorldCordinate(basic_vector ,point_list)
@@ -309,7 +317,7 @@ function Position:CalculateVectorField(radius_in, radius_out, max_length, sensin
 
     local current_position = self:GetPosition()
     local dividing_vector = Vector4.new(0, 0, 0, 1.0)
-    local spherical_vectors = Utils:GenerateUniformVectorsOnSphere(self.sensor_vector_pair_num, radius_out)
+    local spherical_vectors = Utils:GenerateUniformVectorsOnSphere(self.sensor_pair_vector_num, radius_out)
     local vector_field = {}
 
     local k = radius_out - radius_in / radius_out

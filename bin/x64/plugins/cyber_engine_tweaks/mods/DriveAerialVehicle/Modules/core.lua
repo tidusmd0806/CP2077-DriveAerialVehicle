@@ -58,7 +58,6 @@ function Core:New()
     obj.ft_index_nearest_favorite = 1
     obj.ft_to_favorite_distance = obj.huge_distance
     obj.mappin_controller = nil
-    obj.custom_mappin_id = nil
     obj.dist_mappin_id = nil
     obj.is_custom_mappin = false
     return setmetatable(obj, self)
@@ -96,7 +95,7 @@ function Core:Init()
 
     -- set observer
     self:SetInputListener()
-    self:SetCustomMappinPosition()
+    self:SetMappinController()
     self:SetSummonTrigger()
 
 end
@@ -621,12 +620,11 @@ function Core:IsEnableFreeze()
 
 end
 
-function Core:SetCustomMappinPosition()
+function Core:SetMappinController()
 
     ObserveAfter("BaseMappinBaseController", "UpdateRootState", function(this)
         local mappin = this:GetMappin()
         if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
-            self.custom_mappin_id = mappin:GetNewMappinID()
             self.mappin_controller = this
         end
    end)
@@ -664,6 +662,10 @@ end
 function Core:SetFavoriteMappin(pos)
     local position = Vector4.new(pos.x, pos.y, pos.z, 1)
     -- self.current_custom_mappin_position = position
+    if position:IsZero() then
+        self.log_obj:Record(LogLevel.Trace, "Invalid Mappin Position")
+        return
+    end
     self.av_obj:SetFavoriteDestination(position)
     self:CreateFavoriteMappin(position)
     if not self.is_custom_mappin then
@@ -675,11 +677,13 @@ end
 function Core:CreateFavoriteMappin(position)
 
     self:RemoveFavoriteMappin()
-    local mappin_data = MappinData.new()
-    mappin_data.mappinType = TweakDBID.new('Mappins.DefaultStaticMappin')
-    mappin_data.variant = gamedataMappinVariant.ExclamationMarkVariant
-    mappin_data.visibleThroughWalls = true
-    self.dist_mappin_id = Game.GetMappinSystem():RegisterMappin(mappin_data, position)
+    if self.event_obj:IsInVehicle() then
+        local mappin_data = MappinData.new()
+        mappin_data.mappinType = TweakDBID.new('Mappins.DefaultStaticMappin')
+        mappin_data.variant = gamedataMappinVariant.ExclamationMarkVariant
+        mappin_data.visibleThroughWalls = true
+        self.dist_mappin_id = Game.GetMappinSystem():RegisterMappin(mappin_data, position)
+    end
 
 end
 

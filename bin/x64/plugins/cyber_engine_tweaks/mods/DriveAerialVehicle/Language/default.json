@@ -15,8 +15,8 @@
     "ui_garage_purchased": "Purchased",
     "ui_garage_not_purchased": "Not Purchased",
 
-    "ui_free_summon_select_model": "Model",
-    "ui_free_summon_select_type": "Type",
+    "ui_free_summon_select_model": "Model : ",
+    "ui_free_summon_select_type": "Type : ",
     "ui_free_summon_warning_message_in_summoning_1": "The settings menu is currently unavailable.",
     "ui_free_summon_warning_message_in_summoning_2": "Please despawn your AV by pushing vehicle button.",
     "ui_free_summon_warning_message_in_summoning_3": "Please check the \"Enable Free Summon\" checkbox.",
@@ -33,6 +33,10 @@
 
     "ui_auto_pilot_setting_main": "Autopilot Setting",
     "ui_auto_pilot_setting_enable_panel": "Enable Autopilot Infomaion Panel",
+    "ui_auto_pilot_setting_speed_level": "Autopilot Speed Level : ",
+    "ui_auto_pilot_setting_speed_slow": "Slow",
+    "ui_auto_pilot_setting_speed_normal": "Normal",
+    "ui_auto_pilot_setting_speed_fast": "Fast",
     "ui_auto_pilot_setting_mappin" : "Custom Mappin Position",
     "ui_auto_pilot_setting_not_put_mappin" : "Not Put Custom Mappin",
     "ui_auto_pilot_setting_district_info" : "District : ",
@@ -56,5 +60,16 @@
     "ui_setting_language": "Language",
     "ui_setting_unit_setting": "Enable KPH Notation",
     "ui_setting_reset_setting": "Reset all settings to their default state",
-    "ui_setting_reset_setting_button": "Reset"
+    "ui_setting_reset_setting_button": "Reset",
+
+    "hud_meter_auto_pilot_display": "AUTO",
+    "hud_meter_kph": "KPH",
+    "hud_meter_mph": "MPH",
+    "hud_auto_pilot_panel_on" : "ON",
+    "hud_auto_pilot_panel_off" : "OFF",
+    "hud_auto_pilot_panel_title" : "Autopilot: ",
+    "hud_auto_pilot_panel_distination" : "Distination: ",
+    "hud_auto_pilot_panel_selection" : "Selection Type: ",
+    "hud_auto_pilot_panel_selection_custom_mappin" : "Custom Mappin",
+    "hud_auto_pilot_panel_selection_favorite" : "Favorite Location"
 }

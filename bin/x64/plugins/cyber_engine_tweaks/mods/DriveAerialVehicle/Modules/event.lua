@@ -306,16 +306,17 @@ end
 
 function Event:CheckCustomMappinPosition()
 
+    if self.av_obj.is_auto_pilot then
+        return
+    end
     local success, mappin = pcall(function() return DAV.core_obj.mappin_controller:GetMappin() end)
     if not success then
-        Cron.Every(1, {tick = 1}, function(timer)
-            if not self.av_obj.is_auto_pilot then
-                self.log_obj:Record(LogLevel.Info, "Mappin is not found")
-                DAV.core_obj.is_custom_mappin = false
-                Cron.Halt(timer)
-            end
-        end)
-        return
+        self.log_obj:Record(LogLevel.Trace, "Mappin is not found")
+        DAV.core_obj.is_custom_mappin = false
+        if self.stored_mappin_pos == nil then
+            self.log_obj:Record(LogLevel.Info, "Stored mappin position is not found")
+            return
+        end
     else
         DAV.core_obj.is_custom_mappin = true
     end

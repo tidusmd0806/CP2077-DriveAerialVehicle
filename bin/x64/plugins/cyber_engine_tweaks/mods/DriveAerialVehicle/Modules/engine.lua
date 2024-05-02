@@ -148,10 +148,6 @@ function Engine:GetNextPosition(movement)
 
 end
 
-function Engine:SetSpeedForcibly(vel)
-    self.current_speed = vel
-end
-
 function Engine:GetSpeed()
     return self.current_speed
 end
