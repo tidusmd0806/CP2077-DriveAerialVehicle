@@ -363,7 +363,7 @@ function UI:ShowAutoPilotSetting()
 	ImGui.Separator()
 
 	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_mappin"))
-	if DAV.core_obj.is_custom_mappin then
+	if DAV.core_obj:IsCustomMappin() then
 		ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_district_info"))
 		local dist_near_ft_index = DAV.core_obj:GetFTIndexNearbyMappin()
 		local dist_district_list = DAV.core_obj:GetNearbyDistrictList(dist_near_ft_index)
@@ -442,7 +442,7 @@ function UI:ShowAutoPilotSetting()
 	self:CreateStringHistory()
 	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_history"))
 	local selected = false
-	if ImGui.BeginListBox("##History", 500, 100) then
+	if ImGui.BeginListBox("##History", 500, 150) then
 		for index = #self.history_list, 1, -1 do
 			local history_string = self.history_list[index]
 			if self.selected_auto_pilot_history_name == history_string then

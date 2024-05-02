@@ -511,6 +511,8 @@ function AV:SetAutoPilotInfo(destination_position)
 		if nearby_location ~= nil then
 			self.auto_pilot_info.location = self.auto_pilot_info.location .. "/" .. nearby_location
 		end
+		local nearby_distance = DAV.core_obj:GetFT2MappinDistance()
+		self.auto_pilot_info.location = self.auto_pilot_info.location .. " [" .. tostring(math.floor(nearby_distance)) .. "m]"
 		self.auto_pilot_info.type = "Custom Mappin"
 	else
 		for index = 1, #DAV.user_setting_table.favorite_location_list do

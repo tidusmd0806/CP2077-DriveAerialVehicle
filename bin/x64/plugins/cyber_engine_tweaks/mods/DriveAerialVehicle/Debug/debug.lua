@@ -7,6 +7,7 @@ function Debug:New(core_obj)
     obj.core_obj = core_obj
 
     -- set parameters
+    obj.is_im_gui_rw_count = false
     obj.is_im_gui_situation = false
     obj.is_im_gui_player_position = false
     obj.is_im_gui_av_position = false
@@ -38,6 +39,7 @@ function Debug:ImGuiMain()
     self:SetObserver()
     self:SetLogLevel()
     self:SelectPrintDebug()
+    self:ImGuiShowRWCount()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
@@ -48,6 +50,7 @@ function Debug:ImGuiMain()
     self:ImGuiModelTypeStatus()
     self:ImGuiMappinPosition()
     self:ImGuiAutoPilotStatus()
+    self:ImGuiToggleAutoPilotPanel()
     self:ImGuiToggleGarageVehicle()
     self:ImGuiExcuteFunction()
 
@@ -88,6 +91,13 @@ end
 
 function Debug:SelectPrintDebug()
     PrintDebugMode = ImGui.Checkbox("Print Debug Mode", PrintDebugMode)
+end
+
+function Debug:ImGuiShowRWCount()
+    self.is_im_gui_rw_count = ImGui.Checkbox("[ImGui] R/W Count", self.is_im_gui_rw_count)
+    if self.is_im_gui_rw_count then
+        ImGui.Text("Read : " .. READ_COUNT .. ", Write : " .. WRITE_COUNT)
+    end
 end
 
 function Debug:ImGuiSituation()
@@ -228,6 +238,8 @@ end
 function Debug:ImGuiAutoPilotStatus()
     self.is_im_gui_auto_pilot_status = ImGui.Checkbox("[ImGui] Auto Pilot Status", self.is_im_gui_auto_pilot_status)
     if self.is_im_gui_auto_pilot_status then
+        ImGui.Text("FT Index near mappin : " .. tostring(DAV.core_obj.ft_index_nearest_mappin))
+        ImGui.Text("FT Index near favorite : " .. tostring(DAV.core_obj.ft_index_nearest_favorite))
         local selected_history_index = DAV.core_obj.event_obj.ui_obj.selected_auto_pilot_history_index
         ImGui.Text("Selected History Index : " .. selected_history_index)
         ImGui.Text("-----History-----")
@@ -261,6 +273,10 @@ function Debug:ImGuiAutoPilotStatus()
             end
         end
     end
+end
+
+function Debug:ImGuiToggleAutoPilotPanel()
+    DAV.core_obj.event_obj.hud_obj.is_forced_autopilot_panel = ImGui.Checkbox("[ImGui] Enable Autopilot Panel", DAV.core_obj.event_obj.hud_obj.is_forced_autopilot_panel)
 end
 
 function Debug:ImGuiToggleGarageVehicle()

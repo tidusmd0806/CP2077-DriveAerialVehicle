@@ -25,6 +25,8 @@ function HUD:New()
 
     obj.selected_choice_index = 1
 
+    obj.is_forced_autopilot_panel = false
+
     return setmetatable(obj, self)
 end
 
@@ -306,13 +308,16 @@ function HUD:ShowInterruptAutoPilotDisplay()
 end
 
 function HUD:ShowAutoPilotInfo()
-    if DAV.user_setting_table.is_autopilot_info_panel and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and DAV.core_obj.event_obj:IsInVehicle() then
-		local windowWidth = 500
-		local screenWidth, screenHeight = GetDisplayResolution()
-		local screenRatioX, screenRatioY = screenWidth / 1920, screenHeight / 1200
+    if (DAV.user_setting_table.is_autopilot_info_panel and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and DAV.core_obj.event_obj:IsInVehicle()) or self.is_forced_autopilot_panel then
+		local window_w = 500
+        local screen_x = 1480
+        local screen_y = 1060
 
-		ImGui.SetNextWindowPos(screenWidth - windowWidth - 320 * screenRatioX, 68 * screenRatioY)
-		ImGui.SetNextWindowSize(windowWidth, 0)
+		local screen_w, screen_h = GetDisplayResolution()
+		local screen_ratio_x, screen_ratio_y = screen_w / 1920, screen_h / 1200
+
+		ImGui.SetNextWindowPos(screen_w - window_w - screen_x * screen_ratio_x, screen_y * screen_ratio_y)
+		ImGui.SetNextWindowSize(window_w, 0)
 
 		ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 8)
 		ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 8, 7)
@@ -321,11 +326,46 @@ function HUD:ShowAutoPilotInfo()
 
 		ImGui.Begin('AutoPilotInfo', ImGuiWindowFlags.NoDecoration)
 
-        local location = DAV.core_obj.av_obj.auto_pilot_info.location
-        local type = DAV.core_obj.av_obj.auto_pilot_info.type
+        local switch = ""
+        local location = ""
+        local type = ""
+        if self.av_obj.is_auto_pilot then
+            switch = "ON"
+            location = DAV.core_obj.av_obj.auto_pilot_info.location
+            type = DAV.core_obj.av_obj.auto_pilot_info.type
+        else
+            switch = "OFF"
+            if DAV.core_obj:IsCustomMappin() then
+                local dist_near_ft_index = DAV.core_obj:GetFTIndexNearbyMappin()
+                local dist_district_list = DAV.core_obj:GetNearbyDistrictList(dist_near_ft_index)
+                if dist_district_list ~= nil then
+                    for index, district in ipairs(dist_district_list) do
+                        location = location .. district
+                        if index ~= #dist_district_list then
+                            location = location .. "/"
+                        end
+                    end
+                end
+                local nearby_location = DAV.core_obj:GetNearbyLocation(dist_near_ft_index)
+                if nearby_location ~= nil then
+                    location = location .. "/" .. nearby_location
+                    local custom_ft_distance = DAV.core_obj:GetFT2MappinDistance()
+                    if custom_ft_distance ~= DAV.core_obj.huge_distance then
+                        location = location .. "[" .. tostring(math.floor(custom_ft_distance)) .. "m]"
+                    end
+                end
+                type = "Custom Mappin"
+            else
+                location = DAV.user_setting_table.favorite_location_list[DAV.core_obj.event_obj.ui_obj.selected_auto_pilot_favorite_index].name
+                type = "Favorite Location"
+            end
+        end
+        ImGui.TextColored(0.8, 0.8, 0.5, 1, "Autopilot: ")
+        ImGui.SameLine()
+        ImGui.TextColored(0.058, 1, 0.937, 1, switch)
         ImGui.TextColored(0.8, 0.8, 0.5, 1, "Distination: ")
         ImGui.SameLine()
-		ImGui.TextColored(0.058, 1, 0.937, 1, location)
+        ImGui.TextColored(0.058, 1, 0.937, 1, location)
         ImGui.TextColored(0.8, 0.8, 0.5, 1, "Selection Type: ")
         ImGui.SameLine()
         ImGui.TextColored(0.058, 1, 0.937, 1, type)

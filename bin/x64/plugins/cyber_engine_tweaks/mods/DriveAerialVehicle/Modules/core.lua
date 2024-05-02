@@ -25,7 +25,7 @@ function Core:New()
     obj.relative_resolution = 0.1
     obj.hold_progress = 0.9
     -- enviroment
-    obj.max_speed_for_freezing = 75
+    obj.max_speed_for_freezing = 100
     obj.freeze_detect_range_mouse = 1
     obj.freeze_detect_range_stick = 0.1
     -- custom mappin
@@ -633,6 +633,11 @@ function Core:SetCustomMappinPosition()
 
 end
 
+---@return boolean
+function Core:IsCustomMappin()
+    return self.is_custom_mappin
+end
+
 ---@param mappin IMappin 
 function Core:SetCustomMappin(mappin)
 
@@ -645,8 +650,8 @@ function Core:SetCustomMappin(mappin)
             self.log_obj:Record(LogLevel.Trace, "Same Mappin is selected")
             return
         end
-        self:SetDistinationMappin()
         self.is_custom_mappin = true
+        self:SetDistinationMappin()
     end
 
 end
@@ -658,7 +663,7 @@ end
 
 function Core:SetFavoriteMappin(pos)
     local position = Vector4.new(pos.x, pos.y, pos.z, 1)
-    self.current_custom_mappin_position = position
+    -- self.current_custom_mappin_position = position
     self.av_obj:SetFavoriteDestination(position)
     self:CreateFavoriteMappin(position)
     if not self.is_custom_mappin then

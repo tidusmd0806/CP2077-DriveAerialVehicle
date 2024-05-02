@@ -155,7 +155,7 @@ function Event:CheckAllEvents()
         self:CheckCollision()
         self:CheckAutoModeChange()
         self:CheckFailAutoPilot()
-        self:CheckCustomMappinPsition()
+        self:CheckCustomMappinPosition()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
     end
@@ -240,7 +240,7 @@ function Event:CheckInAV()
             self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
             self.hud_obj:ShowActionButtons()
-            self.UnsetMappin()
+            self:UnsetMappin()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
     end
@@ -304,17 +304,23 @@ function Event:CheckFailAutoPilot()
     end
 end
 
-function Event:CheckCustomMappinPsition()
+function Event:CheckCustomMappinPosition()
 
-    local success, mappin =pcall(function() return DAV.core_obj.mappin_controller:GetMappin() end)
+    local success, mappin = pcall(function() return DAV.core_obj.mappin_controller:GetMappin() end)
     if not success then
-        DAV.core_obj.is_custom_mappin = false
+        Cron.Every(1, {tick = 1}, function(timer)
+            if not self.av_obj.is_auto_pilot then
+                self.log_obj:Record(LogLevel.Info, "Mappin is not found")
+                DAV.core_obj.is_custom_mappin = false
+                Cron.Halt(timer)
+            end
+        end)
         return
     else
         DAV.core_obj.is_custom_mappin = true
     end
     local mappin_pos = mappin:GetWorldPosition()
-    if Vector4.Distance(DAV.core_obj.current_custom_mappin_position ,mappin_pos) ~= 0 then
+    if Vector4.Distance(DAV.core_obj.current_custom_mappin_position, mappin_pos) ~= 0 then
         DAV.core_obj:SetCustomMappin(mappin)
     end
 

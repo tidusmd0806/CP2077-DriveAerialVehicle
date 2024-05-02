@@ -4,6 +4,9 @@ Utils.__index = Utils
 Utils.log_obj = Log:New()
 Utils.log_obj:SetLevel(LogLevel.Info, "Utils")
 
+READ_COUNT = 0
+WRITE_COUNT = 0
+
 function Utils:IsTablesEqual(table1, table2)
     for key, value in pairs(table1) do
        if value ~= table2[key] then
@@ -142,6 +145,7 @@ end
 ---@param fill_path string
 ---@return table | nil
 function Utils:ReadJson(fill_path)
+   READ_COUNT = READ_COUNT + 1
    local success, result = pcall(function()
       local file = io.open(fill_path, "r")
       if file then
@@ -165,6 +169,7 @@ end
 ---@param write_data table
 ---@return boolean
 function Utils:WriteJson(fill_path, write_data)
+   WRITE_COUNT = WRITE_COUNT + 1
    local success, result = pcall(function()
       local file = io.open(fill_path, "w")
       if file then
