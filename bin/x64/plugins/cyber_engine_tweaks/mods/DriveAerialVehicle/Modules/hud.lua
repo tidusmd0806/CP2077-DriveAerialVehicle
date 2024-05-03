@@ -25,6 +25,8 @@ function HUD:New()
 
     obj.selected_choice_index = 1
 
+    obj.is_forced_autopilot_panel = false
+
     return setmetatable(obj, self)
 end
 
@@ -200,20 +202,31 @@ function HUD:ShowMeter()
     else
         self.is_speed_meter_shown = true
         Cron.Every(self.speed_meter_refresh_rate, {tick = 0}, function(timer)
-            if DAV.is_unit_km_per_hour then
-                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "KPH")
-                local kmh = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1000))
-                inkTextRef.SetText(self.hud_car_controller.SpeedValue, kmh)
+            local meter_value = 0    
+            if self.av_obj.is_auto_pilot then
+                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, DAV.core_obj:GetTranslationText("hud_meter_auto_pilot_display"))
+                meter_value = math.floor(Vector4.Distance(self.av_obj.auto_pilot_info.dist_pos, Game.GetPlayer():GetWorldPosition()))
             else
-                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, "MPH")
-                local mph = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609))
-                inkTextRef.SetText(self.hud_car_controller.SpeedValue, mph)
+                if DAV.user_setting_table.is_unit_km_per_hour then
+                    inkTextRef.SetText(self.hud_car_controller.SpeedUnits, DAV.core_obj:GetTranslationText("hud_meter_kph"))
+                    meter_value = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1000))
+                else
+                    inkTextRef.SetText(self.hud_car_controller.SpeedUnits,  DAV.core_obj:GetTranslationText("hud_meter_mph"))
+                    meter_value = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609))
+                end
             end
+            inkTextRef.SetText(self.hud_car_controller.SpeedValue, meter_value)
+
             local power_level = 0
-            if DAV.flight_mode == Def.FlightMode.Heli then
-                power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
-            elseif DAV.flight_mode == Def.FlightMode.Spinner then 
-                power_level = math.floor(self.av_obj.engine_obj.spinner_horizenal_force / (self.av_obj.engine_obj.max_spinner_horizenal_force / 10))
+            if self.av_obj.is_auto_pilot then
+                local distance = Vector4.Distance(self.av_obj.auto_pilot_info.dist_pos, self.av_obj.auto_pilot_info.start_pos)
+                power_level = math.floor((1.01 - (meter_value / distance)) * 10)
+            else
+                if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
+                    power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
+                elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then 
+                    power_level = math.floor(self.av_obj.engine_obj.spinner_horizenal_force / (self.av_obj.engine_obj.max_spinner_horizenal_force / 10))
+                end
             end
             self.hud_car_controller:OnRpmValueChanged(power_level)
             self.hud_car_controller:EvaluateRPMMeterWidget(power_level)
@@ -233,9 +246,9 @@ end
 
 function HUD:SetCustomHint()
     local hint_table = {}
-    if DAV.flight_mode == Def.FlightMode.Heli then
+    if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
         hint_table = Utils:ReadJson("Data/heli_key_hint.json")
-    elseif DAV.flight_mode == Def.FlightMode.Spinner then
+    elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then
         hint_table = Utils:ReadJson("Data/spinner_key_hint.json")
     end
     self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()
@@ -301,8 +314,78 @@ function HUD:ShowArrivalDisplay()
 end
 
 function HUD:ShowInterruptAutoPilotDisplay()
-    local text = "Auto Pilot has been interrupted"
+    local text = "AUTOPILOT HAS BEEN INTERRUPTED" -- cannot translate
     GameHUD.ShowWarning(text, 2)
+end
+
+function HUD:ShowAutoPilotInfo()
+    if (DAV.user_setting_table.is_autopilot_info_panel and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and DAV.core_obj.event_obj:IsInVehicle()) or self.is_forced_autopilot_panel then
+		local window_w = 500
+        local screen_x = 1380
+        local screen_y = 1060
+
+		local screen_w, screen_h = GetDisplayResolution()
+		local screen_ratio_x, screen_ratio_y = screen_w / 1920, screen_h / 1200
+
+		ImGui.SetNextWindowPos(screen_w - window_w - screen_x * screen_ratio_x, screen_y * screen_ratio_y)
+		ImGui.SetNextWindowSize(window_w, 0)
+
+		ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 8)
+		ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 8, 7)
+		ImGui.PushStyleColor(ImGuiCol.WindowBg, 0xaa000000)
+		ImGui.PushStyleColor(ImGuiCol.Border, 0x8ffefd01)
+
+		ImGui.Begin('AutoPilotInfo', ImGuiWindowFlags.NoDecoration)
+
+        local switch = ""
+        local location = ""
+        local type = ""
+        if self.av_obj.is_auto_pilot then
+            switch = DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_on")
+            location = DAV.core_obj.av_obj.auto_pilot_info.location
+            type = DAV.core_obj.av_obj.auto_pilot_info.type
+        else
+            switch = DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_off")
+            if DAV.core_obj:IsCustomMappin() then
+                local dist_near_ft_index = DAV.core_obj:GetFTIndexNearbyMappin()
+                local dist_district_list = DAV.core_obj:GetNearbyDistrictList(dist_near_ft_index)
+                if dist_district_list ~= nil then
+                    for index, district in ipairs(dist_district_list) do
+                        location = location .. district
+                        if index ~= #dist_district_list then
+                            location = location .. "/"
+                        end
+                    end
+                end
+                local nearby_location = DAV.core_obj:GetNearbyLocation(dist_near_ft_index)
+                if nearby_location ~= nil then
+                    location = location .. "/" .. nearby_location
+                    local custom_ft_distance = DAV.core_obj:GetFT2MappinDistance()
+                    if custom_ft_distance ~= DAV.core_obj.huge_distance then
+                        location = location .. "[" .. tostring(math.floor(custom_ft_distance)) .. "m]"
+                    end
+                end
+                type = DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_selection_custom_mappin")
+            else
+                location = DAV.user_setting_table.favorite_location_list[DAV.core_obj.event_obj.ui_obj.selected_auto_pilot_favorite_index].name
+                type = DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_selection_favorite")
+            end
+        end
+        ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_title"))
+        ImGui.SameLine()
+        ImGui.TextColored(0.058, 1, 0.937, 1, switch)
+        ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_distination"))
+        ImGui.SameLine()
+        ImGui.TextColored(0.058, 1, 0.937, 1, location)
+        ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_selection"))
+        ImGui.SameLine()
+        ImGui.TextColored(0.058, 1, 0.937, 1, type)
+
+		ImGui.End()
+
+		ImGui.PopStyleColor(2)
+		ImGui.PopStyleVar(2)
+	end
 end
 
 return HUD

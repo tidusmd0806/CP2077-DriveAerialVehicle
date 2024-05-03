@@ -13,42 +13,23 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "1.3.3",
-    is_ready = false,
-
+	version = "1.4.0",
     -- system
+    is_ready = false,
     time_resolution = 0.01,
     is_debug_mode = false,
     is_opening_overlay = false,
     -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
-
-    -- grobal
+    -- grobal index
     model_index = 1,
 	model_type_index = 1,
-
-    -- garage
-    garage_info_list = {},
-    --free summon mode
-    is_free_summon_mode = true,
-    model_index_in_free = 1,
-	model_type_index_in_free = 1,
-    -- control
-    flight_mode = Def.FlightMode.Spinner,
-    heli_horizenal_boost_ratio = 2.0,
-    is_disable_spinner_roll_tilt = false,
-    -- environment
-    is_enable_community_spawn = true,
-    spawn_frequency = 2,
-    -- general
-    language_index = 1,
-    is_unit_km_per_hour = false,
     -- version check
     cet_required_version = 32.1, -- 1.32.1
     cet_recommended_version = 32.2, -- 1.32.2
     codeware_required_version = 8.2, -- 1.8.2
-    codeware_recommended_version = 8.2, -- 1.8.2
+    codeware_recommended_version = 9.0, -- 1.9.0
     cet_version_num = 0,
     codeware_version_num = 0
 }
@@ -56,25 +37,34 @@ DAV = {
 -- initial settings
 DAV.user_setting_table = {
     version = DAV.version,
-    --grobal
-    model_index = DAV.model_index,
-    model_type_index = DAV.model_type_index,
     --- garage
-    garage_info_list = DAV.garage_info_list,
+    garage_info_list = {},
     --- free summon mode
-    is_free_summon_mode = DAV.is_free_summon_mode,
-    model_index_in_free = DAV.model_index_in_free,
-    model_type_index_in_free = DAV.model_type_index_in_free,
+    is_free_summon_mode = true,
+    model_index_in_free = 1,
+    model_type_index_in_free = 1,
+    --- autopilot
+    mappin_history = {},
+    favorite_location_list = {
+        {name = "Unselected", pos = {x=0,y=0,z=0}, is_selected = true},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+    },
+    autopilot_speed_level = Def.AutopilotSpeedLevel.Normal,
+    is_autopilot_info_panel = true,
     --- control
-    flight_mode = DAV.flight_mode,
-    heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio,
-    is_disable_spinner_roll_tilt = DAV.is_disable_spinner_roll_tilt,
+    flight_mode = Def.FlightMode.Spinner,
+    heli_horizenal_boost_ratio = 2.0,
+    is_disable_spinner_roll_tilt = false,
     --- environment
-    is_enable_community_spawn = DAV.is_enable_community_spawn,
-    spawn_frequency = DAV.spawn_frequency,
+    is_enable_community_spawn = true,
+    spawn_frequency = 2,
     --- general
-    language_index = DAV.language_index,
-    is_unit_km_per_hour = DAV.is_unit_km_per_hour
+    language_index = 1,
+    is_unit_km_per_hour = false
 }
 
 registerForEvent("onOverlayOpen",function ()
@@ -131,6 +121,7 @@ registerForEvent('onInit', function()
 end)
 
 registerForEvent("onDraw", function()
+
     if DAV.is_debug_mode then
         DAV.debug_obj:ImGuiMain()
     end
@@ -140,10 +131,11 @@ registerForEvent("onDraw", function()
         end
         DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
     end
+    DAV.core_obj.event_obj.hud_obj:ShowAutoPilotInfo()
+
 end)
 
 registerForEvent('onUpdate', function(delta)
-    -- This is required for Cron to function
     Cron.Update(delta)
 end)
 

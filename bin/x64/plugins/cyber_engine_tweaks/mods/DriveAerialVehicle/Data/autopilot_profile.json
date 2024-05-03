@@ -1,0 +1,41 @@
+[
+    {
+        "level": 1,
+        "speed": 0.4,
+        "avoidance_range": 3,
+        "max_avoidance_speed": 0.38,
+        "sensing_constant": 0.00015,
+        "turn_speed": 0.7,
+        "land_offset": -1.0,
+        "down_time_count": 100,
+        "leaving_hight": 50,
+        "sensor_pair_vector_num": 30,
+        "judged_stack_length" : 10
+    },
+    {
+        "level": 2,
+        "speed": 1,
+        "avoidance_range": 15,
+        "max_avoidance_speed": 0.9,
+        "sensing_constant": 0.00008,
+        "turn_speed": 1.0,
+        "land_offset": -1.0,
+        "down_time_count": 100,
+        "leaving_hight": 100,
+        "sensor_pair_vector_num": 30,
+        "judged_stack_length" : 15
+    },
+    {
+        "level": 3,
+        "speed": 3.5,
+        "avoidance_range": 50,
+        "max_avoidance_speed": 3.45,
+        "sensing_constant": 0.00003,
+        "turn_speed": 1.5,
+        "land_offset": -1.0,
+        "down_time_count": 200,
+        "leaving_hight": 500,
+        "sensor_pair_vector_num": 30,
+        "judged_stack_length" : 25
+    }
+]

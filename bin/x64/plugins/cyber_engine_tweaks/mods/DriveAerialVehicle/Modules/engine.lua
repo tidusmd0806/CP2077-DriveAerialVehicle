@@ -11,31 +11,39 @@ function Engine:New(position_obj, all_models)
     obj.all_models = all_models
     obj.model_index = 1
 
-    obj.roll_speed = nil
-    obj.pitch_speed = nil
-    obj.yaw_speed = nil
-    obj.roll_restore_speed = nil
-    obj.pitch_restore_speed = nil
-    obj.max_roll = nil
-    obj.min_roll = nil
-    obj.max_pitch = nil
-    obj.min_pitch = nil
-    obj.max_lift_force = nil
-    obj.min_lift_force = nil
-    obj.time_to_max = nil
-    obj.time_to_min = nil
+    --Common
     obj.mess = nil
-    obj.gravity_constant = 9.8
-    obj.air_resistance_constant = nil
     obj.rebound_constant = nil
     obj.max_speed = 400
 
+    --Helicopter
+    obj.heli_roll_speed = nil
+    obj.heli_pitch_speed = nil
+    obj.heli_yaw_speed = nil
+    obj.heli_roll_restore_speed = nil
+    obj.heli_pitch_restore_speed = nil
+    obj.max_heli_roll = nil
+    obj.min_heli_roll = nil
+    obj.max_heli_pitch = nil
+    obj.min_heli_pitch = nil
+    obj.max_lift_force = nil
+    obj.min_lift_force = nil
+    obj.time_to_max_heli_lift_force = nil
+    obj.time_to_min_heli_lift_force = nil
+    obj.gravity_constant = 9.8
+    obj.heli_air_resistance_constant = nil
+
+    --Spinner
     obj.power_on_off_wait = 1 -- 0.1s
+    obj.spinner_roll_speed = nil
+    obj.spinner_yaw_speed = nil
+    obj.spinner_roll_restore_speed = nil
+    obj.max_spinner_roll = nil
+    obj.min_spinner_roll = nil
     obj.max_spinner_horizenal_force = nil
     obj.max_spinner_vertical_force = nil
     obj.time_to_max_spinner_horizenal_force = nil
     obj.time_to_max_spinner_vertical_force = nil
-
     -- Gradually adjust velocity towards desired direction
     obj.spinner_adjustment_factor = 0.02
 
@@ -52,13 +60,12 @@ function Engine:New(position_obj, all_models)
     obj.current_speed = 0
     obj.current_mode = Def.PowerMode.Off
     obj.is_falling = false
-    obj.heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio
+    obj.heli_horizenal_boost_ratio = 1
 
     obj.spinner_horizenal_force = 0
     obj.spinner_vertical_force = 0
     obj.spinner_horizenal_force_sign = 1
     obj.spinner_vertical_force_sign = 1
-
     obj.spinner_speed_angle = 0
 
     return setmetatable(obj, self)
@@ -66,23 +73,23 @@ end
 
 function Engine:SetModel(index)
     -- set pyhsical parameters
-    self.roll_speed = self.all_models[index].roll_speed
-    self.pitch_speed = self.all_models[index].pitch_speed
-    self.yaw_speed = self.all_models[index].yaw_speed
-    self.roll_restore_speed = self.all_models[index].roll_restore_speed
-    self.pitch_restore_speed = self.all_models[index].pitch_restore_speed
-    self.max_roll = self.all_models[index].max_roll
-    self.min_roll = self.all_models[index].min_roll
-    self.max_pitch = self.all_models[index].max_pitch
-    self.min_pitch = self.all_models[index].min_pitch
+    self.heli_roll_speed = self.all_models[index].heli_roll_speed
+    self.heli_pitch_speed = self.all_models[index].heli_pitch_speed
+    self.heli_yaw_speed = self.all_models[index].heli_yaw_speed
+    self.heli_roll_restore_speed = self.all_models[index].heli_roll_restore_speed
+    self.heli_pitch_restore_speed = self.all_models[index].heli_pitch_restore_speed
+    self.max_heli_roll = self.all_models[index].max_heli_roll
+    self.min_heli_roll = self.all_models[index].min_heli_roll
+    self.max_heli_pitch = self.all_models[index].max_heli_pitch
+    self.min_heli_pitch = self.all_models[index].min_heli_pitch
 
     self.mess = self.all_models[index].mess
-    self.air_resistance_constant = self.all_models[index].air_resistance_constant
+    self.heli_air_resistance_constant = self.all_models[index].heli_air_resistance_constant
     self.max_lift_force = self.mess * self.gravity_constant + self.all_models[index].max_lift_force
     self.min_lift_force = self.mess * self.gravity_constant - self.all_models[index].min_lift_force
     self.lift_force = self.min_lift_force
-    self.time_to_max = self.all_models[index].time_to_max * 10 -- 10 times for clocking 0.1s
-    self.time_to_min = self.all_models[index].time_to_min * 10
+    self.time_to_max_heli_lift_force = self.all_models[index].time_to_max_heli_lift_force * 10 -- 10 times for clocking 0.1s
+    self.time_to_min_heli_lift_force = self.all_models[index].time_to_min_heli_lift_force * 10
     self.rebound_constant = self.all_models[index].rebound_constant
 
     self.spinner_roll_speed = self.all_models[index].spinner_roll_speed
@@ -98,7 +105,7 @@ function Engine:SetModel(index)
     self.time_to_max_spinner_natural_vertical_force = self.all_models[index].time_to_max_spinner_natural_horizenal_force * 10
     self.spinner_air_resistance_constant = self.all_models[index].spinner_air_resistance_constant
 
-    self.heli_horizenal_boost_ratio = DAV.heli_horizenal_boost_ratio
+    self.heli_horizenal_boost_ratio = DAV.user_setting_table.heli_horizenal_boost_ratio
 end
 
 function Engine:Init()
@@ -108,7 +115,7 @@ function Engine:Init()
         end)
         self.base_angle = self.position_obj:GetEulerAngles()
     end
-    if DAV.flight_mode == Def.FlightMode.Heli then
+    if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
         self.current_mode = Def.PowerMode.Hover
     end
     self.horizenal_x_speed = 0
@@ -125,12 +132,12 @@ function Engine:GetNextPosition(movement)
         return 0, 0, 0, 0, 0, 0
     end
 
-    if DAV.flight_mode == Def.FlightMode.Heli then
+    if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
         local roll, pitch, yaw = self:CalculateHeliIndication(movement)
         self:CalculateLiftPower(movement)
         local x, y, z = self:CalcureteHeliVelocity()
         return x, y, z, roll, pitch, yaw
-    elseif DAV.flight_mode == Def.FlightMode.Spinner then
+    elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then
         self:CalculateSpinnerPower(movement)
         local x, y, z = self:CalcureteSpinnerVelocity()
         local roll, pitch, yaw = self:CalculateSpinnerIndication(movement)
@@ -139,10 +146,6 @@ function Engine:GetNextPosition(movement)
         return 0, 0, 0, 0, 0, 0
     end
 
-end
-
-function Engine:SetSpeedForcibly(vel)
-    self.current_speed = vel
 end
 
 function Engine:GetSpeed()
@@ -158,35 +161,35 @@ function Engine:CalculateHeliIndication(movement)
 
     -- set indication
     if movement == Def.ActionList.HeliForward then
-        self.next_indication["pitch"] = actually_indication.pitch - self.pitch_speed
+        self.next_indication["pitch"] = actually_indication.pitch - self.heli_pitch_speed
     elseif movement == Def.ActionList.HeliBackward then
-        self.next_indication["pitch"] = actually_indication.pitch + self.pitch_speed
+        self.next_indication["pitch"] = actually_indication.pitch + self.heli_pitch_speed
     elseif movement == Def.ActionList.HeliRight then
-        self.next_indication["roll"] = actually_indication.roll + self.roll_speed
+        self.next_indication["roll"] = actually_indication.roll + self.heli_roll_speed
     elseif movement == Def.ActionList.HeliLeft then
-        self.next_indication["roll"] = actually_indication.roll - self.roll_speed
+        self.next_indication["roll"] = actually_indication.roll - self.heli_roll_speed
     elseif movement == Def.ActionList.HeliTurnRight then
-        self.next_indication["yaw"] = actually_indication.yaw + self.yaw_speed
+        self.next_indication["yaw"] = actually_indication.yaw + self.heli_yaw_speed
     elseif movement == Def.ActionList.HeliTurnLeft then
-        self.next_indication["yaw"] = actually_indication.yaw - self.yaw_speed
+        self.next_indication["yaw"] = actually_indication.yaw - self.heli_yaw_speed
     else
         -- set roll restoration
-        if math.abs(self.next_indication["roll"] - self.base_angle.roll) > self.roll_restore_speed then
+        if math.abs(self.next_indication["roll"] - self.base_angle.roll) > self.heli_roll_restore_speed then
             if self.next_indication["roll"] > self.base_angle.roll then
-                self.next_indication["roll"] = actually_indication.roll - self.roll_restore_speed
+                self.next_indication["roll"] = actually_indication.roll - self.heli_roll_restore_speed
             else
-                self.next_indication["roll"] = actually_indication.roll + self.roll_restore_speed
+                self.next_indication["roll"] = actually_indication.roll + self.heli_roll_restore_speed
             end
         else
             self.next_indication["roll"] = self.base_angle.roll
         end
 
         -- set pitch restoration
-        if math.abs(self.next_indication["pitch"] - self.base_angle.pitch) > self.pitch_restore_speed then
+        if math.abs(self.next_indication["pitch"] - self.base_angle.pitch) > self.heli_pitch_restore_speed then
             if self.next_indication["pitch"] > self.base_angle.pitch then
-                self.next_indication["pitch"] = actually_indication.pitch - self.pitch_restore_speed
+                self.next_indication["pitch"] = actually_indication.pitch - self.heli_pitch_restore_speed
             else
-                self.next_indication["pitch"] = actually_indication.pitch + self.pitch_restore_speed
+                self.next_indication["pitch"] = actually_indication.pitch + self.heli_pitch_restore_speed
             end
         else
             self.next_indication["pitch"] = self.base_angle.pitch
@@ -195,15 +198,15 @@ function Engine:CalculateHeliIndication(movement)
     end
 
     -- check limitation
-    if self.next_indication["roll"] > self.max_roll then
-        self.next_indication["roll"] = self.max_roll
-    elseif self.next_indication["roll"] < self.min_roll then
-        self.next_indication["roll"] = self.min_roll
+    if self.next_indication["roll"] > self.max_heli_roll then
+        self.next_indication["roll"] = self.max_heli_roll
+    elseif self.next_indication["roll"] < self.min_heli_roll then
+        self.next_indication["roll"] = self.min_heli_roll
     end
-    if self.next_indication["pitch"] > self.max_pitch then
-        self.next_indication["pitch"] = self.max_pitch
-    elseif self.next_indication["pitch"] < self.min_pitch then
-        self.next_indication["pitch"] = self.min_pitch
+    if self.next_indication["pitch"] > self.max_heli_pitch then
+        self.next_indication["pitch"] = self.max_heli_pitch
+    elseif self.next_indication["pitch"] < self.min_heli_pitch then
+        self.next_indication["pitch"] = self.min_heli_pitch
     end
 
     -- calculate delta
@@ -252,8 +255,8 @@ function Engine:CalculateLiftPower(movement)
 end
 
 function Engine:SetLiftPowerUpCurve(time)
-    if time <= self.time_to_max then
-        self.lift_force = self.dynamic_lift_force + (self.max_lift_force - self.min_lift_force) * (time / self.time_to_max)
+    if time <= self.time_to_max_heli_lift_force then
+        self.lift_force = self.dynamic_lift_force + (self.max_lift_force - self.min_lift_force) * (time / self.time_to_max_heli_lift_force)
         if self.lift_force > self.max_lift_force then
             self.lift_force = self.max_lift_force
         end
@@ -263,8 +266,8 @@ function Engine:SetLiftPowerUpCurve(time)
 end
 
 function Engine:SetLiftPowerDownCurve(time)
-    if time <= self.time_to_min then
-        self.lift_force = self.dynamic_lift_force - (self.max_lift_force - self.min_lift_force) * (time / self.time_to_min)
+    if time <= self.time_to_min_heli_lift_force then
+        self.lift_force = self.dynamic_lift_force - (self.max_lift_force - self.min_lift_force) * (time / self.time_to_min_heli_lift_force)
         if self.lift_force < self.min_lift_force then
             self.lift_force = self.min_lift_force
         end
@@ -291,11 +294,11 @@ function Engine:CalcureteHeliVelocity()
         force_world.i = force_world.i * speed / new_speed
         force_world.j = force_world.j * speed / new_speed
     else
-        self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.air_resistance_constant * self.vertical_speed)
+        self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.heli_air_resistance_constant * self.vertical_speed)
     end
 
-    self.horizenal_x_speed = self.horizenal_x_speed + (DAV.time_resolution / self.mess) * (force_world.i * self.heli_horizenal_boost_ratio - self.air_resistance_constant * self.horizenal_x_speed)
-    self.horizenal_y_speed = self.horizenal_y_speed + (DAV.time_resolution / self.mess) * (force_world.j * self.heli_horizenal_boost_ratio - self.air_resistance_constant * self.horizenal_y_speed)
+    self.horizenal_x_speed = self.horizenal_x_speed + (DAV.time_resolution / self.mess) * (force_world.i * self.heli_horizenal_boost_ratio - self.heli_air_resistance_constant * self.horizenal_x_speed)
+    self.horizenal_y_speed = self.horizenal_y_speed + (DAV.time_resolution / self.mess) * (force_world.j * self.heli_horizenal_boost_ratio - self.heli_air_resistance_constant * self.horizenal_y_speed)
 
     -- check limitation
     self.current_speed = math.sqrt(self.horizenal_x_speed * self.horizenal_x_speed + self.horizenal_y_speed * self.horizenal_y_speed + self.vertical_speed * self.vertical_speed)

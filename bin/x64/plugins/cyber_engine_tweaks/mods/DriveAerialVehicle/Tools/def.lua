@@ -74,4 +74,10 @@ Def.CameraDistanceLevel = {
     TppFar = 4,
 }
 
+Def.AutopilotSpeedLevel = {
+    Slow = 1,
+    Normal = 2,
+    Fast = 3,
+}
+
 return Def
