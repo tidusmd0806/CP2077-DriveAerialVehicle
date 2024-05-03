@@ -64,6 +64,25 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
+        Observe('VehicleRadioPopupGameController', 'OnAction', function(this)
+            self.test_veh_con = this
+            print("OnAction")
+        end)
+        Observe('VehicleRadioPopupGameController', 'Activate', function(this)
+            print("Activate")
+        end)
+        Observe('VehicleRadioPopupGameController', 'OnInitialize', function(this)
+            print("OnInitialize")
+        end)
+        Observe('VehicleRadioPopupGameController', 'SetupData', function(this)
+            print("SetupData")
+        end)
+        -- Observe('VehicleRadioPopupGameController', 'InitializeRestrictions;', function(this)
+        --     print("InitializeRestrictions;")
+        -- end)
+        -- Observe('VehicleRadioPopupGameController', 'InitializeRestrictions;', function(this)
+        --     print("InitializeRestrictions;")
+        -- end)
     end
     self.is_set_observer = true
 
@@ -334,13 +353,22 @@ end
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("Test Func1",150, 30) then
         local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local components = entity:GetComponents()
-        for i,component in ipairs(components) do
-            if(NameToString(component:GetName()) == "crystaldome_a") then
-                component:TemporaryHide(true)
-            end
-        end
+        local radio = Game.GetPlayer():GetPocketRadio()
+        print(radio.selectedStation)
+        radio:HandleVehicleMounted(entity)
+        -- radio.selectedStation = 3
+        -- radio:TurnOn(true)
+        -- local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        -- print(entity:GetCurrentRadioIndex())
+        -- print(entity:GetRadioReceiverStationName())
+        -- entity:ToggleRadioReceiver(true)
         print("Excute Test Function 1")
+    end
+    if ImGui.Button("Test Func1.5",150, 30) then
+        -- local con = VehicleRadioPopupGameController.new()
+        -- VehicleRadioPopupGameController:Activate()
+        self.test_veh_con:Activate()
+        print("Excute Test Function 1.5")
     end
     ImGui.SameLine()
     if ImGui.Button("Test Func2",150, 30) then

@@ -40,6 +40,7 @@ function AV:New(all_models)
 	obj.active_seat = nil
 	obj.active_door = nil
 	obj.seat_index = 1
+	obj.is_crystal_dome = false
 	-- collision
 	obj.is_collision = false
 	obj.colison_count = 0
@@ -194,6 +195,27 @@ function AV:DespawnFromGround()
 	end)
 end
 
+function AV:ToggleCrystalDome()
+	local entity = Game.FindEntityByID(self.entity_id)
+	local effect_name
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change crystal dome")
+		return false
+	elseif self.vehicle_model_tweakdb_id ~= "Vehicle.av_rayfield_excalibur_dav"
+			and self.vehicle_model_tweakdb_id ~= "Vehicle.av_militech_manticore_dav" then
+		self.log_obj:Record(LogLevel.Trace, "This vehicle does not have a crystal dome")
+		return false
+	end
+	if not self.is_crystal_dome then
+		effect_name = CName.new("crystal_dome_start")
+		self.is_crystal_dome = true
+	else
+		effect_name = CName.new("crystal_dome_stop")
+		self.is_crystal_dome = false
+	end
+	GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
+	return true
+end
 
 function AV:UnlockDoor()
 	if self.entity_id == nil then
@@ -311,6 +333,10 @@ function AV:Mount()
 	Game.GetMountingFacility():Mount(mounting_request)
 
 	self.position_obj:ChangePosition()
+
+	if not self.is_crystal_dome then
+		self:ToggleCrystalDome()
+	end
 
 	-- return position near mounted vehicle	
 	Cron.Every(0.01, {tick = 1}, function(timer)

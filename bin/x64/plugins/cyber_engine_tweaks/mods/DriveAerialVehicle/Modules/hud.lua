@@ -314,7 +314,7 @@ function HUD:ShowArrivalDisplay()
 end
 
 function HUD:ShowInterruptAutoPilotDisplay()
-    local text = "AUTOPILOT HAS BEEN INTERRUPTED" -- cannot translate
+    local text = GetLocalizedText("LocKey#52322")
     GameHUD.ShowWarning(text, 2)
 end
 
