@@ -31,6 +31,8 @@ function Core:New()
     -- custom mappin
     obj.huge_distance = 1000000
     obj.max_mappin_history = 5
+    -- radio
+    obj.default_station_num = 13
     -- dynamic --
     -- model table
     obj.all_models = nil
@@ -60,6 +62,8 @@ function Core:New()
     obj.mappin_controller = nil
     obj.dist_mappin_id = nil
     obj.is_custom_mappin = false
+    -- radio
+    obj.radio_popup_controller = nil
     return setmetatable(obj, self)
 end
 
@@ -97,6 +101,7 @@ function Core:Init()
     self:SetInputListener()
     self:SetMappinController()
     self:SetSummonTrigger()
+    self:SetRadioPopupController()
 
 end
 
@@ -292,7 +297,7 @@ function Core:SetInputListener()
     player:RegisterInputListener(player, "dav_toggle_door_1")
     player:RegisterInputListener(player, "dav_toggle_auto_pilot")
 
-    local exception_in_entry_list = Utils:ReadJson("Data/exception_in_entry_input.json")
+    local exception_common_list = Utils:ReadJson("Data/exception_common_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
@@ -307,13 +312,13 @@ function Core:SetInputListener()
                     return
                 end
             end
-        elseif self.event_obj:IsInEntryArea() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
-            for _, exception in pairs(exception_in_entry_list) do
+        elseif (self.event_obj:IsInEntryArea() or self.event_obj:IsInVehicle()) then
+            for _, exception in pairs(exception_common_list) do
                 if string.find(action_name, exception) then
                     consumer:Consume()
                     return
                 end
-            end
+            end 
         end
 
         if (string.match(action_name, "mouse") and action_value > self.freeze_detect_range_mouse) or (string.match(action_name, "right_stick") and action_value > self.freeze_detect_range_stick) then
@@ -837,6 +842,40 @@ function Core:GetCurrentDistrict()
     end
     return current_district_list
 
+end
+
+function Core:SetRadioPopupController()
+
+    ObserveAfter('VehicleRadioPopupGameController', 'Activate', function(this)
+        if self.event_obj:IsInVehicle() then
+            self.radio_popup_controller = this
+            local station_index = this.selectedItem:GetStationData().record:Index()
+            if station_index <= self.default_station_num then
+                self.av_obj.radio_obj:Play(station_index)
+                Cron.Every(1, {tick = 1}, function(timer)
+                    local lockey = self.av_obj.radio_obj:GetTrackName()
+                    if lockey ~= nil then
+                        this.trackName:SetLocalizationKey(lockey)
+                        Cron.Halt(timer)
+                    end
+                end)
+            end
+            -- local selected_item = this.selectedItem
+            -- print(selected_item:GetStationData().record:DisplayName())
+            -- this:SetTrackName(CName.new("test"))
+            -- this:SetupData()
+            -- Cron.After(1, function()
+            --     print(this.trackName:GetLocalizationKey())
+            --     print(this.trackName:SetLocalizationKey("Gameplay-Devices-Radio_tracks-downtempo_practical_heart"))
+            -- end)
+            -- this.trackName:SetText("AAA")
+        end
+    end)
+
+end
+
+function Core:ShowRadioPopup()
+    self.event_obj:ShowRadioPopup()
 end
 
 return Core

@@ -207,6 +207,7 @@ function Position:ChangePosition()
     end
 
     Game.GetTeleportationFacility():Teleport(self.entity, self.next_position, self.next_angle)
+    return true
 
 end
 

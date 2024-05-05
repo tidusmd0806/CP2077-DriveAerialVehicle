@@ -15,6 +15,9 @@ function UI:New()
 	obj.av_obj = nil
 	obj.dummy_av_record = nil
 	obj.av_record_list = {}
+	obj.font_size = 36
+	obj.button_vertical_size = 1
+	obj.button_horizenal_margin = 1
 	-- garage
 	obj.selected_purchased_vehicle_type_list = {}
     -- free summon
@@ -444,7 +447,7 @@ function UI:ShowAutoPilotSetting()
 		ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_favorite_info"))
 		for index, _ in ipairs(DAV.user_setting_table.favorite_location_list) do
 			if index ~= 1 then
-				if ImGui.Button(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_favorite_" .. tostring(index - 1)), 60, 30) then
+				if ImGui.Button(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_favorite_" .. tostring(index - 1))) then
 					local history_string = self.selected_auto_pilot_history_name
 					history_string = string.sub(history_string, 4)
 					DAV.user_setting_table.favorite_location_list[index].name = history_string
@@ -464,7 +467,7 @@ function UI:ShowAutoPilotSetting()
 	self:CreateStringHistory()
 	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_history"))
 	local selected = false
-	if ImGui.BeginListBox("##History", 500, 150) then
+	if ImGui.BeginListBox("##History") then
 		for index = #self.history_list, 1, -1 do
 			local history_string = self.history_list[index]
 			if self.selected_auto_pilot_history_name == history_string then
@@ -600,7 +603,7 @@ function UI:ShowGeneralSetting()
 
 	if DAV.core_obj.event_obj:IsNotSpawned() then
 		ImGui.Text(DAV.core_obj:GetTranslationText("ui_setting_reset_setting"))
-		if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting_button"), 120, 30) then
+		if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting_button")) then
 			DAV.core_obj:ResetSetting()
 		end
 	end

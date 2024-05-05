@@ -421,6 +421,12 @@ function Event:ToggleAutoMode()
     end
 end
 
+function Event:ShowRadioPopup()
+    if self:IsInVehicle() then
+        self.hud_obj:ShowRadioPopup()
+    end
+end
+
 function Event:SelectChoice(direction)
     local max_seat_index = #self.av_obj.all_models[DAV.model_index].actual_allocated_seat
     if self:IsInEntryArea() then

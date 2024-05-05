@@ -6,12 +6,13 @@ local HUD = {}
 HUD.__index = HUD
 
 function HUD:New()
-
+    -- instance --
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "HUD")
-
-    -- set default parameters
+    --static --
+    obj.speed_meter_refresh_rate = 0.05
+    -- dynamic --
     obj.av_obj = nil
     obj.interaction_ui_base = nil
     obj.interaction_hub = nil
@@ -21,11 +22,12 @@ function HUD:New()
     obj.is_speed_meter_shown = false
     obj.key_input_show_hint_event = nil
     obj.key_input_hide_hint_event = nil
-    obj.speed_meter_refresh_rate = 0.05
 
     obj.selected_choice_index = 1
 
     obj.is_forced_autopilot_panel = false
+
+    obj.popup_manager = nil
 
     return setmetatable(obj, self)
 end
@@ -116,6 +118,11 @@ function HUD:SetObserve()
                 end
             end
         end)
+
+        Observe('PopupsManager', 'OnPlayerAttach', function(this)
+            self.popup_manager = this
+        end)
+
     end
 
 end
@@ -386,6 +393,12 @@ function HUD:ShowAutoPilotInfo()
 		ImGui.PopStyleColor(2)
 		ImGui.PopStyleVar(2)
 	end
+end
+
+function HUD:ShowRadioPopup()
+    if self.popup_manager ~= nil then
+        self.popup_manager:SpawnVehicleRadioPopup()
+    end
 end
 
 return HUD

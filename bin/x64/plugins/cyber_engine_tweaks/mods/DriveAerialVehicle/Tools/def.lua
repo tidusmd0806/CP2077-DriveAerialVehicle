@@ -1,3 +1,4 @@
+---@class Def
 Def = {}
 Def.__index = Def
 
@@ -46,6 +47,7 @@ Def.Situation = {
     TalkingOff = 4,
 }
 
+---@enum Def.DoorOperation
 Def.DoorOperation = {
 	Change = 0,
 	Open = 1,
