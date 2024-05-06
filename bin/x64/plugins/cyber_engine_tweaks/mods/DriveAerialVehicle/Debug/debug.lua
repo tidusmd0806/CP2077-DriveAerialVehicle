@@ -19,6 +19,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_status = false
     obj.is_im_gui_change_auto_setting = false
+    obj.is_im_gui_radio_info = false
     obj.is_set_observer = false
     obj.is_exist_av_1 = false
     obj.is_exist_av_2 = false
@@ -53,6 +54,7 @@ function Debug:ImGuiMain()
     self:ImGuiAutoPilotStatus()
     self:ImGuiToggleAutoPilotPanel()
     self:ImGuiChangeAutoPilotSetting()
+    self:ImGuiRadioInfo()
     self:ImGuiToggleGarageVehicle()
     self:ImGuiExcuteFunction()
 
@@ -317,7 +319,7 @@ end
 function Debug:ImGuiChangeAutoPilotSetting()
     self.is_im_gui_change_auto_setting = ImGui.Checkbox("[ImGui] Change AP Profile", self.is_im_gui_change_auto_setting)
     if self.is_im_gui_change_auto_setting then
-        if ImGui.Button("Update Profile", 100, 30) then
+        if ImGui.Button("Update Profile") then
             local autopilot_profile = Utils:ReadJson(DAV.core_obj.av_obj.profile_path)
             local speed_level = DAV.user_setting_table.autopilot_speed_level
             DAV.core_obj.av_obj.auto_pilot_speed = autopilot_profile[speed_level].speed
@@ -334,6 +336,25 @@ function Debug:ImGuiChangeAutoPilotSetting()
         ImGui.Text("Speed Level : " .. DAV.user_setting_table.autopilot_speed_level)
         ImGui.Text("speed : " .. DAV.core_obj.av_obj.auto_pilot_speed .. ", avoidance : " .. DAV.core_obj.av_obj.avoidance_range .. ", max_avoidance : " .. DAV.core_obj.av_obj.max_avoidance_speed .. ", sensing : " .. DAV.core_obj.av_obj.sensing_constant .. ", stack_len : " .. DAV.core_obj.av_obj.position_obj.judged_stack_length)
         ImGui.Text("turn : " .. DAV.core_obj.av_obj.autopilot_turn_speed .. ", land : " .. DAV.core_obj.av_obj.autopilot_land_offset .. ", down_t : " .. DAV.core_obj.av_obj.autopilot_down_time_count .. ", hight : " .. DAV.core_obj.av_obj.autopilot_leaving_hight .. ", sensor_num : " .. DAV.core_obj.av_obj.position_obj.sensor_pair_vector_num)
+    end
+end
+
+function Debug:ImGuiRadioInfo()
+    self.is_im_gui_radio_info = ImGui.Checkbox("[ImGui] Radio Info", self.is_im_gui_radio_info)
+    if self.is_im_gui_radio_info then
+        local volume = self.core_obj.av_obj.radio_obj:GetVolume()
+        local entity_num = #self.core_obj.av_obj.radio_obj.radio_entity_list
+        local station_index = self.core_obj.av_obj.radio_obj:GetPlayingStationIndex()
+        local station_name = CName("No Play")
+        if station_index >= 0 then
+            station_name = RadioStationDataProvider.GetStationNameByIndex(station_index)
+        end
+        local track_name = GetLocalizedText(LocKeyToString(self.core_obj.av_obj.radio_obj:GetTrackName()))
+        local is_playing = self.core_obj.av_obj.radio_obj.is_playing
+        ImGui.Text("Volume : " .. volume .. ", Entity Num : " .. entity_num)
+        ImGui.Text("Station Index : " .. station_index .. ", Station Name : " .. station_name.value)
+        ImGui.Text("Track Name : " .. track_name)
+        ImGui.Text("Is Playing : " .. tostring(is_playing))
     end
 end
 

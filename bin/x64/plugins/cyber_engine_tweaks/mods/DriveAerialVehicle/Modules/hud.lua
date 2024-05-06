@@ -1,6 +1,5 @@
 local GameSettings = require('External/GameSettings.lua')
 local GameHUD = require('External/GameHUD.lua')
--- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local HUD = {}
 HUD.__index = HUD
@@ -327,15 +326,14 @@ end
 
 function HUD:ShowAutoPilotInfo()
     if (DAV.user_setting_table.is_autopilot_info_panel and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and DAV.core_obj.event_obj:IsInVehicle()) or self.is_forced_autopilot_panel then
-		local window_w = 500
-        local screen_x = 1380
-        local screen_y = 1060
 
 		local screen_w, screen_h = GetDisplayResolution()
-		local screen_ratio_x, screen_ratio_y = screen_w / 1920, screen_h / 1200
+        local window_w = screen_w * 0.25
+        local window_w_margin = screen_w * 0.01
+        local window_h_margin = screen_h * 0.1
 
-		ImGui.SetNextWindowPos(screen_w - window_w - screen_x * screen_ratio_x, screen_y * screen_ratio_y)
-		ImGui.SetNextWindowSize(window_w, 0)
+		ImGui.SetNextWindowPos(window_w_margin, screen_h - window_h_margin)
+        ImGui.SetNextWindowSize(window_w, 0)
 
 		ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 8)
 		ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 8, 7)

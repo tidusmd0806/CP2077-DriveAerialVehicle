@@ -15,9 +15,6 @@ function UI:New()
 	obj.av_obj = nil
 	obj.dummy_av_record = nil
 	obj.av_record_list = {}
-	obj.font_size = 36
-	obj.button_vertical_size = 1
-	obj.button_horizenal_margin = 1
 	-- garage
 	obj.selected_purchased_vehicle_type_list = {}
     -- free summon
@@ -338,21 +335,26 @@ function UI:ShowAutoPilotSetting()
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
 
-	local is_used_slider = false
-	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_level"))
-	if DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Slow then
-		ImGui.SameLine()
-		ImGui.TextColored(0, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_slow"))
-	elseif DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Normal then
-		ImGui.SameLine()
-		ImGui.TextColored(0, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_normal"))
-	elseif DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Fast then
-		ImGui.SameLine()
-		ImGui.TextColored(0, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_fast"))
-	end
-    DAV.user_setting_table.autopilot_speed_level, is_used_slider = ImGui.SliderInt("##Autopilot Speed Level", DAV.user_setting_table.autopilot_speed_level, 1, 3, "%d")
-	if is_used_slider then
-		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	if not DAV.core_obj.event_obj:IsNotSpawned() then
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_1"))
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_2"))
+	else
+		local is_used_slider = false
+		ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_level"))
+		if DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Slow then
+			ImGui.SameLine()
+			ImGui.TextColored(0, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_slow"))
+		elseif DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Normal then
+			ImGui.SameLine()
+			ImGui.TextColored(0, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_normal"))
+		elseif DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Fast then
+			ImGui.SameLine()
+			ImGui.TextColored(0, 1, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_speed_fast"))
+		end
+		DAV.user_setting_table.autopilot_speed_level, is_used_slider = ImGui.SliderInt("##Autopilot Speed Level", DAV.user_setting_table.autopilot_speed_level, 1, 3, "%d")
+		if is_used_slider then
+			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		end
 	end
 
 	ImGui.Spacing()
@@ -539,30 +541,48 @@ end
 
 function UI:ShowEnviromentSetting()
 
+	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_environment_setting_community_spawn"))
+
 	if not DAV.core_obj.event_obj:IsNotSpawned() then
 		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_1"))
 		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_free_summon_warning_message_in_summoning_2"))
-		return
+	else
+		local is_enable_community_spawn = DAV.user_setting_table.is_enable_community_spawn
+		DAV.user_setting_table.is_enable_community_spawn = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_environment_enable_community_spawn"), DAV.user_setting_table.is_enable_community_spawn)
+		if DAV.user_setting_table.is_enable_community_spawn ~= is_enable_community_spawn then
+			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		end
+
+		if DAV.user_setting_table.is_enable_community_spawn then
+			ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_spawn_frequency"))
+			local is_used_slider = false
+			local spawn_frequency = DAV.user_setting_table.spawn_frequency
+			DAV.user_setting_table.spawn_frequency, is_used_slider = ImGui.SliderInt("##spawn frequency", DAV.user_setting_table.spawn_frequency, 1, self.max_spawn_frequency, "%d")
+			if not is_used_slider and DAV.user_setting_table.spawn_frequency ~= spawn_frequency then
+				self.av_obj.max_freeze_count = math.floor(100 / DAV.user_setting_table.spawn_frequency)
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
+		end
+
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_community_spawn"))
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_spawn_frequency"))
 	end
-	local is_enable_community_spawn = DAV.user_setting_table.is_enable_community_spawn
-	DAV.user_setting_table.is_enable_community_spawn = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_environment_enable_community_spawn"), DAV.user_setting_table.is_enable_community_spawn)
-	if DAV.user_setting_table.is_enable_community_spawn ~= is_enable_community_spawn then
+
+	ImGui.Spacing()
+	ImGui.Separator()
+
+	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_environment_setting_Sound_title"))
+	local is_mute_all = DAV.user_setting_table.is_mute_all
+	DAV.user_setting_table.is_mute_all = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_environment_setting_mute_all"), DAV.user_setting_table.is_mute_all)
+	if DAV.user_setting_table.is_mute_all ~= is_mute_all then
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	end
+	local is_mute_flight = DAV.user_setting_table.is_mute_flight
+	DAV.user_setting_table.is_mute_flight = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_environment_setting_mute_flight"), DAV.user_setting_table.is_mute_flight)
+	if DAV.user_setting_table.is_mute_flight ~= is_mute_flight then
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end
 
-	if DAV.user_setting_table.is_enable_community_spawn then
-		ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_spawn_frequency"))
-		local is_used_slider = false
-		local spawn_frequency = DAV.user_setting_table.spawn_frequency
-		DAV.user_setting_table.spawn_frequency, is_used_slider = ImGui.SliderInt("##spawn frequency", DAV.user_setting_table.spawn_frequency, 1, self.max_spawn_frequency, "%d")
-		if not is_used_slider and DAV.user_setting_table.spawn_frequency ~= spawn_frequency then
-			self.av_obj.max_freeze_count = math.floor(100 / DAV.user_setting_table.spawn_frequency)
-			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-		end
-	end
-
-	ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_community_spawn"))
-		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_spawn_frequency"))
 end
 
 function UI:ShowGeneralSetting()

@@ -1,6 +1,6 @@
 {
     "language": "日本語",
-    "version": "1.4.0",
+    "version": "1.5.0",
 
     "ui_main_window_title": "Drive an Aerial Vehicle メニュー",
     "ui_tab_garage": "ガレージ",
@@ -24,6 +24,13 @@
     "ui_free_summon_select_model_explain": "操作したいAVを選択してください。",
     "ui_free_summon_select_type_explain": "操作したいAVのタイプを選択してください。",
 
+    "ui_control_setting_select_flight_mode": "飛行モデルを選択してください",
+    "ui_control_setting_explain_spinner": "spinner:ブレードランナーのスピナーのような操作。重力を無視して飛行できます。",
+    "ui_control_setting_explain_Heli": "Helicopter:ヘリコプターのような操作。重力を感じながら飛行できます。",
+    "ui_control_setting_horizenal_boost": "水平ブースト比",
+    "ui_control_setting_disable_left_right": "左右の傾きを無効にする",
+    "ui_control_setting_disable_forward_backward": "前後の傾きを無効にする",
+
     "ui_auto_pilot_setting_main": "自動操縦設定",
     "ui_auto_pilot_setting_enable_panel": "自動操縦用パネルの有効化",
     "ui_auto_pilot_setting_speed_level": "自動操縦の速度レベル : ",
@@ -45,17 +52,14 @@
     "ui_auto_pilot_setting_register_favorite_4" : "Fav 4",
     "ui_auto_pilot_setting_register_favorite_5" : "Fav 5",
 
-    "ui_control_setting_select_flight_mode": "飛行モデルを選択してください",
-    "ui_control_setting_explain_spinner": "spinner:ブレードランナーのスピナーのような操作。重力を無視して飛行できます。",
-    "ui_control_setting_explain_Heli": "Helicopter:ヘリコプターのような操作。重力を感じながら飛行できます。",
-    "ui_control_setting_horizenal_boost": "水平ブースト比",
-    "ui_control_setting_disable_left_right": "左右の傾きを無効にする",
-    "ui_control_setting_disable_forward_backward": "前後の傾きを無効にする",
-
+    "ui_environment_setting_community_spawn" : "群衆生成の設定",
     "ui_environment_enable_community_spawn": "飛行中に群衆と車のスポーンを有効にする",
     "ui_environment_spawn_frequency": "スポーン頻度（回/秒）",
     "ui_environment_warning_message_about_community_spawn": "この機能を有効にすると、画面がカクつくことがあります。",
     "ui_environment_warning_message_about_spawn_frequency": "スポーン頻度が高いほど、画面がカクつくことがあります。",
+    "ui_environment_setting_Sound_title" : "音設定",
+    "ui_environment_setting_mute_all" : "すべての音を無効にする（一部無効にできないものがあります）",
+    "ui_environment_setting_mute_flight" : "飛行中の音を無効にする（衝突音のみ有効になります）",
 
     "ui_setting_language": "言語",
     "ui_setting_unit_setting": "Km/h表記に変更",

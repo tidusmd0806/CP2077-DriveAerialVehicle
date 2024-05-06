@@ -62,6 +62,8 @@ DAV.user_setting_table = {
     --- environment
     is_enable_community_spawn = true,
     spawn_frequency = 2,
+    is_mute_all = false,
+    is_mute_flight = false,
     --- general
     language_index = 1,
     is_unit_km_per_hour = false
