@@ -108,7 +108,7 @@
 
     <mapping name="dav_operate_radio" type="Button">
         <button id="IK_R"/>
-        <button id="IK_Pad_DigitUp"/>
+        <button id="IK_Pad_Y_TRIANGLE"/>
     </mapping>
 
     <mapping name="dav_toggle_auto_pilot" type="Button">

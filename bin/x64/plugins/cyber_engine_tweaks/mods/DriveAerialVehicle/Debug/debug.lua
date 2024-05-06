@@ -351,10 +351,14 @@ function Debug:ImGuiRadioInfo()
         end
         local track_name = GetLocalizedText(LocKeyToString(self.core_obj.av_obj.radio_obj:GetTrackName()))
         local is_playing = self.core_obj.av_obj.radio_obj.is_playing
-        ImGui.Text("Volume : " .. volume .. ", Entity Num : " .. entity_num)
-        ImGui.Text("Station Index : " .. station_index .. ", Station Name : " .. station_name.value)
+        local is_opened_radio_popup = self.core_obj.is_opened_radio_popup
+        local radio_port_index = self.core_obj.current_station_index
+        local radio_port_volume = self.core_obj.current_radio_volume
+        ImGui.Text("Radio Port Index : " .. radio_port_index .. ", Radio Port Volume : " .. radio_port_volume)
+        ImGui.Text("Actual Volume : " .. volume .. ", Entity Num : " .. entity_num)
+        ImGui.Text("Actual Station Index : " .. station_index .. ", Station Name : " .. station_name.value)
         ImGui.Text("Track Name : " .. track_name)
-        ImGui.Text("Is Playing : " .. tostring(is_playing))
+        ImGui.Text("Is Playing : " .. tostring(is_playing) .. ", Is Radio Popup : " .. tostring(is_opened_radio_popup))
     end
 end
 

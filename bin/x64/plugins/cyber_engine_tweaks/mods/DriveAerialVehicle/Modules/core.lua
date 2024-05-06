@@ -65,7 +65,6 @@ function Core:New()
     -- radio
     obj.current_station_index = -1
     obj.current_radio_volume = 50
-    obj.radio_popup_controller = nil
     obj.is_opened_radio_popup = false
     return setmetatable(obj, self)
 end
@@ -882,7 +881,6 @@ function Core:SetRadioPopupController()
                 Cron.Every(1, {tick = 1}, function(timer)
                     local lockey = self.av_obj.radio_obj:GetTrackName()
                     if lockey ~= nil or timer.tick > 5 then
-                        self.radio_popup_controller = this
                         this.trackName:SetLocalizationKey(lockey)
                         Cron.Halt(timer)
                     end
@@ -906,14 +904,18 @@ function Core:SetRadioPopupController()
     ObserveAfter('VehicleRadioPopupGameController', 'OnInitialize', function(this)
         if self.event_obj:IsInVehicle() then
             self.is_opened_radio_popup = true
-            local lockey = self.av_obj.radio_obj:GetTrackName()
-            if lockey ~= nil and self.radio_popup_controller == nil then
-                self.radio_popup_controller.trackName:SetLocalizationKey(lockey)
-            end
+            Cron.Every(1, {tick = 1}, function(timer)
+                local lockey = self.av_obj.radio_obj:GetTrackName()
+                if lockey ~= nil or timer.tick > 5 then
+                    this.trackName:SetLocalizationKey(lockey)
+                    Cron.Halt(timer)
+                end
+                timer.tick = timer.tick + 1
+            end)
         end
     end)
 
-    ObserveAfter('VehicleRadioPopupGameController', 'OnUninitialize', function(this)
+    ObserveAfter('VehicleRadioPopupGameController', 'OnClose', function(this)
         self.is_opened_radio_popup = false
     end)
 
