@@ -1,17 +1,17 @@
 local GameSettings = require('External/GameSettings.lua')
 local GameHUD = require('External/GameHUD.lua')
--- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local HUD = {}
 HUD.__index = HUD
 
 function HUD:New()
-
+    -- instance --
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "HUD")
-
-    -- set default parameters
+    --static --
+    obj.speed_meter_refresh_rate = 0.05
+    -- dynamic --
     obj.av_obj = nil
     obj.interaction_ui_base = nil
     obj.interaction_hub = nil
@@ -21,11 +21,12 @@ function HUD:New()
     obj.is_speed_meter_shown = false
     obj.key_input_show_hint_event = nil
     obj.key_input_hide_hint_event = nil
-    obj.speed_meter_refresh_rate = 0.05
 
     obj.selected_choice_index = 1
 
     obj.is_forced_autopilot_panel = false
+
+    obj.popup_manager = nil
 
     return setmetatable(obj, self)
 end
@@ -116,6 +117,11 @@ function HUD:SetObserve()
                 end
             end
         end)
+
+        Observe('PopupsManager', 'OnPlayerAttach', function(this)
+            self.popup_manager = this
+        end)
+
     end
 
 end
@@ -314,21 +320,20 @@ function HUD:ShowArrivalDisplay()
 end
 
 function HUD:ShowInterruptAutoPilotDisplay()
-    local text = "AUTOPILOT HAS BEEN INTERRUPTED" -- cannot translate
+    local text = GetLocalizedText("LocKey#52322")
     GameHUD.ShowWarning(text, 2)
 end
 
 function HUD:ShowAutoPilotInfo()
     if (DAV.user_setting_table.is_autopilot_info_panel and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and DAV.core_obj.event_obj:IsInVehicle()) or self.is_forced_autopilot_panel then
-		local window_w = 500
-        local screen_x = 1380
-        local screen_y = 1060
 
 		local screen_w, screen_h = GetDisplayResolution()
-		local screen_ratio_x, screen_ratio_y = screen_w / 1920, screen_h / 1200
+        local window_w = screen_w * 0.25
+        local window_w_margin = screen_w * 0.01
+        local window_h_margin = screen_h * 0.1
 
-		ImGui.SetNextWindowPos(screen_w - window_w - screen_x * screen_ratio_x, screen_y * screen_ratio_y)
-		ImGui.SetNextWindowSize(window_w, 0)
+		ImGui.SetNextWindowPos(window_w_margin, screen_h - window_h_margin)
+        ImGui.SetNextWindowSize(window_w, 0)
 
 		ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 8)
 		ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 8, 7)
@@ -386,6 +391,12 @@ function HUD:ShowAutoPilotInfo()
 		ImGui.PopStyleColor(2)
 		ImGui.PopStyleVar(2)
 	end
+end
+
+function HUD:ShowRadioPopup()
+    if self.popup_manager ~= nil then
+        self.popup_manager:SpawnVehicleRadioPopup()
+    end
 end
 
 return HUD

@@ -13,13 +13,22 @@
         <action name="dav_get_on" map ="dav_get_on"/>
         <action name="dav_get_off" map ="dav_get_off"/>
         <action name="dav_change_view" map ="dav_change_view"/>
+        <action name="dav_operate_radio" map ="dav_operate_radio"/>
         <action name="dav_toggle_door_1" map ="dav_toggle_door_1"/>
         <action name="dav_toggle_auto_pilot" map ="dav_toggle_auto_pilot"/>
     </context>
 
     <hold action="dav_get_off" timeout="0.3"/>
+    <hold action="dav_operate_radio" timeout="0.3"/>
 
     <acceptedEvents action="dav_get_off">
+		<event name="BUTTON_PRESSED" />
+		<event name="BUTTON_RELEASED" />
+		<event name="BUTTON_HOLD_PROGRESS" />
+		<event name="BUTTON_HOLD_COMPLETE" />
+	</acceptedEvents>
+
+    <acceptedEvents action="dav_operate_radio">
 		<event name="BUTTON_PRESSED" />
 		<event name="BUTTON_RELEASED" />
 		<event name="BUTTON_HOLD_PROGRESS" />
@@ -88,13 +97,18 @@
     </mapping>
 
     <mapping name="dav_change_view" type="Button">
-        <button id="IK_R"/>
+        <button id="IK_V"/>
         <button id="IK_Pad_DigitDown"/>
     </mapping>
 
     <mapping name="dav_toggle_door_1" type="Button">
-        <button id="IK_Z"/>
+        <button id="IK_G"/>
         <button id="IK_Pad_DigitLeft"/>
+    </mapping>
+
+    <mapping name="dav_operate_radio" type="Button">
+        <button id="IK_R"/>
+        <button id="IK_Pad_DigitUp"/>
     </mapping>
 
     <mapping name="dav_toggle_auto_pilot" type="Button">

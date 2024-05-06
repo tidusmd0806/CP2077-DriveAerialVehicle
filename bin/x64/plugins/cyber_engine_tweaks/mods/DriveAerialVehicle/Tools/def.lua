@@ -1,3 +1,4 @@
+---@class Def
 Def = {}
 Def.__index = Def
 
@@ -25,9 +26,11 @@ Def.ActionList = {
 	Exit = 101,
 	ChangeCamera = 102,
 	ChangeDoor1 = 103,
-    ChangeDoor2 = 104,
+    ChangeDoor2 = 104, -- not used
     SelectUp = 105,
     SelectDown = 106,
+    ToggleRadio = 107,
+    OpenRadio = 108,
     ----------
     AutoPilot = 200,
 }
@@ -46,6 +49,7 @@ Def.Situation = {
     TalkingOff = 4,
 }
 
+---@enum Def.DoorOperation
 Def.DoorOperation = {
 	Change = 0,
 	Open = 1,
@@ -78,6 +82,12 @@ Def.AutopilotSpeedLevel = {
     Slow = 1,
     Normal = 2,
     Fast = 3,
+}
+
+Def.SoundRestrictionLevel = {
+    None = -1,
+    Mute = 0,
+    PriorityRadio = 1
 }
 
 return Def

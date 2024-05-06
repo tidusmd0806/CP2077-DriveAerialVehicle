@@ -138,6 +138,7 @@ function Event:SetSituation(situation)
 end
 
 function Event:CheckAllEvents()
+
     if self.current_situation == Def.Situation.Normal then
         self:CheckCallPurchasedVehicle()
         self:CheckCallVehicle()
@@ -159,6 +160,8 @@ function Event:CheckAllEvents()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
     end
+    self:CheckSoundRestriction()
+
 end
 
 function Event:CheckGarage()
@@ -181,8 +184,8 @@ end
 function Event:CheckCallVehicle()
     if DAV.core_obj:GetCallStatus() and not self.av_obj:IsSpawning() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
-        self.sound_obj:PlaySound("101_call_vehicle")
-        self.sound_obj:PlaySound("211_landing")
+        self.sound_obj:PlaySound("100_call_vehicle")
+        self.sound_obj:PlaySound("210_landing")
         self:SetSituation(Def.Situation.Landing)
         self.av_obj:SpawnToSky()
     end
@@ -191,8 +194,8 @@ end
 function Event:CheckCallPurchasedVehicle()
     if DAV.core_obj:GetPurchasedCallStatus() and not self.av_obj:IsSpawning() then
         self.log_obj:Record(LogLevel.Trace, "Purchased vehicle call detected")
-        self.sound_obj:PlaySound("101_call_vehicle")
-        self.sound_obj:PlaySound("211_landing")
+        self.sound_obj:PlaySound("100_call_vehicle")
+        self.sound_obj:PlaySound("210_landing")
         self:SetSituation(Def.Situation.Landing)
         self.av_obj:SpawnToSky()
     end
@@ -201,8 +204,8 @@ end
 function Event:CheckLanded()
     if self.av_obj.position_obj:IsCollision() or self.av_obj.is_landed then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
-        self.sound_obj:StopSound("211_landing")
-        self.sound_obj:PlaySound("131_arrive_vehicle")
+        self.sound_obj:StopSound("210_landing")
+        self.sound_obj:PlaySound("110_arrive_vehicle")
         self:SetSituation(Def.Situation.Waiting)
         self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
@@ -223,7 +226,7 @@ function Event:CheckInAV()
         if self.current_situation == Def.Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
             SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
-            self.sound_obj:PlaySound("232_fly_loop")
+            self.sound_obj:PlaySound("230_fly_loop")
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
             self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
@@ -235,11 +238,12 @@ function Event:CheckInAV()
         -- when player take off from AV
         if self.current_situation == Def.Situation.InVehicle then
             self.log_obj:Record(LogLevel.Info, "Exit AV")
-            self.sound_obj:StopSound("232_fly_loop")
+            self.sound_obj:StopSound("230_fly_loop")
             self:SetSituation(Def.Situation.Waiting)
             self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
             self.hud_obj:ShowActionButtons()
+            self:StopRadio()
             self:UnsetMappin()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
@@ -250,7 +254,7 @@ function Event:CheckCollision()
     if self.av_obj.is_collision then
         self.log_obj:Record(LogLevel.Debug, "Collision detected")
         if not self.av_obj.engine_obj:IsInFalling() then
-            self.sound_obj:PlaySound("233_crash")
+            self.sound_obj:PlaySound("330_crash")
         end
     end
 end
@@ -258,7 +262,7 @@ end
 function Event:CheckReturnVehicle()
     if DAV.core_obj:GetCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected")
-        self.sound_obj:PlaySound("243_leaving")
+        self.sound_obj:PlaySound("240_leaving")
         self.sound_obj:PlaySound("104_call_vehicle")
         self:SetSituation(Def.Situation.TalkingOff)
         self.hud_obj:HideChoice()
@@ -270,7 +274,7 @@ end
 function Event:CheckReturnPurchasedVehicle()
     if DAV.core_obj:GetPurchasedCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Purchased vehicle return detected")
-        self.sound_obj:PlaySound("243_leaving")
+        self.sound_obj:PlaySound("240_leaving")
         self.sound_obj:PlaySound("104_call_vehicle")
         self:SetSituation(Def.Situation.TalkingOff)
         self.hud_obj:HideChoice()
@@ -282,7 +286,7 @@ end
 function Event:CheckDespawn()
     if self.av_obj:IsDespawned() then
         self.log_obj:Record(LogLevel.Trace, "Despawn detected")
-        self.sound_obj:StopSound("243_leaving")
+        self.sound_obj:StopSound("240_leaving")
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
     end
@@ -311,10 +315,9 @@ function Event:CheckCustomMappinPosition()
     end
     local success, mappin = pcall(function() return DAV.core_obj.mappin_controller:GetMappin() end)
     if not success then
-        self.log_obj:Record(LogLevel.Trace, "Mappin is not found")
+        self.log_obj:Record(LogLevel.Debug, "Mappin is not found")
         DAV.core_obj.is_custom_mappin = false
         if self.stored_mappin_pos == nil then
-            self.log_obj:Record(LogLevel.Info, "Stored mappin position is not found")
             return
         end
     else
@@ -325,6 +328,10 @@ function Event:CheckCustomMappinPosition()
         DAV.core_obj:SetCustomMappin(mappin)
     end
 
+end
+
+function Event:StopRadio()
+    self.av_obj.radio_obj:Stop()
 end
 
 function Event:UnsetMappin()
@@ -421,6 +428,12 @@ function Event:ToggleAutoMode()
     end
 end
 
+function Event:ShowRadioPopup()
+    if self:IsInVehicle() then
+        self.hud_obj:ShowRadioPopup()
+    end
+end
+
 function Event:SelectChoice(direction)
     local max_seat_index = #self.av_obj.all_models[DAV.model_index].actual_allocated_seat
     if self:IsInEntryArea() then
@@ -440,6 +453,20 @@ function Event:SelectChoice(direction)
             return
         end
         self.av_obj.seat_index = self.selected_seat_index
+    end
+end
+
+function Event:CheckSoundRestriction()
+    if not DAV.user_setting_table.is_mute_all and not DAV.user_setting_table.is_mute_flight then
+        self.sound_obj:SetRestriction(Def.SoundRestrictionLevel.None)
+    else
+        if DAV.user_setting_table.is_mute_all then
+            self.sound_obj:SetRestriction(Def.SoundRestrictionLevel.Mute)
+            self.sound_obj:Mute()
+        elseif DAV.user_setting_table.is_mute_flight then
+            self.sound_obj:SetRestriction(Def.SoundRestrictionLevel.PriorityRadio)
+            self.sound_obj:PartialMute(200, 300)
+        end
     end
 end
 

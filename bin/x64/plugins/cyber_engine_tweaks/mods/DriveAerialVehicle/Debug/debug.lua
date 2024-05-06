@@ -19,6 +19,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_status = false
     obj.is_im_gui_change_auto_setting = false
+    obj.is_im_gui_radio_info = false
     obj.is_set_observer = false
     obj.is_exist_av_1 = false
     obj.is_exist_av_2 = false
@@ -53,6 +54,7 @@ function Debug:ImGuiMain()
     self:ImGuiAutoPilotStatus()
     self:ImGuiToggleAutoPilotPanel()
     self:ImGuiChangeAutoPilotSetting()
+    self:ImGuiRadioInfo()
     self:ImGuiToggleGarageVehicle()
     self:ImGuiExcuteFunction()
 
@@ -64,6 +66,39 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
+        -- Observe('VehicleRadioPopupGameController', 'OnAction', function(this, action, consumer)
+        --     print(action:GetName().value)
+        --     print(action:GetType().value)
+        --     print(action:GetValue())
+        --     print("OnAction")
+        -- end)
+        -- ObserveAfter('VehicleRadioPopupGameController', 'Activate', function(this)
+        --     print("Activate")
+        --     local tmp = this.selectedItem
+        --     print(this:GetVolumeSettingVarName().value)
+        --     local record = tmp:GetStationData()
+        --     print(record.record:DisplayName())
+        --     -- this:SetTrackName(CName.new("test"))
+        --     -- this:SetupData()
+        --     Cron.After(1, function()
+        --         print(this.trackName:GetLocalizationKey())
+        --         print(this.trackName:SetLocalizationKey("Gameplay-Devices-Radio_tracks-downtempo_practical_heart"))
+        --     end)
+        --     -- this.trackName:SetText("AAA")
+        -- end)
+        -- Observe('VehicleRadioPopupGameController', 'OnInitialize', function(this)
+        --     print("OnInitialize")
+        -- end)
+        -- Observe('VehicleRadioPopupGameController', 'SetupData', function(this)
+        --     print("SetupData")
+        -- end)
+        -- Observe('PocketRadio', 'OnPlayerAttach', function(this)
+        --     self.pocket_radio = this
+        --     print("PocketRadio OnPlayerAttach")
+        -- end)
+        -- Observe('PocketRadio', 'OnPlayerDetach', function()
+        --     self.popupManager = nil
+        -- end)
     end
     self.is_set_observer = true
 
@@ -284,7 +319,7 @@ end
 function Debug:ImGuiChangeAutoPilotSetting()
     self.is_im_gui_change_auto_setting = ImGui.Checkbox("[ImGui] Change AP Profile", self.is_im_gui_change_auto_setting)
     if self.is_im_gui_change_auto_setting then
-        if ImGui.Button("Update Profile", 100, 30) then
+        if ImGui.Button("Update Profile") then
             local autopilot_profile = Utils:ReadJson(DAV.core_obj.av_obj.profile_path)
             local speed_level = DAV.user_setting_table.autopilot_speed_level
             DAV.core_obj.av_obj.auto_pilot_speed = autopilot_profile[speed_level].speed
@@ -304,46 +339,68 @@ function Debug:ImGuiChangeAutoPilotSetting()
     end
 end
 
+function Debug:ImGuiRadioInfo()
+    self.is_im_gui_radio_info = ImGui.Checkbox("[ImGui] Radio Info", self.is_im_gui_radio_info)
+    if self.is_im_gui_radio_info then
+        local volume = self.core_obj.av_obj.radio_obj:GetVolume()
+        local entity_num = #self.core_obj.av_obj.radio_obj.radio_entity_list
+        local station_index = self.core_obj.av_obj.radio_obj:GetPlayingStationIndex()
+        local station_name = CName("No Play")
+        if station_index >= 0 then
+            station_name = RadioStationDataProvider.GetStationNameByIndex(station_index)
+        end
+        local track_name = GetLocalizedText(LocKeyToString(self.core_obj.av_obj.radio_obj:GetTrackName()))
+        local is_playing = self.core_obj.av_obj.radio_obj.is_playing
+        ImGui.Text("Volume : " .. volume .. ", Entity Num : " .. entity_num)
+        ImGui.Text("Station Index : " .. station_index .. ", Station Name : " .. station_name.value)
+        ImGui.Text("Track Name : " .. track_name)
+        ImGui.Text("Is Playing : " .. tostring(is_playing))
+    end
+end
+
 function Debug:ImGuiToggleGarageVehicle()
-    if ImGui.Button("av1",60, 30) then
+    if ImGui.Button("av1") then
         self.is_exist_av_1 = not self.is_exist_av_1
         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_rayfield_excalibur_dav_dummy", self.is_exist_av_1, true)
     end
     ImGui.SameLine()
-    if ImGui.Button("av2",60, 30) then
+    if ImGui.Button("av2") then
         self.is_exist_av_2 = not self.is_exist_av_2
         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_militech_manticore_dav_dummy", self.is_exist_av_2, true)
     end
     ImGui.SameLine()
-    if ImGui.Button("av3",60, 30) then
+    if ImGui.Button("av3") then
         self.is_exist_av_3 = not self.is_exist_av_3
         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_zetatech_atlus_dav_dummy", self.is_exist_av_3, true)
     end
     ImGui.SameLine()
-    if ImGui.Button("av4",60, 30) then
+    if ImGui.Button("av4") then
         self.is_exist_av_4 = not self.is_exist_av_4
         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_zetatech_surveyor_dav_dummy", self.is_exist_av_4, true)
     end
     ImGui.SameLine()
-    if ImGui.Button("av5",60, 30) then
+    if ImGui.Button("av5") then
         self.is_exist_av_5 = not self.is_exist_av_5
         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.q000_nomad_border_patrol_heli_dav_dummy", self.is_exist_av_5, true)
     end
 end
 
 function Debug:ImGuiExcuteFunction()
-    if ImGui.Button("Test Func1",150, 30) then
+    if ImGui.Button("TF1") then
         local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local components = entity:GetComponents()
-        for i,component in ipairs(components) do
-            if(NameToString(component:GetName()) == "crystaldome_a") then
-                component:TemporaryHide(true)
-            end
-        end
+        local radio = Game.GetPlayer():GetPocketRadio()
+        print(radio.selectedStation)
+        radio:HandleVehicleMounted(entity)
+        -- radio.selectedStation = 3
+        -- radio:TurnOn(true)
+        -- local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        -- print(entity:GetCurrentRadioIndex())
+        -- print(entity:GetRadioReceiverStationName())
+        -- entity:ToggleRadioReceiver(true)
         print("Excute Test Function 1")
     end
     ImGui.SameLine()
-    if ImGui.Button("Test Func2",150, 30) then
+    if ImGui.Button("TF2") then
         local transform = Game.GetPlayer():GetWorldTransform()
         local pos = Game.GetPlayer():GetWorldPosition()
         pos.z = pos.z + 1.45
@@ -362,13 +419,56 @@ function Debug:ImGuiExcuteFunction()
         print("Excute Test Function 2")
     end
     ImGui.SameLine()
-    if ImGui.Button("Test Func3",150, 30) then
-        local index = self.ps:GetActiveStationIndex()
-        print(index)
-        self.ps:SetActiveStation(index + 1)
+    if ImGui.Button("TF3") then
+        self.index = self.ps:GetActiveStationIndex()
+        print(self.index)
+        self.ps:SetActiveStation(self.index + 1)
         self.ent:PlayGivenStation()
 
         print("Excute Test Function 3")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF4") then
+        local nam = RadioStationDataProvider.GetStationNameByIndex(self.ps:GetActiveStationIndex())
+        print(nam)
+        local name = LocKeyToString(GetRadioStationCurrentTrackName(nam))
+        print(name)
+        print("Excute Test Function 4")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF5") then
+        -- local weakMap = inkScriptWeakHashMap.new()
+		-- weakMap:Insert(0, nil)
+        -- weakMap:Set(0, Game.GetJournalManager())
+	    -- local mng = weakMap:Get(0)
+        -- mng:UntrackEntry()
+        local journalManager = Game.GetJournalManager()
+        journalManager:UntrackEntry()
+        -- local entry = journalManager:GetTrackedEntry()
+        -- print(entry:GetEditorName())
+        -- local over = NewObject('gameJournalEntryOverrideData')
+        -- over.overriddenLocalizationString = "LocKey#490"
+        -- table.insert(entry.journalEntryOverrideDataList, over)
+        -- print(entry:GetJournalEntryOverrideDataListCount())
+        -- local array = entry:GetJournalEntryOverrideDataList()
+        -- for i, value in ipairs(array) do
+        --     print(value:GetOverriddenLocalizedText())
+        -- end
+        print("Excute Test Function 5")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF6") then
+        DAV.core_obj.event_obj:ShowRadioPopup()
+        print("Excute Test Function 6")
+    end
+    if ImGui.Button("TF7") then
+        DAV.core_obj.av_obj.radio_obj:Play(5)
+        print("Excute Test Function 7")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF8") then
+        DAV.core_obj.av_obj.radio_obj:Stop()
+        print("Excute Test Function 8")
     end
 end
 

@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "1.4.0",
+	version = "1.5.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -62,6 +62,8 @@ DAV.user_setting_table = {
     --- environment
     is_enable_community_spawn = true,
     spawn_frequency = 2,
+    is_mute_all = false,
+    is_mute_flight = false,
     --- general
     language_index = 1,
     is_unit_km_per_hour = false
@@ -137,6 +139,10 @@ end)
 
 registerForEvent('onUpdate', function(delta)
     Cron.Update(delta)
+end)
+
+registerHotkey('ToggleCrystalDome', 'Toggle Crystal Dome(Only Excalibur and Manticore)', function()
+    DAV.core_obj.av_obj:ToggleCrystalDome()
 end)
 
 function DAV:CheckDependencies()

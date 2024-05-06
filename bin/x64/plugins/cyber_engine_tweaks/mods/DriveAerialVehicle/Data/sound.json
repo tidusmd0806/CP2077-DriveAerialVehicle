@@ -1,14 +1,8 @@
 {
-    "first": "RESERVED",
-    "101_call_vehicle": "ui_jingle_car_call",
-    "131_arrive_vehicle": "ui_jingle_vehicle_arrive",
-    "141_call_vehicle": "ui_jingle_chip_malfunction",
-    "211_landing": "v_av_rayfield_excalibur_sc_113_ext_engine_landing_to_idle",
-    "221_idel_loop": "v_av_rayfield_excalibur_sc_203_ext_int_engine_idle_start",
-    "232_fly_loop": "v_av_rayfield_excalibur_sc_113_int_engine_idle_to_fly",
-    "233_crash": "q001_scavenger_car_chase_van_crash",
-    "233_flying_big_engine": "v_av_trauma_big_engine_start",
-    "233_flying_fight": "q115_sc_05_av_02_flight_begin_weiland",
-    "233_thruster": "q115_thruster_start",
-    "243_leaving": "q001_sc_00c_trauma_leaves_av_engines"
+    "100_call_vehicle": "ui_jingle_car_call",
+    "110_arrive_vehicle": "ui_jingle_vehicle_arrive",
+    "210_landing": "v_av_rayfield_excalibur_sc_113_ext_engine_landing_to_idle",
+    "230_fly_loop": "v_av_rayfield_excalibur_sc_113_int_engine_idle_to_fly",
+    "240_leaving": "q001_sc_00c_trauma_leaves_av_engines",
+    "330_crash": "q001_scavenger_car_chase_van_crash"
 }

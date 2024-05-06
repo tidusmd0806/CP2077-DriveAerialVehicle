@@ -30,7 +30,9 @@ function Core:New()
     obj.freeze_detect_range_stick = 0.1
     -- custom mappin
     obj.huge_distance = 1000000
-    obj.max_mappin_history = 5
+    obj.max_mappin_history = 10
+    -- radio
+    obj.default_station_num = 13
     -- dynamic --
     -- model table
     obj.all_models = nil
@@ -60,6 +62,11 @@ function Core:New()
     obj.mappin_controller = nil
     obj.dist_mappin_id = nil
     obj.is_custom_mappin = false
+    -- radio
+    obj.current_station_index = -1
+    obj.current_radio_volume = 50
+    obj.radio_popup_controller = nil
+    obj.is_opened_radio_popup = false
     return setmetatable(obj, self)
 end
 
@@ -97,6 +104,7 @@ function Core:Init()
     self:SetInputListener()
     self:SetMappinController()
     self:SetSummonTrigger()
+    self:SetRadioPopupController()
 
 end
 
@@ -274,6 +282,7 @@ function Core:SetInputListener()
     player:UnregisterInputListener(player, "dav_get_on")
     player:UnregisterInputListener(player, "dav_get_off")
     player:UnregisterInputListener(player, "dav_change_view")
+    player:UnregisterInputListener(player, "dav_operate_radio")
     player:UnregisterInputListener(player, "dav_toggle_door_1")
     player:UnregisterInputListener(player, "dav_toggle_auto_pilot")
 
@@ -289,11 +298,13 @@ function Core:SetInputListener()
     player:RegisterInputListener(player, "dav_get_on")
     player:RegisterInputListener(player, "dav_get_off")
     player:RegisterInputListener(player, "dav_change_view")
+    player:RegisterInputListener(player, "dav_operate_radio")
     player:RegisterInputListener(player, "dav_toggle_door_1")
     player:RegisterInputListener(player, "dav_toggle_auto_pilot")
 
-    local exception_in_entry_list = Utils:ReadJson("Data/exception_in_entry_input.json")
+    local exception_common_list = Utils:ReadJson("Data/exception_common_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
+    local exception_radio_list = Utils:ReadJson("Data/exception_radio_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
         local action_name = action:GetName(action).value
@@ -307,8 +318,16 @@ function Core:SetInputListener()
                     return
                 end
             end
-        elseif self.event_obj:IsInEntryArea() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
-            for _, exception in pairs(exception_in_entry_list) do
+        elseif (self.event_obj:IsInEntryArea() or self.event_obj:IsInVehicle()) then
+            for _, exception in pairs(exception_common_list) do
+                if string.find(action_name, exception) then
+                    consumer:Consume()
+                    return
+                end
+            end
+        end
+        if self:IsOpenedRadioPopup() then
+            for _, exception in pairs(exception_radio_list) do
                 if string.find(action_name, exception) then
                     consumer:Consume()
                     return
@@ -490,6 +509,10 @@ function Core:ConvertHeliActionList(action_name, action_type, action_value_type)
         action_command = Def.ActionList.SelectUp
     elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
         action_command = Def.ActionList.SelectDown
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_TOGGLE_RADIO) then
+        action_command = Def.ActionList.ToggleRadio
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_OPEN_RADIO_POPUP) then
+        action_command = Def.ActionList.OpenRadio
     else
         action_command = Def.ActionList.Nothing
     end
@@ -530,6 +553,10 @@ function Core:ConvertSpinnerActionList(action_name, action_type, action_value_ty
         action_command = Def.ActionList.SelectUp
     elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
         action_command = Def.ActionList.SelectDown
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_TOGGLE_RADIO) then
+        action_command = Def.ActionList.ToggleRadio
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_OPEN_RADIO_POPUP) then
+        action_command = Def.ActionList.OpenRadio
     else
         action_command = Def.ActionList.Nothing
     end
@@ -592,6 +619,10 @@ function Core:SetEvent(action)
         self.event_obj:SelectChoice(Def.ActionList.SelectUp)
     elseif action == Def.ActionList.SelectDown then
         self.event_obj:SelectChoice(Def.ActionList.SelectDown)
+    elseif action == Def.ActionList.ToggleRadio then
+        self:ToggleRadio()
+    elseif action == Def.ActionList.OpenRadio then
+        self.event_obj:ShowRadioPopup()
     end
 
 end
@@ -837,6 +868,78 @@ function Core:GetCurrentDistrict()
     end
     return current_district_list
 
+end
+
+function Core:SetRadioPopupController()
+
+    ObserveAfter('VehicleRadioPopupGameController', 'Activate', function(this)
+        if self.event_obj:IsInVehicle() then
+            local station_index = this.selectedItem:GetStationData().record:Index()
+            if station_index >= 0 and station_index <= self.default_station_num then
+                self.current_station_index = station_index
+                self.current_radio_volume = this.radioVolumeSettingsController.value:GetText()
+                self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
+                Cron.Every(1, {tick = 1}, function(timer)
+                    local lockey = self.av_obj.radio_obj:GetTrackName()
+                    if lockey ~= nil or timer.tick > 5 then
+                        self.radio_popup_controller = this
+                        this.trackName:SetLocalizationKey(lockey)
+                        Cron.Halt(timer)
+                    end
+                    timer.tick = timer.tick + 1
+                end)
+            else
+                self.av_obj.radio_obj:Stop()
+            end
+        end
+    end)
+
+    ObserveAfter('RadioVolumeSettingsController', 'ChangeValue', function(this)
+        if self.event_obj:IsInVehicle() then
+            if self.current_station_index <= self.default_station_num then
+                self.current_radio_volume = this.value:GetText()
+                self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
+            end
+        end
+    end)
+
+    ObserveAfter('VehicleRadioPopupGameController', 'OnInitialize', function(this)
+        if self.event_obj:IsInVehicle() then
+            self.is_opened_radio_popup = true
+            local lockey = self.av_obj.radio_obj:GetTrackName()
+            if lockey ~= nil and self.radio_popup_controller == nil then
+                self.radio_popup_controller.trackName:SetLocalizationKey(lockey)
+            end
+        end
+    end)
+
+    ObserveAfter('VehicleRadioPopupGameController', 'OnUninitialize', function(this)
+        self.is_opened_radio_popup = false
+    end)
+
+end
+
+function Core:ToggleRadio()
+
+    if self.event_obj:IsInVehicle() and self.current_station_index <= self.default_station_num then
+        if self.av_obj.radio_obj:IsPlaying() then
+            self.av_obj.radio_obj:Stop()
+        else
+            -- now only support shuffle play
+            self.current_station_index = math.random(0, self.default_station_num)
+            self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
+        end
+    end
+
+end
+
+---@return boolean
+function Core:IsOpenedRadioPopup()
+    return self.is_opened_radio_popup
+end
+
+function Core:ShowRadioPopup()
+    self.event_obj:ShowRadioPopup()
 end
 
 return Core

@@ -83,5 +83,15 @@
         "name": "ChoiceScrollDown",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
+    },
+    "KEY_AV_TOGGLE_RADIO": {
+        "name": "dav_operate_radio",
+        "type": "BUTTON_RELEASED",
+        "value": "ZERO"
+    },
+    "KEY_AV_OPEN_RADIO_POPUP": {
+        "name": "dav_operate_radio",
+        "type": "BUTTON_HOLD_COMPLETE",
+        "value": "POSITIVE"
     }
 }
