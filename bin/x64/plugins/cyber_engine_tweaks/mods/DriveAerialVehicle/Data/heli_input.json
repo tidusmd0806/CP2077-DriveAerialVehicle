@@ -85,7 +85,7 @@
         "value": "POSITIVE"
     },
     "KEY_AV_TOGGLE_RADIO": {
-        "name": "dav_operate_radio",
+        "name": "dpad_up",
         "type": "BUTTON_RELEASED",
         "value": "ZERO"
     },
