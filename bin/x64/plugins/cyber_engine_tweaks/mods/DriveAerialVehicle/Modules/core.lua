@@ -33,6 +33,8 @@ function Core:New()
     obj.max_mappin_history = 10
     -- radio
     obj.default_station_num = 13
+    obj.get_track_name_time_resolution = 1
+    obj.get_track_name_timeout = 5
     -- dynamic --
     -- model table
     obj.all_models = nil
@@ -282,6 +284,7 @@ function Core:SetInputListener()
     player:UnregisterInputListener(player, "dav_get_off")
     player:UnregisterInputListener(player, "dav_change_view")
     player:UnregisterInputListener(player, "dav_operate_radio")
+    player:UnregisterInputListener(player, "dav_operate_radio_sub")
     player:UnregisterInputListener(player, "dav_toggle_door_1")
     player:UnregisterInputListener(player, "dav_toggle_auto_pilot")
 
@@ -298,6 +301,7 @@ function Core:SetInputListener()
     player:RegisterInputListener(player, "dav_get_off")
     player:RegisterInputListener(player, "dav_change_view")
     player:RegisterInputListener(player, "dav_operate_radio")
+    player:RegisterInputListener(player, "dav_operate_radio_sub")
     player:RegisterInputListener(player, "dav_toggle_door_1")
     player:RegisterInputListener(player, "dav_toggle_auto_pilot")
 
@@ -508,7 +512,7 @@ function Core:ConvertHeliActionList(action_name, action_type, action_value_type)
         action_command = Def.ActionList.SelectUp
     elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
         action_command = Def.ActionList.SelectDown
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_TOGGLE_RADIO) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_TOGGLE_RADIO_PAD) or Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_TOGGLE_RADIO_KEY) then
         action_command = Def.ActionList.ToggleRadio
     elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_OPEN_RADIO_POPUP) then
         action_command = Def.ActionList.OpenRadio
@@ -552,7 +556,7 @@ function Core:ConvertSpinnerActionList(action_name, action_type, action_value_ty
         action_command = Def.ActionList.SelectUp
     elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
         action_command = Def.ActionList.SelectDown
-    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_TOGGLE_RADIO) then
+    elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_TOGGLE_RADIO_PAD) or Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_TOGGLE_RADIO_KEY) then 
         action_command = Def.ActionList.ToggleRadio
     elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_OPEN_RADIO_POPUP) then
         action_command = Def.ActionList.OpenRadio
@@ -878,10 +882,14 @@ function Core:SetRadioPopupController()
                 self.current_station_index = station_index
                 self.current_radio_volume = this.radioVolumeSettingsController.value:GetText()
                 self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
+                local timeout = math.ceil(1 / self.get_track_name_time_resolution) * self.get_track_name_timeout
                 Cron.Every(1, {tick = 1}, function(timer)
                     local lockey = self.av_obj.radio_obj:GetTrackName()
-                    if lockey ~= nil or timer.tick > 5 then
+                    if lockey ~= nil then
                         this.trackName:SetLocalizationKey(lockey)
+                        Cron.Halt(timer)
+                    elseif timer.tick > timeout then
+                        self.log_obj:Record(LogLevel.Error, "Failed to get track name when radio popup is activated")
                         Cron.Halt(timer)
                     end
                     timer.tick = timer.tick + 1
@@ -904,10 +912,14 @@ function Core:SetRadioPopupController()
     ObserveAfter('VehicleRadioPopupGameController', 'OnInitialize', function(this)
         if self.event_obj:IsInVehicle() then
             self.is_opened_radio_popup = true
-            Cron.Every(1, {tick = 1}, function(timer)
+            local timeout = math.ceil(1 / self.get_track_name_time_resolution) * self.get_track_name_timeout
+            Cron.Every(self.get_track_name_time_resolution, {tick = 1}, function(timer)
                 local lockey = self.av_obj.radio_obj:GetTrackName()
-                if lockey ~= nil or timer.tick > 5 then
+                if lockey ~= nil then
                     this.trackName:SetLocalizationKey(lockey)
+                    Cron.Halt(timer)
+                elseif timer.tick > timeout then
+                    self.log_obj:Record(LogLevel.Error, "Failed to get track name when radio popup is initialized")
                     Cron.Halt(timer)
                 end
                 timer.tick = timer.tick + 1

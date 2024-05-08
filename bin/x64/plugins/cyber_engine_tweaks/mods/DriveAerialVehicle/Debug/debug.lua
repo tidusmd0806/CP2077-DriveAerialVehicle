@@ -66,39 +66,6 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
-        -- Observe('VehicleRadioPopupGameController', 'OnAction', function(this, action, consumer)
-        --     print(action:GetName().value)
-        --     print(action:GetType().value)
-        --     print(action:GetValue())
-        --     print("OnAction")
-        -- end)
-        -- ObserveAfter('VehicleRadioPopupGameController', 'Activate', function(this)
-        --     print("Activate")
-        --     local tmp = this.selectedItem
-        --     print(this:GetVolumeSettingVarName().value)
-        --     local record = tmp:GetStationData()
-        --     print(record.record:DisplayName())
-        --     -- this:SetTrackName(CName.new("test"))
-        --     -- this:SetupData()
-        --     Cron.After(1, function()
-        --         print(this.trackName:GetLocalizationKey())
-        --         print(this.trackName:SetLocalizationKey("Gameplay-Devices-Radio_tracks-downtempo_practical_heart"))
-        --     end)
-        --     -- this.trackName:SetText("AAA")
-        -- end)
-        -- Observe('VehicleRadioPopupGameController', 'OnInitialize', function(this)
-        --     print("OnInitialize")
-        -- end)
-        -- Observe('VehicleRadioPopupGameController', 'SetupData', function(this)
-        --     print("SetupData")
-        -- end)
-        -- Observe('PocketRadio', 'OnPlayerAttach', function(this)
-        --     self.pocket_radio = this
-        --     print("PocketRadio OnPlayerAttach")
-        -- end)
-        -- Observe('PocketRadio', 'OnPlayerDetach', function()
-        --     self.popupManager = nil
-        -- end)
     end
     self.is_set_observer = true
 
@@ -391,73 +358,35 @@ end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("TF1") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local radio = Game.GetPlayer():GetPocketRadio()
-        print(radio.selectedStation)
-        radio:HandleVehicleMounted(entity)
-        -- radio.selectedStation = 3
-        -- radio:TurnOn(true)
-        -- local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        -- print(entity:GetCurrentRadioIndex())
-        -- print(entity:GetRadioReceiverStationName())
-        -- entity:ToggleRadioReceiver(true)
+        Game.GetUISystem():QueueEvent(UIVehicleRadioEvent.new())
+
+        Cron.After(0.1, function ()
+            Game.GetUISystem():QueueEvent(VehicleRadioSongChanged.new())
+        end)
+        -- local entity = Game.GetPlayer():GetMountedVehicle()
+        -- print(entity:IsEngineTurnedOn())
+        -- entity:TurnEngineOn(true)
+
         print("Excute Test Function 1")
     end
     ImGui.SameLine()
     if ImGui.Button("TF2") then
-        local transform = Game.GetPlayer():GetWorldTransform()
-        local pos = Game.GetPlayer():GetWorldPosition()
-        pos.z = pos.z + 1.45
-        transform:SetPosition(pos)
-        local entity_id = exEntitySpawner.Spawn("base\\quest\\main_quests\\prologue\\q000\\entities\\q000_invisible_radio.ent", transform, '')
-        Cron.Every(1, {tick = 1} , function(timer)
-            self.ent = Game.FindEntityByID(entity_id)
-            if self.ent ~= nil then
-                self.ps = self.ent:GetDevicePS()
-                self.ps.activeStation = 3
-                self.ent:PlayGivenStation()
-                Cron.Halt(timer)
-            end
-        end)
-
+        DAV.core_obj.av_obj.radio_obj:Update(5, "100%")
         print("Excute Test Function 2")
     end
     ImGui.SameLine()
     if ImGui.Button("TF3") then
-        self.index = self.ps:GetActiveStationIndex()
-        print(self.index)
-        self.ps:SetActiveStation(self.index + 1)
-        self.ent:PlayGivenStation()
-
+        DAV.core_obj.av_obj.radio_obj:Stop()
         print("Excute Test Function 3")
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        local nam = RadioStationDataProvider.GetStationNameByIndex(self.ps:GetActiveStationIndex())
-        print(nam)
-        local name = LocKeyToString(GetRadioStationCurrentTrackName(nam))
-        print(name)
+        GetMountedVehicle(GetPlayer()):GetBlackboard():SetName(GetAllBlackboardDefs().Vehicle.VehRadioStationName, GetLocalizedText("LocKey#705"))
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
-        -- local weakMap = inkScriptWeakHashMap.new()
-		-- weakMap:Insert(0, nil)
-        -- weakMap:Set(0, Game.GetJournalManager())
-	    -- local mng = weakMap:Get(0)
-        -- mng:UntrackEntry()
-        local journalManager = Game.GetJournalManager()
-        journalManager:UntrackEntry()
-        -- local entry = journalManager:GetTrackedEntry()
-        -- print(entry:GetEditorName())
-        -- local over = NewObject('gameJournalEntryOverrideData')
-        -- over.overriddenLocalizationString = "LocKey#490"
-        -- table.insert(entry.journalEntryOverrideDataList, over)
-        -- print(entry:GetJournalEntryOverrideDataListCount())
-        -- local array = entry:GetJournalEntryOverrideDataList()
-        -- for i, value in ipairs(array) do
-        --     print(value:GetOverriddenLocalizedText())
-        -- end
+        GetPlayer():GetQuickSlotsManager():SendRadioEvent(true, true, 5)
         print("Excute Test Function 5")
     end
     ImGui.SameLine()

@@ -14,6 +14,7 @@
         <action name="dav_get_off" map ="dav_get_off"/>
         <action name="dav_change_view" map ="dav_change_view"/>
         <action name="dav_operate_radio" map ="dav_operate_radio"/>
+        <action name="dav_operate_radio_sub" map ="dav_operate_radio_sub"/>
         <action name="dav_toggle_door_1" map ="dav_toggle_door_1"/>
         <action name="dav_toggle_auto_pilot" map ="dav_toggle_auto_pilot"/>
     </context>
@@ -109,6 +110,10 @@
     <mapping name="dav_operate_radio" type="Button">
         <button id="IK_R"/>
         <button id="IK_Pad_DigitUp"/>
+    </mapping>
+
+        <mapping name="dav_operate_radio_sub" type="Button">
+        <button id="IK_R"/>
     </mapping>
 
     <mapping name="dav_toggle_auto_pilot" type="Button">

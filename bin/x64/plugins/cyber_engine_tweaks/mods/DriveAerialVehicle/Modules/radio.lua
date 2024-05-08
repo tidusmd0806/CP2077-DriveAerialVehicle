@@ -10,39 +10,24 @@ function Radio:New(position_obj)
     -- sttatic --
     obj.radio_ent_path = "base\\quest\\main_quests\\prologue\\q000\\entities\\q000_invisible_radio.ent"
     obj.volume_ajustment_resolution = 20
+    obj.volume_change_timeout = 10
     obj.station_mapping =
     {
-        [0] = 4,
-        [1] = 0,
-        [2] = 11,
-        [3] = 10,
-        [4] = 1,
-        [5] = -1,
-        [6] = 8,
-        [7] = 6,
-        [8] = 13,
-        [9] = 2,
-        [10] = 3,
-        [11] = 7,
-        [12] = 5,
-        [13] = 12
+        [0] = 4, -- 89.3 Radio Vexelstrom - 4
+        [1] = 0, -- 92.9 Night FM - 0
+        [2] = 11, -- 101.9 The Dirge - 11
+        [3] = 10, -- 103.5 Radio Pebkac - 10
+        [4] = 1, -- 88.9 Pacific Dreams - 1
+        [5] = -1, -- 95.2 Samizdat Radio - 9 (not a valid station)
+        [6] = 8, -- 98.7 Body Heat Radio - 8
+        [7] = 6, -- 106.9 30 Principales - 6
+        [8] = 13, -- 96.1 Ritual FM - 13
+        [9] = 2, -- 89.7 Growl FM - 2
+        [10] = 3, -- 91.9 Royal Blue Radio - 3
+        [11] = 7, -- 107.3 Morro Rock Radio - 7
+        [12] = 5, -- 107.5 Dark Star - 5
+        [13] = 12 -- 99.9 IMPULSE - 12
     }
-    -- station list --
-    -- 1: 88.9 Pacific Dreams - 4
-    -- 2: 89.3 Radio Vexelstrom - 0
-    -- 3: 89.7 Growl FM - 11
-    -- 4: 91.9 Royal Blue Radio - 10
-    -- 5: 92.9 Night FM - 1
-    -- 6: 95.2 Samizdat Radio - 9
-    -- 7: 96.1 Ritual FM - 8
-    -- 8: 98.7 Body Heat Radio - 6
-    -- 9: 99.9 IMPULSE - 13
-    -- 10: 101.9 The Dirge - 2
-    -- 11: 103.5 Radio Pebkac - 3
-    -- 12: 106.9 30 Principales  - 7
-    -- 13: 107.3 Morro Rock Radio - 5
-    -- 14: 107.5 Dark Star - 12
-    ------------------
     -- dynamic --
     obj.radio_entity_list = {}
     obj.play_index = -1
@@ -118,11 +103,11 @@ end
 function Radio:Play(station_index)
 
     local actual_statiton_index = self.station_mapping[station_index]
-    -- tmp
+    -- if station_index is not valid, then choose a random station
     if actual_statiton_index < 0 then
         repeat
             actual_statiton_index = math.random(0, 13)
-        until actual_statiton_index ~= 9
+        until actual_statiton_index ~= 9 -- Samizdat Radio is not a valid station
     end
 
     self:Respawn()
@@ -199,7 +184,10 @@ function Radio:SetVolumeFromString(volume_str) -- volume_str: "Volume: 50%"
 
     local volume_num_string = string.gsub(volume_str, "%%", "")
     local volume_num = tonumber(volume_num_string)
-    local volume = math.floor(volume_num / self.volume_ajustment_resolution) + 1
+    local volume = math.ceil(volume_num / self.volume_ajustment_resolution)
+    if volume_num == 100 then
+        volume = volume + 1
+    end
     if self.volume == volume then
         self.log_obj:Record(LogLevel.Trace, "Volume is already set")
         return
@@ -235,12 +223,18 @@ function Radio:ChangeVolume(volume)
             self:Despawn()
         end
     end
+    local timeout = math.ceil(1 / DAV.time_resolution) * self.volume_change_timeout
     Cron.Every(DAV.time_resolution, {tick = 1} , function(timer)
         if #self.radio_entity_list == volume then
             self.volume = volume
             self.is_changing_volume = false
             Cron.Halt(timer)
+        elseif timer.tick > timeout then
+            self.log_obj:Record(LogLevel.Error, "Volume change time out")
+            self.is_changing_volume = false
+            Cron.Halt(timer)
         end
+        timer.tick = timer.tick + 1
     end)
 
 end
