@@ -63,12 +63,14 @@ function Sound:GetIdentificationNumber(name)
 end
 
 function Sound:PartialMute(num_min, num_max)
+
     for sound_name, _ in pairs(self.sound_data) do
         local num = self:GetIdentificationNumber(sound_name)
         if num >= num_min and num < num_max then
             Game.GetPlayer():StopSoundEvent(self.sound_data[sound_name])
         end
     end
+
 end
 
 return Sound

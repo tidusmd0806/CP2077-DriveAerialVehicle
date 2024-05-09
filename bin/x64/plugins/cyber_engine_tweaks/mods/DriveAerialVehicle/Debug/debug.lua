@@ -66,6 +66,13 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
+        Observe('PopupsManager', 'OnPhotomodeUpdate', function(this)
+            print("test")
+            print(this:GetClassName())
+        end)
+        Observe('CameraComponent', 'SetZoom', function(this)
+            print(this:GetClassName())
+        end)
     end
     self.is_set_observer = true
 
@@ -358,15 +365,7 @@ end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("TF1") then
-        Game.GetUISystem():QueueEvent(UIVehicleRadioEvent.new())
-
-        Cron.After(0.1, function ()
-            Game.GetUISystem():QueueEvent(VehicleRadioSongChanged.new())
-        end)
-        -- local entity = Game.GetPlayer():GetMountedVehicle()
-        -- print(entity:IsEngineTurnedOn())
-        -- entity:TurnEngineOn(true)
-
+        self.component:Activate(0, false)
         print("Excute Test Function 1")
     end
     ImGui.SameLine()
@@ -376,12 +375,15 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF3") then
-        DAV.core_obj.av_obj.radio_obj:Stop()
+        GetMountedVehicle(GetPlayer()):ToggleRadioReceiver(false)
+        print(GetPlayer():GetPocketRadio():IsActive())
+        print(GetPlayer():GetPocketRadio():IsRestricted())
         print("Excute Test Function 3")
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        GetMountedVehicle(GetPlayer()):GetBlackboard():SetName(GetAllBlackboardDefs().Vehicle.VehRadioStationName, GetLocalizedText("LocKey#705"))
+        local vehicle = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        GetPlayer():GetPocketRadio():HandleVehicleMounted(vehicle)
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
@@ -402,6 +404,34 @@ function Debug:ImGuiExcuteFunction()
     if ImGui.Button("TF8") then
         DAV.core_obj.av_obj.radio_obj:Stop()
         print("Excute Test Function 8")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF9") then
+        local player = Game.GetPlayer()
+		local seID = TweakDBID.new("GameplayRestriction.NoScanning");
+		StatusEffectHelper.ApplyStatusEffect(player, seID)
+        print("Excute Test Function 9")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF10") then
+        local spawnTransform = WorldTransform.new()
+        local entityID = exEntitySpawner.Spawn("base\\entities\\cameras\\photo_mode_camera.ent", spawnTransform, '')
+        Cron.Every(0.1, {tick = 1}, function(timer)
+            local entity = Game.FindEntityByID(entityID)
+            timer.tick = timer.tick + 1
+            if entity then
+                self.handle = entity
+                self.hash = tostring(entity:GetEntityID().hash)
+                print("Spawned camera entity: " .. self.hash)
+                self.component = entity:FindComponentByName("FreeCamera2447")
+
+                Cron.Halt(timer)
+            elseif timer.tick > 20 then
+                print("Failed to spawn camera")
+                Cron.Halt(timer)
+            end
+        end)
+        print("Excute Test Function 10")
     end
 end
 

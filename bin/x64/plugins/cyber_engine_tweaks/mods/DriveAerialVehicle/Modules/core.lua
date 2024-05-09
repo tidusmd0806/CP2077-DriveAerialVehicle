@@ -34,7 +34,6 @@ function Core:New()
     -- radio
     obj.default_station_num = 13
     obj.get_track_name_time_resolution = 1
-    obj.get_track_name_timeout = 5
     -- dynamic --
     -- model table
     obj.all_models = nil
@@ -877,23 +876,10 @@ function Core:SetRadioPopupController()
 
     ObserveAfter('VehicleRadioPopupGameController', 'Activate', function(this)
         if self.event_obj:IsInVehicle() then
-            local station_index = this.selectedItem:GetStationData().record:Index()
-            if station_index >= 0 and station_index <= self.default_station_num then
-                self.current_station_index = station_index
+            self.current_station_index = this.selectedItem:GetStationData().record:Index()
+            if self.current_station_index >= 0 and self.current_station_index <= self.default_station_num then
                 self.current_radio_volume = this.radioVolumeSettingsController.value:GetText()
                 self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
-                local timeout = math.ceil(1 / self.get_track_name_time_resolution) * self.get_track_name_timeout
-                Cron.Every(1, {tick = 1}, function(timer)
-                    local lockey = self.av_obj.radio_obj:GetTrackName()
-                    if lockey ~= nil then
-                        this.trackName:SetLocalizationKey(lockey)
-                        Cron.Halt(timer)
-                    elseif timer.tick > timeout then
-                        self.log_obj:Record(LogLevel.Error, "Failed to get track name when radio popup is activated")
-                        Cron.Halt(timer)
-                    end
-                    timer.tick = timer.tick + 1
-                end)
             else
                 self.av_obj.radio_obj:Stop()
             end
@@ -903,8 +889,13 @@ function Core:SetRadioPopupController()
     ObserveAfter('RadioVolumeSettingsController', 'ChangeValue', function(this)
         if self.event_obj:IsInVehicle() then
             if self.current_station_index <= self.default_station_num then
+                local prev_radio_volume = self.current_radio_volume
                 self.current_radio_volume = this.value:GetText()
-                self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
+                if prev_radio_volume ~= "0%" then
+                    self.av_obj.radio_obj:SetVolumeFromString(self.current_radio_volume)
+                elseif self.current_station_index >= 0 and self.current_station_index <= self.default_station_num then
+                    self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
+                end
             end
         end
     end)
@@ -912,17 +903,15 @@ function Core:SetRadioPopupController()
     ObserveAfter('VehicleRadioPopupGameController', 'OnInitialize', function(this)
         if self.event_obj:IsInVehicle() then
             self.is_opened_radio_popup = true
-            local timeout = math.ceil(1 / self.get_track_name_time_resolution) * self.get_track_name_timeout
             Cron.Every(self.get_track_name_time_resolution, {tick = 1}, function(timer)
                 local lockey = self.av_obj.radio_obj:GetTrackName()
-                if lockey ~= nil then
+                if lockey ~= nil and this.trackName ~= nil then
                     this.trackName:SetLocalizationKey(lockey)
-                    Cron.Halt(timer)
-                elseif timer.tick > timeout then
-                    self.log_obj:Record(LogLevel.Error, "Failed to get track name when radio popup is initialized")
+                end
+                if not self.is_opened_radio_popup or not self.event_obj:IsInVehicle() then
+                    self.log_obj:Record(LogLevel.Info, "Radio Popup is closed")
                     Cron.Halt(timer)
                 end
-                timer.tick = timer.tick + 1
             end)
         end
     end)
@@ -935,14 +924,16 @@ end
 
 function Core:ToggleRadio()
 
-    if self.event_obj:IsInVehicle() and self.current_station_index <= self.default_station_num then
+    if self.event_obj:IsInVehicle() and self.current_station_index >= 0 and self.current_station_index <= self.default_station_num then
         if self.av_obj.radio_obj:IsPlaying() then
             self.av_obj.radio_obj:Stop()
         else
-            -- now only support shuffle play
-            self.current_station_index = math.random(0, self.default_station_num)
+            -- self.current_station_index = math.random(0, self.default_station_num)
             self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
         end
+    elseif self.event_obj:IsInVehicle() then
+        self.log_obj:Record(LogLevel.Info, "Selected station is RadioEXT Station")
+        self.event_obj:ShowRadioPopup()
     end
 
 end

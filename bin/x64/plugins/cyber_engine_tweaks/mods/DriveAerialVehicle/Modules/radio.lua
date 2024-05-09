@@ -18,7 +18,7 @@ function Radio:New(position_obj)
         [2] = 11, -- 101.9 The Dirge - 11
         [3] = 10, -- 103.5 Radio Pebkac - 10
         [4] = 1, -- 88.9 Pacific Dreams - 1
-        [5] = -1, -- 95.2 Samizdat Radio - 9 (not a valid station)
+        [5] = 9, -- 95.2 Samizdat Radio - 9
         [6] = 8, -- 98.7 Body Heat Radio - 8
         [7] = 6, -- 106.9 30 Principales - 6
         [8] = 13, -- 96.1 Ritual FM - 13
@@ -34,6 +34,7 @@ function Radio:New(position_obj)
     obj.volume = 0
     obj.is_playing = false
     obj.is_changing_volume = false
+    obj.plaing_entity_count = 0
     return setmetatable(obj, self)
 end
 
@@ -122,14 +123,19 @@ function Radio:Play(station_index)
             self.play_index = actual_statiton_index
             Cron.Every(DAV.time_resolution, {tick = 1} , function(timer_in)
                 self.is_playing = true
-                for i = 1, #self.radio_entity_list do
-                    self.radio_entity_list[i]:PlayGivenStation()
+                if self.playing_entity_count ~= #self.radio_entity_list then
+                    for i = 1, #self.radio_entity_list do
+                        self.radio_entity_list[i]:PlayGivenStation()
+                    end
+                    self.playing_entity_count = #self.radio_entity_list
                 end
-                self:Move()
                 if #self.radio_entity_list == 0 then
                     self.is_playing = false
+                    self.playing_entity_count = 0
                     Cron.Halt(timer_in)
+                    return
                 end
+                self:Move()
             end)
             Cron.Halt(timer)
         end

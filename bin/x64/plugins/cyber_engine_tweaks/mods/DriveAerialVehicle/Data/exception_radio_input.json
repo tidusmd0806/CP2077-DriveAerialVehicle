@@ -1,7 +1,5 @@
 [
-    "dav_change_view",
-    "dav_toggle_door",
-    "dav_toggle_auto_pilot",
-    "dav_operate_radio",
-    "Phone"
+    "dav_",
+    "Phone",
+    "Exit"
 ]

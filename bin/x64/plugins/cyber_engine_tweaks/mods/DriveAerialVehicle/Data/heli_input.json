@@ -50,7 +50,7 @@
         "value": "ZERO"
     },
     "KEY_WORLD_ENTER_AV": {
-        "name": "dav_get_on",
+        "name": "ChoiceApply",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },

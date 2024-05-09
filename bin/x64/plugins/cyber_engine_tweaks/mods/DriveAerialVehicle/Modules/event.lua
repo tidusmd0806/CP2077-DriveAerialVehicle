@@ -144,22 +144,32 @@ function Event:CheckAllEvents()
         self:CheckCallVehicle()
         self:CheckGarage()
         self:CheckAvailableFreeCall()
+        self:CheckCommonEvent()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
+        self:CheckCommonEvent()
     elseif self.current_situation == Def.Situation.Waiting then
         self:CheckInEntryArea()
         self:CheckInAV()
         self:CheckReturnPurchasedVehicle()
         self:CheckReturnVehicle()
+        self:CheckCommonEvent()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
         self:CheckCollision()
         self:CheckAutoModeChange()
         self:CheckFailAutoPilot()
         self:CheckCustomMappinPosition()
+        self:CheckCommonEvent()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
+        self:CheckCommonEvent()
     end
+
+end
+
+function Event:CheckCommonEvent()
+
     self:CheckSoundRestriction()
 
 end
