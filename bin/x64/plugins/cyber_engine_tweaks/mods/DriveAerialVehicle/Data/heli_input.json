@@ -50,7 +50,7 @@
         "value": "ZERO"
     },
     "KEY_WORLD_ENTER_AV": {
-        "name": "dav_get_on",
+        "name": "ChoiceApply",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
@@ -84,8 +84,13 @@
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
     },
-    "KEY_AV_TOGGLE_RADIO": {
-        "name": "dav_operate_radio",
+    "KEY_AV_TOGGLE_RADIO_PAD": {
+        "name": "dpad_up",
+        "type": "BUTTON_RELEASED",
+        "value": "ZERO"
+    },
+    "KEY_AV_TOGGLE_RADIO_KEY": {
+        "name": "dav_operate_radio_sub",
         "type": "BUTTON_RELEASED",
         "value": "ZERO"
     },
