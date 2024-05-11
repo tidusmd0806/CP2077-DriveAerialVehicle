@@ -35,7 +35,10 @@ function UI:New()
 	obj.selected_flight_mode = Def.FlightMode.Heli
 	obj.max_boost_ratio = 5.0
 	-- enviroment setting
-	obj.max_spawn_frequency = 5
+	obj.max_spawn_frequency_max = 100
+	obj.max_spawn_frequency_min = 20
+	obj.min_spawn_frequency_max = 15
+	obj.min_spawn_frequency_min = 5
 	-- general setting
 	obj.selected_language_name = ""
 	-- info
@@ -556,10 +559,16 @@ function UI:ShowEnviromentSetting()
 		if DAV.user_setting_table.is_enable_community_spawn then
 			ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_spawn_frequency"))
 			local is_used_slider = false
-			local spawn_frequency = DAV.user_setting_table.spawn_frequency
-			DAV.user_setting_table.spawn_frequency, is_used_slider = ImGui.SliderInt("##spawn frequency", DAV.user_setting_table.spawn_frequency, 1, self.max_spawn_frequency, "%d")
-			if not is_used_slider and DAV.user_setting_table.spawn_frequency ~= spawn_frequency then
-				self.av_obj.max_freeze_count = math.floor(100 / DAV.user_setting_table.spawn_frequency)
+			local max_spawn_frequency = DAV.user_setting_table.max_spawn_frequency
+			DAV.user_setting_table.max_spawn_frequency, is_used_slider = ImGui.SliderInt("##max spawn frequency", DAV.user_setting_table.max_spawn_frequency, self.max_spawn_frequency_min, self.max_spawn_frequency_max, "%d")
+			if not is_used_slider and DAV.user_setting_table.max_spawn_frequency ~= max_spawn_frequency then
+				self.av_obj.max_freeze_count = DAV.user_setting_table.max_spawn_frequency
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
+			local min_spawn_frequency = DAV.user_setting_table.min_spawn_frequency
+			DAV.user_setting_table.min_spawn_frequency, is_used_slider = ImGui.SliderInt("##min spawn frequency", DAV.user_setting_table.min_spawn_frequency, self.min_spawn_frequency_min, self.min_spawn_frequency_max, "%d")
+			if not is_used_slider and DAV.user_setting_table.min_spawn_frequency ~= min_spawn_frequency then
+				self.av_obj.min_freeze_count = DAV.user_setting_table.min_spawn_frequency
 				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			end
 		end

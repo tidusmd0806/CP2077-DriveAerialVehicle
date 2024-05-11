@@ -32,7 +32,7 @@
         "time_to_min_heli_lift_force": 1.0,
         "heli_air_resistance_constant": 400,
         "spinner_roll_speed": 1.0,
-        "spinner_yaw_speed": 0.6,
+        "spinner_yaw_speed": 1.0,
         "spinner_roll_restore_speed": 0.5,
         "max_spinner_roll": 30,
         "min_spinner_roll": -30,

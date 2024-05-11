@@ -637,22 +637,6 @@ function Core:ToggleCamera()
 
 end
 
-function Core:IsEnableFreeze()
-
-    if not DAV.user_setting_table.is_enable_community_spawn then
-        return false
-    end
-
-    local freeze = self.is_freezing
-    self.is_freezing = false
-    if freeze and self.av_obj.engine_obj:GetSpeed() < self.max_speed_for_freezing then
-        return true
-    else
-        return false
-    end
-
-end
-
 function Core:SetMappinController()
 
     ObserveAfter("BaseMappinBaseController", "UpdateRootState", function(this)

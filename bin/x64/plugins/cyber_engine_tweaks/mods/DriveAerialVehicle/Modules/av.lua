@@ -33,7 +33,9 @@ function AV:New(all_models)
 	obj.min_stack_count = 10
 	obj.limit_stack_count = 500
 	-- for spawning vehicle and pedistrian
-	obj.max_freeze_count = 50
+	obj.max_freeze_count = 30
+	obj.min_freeze_count = 8
+	obj.max_speed_for_freezing = 100
 	---dynamic---
 	-- summon
 	obj.entity_id = nil
@@ -69,12 +71,6 @@ function AV:New(all_models)
 	obj.is_failture_auto_pilot = false
 	-- for spawning vehicle and pedistrian
 	obj.freeze_count = 0
-	obj.x_total = 0
-	obj.y_total = 0
-	obj.z_total = 0
-	obj.roll_total = 0
-	obj.pitch_total = 0
-	obj.yaw_total = 0
 	return setmetatable(obj, self)
 end
 
@@ -480,7 +476,7 @@ end
 
 function AV:Move(x, y, z, roll, pitch, yaw)
 
-	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) then
+	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw, false) then
 		return false
 	end
 
@@ -512,45 +508,45 @@ function AV:Operate(action_commands)
 
 	self.is_collision = false
 
-	x_total = x_total / #action_commands + self.x_total
-	y_total = y_total / #action_commands + self.y_total
-	z_total = z_total / #action_commands + self.z_total
-	roll_total = roll_total / #action_commands + self.roll_total
-	pitch_total = pitch_total / #action_commands + self.pitch_total
-	yaw_total = yaw_total / #action_commands + self.yaw_total
+	x_total = x_total / #action_commands
+	y_total = y_total / #action_commands
+	z_total = z_total / #action_commands
+	roll_total = roll_total / #action_commands
+	pitch_total = pitch_total / #action_commands
+	yaw_total = yaw_total / #action_commands
 
 	if x_total == 0 and y_total == 0 and z_total == 0 and roll_total == 0 and pitch_total == 0 and yaw_total == 0 then
 		self.log_obj:Record(LogLevel.Debug, "No operation")
 		return false
 	end
 
-	-- to freeze for spawning vehicle and pedistrian
-	if self.freeze_count < 2 and DAV.core_obj:IsEnableFreeze() then
+	local speed_count = self.max_freeze_count
+	local level_num = 10
+	local level_speed_unit = self.max_speed_for_freezing / level_num
+	local speed_count_unit = math.ceil((self.max_freeze_count - self.min_freeze_count) / level_num)
+	for level = 1, level_num do
+		if self.engine_obj:GetSpeed() < level_speed_unit * level then
+			speed_count = self.min_freeze_count + speed_count_unit * (level - 1)
+			break
+		end
+	end
+
+	local is_freeze = false
+	-- Freeze for spawning vehicle and pedistrian
+	if self.freeze_count < 1 and self:IsEnableFreeze() then
 		self.freeze_count = self.freeze_count + 1
-		self.x_total = x_total
-		self.y_total = y_total
-		self.z_total = z_total
-		self.roll_total = roll_total
-		self.pitch_total = pitch_total
-		self.yaw_total = yaw_total
-		return false
-	elseif self.freeze_count >= self.max_freeze_count then
+		is_freeze = true
+	elseif self.freeze_count >= speed_count then
 		self.freeze_count = 0
 	elseif self.freeze_count >= 1 then
 		self.freeze_count = self.freeze_count + 1
-		self.x_total = 0
-		self.y_total = 0
-		self.z_total = 0
-		self.roll_total = 0
-		self.pitch_total = 0
-		self.yaw_total = 0
 	end
 
 	if DAV.user_setting_table.is_disable_spinner_roll_tilt then
 		roll_total = 0
 	end
 
-	local res = self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
+	local res = self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total, is_freeze)
 
 	if res == Def.TeleportResult.Collision then
 		self.engine_obj:SetSpeedAfterRebound()
@@ -574,6 +570,21 @@ function AV:Operate(action_commands)
 	self.colison_count = 0
 
 	return true
+
+end
+
+function AV:IsEnableFreeze()
+
+    if not DAV.user_setting_table.is_enable_community_spawn then
+        return false
+    end
+
+    if self.engine_obj:GetSpeed() < self.max_speed_for_freezing then
+        return true
+    else
+        return false
+    end
+
 end
 
 ---@param position Vector4

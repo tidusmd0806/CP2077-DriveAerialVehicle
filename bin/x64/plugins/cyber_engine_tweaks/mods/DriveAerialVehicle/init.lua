@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "1.5.1",
+	version = "1.5.2",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -61,7 +61,8 @@ DAV.user_setting_table = {
     is_disable_spinner_roll_tilt = false,
     --- environment
     is_enable_community_spawn = true,
-    spawn_frequency = 2,
+    max_spawn_frequency = 30,
+    min_spawn_frequency = 8,
     is_mute_all = false,
     is_mute_flight = false,
     --- general

@@ -158,20 +158,32 @@ function Position:GetSpawnOrientation(angle)
     return EulerAngles.ToQuat(Vector4.ToRotation(self:GetPlayerAroundDirection(angle)))
 end
 
-function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
+function Position:SetNextPosition(x, y, z, roll, pitch, yaw, is_freeze)
 
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Error, "No vehicle entity for SetNextPosition")
         return Def.TeleportResult.Error
     end
 
-    local pos = self:GetPosition()
+    local pos
+    if not is_freeze then
+        pos = self:GetPosition()
+    else
+        pos = self.next_position
+    end
     self.next_position = Vector4.new(pos.x + x, pos.y + y, pos.z + z, 1.0)
 
-    local rot = self:GetEulerAngles()
+    local rot
+    if not is_freeze then
+        rot = self:GetEulerAngles()
+    else
+        rot = self.next_angle
+    end
     self.next_angle = EulerAngles.new(rot.roll + roll, rot.pitch + pitch, rot.yaw + yaw)
 
-    self:ChangePosition()
+    if not is_freeze then
+        self:ChangePosition()
+    end
 
     if self:CheckCollision(pos, self.next_position) then
         self.log_obj:Record(LogLevel.Debug, "Collision Detected")
@@ -179,7 +191,9 @@ function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
         self.next_position = Vector4.new(pos.x, pos.y, pos.z, 1.0)
         self.next_angle = EulerAngles.new(rot.roll, rot.pitch, rot.yaw)
 
-        self:ChangePosition()
+        if not is_freeze then
+            self:ChangePosition()
+        end
 
         if self.is_power_on then
             self.collision_count = self.collision_count + 1
