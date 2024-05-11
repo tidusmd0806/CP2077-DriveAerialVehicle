@@ -1,6 +1,6 @@
 {
     "language": "English",
-    "version": "1.5.0",
+    "version": "1.5.2",
 
     "ui_main_window_title": "Drive an Aerial Vehicle Menu",
     "ui_tab_garage": "Garage",
@@ -54,11 +54,13 @@
 
     "ui_environment_setting_community_spawn" : "Community Spawn Setting",
     "ui_environment_enable_community_spawn": "Enable Crowd and Vehicles Spawn in Flight",
-    "ui_environment_spawn_frequency": "Spawn Frequency (Number of spawns per second)",
     "ui_environment_warning_message_about_community_spawn": "Enabling this feature may cause screen stuttering.",
-    "ui_environment_warning_message_about_spawn_frequency": "The higher the spawn frequency, the more likely it is to cause screen stuttering.",
+    "ui_environment_advanced_setting": "Advanced Settings",
+    "ui_environment_limit_spawn_speed": "Limit Speed to Allow Spawning (m/s)",
+    "ui_environment_maximum_update_interval": "Maximum update interval (10ms/times)",
+    "ui_environment_minimum_update_interval": "Minimum update interval (10ms/times)",
     "ui_environment_setting_Sound_title" : "Sound Setting",
-    "ui_environment_setting_mute_all" : "Mute All Sounds (except for door sounds)",
+    "ui_environment_setting_mute_all" : "Mute All Sounds (except for door sounds and Helicopter rotor)",
     "ui_environment_setting_mute_flight" : "Mute Sounds in Flight for Listening to the Radio",
 
     "ui_setting_language": "Language",

@@ -555,26 +555,33 @@ function UI:ShowEnviromentSetting()
 		if DAV.user_setting_table.is_enable_community_spawn ~= is_enable_community_spawn then
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		end
-
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_community_spawn"))
 		if DAV.user_setting_table.is_enable_community_spawn then
-			ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_spawn_frequency"))
+			ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_environment_advanced_setting"))
+			ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_limit_spawn_speed"))
 			local is_used_slider = false
+			local max_speed_for_freezing = DAV.user_setting_table.max_speed_for_freezing
+			DAV.user_setting_table.max_speed_for_freezing, is_used_slider = ImGui.SliderInt("##max spawn speed", DAV.user_setting_table.max_speed_for_freezing, 0, 400, "%d")
+			if not is_used_slider and DAV.user_setting_table.max_speed_for_freezing ~= max_speed_for_freezing then
+				self.av_obj.max_speed_for_freezing = DAV.user_setting_table.max_speed_for_freezing
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
+			ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_maximum_update_interval"))
 			local max_spawn_frequency = DAV.user_setting_table.max_spawn_frequency
-			DAV.user_setting_table.max_spawn_frequency, is_used_slider = ImGui.SliderInt("##max spawn frequency", DAV.user_setting_table.max_spawn_frequency, self.max_spawn_frequency_min, self.max_spawn_frequency_max, "%d")
+			local min_spawn_frequency = DAV.user_setting_table.min_spawn_frequency
+			DAV.user_setting_table.max_spawn_frequency, is_used_slider = ImGui.SliderInt("##max spawn frequency", DAV.user_setting_table.max_spawn_frequency, min_spawn_frequency + 1, self.max_spawn_frequency_max, "%d")
 			if not is_used_slider and DAV.user_setting_table.max_spawn_frequency ~= max_spawn_frequency then
 				self.av_obj.max_freeze_count = DAV.user_setting_table.max_spawn_frequency
 				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			end
-			local min_spawn_frequency = DAV.user_setting_table.min_spawn_frequency
-			DAV.user_setting_table.min_spawn_frequency, is_used_slider = ImGui.SliderInt("##min spawn frequency", DAV.user_setting_table.min_spawn_frequency, self.min_spawn_frequency_min, self.min_spawn_frequency_max, "%d")
+			ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_minimum_update_interval"))
+			DAV.user_setting_table.min_spawn_frequency, is_used_slider = ImGui.SliderInt("##min spawn frequency", DAV.user_setting_table.min_spawn_frequency, self.min_spawn_frequency_min, max_spawn_frequency - 1, "%d")
 			if not is_used_slider and DAV.user_setting_table.min_spawn_frequency ~= min_spawn_frequency then
 				self.av_obj.min_freeze_count = DAV.user_setting_table.min_spawn_frequency
 				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			end
 		end
 
-		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_community_spawn"))
-		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_spawn_frequency"))
 	end
 
 	ImGui.Spacing()

@@ -24,10 +24,6 @@ function Core:New()
     obj.relative_dead_zone = 0.01
     obj.relative_resolution = 0.1
     obj.hold_progress = 0.9
-    -- enviroment
-    obj.max_speed_for_freezing = 100
-    obj.freeze_detect_range_mouse = 1
-    obj.freeze_detect_range_stick = 0.1
     -- custom mappin
     obj.huge_distance = 1000000
     obj.max_mappin_history = 10
@@ -51,8 +47,6 @@ function Core:New()
     obj.current_purchased_vehicle_count = 0
     obj.is_vehicle_call = false
     obj.is_purchased_vehicle_call = false
-    -- enviroment
-    obj.is_freezing = false
     -- custom mappin
     obj.current_custom_mappin_position = Vector4.new(0, 0, 0, 1)
     obj.fast_travel_position_list = {}
@@ -335,10 +329,6 @@ function Core:SetInputListener()
                     return
                 end
             end
-        end
-
-        if (string.match(action_name, "mouse") and action_value > self.freeze_detect_range_mouse) or (string.match(action_name, "right_stick") and action_value > self.freeze_detect_range_stick) then
-            self.is_freezing = true
         end
 
         self.log_obj:Record(LogLevel.Debug, "Action Name: " .. action_name .. " Type: " .. action_type .. " Value: " .. action_value)

@@ -33,8 +33,6 @@ end
 
 function Debug:ImGuiMain()
 
-    -- ImGui.SetNextWindowPos(100, 500, ImGuiCond.FirstUseEver) -- set window position x, y
-    -- ImGui.SetNextWindowSize(800, 600, ImGuiCond.Appearing) -- set window size w, h
     ImGui.Begin("DAV DEBUG WINDOW")
     ImGui.Text("Debug Mode : On")
 
@@ -66,11 +64,19 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
-        Observe('PopupsManager', 'OnPhotomodeUpdate', function(this)
-            print("test")
-            print(this:GetClassName())
+        Observe('QuestsSystem', 'SetFact', function(this, factName, factValue)
+            print("SetFact")
+            print(factName.value .. " : " .. factValue)
         end)
-        Observe('CameraComponent', 'SetZoom', function(this)
+        -- Observe('QuestsSystem', 'RegisterEntity', function(this, factName, entity)
+        --     print("RegisterEntity")
+        --     print(factName.value)
+        -- end)
+        Observe('QuestsSystem', 'RegisterListener', function(this, factName, listener, funcname)
+            print("RegisterListener")
+            print(factName.value .. " : " .. listener:GetClassName().value .. " : " .. funcname.value)
+        end)
+        Observe('FastTravelGameController', 'PerformFastTravel', function(this)
             print(this:GetClassName())
         end)
     end
@@ -382,34 +388,91 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        local vehicle = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        GetPlayer():GetPocketRadio():HandleVehicleMounted(vehicle)
+        local player = Game.GetPlayer()
+        local ent_id = self.metro_entity:GetEntityID()
+        local seat = "Passengers"
+        local data = NewObject('handle:gameMountEventData')
+        data.isInstant = false
+        data.slotName = seat
+        data.mountParentEntityId = ent_id
+
+
+        local slot_id = NewObject('gamemountingMountingSlotId')
+        slot_id.id = seat
+
+        local mounting_info = NewObject('gamemountingMountingInfo')
+        mounting_info.childId = player:GetEntityID()
+        mounting_info.parentId = ent_id
+        mounting_info.slotId = slot_id
+
+        local mounting_request = NewObject('handle:gamemountingMountingRequest')
+        mounting_request.lowLevelMountingInfo = mounting_info
+        mounting_request.mountData = data
+
+        Game.GetMountingFacility():Mount(mounting_request)
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
-        GetPlayer():GetQuickSlotsManager():SendRadioEvent(true, true, 5)
+        local player = Game.GetPlayer()
+        self.metro_entity = GetMountedVehicle(player)
+        Game.GetWorkspotSystem():UnmountFromVehicle(self.metro_entity, player, false, Vector4.new(0, 0, 0, 1), Quaternion.new(0, 0, 0, 1), "Passengers")
         print("Excute Test Function 5")
     end
     ImGui.SameLine()
     if ImGui.Button("TF6") then
-        DAV.core_obj.event_obj:ShowRadioPopup()
+        local player = Game.GetPlayer()
+        Game.GetWorkspotSystem():StopInDevice(player)
         print("Excute Test Function 6")
     end
     if ImGui.Button("TF7") then
-        DAV.core_obj.av_obj.radio_obj:Play(5)
+        local player = Game.GetPlayer()
+        self.metro_entity = GetMountedVehicle(player)
+        local ent_id = self.metro_entity:GetEntityID()
+        local seat = "Passengers"
+
+        local data = NewObject('handle:gameMountEventData')
+        data.isInstant = true
+        data.slotName = seat
+        data.mountParentEntityId = ent_id
+        data.entryAnimName = "forcedTransition"
+
+        local slotID = NewObject('gamemountingMountingSlotId')
+        slotID.id = seat
+
+        local mounting_info = NewObject('gamemountingMountingInfo')
+        mounting_info.childId = player:GetEntityID()
+        mounting_info.parentId = ent_id
+        mounting_info.slotId = slotID
+
+        local mount_event = NewObject('handle:gamemountingUnmountingRequest')
+        mount_event.lowLevelMountingInfo = mounting_info
+        mount_event.mountData = data
+
+		Game.GetMountingFacility():Unmount(mount_event)
         print("Excute Test Function 7")
     end
     ImGui.SameLine()
     if ImGui.Button("TF8") then
-        DAV.core_obj.av_obj.radio_obj:Stop()
+        local name = CName.new("ue_metro_next_station")
+        Game.GetQuestsSystem():SetFact(name, 1)
         print("Excute Test Function 8")
     end
     ImGui.SameLine()
     if ImGui.Button("TF9") then
-        local player = Game.GetPlayer()
-		local seID = TweakDBID.new("GameplayRestriction.NoScanning");
-		StatusEffectHelper.ApplyStatusEffect(player, seID)
+        Cron.Every(0.01, {tick = 1}, function(timer)
+            timer.tick = timer.tick + 1
+            local player = Game.GetPlayer()
+            local pos = player:GetWorldPosition()
+            local angle = player:GetWorldOrientation():ToEulerAngles()
+            local forward = player:GetWorldForward()
+            local length = 0.1
+            local new_pos = Vector4.new(pos.x + forward.x * length, pos.y + forward.y * length, pos.z + forward.z * length, pos.w)
+            Game.GetTeleportationFacility():Teleport(player, new_pos, angle)
+            if timer.tick > 1000 then
+                Cron.Halt(timer)
+            end
+        end)
         print("Excute Test Function 9")
     end
     ImGui.SameLine()

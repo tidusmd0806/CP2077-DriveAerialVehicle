@@ -33,9 +33,7 @@ function AV:New(all_models)
 	obj.min_stack_count = 10
 	obj.limit_stack_count = 500
 	-- for spawning vehicle and pedistrian
-	obj.max_freeze_count = 30
-	obj.min_freeze_count = 8
-	obj.max_speed_for_freezing = 100
+	obj.freeze_stage_num = 10
 	---dynamic---
 	-- summon
 	obj.entity_id = nil
@@ -71,6 +69,9 @@ function AV:New(all_models)
 	obj.is_failture_auto_pilot = false
 	-- for spawning vehicle and pedistrian
 	obj.freeze_count = 0
+	obj.max_freeze_count = 30
+	obj.min_freeze_count = 8
+	obj.max_speed_for_freezing = 100
 	return setmetatable(obj, self)
 end
 
@@ -521,10 +522,9 @@ function AV:Operate(action_commands)
 	end
 
 	local speed_count = self.max_freeze_count
-	local level_num = 10
-	local level_speed_unit = self.max_speed_for_freezing / level_num
-	local speed_count_unit = math.ceil((self.max_freeze_count - self.min_freeze_count) / level_num)
-	for level = 1, level_num do
+	local level_speed_unit = self.max_speed_for_freezing / self.freeze_stage_num
+	local speed_count_unit = math.ceil((self.max_freeze_count - self.min_freeze_count) / self.freeze_stage_num)
+	for level = 1, self.freeze_stage_num do
 		if self.engine_obj:GetSpeed() < level_speed_unit * level then
 			speed_count = self.min_freeze_count + speed_count_unit * (level - 1)
 			break

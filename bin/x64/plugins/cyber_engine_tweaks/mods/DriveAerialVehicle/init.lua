@@ -61,8 +61,9 @@ DAV.user_setting_table = {
     is_disable_spinner_roll_tilt = false,
     --- environment
     is_enable_community_spawn = true,
-    max_spawn_frequency = 30,
-    min_spawn_frequency = 8,
+    max_speed_for_freezing = 150,
+    max_spawn_frequency = 20,
+    min_spawn_frequency = 10,
     is_mute_all = false,
     is_mute_flight = false,
     --- general
