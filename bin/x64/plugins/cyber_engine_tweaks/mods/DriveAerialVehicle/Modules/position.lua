@@ -55,8 +55,8 @@ end
 
             ABFE is the front face
             CDHG is the back face
-            EFHG is the left face
             ABDC is the right face
+            EFHG is the left face
             ACGE is the top face
             BDHF is the bottom face           
     ]]
@@ -71,6 +71,12 @@ function Position:SetModel(index)
         { x = self.all_models[index].shape.F.x, y = self.all_models[index].shape.F.y, z = self.all_models[index].shape.F.z },
         { x = self.all_models[index].shape.G.x, y = self.all_models[index].shape.G.y, z = self.all_models[index].shape.G.z },
         { x = self.all_models[index].shape.H.x, y = self.all_models[index].shape.H.y, z = self.all_models[index].shape.H.z },
+        { x = self.all_models[index].shape.ABFE.x, y = self.all_models[index].shape.ABFE.y, z = self.all_models[index].shape.ABFE.z },
+        { x = self.all_models[index].shape.CDHG.x, y = self.all_models[index].shape.CDHG.y, z = self.all_models[index].shape.CDHG.z },
+        { x = self.all_models[index].shape.ABDC.x, y = self.all_models[index].shape.ABDC.y, z = self.all_models[index].shape.ABDC.z },
+        { x = self.all_models[index].shape.EFHG.x, y = self.all_models[index].shape.EFHG.y, z = self.all_models[index].shape.EFHG.z },
+        { x = self.all_models[index].shape.ACGE.x, y = self.all_models[index].shape.ACGE.y, z = self.all_models[index].shape.ACGE.z },
+        { x = self.all_models[index].shape.BDHF.x, y = self.all_models[index].shape.BDHF.y, z = self.all_models[index].shape.BDHF.z }
     }
     self.entry_point = { x = self.all_models[index].entry_point.x, y = self.all_models[index].entry_point.y, z = self.all_models[index].entry_point.z }
     self.entry_area_radius = self.all_models[index].entry_area_radius
@@ -317,6 +323,18 @@ function Position:AvoidStacking()
         self.next_position = Vector4.new(self.dividing_rate * self.corners[2].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[2].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[2].z + (1 - self.dividing_rate) * pos.z, 1.0)
     elseif self.stack_corner_num == 8 then
         self.next_position = Vector4.new(self.dividing_rate * self.corners[1].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[1].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[1].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 9 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[10].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[10].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[10].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 10 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[9].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[9].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[9].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 11 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[12].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[12].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[12].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 12 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[11].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[11].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[11].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 13 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[14].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[14].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[14].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 14 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[13].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[13].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[13].z + (1 - self.dividing_rate) * pos.z, 1.0)
     end
 
     self.next_angle = EulerAngles.new(0, 0, angle.yaw)

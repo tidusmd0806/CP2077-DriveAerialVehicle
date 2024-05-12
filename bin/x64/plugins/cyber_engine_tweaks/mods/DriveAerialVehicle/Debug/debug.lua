@@ -7,6 +7,7 @@ function Debug:New(core_obj)
     obj.core_obj = core_obj
 
     -- set parameters
+    obj.is_set_observer = false
     obj.is_im_gui_rw_count = false
     obj.is_im_gui_situation = false
     obj.is_im_gui_player_position = false
@@ -15,19 +16,19 @@ function Debug:New(core_obj)
     obj.is_im_gui_spinner_info = false
     obj.is_im_gui_engine_info = false
     obj.is_im_gui_sound_check = false
+    obj.selected_sound = "100_call_vehicle"
     obj.is_im_gui_mappin_position = false
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_status = false
     obj.is_im_gui_change_auto_setting = false
     obj.is_im_gui_radio_info = false
-    obj.is_set_observer = false
+    obj.is_im_gui_measurement = false
     obj.is_exist_av_1 = false
     obj.is_exist_av_2 = false
     obj.is_exist_av_3 = false
     obj.is_exist_av_4 = false
     obj.is_exist_av_5 = false
 
-    obj.selected_sound = "first"
     return setmetatable(obj, self)
 end
 
@@ -53,6 +54,7 @@ function Debug:ImGuiMain()
     self:ImGuiToggleAutoPilotPanel()
     self:ImGuiChangeAutoPilotSetting()
     self:ImGuiRadioInfo()
+    self:ImGuiMeasurement()
     self:ImGuiToggleGarageVehicle()
     self:ImGuiExcuteFunction()
 
@@ -64,21 +66,6 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
-        Observe('QuestsSystem', 'SetFact', function(this, factName, factValue)
-            print("SetFact")
-            print(factName.value .. " : " .. factValue)
-        end)
-        -- Observe('QuestsSystem', 'RegisterEntity', function(this, factName, entity)
-        --     print("RegisterEntity")
-        --     print(factName.value)
-        -- end)
-        Observe('QuestsSystem', 'RegisterListener', function(this, factName, listener, funcname)
-            print("RegisterListener")
-            print(factName.value .. " : " .. listener:GetClassName().value .. " : " .. funcname.value)
-        end)
-        Observe('FastTravelGameController', 'PerformFastTravel', function(this)
-            print(this:GetClassName())
-        end)
     end
     self.is_set_observer = true
 
@@ -135,14 +122,6 @@ function Debug:ImGuiPlayerPosition()
         local pitch = string.format("%.2f", Game.GetPlayer():GetWorldOrientation():ToEulerAngles().pitch)
         local yaw = string.format("%.2f", Game.GetPlayer():GetWorldOrientation():ToEulerAngles().yaw)
         ImGui.Text("[world]Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
-        if self.core_obj.av_obj.position_obj.entity == nil then
-            return
-        end
-        local absolute_position = Utils:WorldToBodyCoordinates(Game.GetPlayer():GetWorldPosition(), self.core_obj.av_obj.position_obj:GetPosition(), self.core_obj.av_obj.position_obj:GetQuaternion())
-        local absolute_position_x = string.format("%.2f", absolute_position.x)
-        local absolute_position_y = string.format("%.2f", absolute_position.y)
-        local absolute_position_z = string.format("%.2f", absolute_position.z)
-        ImGui.Text("[local]X:" .. absolute_position_x .. ", Y:" .. absolute_position_y .. ", Z:" .. absolute_position_z)
     end
 end
 
@@ -339,6 +318,41 @@ function Debug:ImGuiRadioInfo()
         ImGui.Text("Actual Station Index : " .. station_index .. ", Station Name : " .. station_name.value)
         ImGui.Text("Track Name : " .. track_name)
         ImGui.Text("Is Playing : " .. tostring(is_playing) .. ", Is Radio Popup : " .. tostring(is_opened_radio_popup))
+    end
+end
+
+function Debug:ImGuiMeasurement()
+    self.is_im_gui_measurement = ImGui.Checkbox("[ImGui] Measurement", self.is_im_gui_measurement)
+    if self.is_im_gui_measurement then
+        local res_x, res_y = GetDisplayResolution()
+        ImGui.SetNextWindowPos((res_x / 2) - 20, (res_y / 2) - 20)
+        ImGui.SetNextWindowSize(40, 40)
+        ImGui.SetNextWindowSizeConstraints(40, 40, 40, 40)
+        ---
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 10)
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 5)
+        ---
+        ImGui.Begin("Crosshair", ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
+        ImGui.End()
+        ---
+        ImGui.PopStyleVar(2)
+        ImGui.PopStyleColor(1)
+        local look_at_pos = Game.GetTargetingSystem():GetLookAtPosition(Game.GetPlayer())
+        if self.core_obj.av_obj.position_obj.entity == nil then
+            return
+        end
+        local origin = self.core_obj.av_obj.position_obj:GetPosition()
+        local right = self.core_obj.av_obj.position_obj.entity:GetWorldRight()
+        local forward = self.core_obj.av_obj.position_obj.entity:GetWorldForward()
+        local up = self.core_obj.av_obj.position_obj.entity:GetWorldUp()
+        local relative = Vector4.new(look_at_pos.x - origin.x, look_at_pos.y - origin.y, look_at_pos.z - origin.z, 1)
+        local x = Vector4.Dot(relative, right)
+        local y = Vector4.Dot(relative, forward)
+        local z = Vector4.Dot(relative, up)
+        local absolute_position_x = string.format("%.2f", x)
+        local absolute_position_y = string.format("%.2f", y)
+        local absolute_position_z = string.format("%.2f", z)
+        ImGui.Text("[LookAt]X:" .. absolute_position_x .. ", Y:" .. absolute_position_y .. ", Z:" .. absolute_position_z) 
     end
 end
 
