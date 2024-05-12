@@ -7,6 +7,7 @@ function Debug:New(core_obj)
     obj.core_obj = core_obj
 
     -- set parameters
+    obj.is_set_observer = false
     obj.is_im_gui_rw_count = false
     obj.is_im_gui_situation = false
     obj.is_im_gui_player_position = false
@@ -15,26 +16,24 @@ function Debug:New(core_obj)
     obj.is_im_gui_spinner_info = false
     obj.is_im_gui_engine_info = false
     obj.is_im_gui_sound_check = false
+    obj.selected_sound = "100_call_vehicle"
     obj.is_im_gui_mappin_position = false
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_status = false
     obj.is_im_gui_change_auto_setting = false
     obj.is_im_gui_radio_info = false
-    obj.is_set_observer = false
+    obj.is_im_gui_measurement = false
     obj.is_exist_av_1 = false
     obj.is_exist_av_2 = false
     obj.is_exist_av_3 = false
     obj.is_exist_av_4 = false
     obj.is_exist_av_5 = false
 
-    obj.selected_sound = "first"
     return setmetatable(obj, self)
 end
 
 function Debug:ImGuiMain()
 
-    -- ImGui.SetNextWindowPos(100, 500, ImGuiCond.FirstUseEver) -- set window position x, y
-    -- ImGui.SetNextWindowSize(800, 600, ImGuiCond.Appearing) -- set window size w, h
     ImGui.Begin("DAV DEBUG WINDOW")
     ImGui.Text("Debug Mode : On")
 
@@ -55,6 +54,7 @@ function Debug:ImGuiMain()
     self:ImGuiToggleAutoPilotPanel()
     self:ImGuiChangeAutoPilotSetting()
     self:ImGuiRadioInfo()
+    self:ImGuiMeasurement()
     self:ImGuiToggleGarageVehicle()
     self:ImGuiExcuteFunction()
 
@@ -66,13 +66,6 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
-        Observe('PopupsManager', 'OnPhotomodeUpdate', function(this)
-            print("test")
-            print(this:GetClassName())
-        end)
-        Observe('CameraComponent', 'SetZoom', function(this)
-            print(this:GetClassName())
-        end)
     end
     self.is_set_observer = true
 
@@ -129,14 +122,6 @@ function Debug:ImGuiPlayerPosition()
         local pitch = string.format("%.2f", Game.GetPlayer():GetWorldOrientation():ToEulerAngles().pitch)
         local yaw = string.format("%.2f", Game.GetPlayer():GetWorldOrientation():ToEulerAngles().yaw)
         ImGui.Text("[world]Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
-        if self.core_obj.av_obj.position_obj.entity == nil then
-            return
-        end
-        local absolute_position = Utils:WorldToBodyCoordinates(Game.GetPlayer():GetWorldPosition(), self.core_obj.av_obj.position_obj:GetPosition(), self.core_obj.av_obj.position_obj:GetQuaternion())
-        local absolute_position_x = string.format("%.2f", absolute_position.x)
-        local absolute_position_y = string.format("%.2f", absolute_position.y)
-        local absolute_position_z = string.format("%.2f", absolute_position.z)
-        ImGui.Text("[local]X:" .. absolute_position_x .. ", Y:" .. absolute_position_y .. ", Z:" .. absolute_position_z)
     end
 end
 
@@ -336,6 +321,41 @@ function Debug:ImGuiRadioInfo()
     end
 end
 
+function Debug:ImGuiMeasurement()
+    self.is_im_gui_measurement = ImGui.Checkbox("[ImGui] Measurement", self.is_im_gui_measurement)
+    if self.is_im_gui_measurement then
+        local res_x, res_y = GetDisplayResolution()
+        ImGui.SetNextWindowPos((res_x / 2) - 20, (res_y / 2) - 20)
+        ImGui.SetNextWindowSize(40, 40)
+        ImGui.SetNextWindowSizeConstraints(40, 40, 40, 40)
+        ---
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 10)
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 5)
+        ---
+        ImGui.Begin("Crosshair", ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
+        ImGui.End()
+        ---
+        ImGui.PopStyleVar(2)
+        ImGui.PopStyleColor(1)
+        local look_at_pos = Game.GetTargetingSystem():GetLookAtPosition(Game.GetPlayer())
+        if self.core_obj.av_obj.position_obj.entity == nil then
+            return
+        end
+        local origin = self.core_obj.av_obj.position_obj:GetPosition()
+        local right = self.core_obj.av_obj.position_obj.entity:GetWorldRight()
+        local forward = self.core_obj.av_obj.position_obj.entity:GetWorldForward()
+        local up = self.core_obj.av_obj.position_obj.entity:GetWorldUp()
+        local relative = Vector4.new(look_at_pos.x - origin.x, look_at_pos.y - origin.y, look_at_pos.z - origin.z, 1)
+        local x = Vector4.Dot(relative, right)
+        local y = Vector4.Dot(relative, forward)
+        local z = Vector4.Dot(relative, up)
+        local absolute_position_x = string.format("%.2f", x)
+        local absolute_position_y = string.format("%.2f", y)
+        local absolute_position_z = string.format("%.2f", z)
+        ImGui.Text("[LookAt]X:" .. absolute_position_x .. ", Y:" .. absolute_position_y .. ", Z:" .. absolute_position_z) 
+    end
+end
+
 function Debug:ImGuiToggleGarageVehicle()
     if ImGui.Button("av1") then
         self.is_exist_av_1 = not self.is_exist_av_1
@@ -382,34 +402,91 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        local vehicle = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        GetPlayer():GetPocketRadio():HandleVehicleMounted(vehicle)
+        local player = Game.GetPlayer()
+        local ent_id = self.metro_entity:GetEntityID()
+        local seat = "Passengers"
+        local data = NewObject('handle:gameMountEventData')
+        data.isInstant = false
+        data.slotName = seat
+        data.mountParentEntityId = ent_id
+
+
+        local slot_id = NewObject('gamemountingMountingSlotId')
+        slot_id.id = seat
+
+        local mounting_info = NewObject('gamemountingMountingInfo')
+        mounting_info.childId = player:GetEntityID()
+        mounting_info.parentId = ent_id
+        mounting_info.slotId = slot_id
+
+        local mounting_request = NewObject('handle:gamemountingMountingRequest')
+        mounting_request.lowLevelMountingInfo = mounting_info
+        mounting_request.mountData = data
+
+        Game.GetMountingFacility():Mount(mounting_request)
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
-        GetPlayer():GetQuickSlotsManager():SendRadioEvent(true, true, 5)
+        local player = Game.GetPlayer()
+        self.metro_entity = GetMountedVehicle(player)
+        Game.GetWorkspotSystem():UnmountFromVehicle(self.metro_entity, player, false, Vector4.new(0, 0, 0, 1), Quaternion.new(0, 0, 0, 1), "Passengers")
         print("Excute Test Function 5")
     end
     ImGui.SameLine()
     if ImGui.Button("TF6") then
-        DAV.core_obj.event_obj:ShowRadioPopup()
+        local player = Game.GetPlayer()
+        Game.GetWorkspotSystem():StopInDevice(player)
         print("Excute Test Function 6")
     end
     if ImGui.Button("TF7") then
-        DAV.core_obj.av_obj.radio_obj:Play(5)
+        local player = Game.GetPlayer()
+        self.metro_entity = GetMountedVehicle(player)
+        local ent_id = self.metro_entity:GetEntityID()
+        local seat = "Passengers"
+
+        local data = NewObject('handle:gameMountEventData')
+        data.isInstant = true
+        data.slotName = seat
+        data.mountParentEntityId = ent_id
+        data.entryAnimName = "forcedTransition"
+
+        local slotID = NewObject('gamemountingMountingSlotId')
+        slotID.id = seat
+
+        local mounting_info = NewObject('gamemountingMountingInfo')
+        mounting_info.childId = player:GetEntityID()
+        mounting_info.parentId = ent_id
+        mounting_info.slotId = slotID
+
+        local mount_event = NewObject('handle:gamemountingUnmountingRequest')
+        mount_event.lowLevelMountingInfo = mounting_info
+        mount_event.mountData = data
+
+		Game.GetMountingFacility():Unmount(mount_event)
         print("Excute Test Function 7")
     end
     ImGui.SameLine()
     if ImGui.Button("TF8") then
-        DAV.core_obj.av_obj.radio_obj:Stop()
+        local name = CName.new("ue_metro_next_station")
+        Game.GetQuestsSystem():SetFact(name, 1)
         print("Excute Test Function 8")
     end
     ImGui.SameLine()
     if ImGui.Button("TF9") then
-        local player = Game.GetPlayer()
-		local seID = TweakDBID.new("GameplayRestriction.NoScanning");
-		StatusEffectHelper.ApplyStatusEffect(player, seID)
+        Cron.Every(0.01, {tick = 1}, function(timer)
+            timer.tick = timer.tick + 1
+            local player = Game.GetPlayer()
+            local pos = player:GetWorldPosition()
+            local angle = player:GetWorldOrientation():ToEulerAngles()
+            local forward = player:GetWorldForward()
+            local length = 0.1
+            local new_pos = Vector4.new(pos.x + forward.x * length, pos.y + forward.y * length, pos.z + forward.z * length, pos.w)
+            Game.GetTeleportationFacility():Teleport(player, new_pos, angle)
+            if timer.tick > 1000 then
+                Cron.Halt(timer)
+            end
+        end)
         print("Excute Test Function 9")
     end
     ImGui.SameLine()

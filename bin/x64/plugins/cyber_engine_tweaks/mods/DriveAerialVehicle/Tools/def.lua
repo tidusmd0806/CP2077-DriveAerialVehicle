@@ -87,7 +87,7 @@ Def.AutopilotSpeedLevel = {
 Def.SoundRestrictionLevel = {
     None = -1,
     Mute = 0,
-    PriorityRadio = 1
+    PriorityRadio = 1,
 }
 
 return Def

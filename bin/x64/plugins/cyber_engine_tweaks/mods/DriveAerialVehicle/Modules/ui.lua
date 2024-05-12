@@ -31,11 +31,15 @@ function UI:New()
 	obj.selected_auto_pilot_history_index = 1
 	obj.selected_auto_pilot_history_name = ""
 	obj.history_list = {}
+	obj.current_position_name = ""
 	-- control setting
 	obj.selected_flight_mode = Def.FlightMode.Heli
-	obj.max_boost_ratio = 5.0
+	obj.max_boost_ratio = 15.0
 	-- enviroment setting
-	obj.max_spawn_frequency = 5
+	obj.max_spawn_frequency_max = 100
+	obj.max_spawn_frequency_min = 20
+	obj.min_spawn_frequency_max = 15
+	obj.min_spawn_frequency_min = 5
 	-- general setting
 	obj.selected_language_name = ""
 	-- info
@@ -360,35 +364,6 @@ function UI:ShowAutoPilotSetting()
 	ImGui.Spacing()
 	ImGui.Separator()
 
-	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_current_position"))
-	if DAV.core_obj.event_obj:IsNotSpawned() then
-		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_not_spawned"))
-	else
-		local current_district_list = DAV.core_obj:GetCurrentDistrict()
-		local entity = Game.FindEntityByID(self.av_obj.entity_id)
-		if entity ~= nil then
-			local current_nearby_ft_index, _ = DAV.core_obj:FindNearestFastTravelPosition(entity:GetWorldPosition())
-			local current_nearby_ft_name = DAV.core_obj:GetNearbyLocation(current_nearby_ft_index)
-			ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_district_info"))
-			if current_district_list ~= nil then
-				for _, district in ipairs(current_district_list) do
-					ImGui.SameLine()
-					ImGui.TextColored(0, 1, 0, 1, district)
-				end
-			end
-			ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_location_info"))
-			if current_nearby_ft_name ~= nil then
-				ImGui.SameLine()
-				ImGui.TextColored(0, 1, 0, 1, current_nearby_ft_name)
-			end
-		else
-			ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_not_spawned"))
-		end
-	end
-
-	ImGui.Spacing()
-	ImGui.Separator()
-
 	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_mappin"))
 	if DAV.core_obj:IsCustomMappin() then
 		ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_district_info"))
@@ -440,25 +415,58 @@ function UI:ShowAutoPilotSetting()
 						end
 					end
 				end
+				local location_name = DAV.user_setting_table.favorite_location_list[index].name
+				DAV.user_setting_table.favorite_location_list[index].name = ImGui.InputText("##Rename", DAV.user_setting_table.favorite_location_list[index].name, 100)
+				if location_name ~= DAV.user_setting_table.favorite_location_list[index].name then
+					Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+				end
 			end
 		end
 		ImGui.EndCombo()
 	end
 
-	if #self.history_list ~= 0 then
-		ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_favorite_info"))
-		for index, _ in ipairs(DAV.user_setting_table.favorite_location_list) do
-			if index ~= 1 then
-				if ImGui.Button(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_favorite_" .. tostring(index - 1))) then
-					local history_string = self.selected_auto_pilot_history_name
-					history_string = string.sub(history_string, 4)
-					DAV.user_setting_table.favorite_location_list[index].name = history_string
-					DAV.user_setting_table.favorite_location_list[index].pos = DAV.user_setting_table.mappin_history[self.selected_auto_pilot_history_index].position
-					Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	ImGui.Spacing()
+	ImGui.Separator()
+
+	local is_enable_history = DAV.user_setting_table.is_enable_history
+	DAV.user_setting_table.is_enable_history = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_enable_history"), DAV.user_setting_table.is_enable_history)
+	if is_enable_history ~= DAV.user_setting_table.is_enable_history then
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	end
+	local is_not_enable_history = not DAV.user_setting_table.is_enable_history
+	local is_not_enable_history_pre = not DAV.user_setting_table.is_enable_history
+	is_not_enable_history = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_enable_current_pos"), is_not_enable_history)
+	if is_not_enable_history_pre ~= is_not_enable_history then
+		DAV.user_setting_table.is_enable_history = not is_not_enable_history
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	end
+
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_fav"))
+
+	ImGui.SameLine()
+
+	for index, _ in ipairs(DAV.user_setting_table.favorite_location_list) do
+		if index ~= 1 then
+			if ImGui.Button(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_register_favorite_" .. tostring(index - 1))) then
+				if DAV.user_setting_table.is_enable_history then
+					if #self.history_list ~= 0 then
+						local history_string = self.selected_auto_pilot_history_name
+						history_string = string.sub(history_string, 4)
+						DAV.user_setting_table.favorite_location_list[index].name = history_string
+						DAV.user_setting_table.favorite_location_list[index].pos = DAV.user_setting_table.mappin_history[self.selected_auto_pilot_history_index].position
+						Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+					end
+				else
+					if not DAV.core_obj.event_obj:IsNotSpawned() then
+						DAV.user_setting_table.favorite_location_list[index].name = self.current_position_name
+						local current_pos = self.av_obj.position_obj:GetPosition()
+						DAV.user_setting_table.favorite_location_list[index].pos = {x=current_pos.x, y=current_pos.y, z=current_pos.z}
+						Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+					end
 				end
-				if index ~= #DAV.user_setting_table.favorite_location_list then
-					ImGui.SameLine()
-				end
+			end
+			if index ~= #DAV.user_setting_table.favorite_location_list then
+				ImGui.SameLine()
 			end
 		end
 	end
@@ -466,23 +474,54 @@ function UI:ShowAutoPilotSetting()
 	ImGui.Spacing()
 	ImGui.Separator()
 
-	self:CreateStringHistory()
-	ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_history"))
-	local selected = false
-	if ImGui.BeginListBox("##History") then
-		for index = #self.history_list, 1, -1 do
-			local history_string = self.history_list[index]
-			if self.selected_auto_pilot_history_name == history_string then
-				selected = true
-			else
-				selected = false
+	if DAV.user_setting_table.is_enable_history then
+		self:CreateStringHistory()
+		ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_history"))
+		local selected = false
+		if ImGui.BeginListBox("##History") then
+			for index = #self.history_list, 1, -1 do
+				local history_string = self.history_list[index]
+				if self.selected_auto_pilot_history_name == history_string then
+					selected = true
+				else
+					selected = false
+				end
+				if(ImGui.Selectable(history_string, selected)) then
+					self.selected_auto_pilot_history_name = history_string
+					self.selected_auto_pilot_history_index = index
+				end
 			end
-			if(ImGui.Selectable(history_string, selected)) then
-				self.selected_auto_pilot_history_name = history_string
-				self.selected_auto_pilot_history_index = index
+			ImGui.EndListBox()
+		end
+	else
+		ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_current_position"))
+		if DAV.core_obj.event_obj:IsNotSpawned() then
+			ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_not_spawned"))
+		else
+			local current_district_list = DAV.core_obj:GetCurrentDistrict()
+			local entity = Game.FindEntityByID(self.av_obj.entity_id)
+			if entity ~= nil then
+				local current_nearby_ft_index, _ = DAV.core_obj:FindNearestFastTravelPosition(entity:GetWorldPosition())
+				local current_nearby_ft_name = DAV.core_obj:GetNearbyLocation(current_nearby_ft_index)
+				ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_district_info"))
+				self.current_position_name = ""
+				if current_district_list ~= nil then
+					for _, district in ipairs(current_district_list) do
+						ImGui.SameLine()
+						ImGui.TextColored(0, 1, 0, 1, district)
+						self.current_position_name = self.current_position_name .. district .. "/"
+					end
+				end
+				ImGui.Text(DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_location_info"))
+				if current_nearby_ft_name ~= nil then
+					ImGui.SameLine()
+					ImGui.TextColored(0, 1, 0, 1, current_nearby_ft_name)
+					self.current_position_name = self.current_position_name .. current_nearby_ft_name
+				end
+			else
+				ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_auto_pilot_setting_not_spawned"))
 			end
 		end
-		ImGui.EndListBox()
 	end
 
 end
@@ -552,20 +591,33 @@ function UI:ShowEnviromentSetting()
 		if DAV.user_setting_table.is_enable_community_spawn ~= is_enable_community_spawn then
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		end
-
+		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_community_spawn"))
 		if DAV.user_setting_table.is_enable_community_spawn then
-			ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_spawn_frequency"))
+			ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("ui_environment_advanced_setting"))
+			ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_limit_spawn_speed"))
 			local is_used_slider = false
-			local spawn_frequency = DAV.user_setting_table.spawn_frequency
-			DAV.user_setting_table.spawn_frequency, is_used_slider = ImGui.SliderInt("##spawn frequency", DAV.user_setting_table.spawn_frequency, 1, self.max_spawn_frequency, "%d")
-			if not is_used_slider and DAV.user_setting_table.spawn_frequency ~= spawn_frequency then
-				self.av_obj.max_freeze_count = math.floor(100 / DAV.user_setting_table.spawn_frequency)
+			local max_speed_for_freezing = DAV.user_setting_table.max_speed_for_freezing
+			DAV.user_setting_table.max_speed_for_freezing, is_used_slider = ImGui.SliderInt("##max spawn speed", DAV.user_setting_table.max_speed_for_freezing, 0, 400, "%d")
+			if not is_used_slider and DAV.user_setting_table.max_speed_for_freezing ~= max_speed_for_freezing then
+				self.av_obj.max_speed_for_freezing = DAV.user_setting_table.max_speed_for_freezing
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
+			ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_maximum_update_interval"))
+			local max_spawn_frequency = DAV.user_setting_table.max_spawn_frequency
+			local min_spawn_frequency = DAV.user_setting_table.min_spawn_frequency
+			DAV.user_setting_table.max_spawn_frequency, is_used_slider = ImGui.SliderInt("##max spawn frequency", DAV.user_setting_table.max_spawn_frequency, min_spawn_frequency + 1, self.max_spawn_frequency_max, "%d")
+			if not is_used_slider and DAV.user_setting_table.max_spawn_frequency ~= max_spawn_frequency then
+				self.av_obj.max_freeze_count = DAV.user_setting_table.max_spawn_frequency
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
+			ImGui.Text(DAV.core_obj:GetTranslationText("ui_environment_minimum_update_interval"))
+			DAV.user_setting_table.min_spawn_frequency, is_used_slider = ImGui.SliderInt("##min spawn frequency", DAV.user_setting_table.min_spawn_frequency, self.min_spawn_frequency_min, max_spawn_frequency - 1, "%d")
+			if not is_used_slider and DAV.user_setting_table.min_spawn_frequency ~= min_spawn_frequency then
+				self.av_obj.min_freeze_count = DAV.user_setting_table.min_spawn_frequency
 				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			end
 		end
 
-		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_community_spawn"))
-		ImGui.TextColored(1, 0, 0, 1, DAV.core_obj:GetTranslationText("ui_environment_warning_message_about_spawn_frequency"))
 	end
 
 	ImGui.Spacing()

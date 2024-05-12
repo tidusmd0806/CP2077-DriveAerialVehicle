@@ -4,39 +4,35 @@ local Position = {}
 Position.__index = Position
 
 function Position:New(all_models)
+    -- instance --
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Position")
-    obj.entity = nil
-    obj.next_position = nil
-    obj.next_angle = nil
+    -- static --
     obj.all_models = all_models
-    obj.model_index = 1
-
     obj.min_direction_norm = 0.5 -- NOT Change this value
     obj.collision_max_count = 80
     obj.dividing_rate = 0.5
-
     obj.judged_stack_length = 3
-
     -- obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
     obj.collision_filters = {"Static", "Terrain", "Water"}
-
-    -- set default parameters
+    obj.far_distance = 100
+    -- dyanmic --
+    obj.entity = nil
+    obj.next_position = nil
+    obj.next_angle = nil
+    obj.model_index = 1
     obj.collision_count = 0
     obj.is_collision = false
     obj.reflection_vector = {x = 0, y = 0, z = 0}
     obj.is_power_on = false
-
     obj.local_corners = {}
     obj.corners = {}
     obj.entry_point = {}
     obj.entry_area_radius = 0
-
     obj.stack_distance = 0
     obj.stack_count = 0
     obj.sensor_pair_vector_num = 15
-
     obj.collision_trace_result = nil
 
     return setmetatable(obj, self)
@@ -55,8 +51,8 @@ end
 
             ABFE is the front face
             CDHG is the back face
-            EFHG is the left face
             ABDC is the right face
+            EFHG is the left face
             ACGE is the top face
             BDHF is the bottom face           
     ]]
@@ -71,6 +67,12 @@ function Position:SetModel(index)
         { x = self.all_models[index].shape.F.x, y = self.all_models[index].shape.F.y, z = self.all_models[index].shape.F.z },
         { x = self.all_models[index].shape.G.x, y = self.all_models[index].shape.G.y, z = self.all_models[index].shape.G.z },
         { x = self.all_models[index].shape.H.x, y = self.all_models[index].shape.H.y, z = self.all_models[index].shape.H.z },
+        { x = self.all_models[index].shape.ABFE.x, y = self.all_models[index].shape.ABFE.y, z = self.all_models[index].shape.ABFE.z },
+        { x = self.all_models[index].shape.CDHG.x, y = self.all_models[index].shape.CDHG.y, z = self.all_models[index].shape.CDHG.z },
+        { x = self.all_models[index].shape.ABDC.x, y = self.all_models[index].shape.ABDC.y, z = self.all_models[index].shape.ABDC.z },
+        { x = self.all_models[index].shape.EFHG.x, y = self.all_models[index].shape.EFHG.y, z = self.all_models[index].shape.EFHG.z },
+        { x = self.all_models[index].shape.ACGE.x, y = self.all_models[index].shape.ACGE.y, z = self.all_models[index].shape.ACGE.z },
+        { x = self.all_models[index].shape.BDHF.x, y = self.all_models[index].shape.BDHF.y, z = self.all_models[index].shape.BDHF.z }
     }
     self.entry_point = { x = self.all_models[index].entry_point.x, y = self.all_models[index].entry_point.y, z = self.all_models[index].entry_point.z }
     self.entry_area_radius = self.all_models[index].entry_area_radius
@@ -158,20 +160,45 @@ function Position:GetSpawnOrientation(angle)
     return EulerAngles.ToQuat(Vector4.ToRotation(self:GetPlayerAroundDirection(angle)))
 end
 
-function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
+function Position:IsPlayerAround()
+    local player_pos = Game.GetPlayer():GetWorldPosition()
+    if self:GetPosition():IsZero() then
+        return true
+    end
+    local distance = Vector4.Distance(player_pos, self:GetPosition())
+    if distance < self.far_distance then
+        return true
+    else
+        return false
+    end
+end
+
+function Position:SetNextPosition(x, y, z, roll, pitch, yaw, is_freeze)
 
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Error, "No vehicle entity for SetNextPosition")
         return Def.TeleportResult.Error
     end
 
-    local pos = self:GetPosition()
+    local pos
+    if not is_freeze then
+        pos = self:GetPosition()
+    else
+        pos = self.next_position
+    end
     self.next_position = Vector4.new(pos.x + x, pos.y + y, pos.z + z, 1.0)
 
-    local rot = self:GetEulerAngles()
+    local rot
+    if not is_freeze then
+        rot = self:GetEulerAngles()
+    else
+        rot = self.next_angle
+    end
     self.next_angle = EulerAngles.new(rot.roll + roll, rot.pitch + pitch, rot.yaw + yaw)
 
-    self:ChangePosition()
+    if not is_freeze then
+        self:ChangePosition()
+    end
 
     if self:CheckCollision(pos, self.next_position) then
         self.log_obj:Record(LogLevel.Debug, "Collision Detected")
@@ -179,7 +206,9 @@ function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
         self.next_position = Vector4.new(pos.x, pos.y, pos.z, 1.0)
         self.next_angle = EulerAngles.new(rot.roll, rot.pitch, rot.yaw)
 
-        self:ChangePosition()
+        if not is_freeze then
+            self:ChangePosition()
+        end
 
         if self.is_power_on then
             self.collision_count = self.collision_count + 1
@@ -303,6 +332,18 @@ function Position:AvoidStacking()
         self.next_position = Vector4.new(self.dividing_rate * self.corners[2].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[2].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[2].z + (1 - self.dividing_rate) * pos.z, 1.0)
     elseif self.stack_corner_num == 8 then
         self.next_position = Vector4.new(self.dividing_rate * self.corners[1].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[1].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[1].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 9 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[10].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[10].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[10].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 10 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[9].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[9].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[9].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 11 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[12].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[12].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[12].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 12 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[11].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[11].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[11].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 13 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[14].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[14].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[14].z + (1 - self.dividing_rate) * pos.z, 1.0)
+    elseif self.stack_corner_num == 14 then
+        self.next_position = Vector4.new(self.dividing_rate * self.corners[13].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[13].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[13].z + (1 - self.dividing_rate) * pos.z, 1.0)
     end
 
     self.next_angle = EulerAngles.new(0, 0, angle.yaw)

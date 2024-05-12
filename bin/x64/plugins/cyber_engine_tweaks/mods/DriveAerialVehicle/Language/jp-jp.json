@@ -1,6 +1,6 @@
 {
     "language": "日本語",
-    "version": "1.5.0",
+    "version": "1.6.0",
 
     "ui_main_window_title": "Drive an Aerial Vehicle メニュー",
     "ui_tab_garage": "ガレージ",
@@ -45,7 +45,9 @@
     "ui_auto_pilot_setting_not_spawned" : "AVが生成されていません",
     "ui_auto_pilot_setting_favorite_list" : "お気に入り地点",
     "ui_auto_pilot_setting_history" : "目的地の履歴",
-    "ui_auto_pilot_setting_register_favorite_info" : "履歴から自動操縦の目的地を保存できます。",
+    "ui_auto_pilot_setting_enable_history" : "目的地の履歴を表示する",
+    "ui_auto_pilot_setting_enable_current_pos" : "現在位置を表示する",
+    "ui_auto_pilot_setting_register_fav" : "登録 : ",
     "ui_auto_pilot_setting_register_favorite_1" : "Fav 1",
     "ui_auto_pilot_setting_register_favorite_2" : "Fav 2",
     "ui_auto_pilot_setting_register_favorite_3" : "Fav 3",
@@ -54,9 +56,11 @@
 
     "ui_environment_setting_community_spawn" : "群衆生成の設定",
     "ui_environment_enable_community_spawn": "飛行中に群衆と車のスポーンを有効にする",
-    "ui_environment_spawn_frequency": "スポーン頻度（回/秒）",
     "ui_environment_warning_message_about_community_spawn": "この機能を有効にすると、画面がカクつくことがあります。",
-    "ui_environment_warning_message_about_spawn_frequency": "スポーン頻度が高いほど、画面がカクつくことがあります。",
+    "ui_environment_advanced_setting": "高度な設定",
+    "ui_environment_limit_spawn_speed": "生成が行われる限界速度 (m/s)",
+    "ui_environment_maximum_update_interval": "最大更新頻度 (10ms/times)",
+    "ui_environment_minimum_update_interval": "最小更新頻度 (10ms/times)",
     "ui_environment_setting_Sound_title" : "音設定",
     "ui_environment_setting_mute_all" : "すべての音を無効にする（一部無効にできないものがあります）",
     "ui_environment_setting_mute_flight" : "飛行中の音を無効にする（衝突音のみ有効になります）",
