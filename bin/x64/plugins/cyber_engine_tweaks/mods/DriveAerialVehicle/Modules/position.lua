@@ -4,39 +4,35 @@ local Position = {}
 Position.__index = Position
 
 function Position:New(all_models)
+    -- instance --
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Position")
-    obj.entity = nil
-    obj.next_position = nil
-    obj.next_angle = nil
+    -- static --
     obj.all_models = all_models
-    obj.model_index = 1
-
     obj.min_direction_norm = 0.5 -- NOT Change this value
     obj.collision_max_count = 80
     obj.dividing_rate = 0.5
-
     obj.judged_stack_length = 3
-
     -- obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
     obj.collision_filters = {"Static", "Terrain", "Water"}
-
-    -- set default parameters
+    obj.far_distance = 100
+    -- dyanmic --
+    obj.entity = nil
+    obj.next_position = nil
+    obj.next_angle = nil
+    obj.model_index = 1
     obj.collision_count = 0
     obj.is_collision = false
     obj.reflection_vector = {x = 0, y = 0, z = 0}
     obj.is_power_on = false
-
     obj.local_corners = {}
     obj.corners = {}
     obj.entry_point = {}
     obj.entry_area_radius = 0
-
     obj.stack_distance = 0
     obj.stack_count = 0
     obj.sensor_pair_vector_num = 15
-
     obj.collision_trace_result = nil
 
     return setmetatable(obj, self)
@@ -162,6 +158,19 @@ end
 
 function Position:GetSpawnOrientation(angle)
     return EulerAngles.ToQuat(Vector4.ToRotation(self:GetPlayerAroundDirection(angle)))
+end
+
+function Position:IsPlayerAround()
+    local player_pos = Game.GetPlayer():GetWorldPosition()
+    if self:GetPosition():IsZero() then
+        return true
+    end
+    local distance = Vector4.Distance(player_pos, self:GetPosition())
+    if distance < self.far_distance then
+        return true
+    else
+        return false
+    end
 end
 
 function Position:SetNextPosition(x, y, z, roll, pitch, yaw, is_freeze)

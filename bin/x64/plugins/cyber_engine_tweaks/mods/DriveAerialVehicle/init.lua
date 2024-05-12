@@ -29,7 +29,7 @@ DAV = {
     cet_required_version = 32.1, -- 1.32.1
     cet_recommended_version = 32.2, -- 1.32.2
     codeware_required_version = 8.2, -- 1.8.2
-    codeware_recommended_version = 9.0, -- 1.9.0
+    codeware_recommended_version = 9.2, -- 1.9.2
     cet_version_num = 0,
     codeware_version_num = 0
 }
@@ -55,9 +55,10 @@ DAV.user_setting_table = {
     },
     autopilot_speed_level = Def.AutopilotSpeedLevel.Normal,
     is_autopilot_info_panel = true,
+    is_enable_history = true,
     --- control
     flight_mode = Def.FlightMode.Spinner,
-    heli_horizenal_boost_ratio = 2.0,
+    heli_horizenal_boost_ratio = 5.0,
     is_disable_spinner_roll_tilt = false,
     --- environment
     is_enable_community_spawn = true,
