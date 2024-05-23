@@ -738,8 +738,14 @@ function Core:SetFastTravelPosition()
     for _, fast_travel in ipairs(fast_travel_list) do
         local position_name = GetLocalizedText(fast_travel:GetPointDisplayName())
         local record_id = fast_travel:GetPointRecord()
-        local district_record = TweakDB:GetRecord(record_id):District()
         local district_list = {}
+        local district_record = nil
+        local fast_travel_record = TweakDB:GetRecord(record_id)
+        if fast_travel_record == nil then
+            self.log_obj:Record(LogLevel.Error, "Fast Travel Record is nil")
+        else
+            district_record = fast_travel_record:District()
+        end
         if district_record ~= nil then
             repeat
                 table.insert(district_list, 1, GetLocalizedText(district_record:LocalizedName()))
