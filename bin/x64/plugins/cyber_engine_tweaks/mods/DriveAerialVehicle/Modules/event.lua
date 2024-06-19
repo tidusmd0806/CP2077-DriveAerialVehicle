@@ -164,6 +164,7 @@ function Event:CheckAllEvents()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
         self:CheckCommonEvent()
+        self:CheckLockedSave()
     end
 
 end
@@ -336,6 +337,15 @@ function Event:CheckCustomMappinPosition()
     local mappin_pos = mappin:GetWorldPosition()
     if Vector4.Distance(DAV.core_obj.current_custom_mappin_position, mappin_pos) ~= 0 then
         DAV.core_obj:SetCustomMappin(mappin)
+    end
+
+end
+
+function Event:CheckLockedSave()
+    local res, reason = Game.IsSavingLocked()
+    if res then
+        self.log_obj:Record(LogLevel.Info, "Locked save detected. Remove lock")
+        SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
     end
 
 end

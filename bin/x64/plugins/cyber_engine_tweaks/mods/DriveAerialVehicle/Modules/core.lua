@@ -15,6 +15,9 @@ function Core:New()
     obj.av_obj = nil
     obj.event_obj = nil
     -- static --
+    -- lock
+    obj.delay_action_time_in_waiting = 0.05
+    obj.delay_action_time_in_vehicle = 0.05
     -- import path
     obj.av_model_path = "Data/default_model.json"
     obj.heli_input_path = "Data/heli_input.json"
@@ -31,6 +34,9 @@ function Core:New()
     obj.default_station_num = 13
     obj.get_track_name_time_resolution = 1
     -- dynamic --
+    -- lock
+    obj.is_locked_action_in_waiting = false
+    obj.is_locked_action_in_vehicle = false
     -- model table
     obj.all_models = nil
     -- input table
@@ -597,24 +603,43 @@ end
 
 function Core:SetEvent(action)
 
-    if action == Def.ActionList.Enter then
-        self.event_obj:EnterVehicle()
-    elseif action == Def.ActionList.Exit then
-        self.event_obj:ExitVehicle()
-    elseif action == Def.ActionList.ChangeCamera then
-        self:ToggleCamera()
-    elseif action == Def.ActionList.ChangeDoor1 then
-        self.event_obj:ChangeDoor()
-    elseif action == Def.ActionList.AutoPilot then
-        self.event_obj:ToggleAutoMode()
-    elseif action == Def.ActionList.SelectUp then
-        self.event_obj:SelectChoice(Def.ActionList.SelectUp)
-    elseif action == Def.ActionList.SelectDown then
-        self.event_obj:SelectChoice(Def.ActionList.SelectDown)
-    elseif action == Def.ActionList.ToggleRadio then
-        self:ToggleRadio()
-    elseif action == Def.ActionList.OpenRadio then
-        self.event_obj:ShowRadioPopup()
+    if self.event_obj.current_situation == Def.Situation.Waiting then
+        if self.is_locked_action_in_waiting then
+            return
+        end
+        if action == Def.ActionList.Enter then
+            self.event_obj:EnterVehicle()
+        elseif action == Def.ActionList.SelectUp then
+            self.is_locked_action_in_waiting = true
+            self.event_obj:SelectChoice(Def.ActionList.SelectUp)
+        elseif action == Def.ActionList.SelectDown then
+            self.is_locked_action_in_waiting = true
+            self.event_obj:SelectChoice(Def.ActionList.SelectDown)
+        end
+        Cron.After(self.delay_action_time_in_waiting, function()
+            self.is_locked_action_in_waiting = false
+        end)
+    elseif self.event_obj.current_situation == Def.Situation.InVehicle then
+        if self.is_locked_action_in_vehicle then
+            return
+        end
+        if action == Def.ActionList.Exit then
+            self.event_obj:ExitVehicle()
+        elseif action == Def.ActionList.ChangeCamera then
+            self.is_locked_action_in_vehicle = true
+            self:ToggleCamera()
+        elseif action == Def.ActionList.ChangeDoor1 then
+            self.event_obj:ChangeDoor()
+        elseif action == Def.ActionList.AutoPilot then
+            self.event_obj:ToggleAutoMode()
+        elseif action == Def.ActionList.ToggleRadio then
+            self:ToggleRadio()
+        elseif action == Def.ActionList.OpenRadio then
+            self.event_obj:ShowRadioPopup()
+        end
+        Cron.After(self.delay_action_time_in_vehicle, function()
+            self.is_locked_action_in_vehicle = false
+        end)
     end
 
 end
