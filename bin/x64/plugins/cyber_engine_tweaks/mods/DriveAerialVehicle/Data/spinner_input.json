@@ -9,13 +9,23 @@
         "type": "AXIS_CHANGE",
         "value": "NEGATIVE"
     },
+    "KEY_AV_RIGHT_ROTATE": {
+        "name": "dav_spinner_left_right_rotate",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
+    },
+    "KEY_AV_LEFT_ROTATE": {
+        "name": "dav_spinner_left_right_rotate",
+        "type": "AXIS_CHANGE",
+        "value": "NEGATIVE"
+    },
     "KEY_AV_RIGHT_MOVE": {
-        "name": "dav_spinner_left_right",
+        "name": "dav_spinner_left_right_move",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
     "KEY_AV_LEFT_MOVE": {
-        "name": "dav_spinner_left_right",
+        "name": "dav_spinner_left_right_move",
         "type": "AXIS_CHANGE",
         "value": "NEGATIVE"
     },
@@ -39,21 +49,6 @@
         "type": "BUTTON_HOLD_PROGRESS",
         "value": "POSITIVE"
     },
-    "KEY_AV_CAMERA": {
-        "name": "dav_change_view",
-        "type": "BUTTON_PRESSED",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_TOGGLE_DOOR_1": {
-        "name": "dav_toggle_door_1",
-        "type": "BUTTON_PRESSED",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_TOGGLE_AUTO_PILOT": {
-        "name": "dav_toggle_auto_pilot",
-        "type": "BUTTON_PRESSED",
-        "value": "POSITIVE"
-    },
     "KEY_WORLD_SELECT_UPPER_CHOICE": {
         "name": "ChoiceScrollUp",
         "type": "BUTTON_PRESSED",
@@ -62,21 +57,6 @@
     "KEY_WORLD_SELECT_LOWER_CHOICE": {
         "name": "ChoiceScrollDown",
         "type": "BUTTON_PRESSED",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_TOGGLE_RADIO_PAD": {
-        "name": "dpad_up",
-        "type": "BUTTON_RELEASED",
-        "value": "ZERO"
-    },
-    "KEY_AV_TOGGLE_RADIO_KEY": {
-        "name": "dav_operate_radio_sub",
-        "type": "BUTTON_RELEASED",
-        "value": "ZERO"
-    },
-    "KEY_AV_OPEN_RADIO_POPUP": {
-        "name": "dav_operate_radio",
-        "type": "BUTTON_HOLD_COMPLETE",
         "value": "POSITIVE"
     }
 }

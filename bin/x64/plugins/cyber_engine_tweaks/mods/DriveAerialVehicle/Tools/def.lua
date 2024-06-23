@@ -17,10 +17,12 @@ Def.ActionList = {
 	---------
     SpinnerForward = 31,
     SpinnerBackward = 32,
-    SpinnerRight = 33,
-    SpinnerLeft = 34,
+    SpinnerRightRotate = 33,
+    SpinnerLeftRotate = 34,
     SpinnerUp = 35,
     SpinnerDown = 36,
+    SpinnerRight = 37,
+    SpinnerLeft = 38,
     ----------
 	Enter= 100,
 	Exit = 101,
@@ -31,6 +33,7 @@ Def.ActionList = {
     SelectDown = 106,
     ToggleRadio = 107,
     OpenRadio = 108,
+    ToggleCrystalDome = 109,
     ----------
     AutoPilot = 200,
 }

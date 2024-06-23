@@ -160,16 +160,18 @@ function AV:SpawnToSky()
 	local angle = self.position_obj:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
 	Cron.Every(0.01, { tick = 1 }, function(timer)
-		timer.tick = timer.tick + 1
-		if timer.tick == self.spawn_wait_count then
-			self:LockDoor()
-		elseif timer.tick > self.spawn_wait_count then
-			if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
-				self.is_landed = true
-				Cron.Halt(timer)
-			elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
-				self.is_landed = true
-				Cron.Halt(timer)
+		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+			timer.tick = timer.tick + 1
+			if timer.tick == self.spawn_wait_count then
+				self:LockDoor()
+			elseif timer.tick > self.spawn_wait_count then
+				if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
+					self.is_landed = true
+					Cron.Halt(timer)
+				elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
+					self.is_landed = true
+					Cron.Halt(timer)
+				end
 			end
 		end
 	end)
@@ -192,13 +194,14 @@ end
 function AV:DespawnFromGround()
 
 	Cron.Every(0.01, { tick = 1 }, function(timer)
-		timer.tick = timer.tick + 1
-
-		if timer.tick > self.spawn_wait_count then
-			self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1 + self.down_time_count), 0.0, 0.0, 0.0)
-			if timer.tick >= self.spawn_wait_count + self.down_time_count then
-				self:Despawn()
-				Cron.Halt(timer)
+		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+			timer.tick = timer.tick + 1
+			if timer.tick > self.spawn_wait_count then
+				self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1 + self.down_time_count), 0.0, 0.0, 0.0)
+				if timer.tick >= self.spawn_wait_count + self.down_time_count then
+					self:Despawn()
+					Cron.Halt(timer)
+				end
 			end
 		end
 	end)

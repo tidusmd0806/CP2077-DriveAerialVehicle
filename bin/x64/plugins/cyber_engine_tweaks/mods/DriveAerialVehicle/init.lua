@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "1.6.1",
+	version = "1.7.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -30,8 +30,23 @@ DAV = {
     cet_recommended_version = 32.2, -- 1.32.2
     codeware_required_version = 8.2, -- 1.8.2
     codeware_recommended_version = 9.2, -- 1.9.2
+    native_settings_required_version = 1.96,
     cet_version_num = 0,
-    codeware_version_num = 0
+    codeware_version_num = 0,
+    native_settings_version_num = 0,
+    -- setting
+    is_valid_native_settings = false,
+    NativeSettings = nil,
+    -- input
+    input_listener = nil,
+    listening_keybind_widget = nil,
+    default_keybind_table = {
+        {name = "toggle_autopilot", key = "IK_T", pad = "IK_Pad_DigitRight"},
+        {name = "toggle_camera", key = "IK_V", pad = "IK_Pad_DigitDown"},
+        {name = "toggle_door", key = "IK_G", pad = "IK_Pad_DigitLeft"},
+        {name = "toggle_radio", key = "IK_R", pad = "IK_Pad_DigitUp"},
+        {name = "toggle_crystal_dome", key = "IK_C", pad = "IK_Pad_Y_TRIANGLE"},
+    }
 }
 
 -- initial settings
@@ -69,7 +84,9 @@ DAV.user_setting_table = {
     is_mute_flight = false,
     --- general
     language_index = 1,
-    is_unit_km_per_hour = false
+    is_unit_km_per_hour = false,
+    --- input
+    keybind_table = DAV.default_keybind_table
 }
 
 registerForEvent("onOverlayOpen",function ()
@@ -107,12 +124,46 @@ registerForEvent("onTweak",function ()
 
 end)
 
+registerForEvent("onHook", function ()
+
+    -- refer to https://www.nexusmods.com/cyberpunk2077/mods/8326
+    DAV.input_listener = NewProxy({
+        OnKeyInput = {
+            args = {'handle:KeyInputEvent'},
+            callback = function(event)
+                local key = event:GetKey().value
+                local action = event:GetAction().value
+                if DAV.listening_keybind_widget and key:find("IK_Pad") and action == "IACT_Release" then -- OnKeyBindingEvent has to be called manually for gamepad inputs, while there is a keybind widget listening for input
+                    DAV.listening_keybind_widget:OnKeyBindingEvent(KeyBindingEvent.new({keyName = key}))
+                    DAV.listening_keybind_widget = nil
+                elseif DAV.listening_keybind_widget and action == "IACT_Release" then -- Key was bound, by keyboard
+                    DAV.listening_keybind_widget = nil
+                end
+                if DAV.core_obj.event_obj.current_situation == Def.Situation.InVehicle then
+                    if action == "IACT_Press" then
+                        DAV.core_obj:ConvertPressButtonAction(key)
+                    elseif action == "IACT_Release" then
+                        DAV.core_obj:ConvertHoldButtonAction(key)
+                    end
+                end
+            end
+        }
+    })
+    Game.GetCallbackSystem():RegisterCallback('Input/Key', DAV.input_listener:Target(), DAV.input_listener:Function("OnKeyInput"), true)
+    Observe("SettingsSelectorControllerKeyBinding", "ListenForInput", function(this)
+        DAV.listening_keybind_widget = this
+    end)
+
+end)
+
 registerForEvent('onInit', function()
 
     if not DAV:CheckDependencies() then
         print('[Error] Drive an Aerial Vehicle Mod failed to load due to missing dependencies.')
         return
     end
+
+    DAV:CheckNativeSettings()
 
     DAV.core_obj = Core:New()
     DAV.debug_obj = Debug:New(DAV.core_obj)
@@ -144,8 +195,8 @@ registerForEvent('onUpdate', function(delta)
     Cron.Update(delta)
 end)
 
-registerHotkey('ToggleCrystalDome', 'Toggle Crystal Dome(Only Excalibur and Manticore)', function()
-    DAV.core_obj.av_obj:ToggleCrystalDome()
+registerForEvent('onShutdown', function()
+    Game.GetCallbackSystem():UnregisterCallback('Input/Key', DAV.input_listener:Target(), DAV.input_listener:Function("OnKeyInput"))
 end)
 
 function DAV:CheckDependencies()
@@ -169,6 +220,23 @@ function DAV:CheckDependencies()
     end
 
     return true
+
+end
+
+function DAV:CheckNativeSettings()
+
+    DAV.NativeSettings = GetMod("nativeSettings")
+    if DAV.NativeSettings == nil then
+		DAV.is_valid_native_settings = false
+        return
+	end
+    DAV.native_settings_version_num = DAV.NativeSettings.version
+    if DAV.NativeSettings.version < DAV.native_settings_required_version then
+        DAV.is_valid_native_settings = false
+        return
+    end
+    DAV.is_valid_native_settings = true
+    return
 
 end
 

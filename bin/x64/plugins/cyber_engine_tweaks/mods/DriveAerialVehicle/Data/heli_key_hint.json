@@ -40,22 +40,6 @@
         "enableHoldAnimation": false
     },
     {
-        "source": "Camera",
-        "action": "dav_change_view",
-        "localizedLabel": "LocKey#36194",
-        "sortingPriority": 0,
-        "holdIndicationType": "FromInputConfig",
-        "enableHoldAnimation": false
-    },
-    {
-        "source": "Auto",
-        "action": "dav_toggle_auto_pilot",
-        "localizedLabel": "LocKey#38916",
-        "sortingPriority": 0,
-        "holdIndicationType": "FromInputConfig",
-        "enableHoldAnimation": false
-    },
-    {
         "source": "Exit",
         "action": "dav_get_off",
         "localizedLabel": "LocKey#36196",

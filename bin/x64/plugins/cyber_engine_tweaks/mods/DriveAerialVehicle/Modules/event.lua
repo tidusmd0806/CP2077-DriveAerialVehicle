@@ -164,6 +164,7 @@ function Event:CheckAllEvents()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
         self:CheckCommonEvent()
+        self:CheckLockedSave()
     end
 
 end
@@ -263,8 +264,17 @@ end
 function Event:CheckCollision()
     if self.av_obj.is_collision then
         self.log_obj:Record(LogLevel.Debug, "Collision detected")
+        local material = self.av_obj.position_obj.collision_trace_result.material.value
         if not self.av_obj.engine_obj:IsInFalling() then
-            self.sound_obj:PlaySound("330_crash")
+            if string.find(material, "concrete") then
+                self.sound_obj:PlaySound("331_crash_concrete")
+            elseif string.find(material, "metal") then
+                self.sound_obj:PlaySound("332_crash_metal")
+            elseif string.find(material, "glass") then
+                self.sound_obj:PlaySound("333_crash_wood")
+            else
+                self.sound_obj:PlaySound("330_crash_default")
+            end
         end
     end
 end
@@ -336,6 +346,15 @@ function Event:CheckCustomMappinPosition()
     local mappin_pos = mappin:GetWorldPosition()
     if Vector4.Distance(DAV.core_obj.current_custom_mappin_position, mappin_pos) ~= 0 then
         DAV.core_obj:SetCustomMappin(mappin)
+    end
+
+end
+
+function Event:CheckLockedSave()
+    local res, reason = Game.IsSavingLocked()
+    if res then
+        self.log_obj:Record(LogLevel.Info, "Locked save detected. Remove lock")
+        SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
     end
 
 end

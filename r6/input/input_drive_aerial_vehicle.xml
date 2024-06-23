@@ -7,28 +7,16 @@
         <action name="dav_heli_rotate" map ="dav_heli_rotate"/>
         <action name="dav_heli_hover" map ="dav_heli_hover"/>
         <action name="dav_spinner_forward_backward" map ="dav_spinner_forward_backward"/>
-        <action name="dav_spinner_left_right" map ="dav_spinner_left_right"/>
+        <action name="dav_spinner_left_right_rotate" map ="dav_spinner_left_right_rotate"/>
+        <action name="dav_spinner_left_right_move" map ="dav_spinner_left_right_move"/>
         <action name="dav_spinner_up" map ="dav_spinner_up"/>
         <action name="dav_spinner_down" map ="dav_spinner_down"/>
         <action name="dav_get_off" map ="dav_get_off"/>
-        <action name="dav_change_view" map ="dav_change_view"/>
-        <action name="dav_operate_radio" map ="dav_operate_radio"/>
-        <action name="dav_operate_radio_sub" map ="dav_operate_radio_sub"/>
-        <action name="dav_toggle_door_1" map ="dav_toggle_door_1"/>
-        <action name="dav_toggle_auto_pilot" map ="dav_toggle_auto_pilot"/>
     </context>
 
     <hold action="dav_get_off" timeout="0.3"/>
-    <hold action="dav_operate_radio" timeout="0.3"/>
 
     <acceptedEvents action="dav_get_off">
-		<event name="BUTTON_PRESSED" />
-		<event name="BUTTON_RELEASED" />
-		<event name="BUTTON_HOLD_PROGRESS" />
-		<event name="BUTTON_HOLD_COMPLETE" />
-	</acceptedEvents>
-
-    <acceptedEvents action="dav_operate_radio">
 		<event name="BUTTON_PRESSED" />
 		<event name="BUTTON_RELEASED" />
 		<event name="BUTTON_HOLD_PROGRESS" />
@@ -70,10 +58,17 @@
         <button id ="IK_Pad_LeftAxisY"/>
     </mapping>
 
-    <mapping name="dav_spinner_left_right" type="Axis">
+    <mapping name="dav_spinner_left_right_rotate" type="Axis">
         <button id ="IK_A" val="-1.0"/>
         <button id ="IK_D" val="1.0"/>
         <button id ="IK_Pad_LeftAxisX"/>
+    </mapping>
+
+    <mapping name="dav_spinner_left_right_move" type="Axis">
+        <button id ="IK_Q" val="-1.0"/>
+        <button id ="IK_E" val="1.0"/>
+        <button id ="IK_Pad_LeftShoulder" val="-1.0"/>
+        <button id ="IK_Pad_RightShoulder" val="1.0"/>
     </mapping>
 
     <mapping name="dav_spinner_up" type="Axis">
@@ -89,30 +84,6 @@
     <mapping name="dav_get_off" type="Button">
         <button id="IK_F"/>
         <button id="IK_Pad_B_CIRCLE"/>
-    </mapping>
-
-    <mapping name="dav_change_view" type="Button">
-        <button id="IK_V"/>
-        <button id="IK_Pad_DigitDown"/>
-    </mapping>
-
-    <mapping name="dav_toggle_door_1" type="Button">
-        <button id="IK_G"/>
-        <button id="IK_Pad_DigitLeft"/>
-    </mapping>
-
-    <mapping name="dav_operate_radio" type="Button">
-        <button id="IK_R"/>
-        <button id="IK_Pad_DigitUp"/>
-    </mapping>
-
-        <mapping name="dav_operate_radio_sub" type="Button">
-        <button id="IK_R"/>
-    </mapping>
-
-    <mapping name="dav_toggle_auto_pilot" type="Button">
-        <button id="IK_T"/>
-        <button id="IK_Pad_DigitRight"/>
     </mapping>
 
 </bindings>
