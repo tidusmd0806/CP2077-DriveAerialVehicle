@@ -67,6 +67,7 @@ function Engine:New(position_obj, all_models)
     obj.spinner_horizenal_force_sign = 1
     obj.spinner_vertical_force_sign = 1
     obj.spinner_speed_angle = 0
+    obj.is_lateral_movement_mode = 0 -- 0: forward and backward, 1: right , -1: left
 
     return setmetatable(obj, self)
 end
@@ -287,12 +288,12 @@ function Engine:CalcureteHeliVelocity()
     local force_world = Utils:QuaternionMultiply(temp, q_conj)
 
     if self.current_mode == Def.PowerMode.Hold or self.current_mode == Def.PowerMode.Hover then
-        local speed = math.sqrt(force_world.i * force_world.i + force_world.j * force_world.j + force_world.k * force_world.k)
+        -- local speed = math.sqrt(force_world.i * force_world.i + force_world.j * force_world.j + force_world.k * force_world.k)
         self.vertical_speed = 0
-        force_world.k = -self.vertical_speed * self.mess / DAV.time_resolution + self.mess * self.gravity_constant
-        local new_speed = math.sqrt(force_world.i * force_world.i + force_world.j * force_world.j + force_world.k * force_world.k)
-        force_world.i = force_world.i * speed / new_speed
-        force_world.j = force_world.j * speed / new_speed
+        -- force_world.k = -self.vertical_speed * self.mess / DAV.time_resolution + self.mess * self.gravity_constant
+        -- local new_speed = math.sqrt(force_world.i * force_world.i + force_world.j * force_world.j + force_world.k * force_world.k)
+        -- force_world.i = force_world.i * speed / new_speed
+        -- force_world.j = force_world.j * speed / new_speed
     else
         self.vertical_speed = self.vertical_speed + (DAV.time_resolution / self.mess) * (force_world.k - self.mess * self.gravity_constant - self.heli_air_resistance_constant * self.vertical_speed)
     end
@@ -348,20 +349,32 @@ function Engine:CalculateSpinnerIndication(movement)
 
     -- set indication
     local roll_speed = self.spinner_roll_speed * (self.current_speed / self.max_speed)
-    if movement == Def.ActionList.SpinnerRight then
+    if movement == Def.ActionList.SpinnerRightRotate then
         self.next_indication["roll"] = actually_indication.roll + roll_speed
         local sign = -1
         if self.spinner_speed_angle <= Pi() / 2 then
             sign = 1
         end
         self.next_indication["yaw"] = actually_indication.yaw - self.spinner_yaw_speed * sign
-    elseif movement == Def.ActionList.SpinnerLeft then
+    elseif movement == Def.ActionList.SpinnerLeftRotate then
         self.next_indication["roll"] = actually_indication.roll - roll_speed
         local sign = -1
         if self.spinner_speed_angle <= Pi() / 2 then
             sign = 1
         end
         self.next_indication["yaw"] = actually_indication.yaw + self.spinner_yaw_speed * sign
+    elseif movement == Def.ActionList.SpinnerRight then
+        self.next_indication["roll"] = actually_indication.roll + roll_speed
+        local sign = -1
+        if self.spinner_speed_angle <= Pi() / 2 then
+            sign = 1
+        end
+    elseif movement == Def.ActionList.SpinnerLeft then
+        self.next_indication["roll"] = actually_indication.roll - roll_speed
+        local sign = -1
+        if self.spinner_speed_angle <= Pi() / 2 then
+            sign = 1
+        end
     else
         -- set roll restoration
         local roll_restore_speed = self.spinner_roll_restore_speed * (1 - (self.current_speed / self.max_speed))
@@ -404,6 +417,7 @@ function Engine:CalculateSpinnerPower(movement)
 
     if movement == Def.ActionList.SpinnerForward then
         self.log_obj:Record(LogLevel.Trace, "Forward Move")
+        self.is_lateral_movement_mode = 0
         if self.current_mode == Def.PowerMode.Off then
             if self.clock > self.power_on_off_wait then
                 self.current_mode = Def.PowerMode.On
@@ -418,6 +432,7 @@ function Engine:CalculateSpinnerPower(movement)
         end
     elseif movement == Def.ActionList.SpinnerBackward then
         self.log_obj:Record(LogLevel.Trace, "Backward Move")
+        self.is_lateral_movement_mode = 0
         if self.current_mode == Def.PowerMode.Off then
             if self.clock > self.power_on_off_wait then
                 self.current_mode = Def.PowerMode.On
@@ -432,6 +447,7 @@ function Engine:CalculateSpinnerPower(movement)
         end
     elseif movement == Def.ActionList.SpinnerUp then
         self.log_obj:Record(LogLevel.Trace, "Up Move")
+        self.is_lateral_movement_mode = 0
         if self.current_mode == Def.PowerMode.Off then
             if self.clock > self.power_on_off_wait then
                 self.current_mode = Def.PowerMode.On
@@ -446,6 +462,7 @@ function Engine:CalculateSpinnerPower(movement)
         end
     elseif movement == Def.ActionList.SpinnerDown then
         self.log_obj:Record(LogLevel.Trace, "Down Move")
+        self.is_lateral_movement_mode = 0
         if self.current_mode == Def.PowerMode.Off then
             if self.clock > self.power_on_off_wait then
                 self.current_mode = Def.PowerMode.On
@@ -458,6 +475,36 @@ function Engine:CalculateSpinnerPower(movement)
         else
             self:SetSpinnerVerticalPowerUp(self.time_to_max_spinner_vertical_force)
 
+        end
+    elseif movement == Def.ActionList.SpinnerRight then
+        self.log_obj:Record(LogLevel.Trace, "Right Move")
+        self.is_lateral_movement_mode = 1
+        if self.current_mode == Def.PowerMode.Off then
+            if self.clock > self.power_on_off_wait then
+                self.current_mode = Def.PowerMode.On
+                self.clock = 0
+                self.position_obj:SetEngineState(self.current_mode)
+            end
+        elseif self.spinner_horizenal_force_sign < 0 then
+            self.spinner_horizenal_force_sign = 1
+            self.spinner_horizenal_force = 0
+        else
+            self:SetSpinnerHorizenalPowerUp(self.time_to_max_spinner_horizenal_force)
+        end
+    elseif movement == Def.ActionList.SpinnerLeft then
+        self.log_obj:Record(LogLevel.Trace, "Left Move")
+        self.is_lateral_movement_mode = -1
+        if self.current_mode == Def.PowerMode.Off then
+            if self.clock > self.power_on_off_wait then
+                self.current_mode = Def.PowerMode.On
+                self.clock = 0
+                self.position_obj:SetEngineState(self.current_mode)
+            end
+        elseif self.spinner_horizenal_force_sign < 0 then
+            self.spinner_horizenal_force_sign = 1
+            self.spinner_horizenal_force = 0
+        else
+            self:SetSpinnerHorizenalPowerUp(self.time_to_max_spinner_horizenal_force)
         end
     else
         if self.current_mode == Def.PowerMode.On and self.spinner_horizenal_force == 0 and self.spinner_vertical_force == 0 then
@@ -503,6 +550,14 @@ end
 
 function Engine:CalcureteSpinnerVelocity()
     local forward = self.position_obj:GetForward()
+    local horizenal_velocity_boost_ratio = 1
+    if self.is_lateral_movement_mode == 1 then
+        forward.x, forward.y = forward.y, -forward.x
+        horizenal_velocity_boost_ratio = 0.5
+    elseif self.is_lateral_movement_mode == -1 then
+        forward.x, forward.y = -forward.y, forward.x
+        horizenal_velocity_boost_ratio = 0.5
+    end
     local forward_xy_lenght = math.sqrt(forward.x * forward.x + forward.y * forward.y)
     local forward_xy_basic = {x = forward.x / forward_xy_lenght, y = forward.y / forward_xy_lenght}
 
@@ -524,11 +579,11 @@ function Engine:CalcureteSpinnerVelocity()
     local velocity_diff_x = 0
     local velocity_diff_y = 0
     if self.spinner_speed_angle <= Pi() / 2 then
-        velocity_diff_x = self.horizenal_x_speed - forward_xy_basic.x * current_xy_speed
-        velocity_diff_y = self.horizenal_y_speed - forward_xy_basic.y * current_xy_speed
+        velocity_diff_x = self.horizenal_x_speed - forward_xy_basic.x * current_xy_speed * horizenal_velocity_boost_ratio
+        velocity_diff_y = self.horizenal_y_speed - forward_xy_basic.y * current_xy_speed * horizenal_velocity_boost_ratio
     else
-        velocity_diff_x = self.horizenal_x_speed + forward_xy_basic.x * current_xy_speed
-        velocity_diff_y = self.horizenal_y_speed + forward_xy_basic.y * current_xy_speed
+        velocity_diff_x = self.horizenal_x_speed + forward_xy_basic.x * current_xy_speed * horizenal_velocity_boost_ratio
+        velocity_diff_y = self.horizenal_y_speed + forward_xy_basic.y * current_xy_speed * horizenal_velocity_boost_ratio
     end
 
     self.horizenal_x_speed = self.horizenal_x_speed - self.spinner_adjustment_factor * velocity_diff_x

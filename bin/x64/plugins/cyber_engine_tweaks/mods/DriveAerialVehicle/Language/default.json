@@ -1,6 +1,6 @@
 {
     "language": "English",
-    "version": "1.6.0",
+    "version": "1.7.0",
 
     "ui_main_window_title": "Drive an Aerial Vehicle Menu",
     "ui_tab_garage": "Garage",
@@ -79,5 +79,24 @@
     "hud_auto_pilot_panel_distination" : "Distination: ",
     "hud_auto_pilot_panel_selection" : "Selection Type: ",
     "hud_auto_pilot_panel_selection_custom_mappin" : "Custom Mappin",
-    "hud_auto_pilot_panel_selection_favorite" : "Favorite Location"
+    "hud_auto_pilot_panel_selection_favorite" : "Favorite Location",
+
+    "native_settings_keybinds_title": "Drive AV",
+    "native_settings_general_subtitle": "General Settings",
+    "native_settings_general_language": "Language",
+    "native_settings_general_language_description": "Select the language.",
+    "native_settings_general_unit": "Enable KPH Notation",
+    "native_settings_general_unit_description": "Enable KPH notation.",
+    "native_settings_keybinds_subtitle": "Keybinds",
+    "native_settings_controller_subtitle": "Keybinds(Controller)",
+    "native_settings_keybinds_toggle_autopilot": "Toggle Autopilot",
+    "native_settings_keybinds_toggle_autopilot_description": "Switches the autopilot ON/OFF. Pressing this button during autopilot will interrupt it.",
+    "native_settings_keybinds_toggle_camera": "Toggle Camera",
+    "native_settings_keybinds_toggle_camera_description": "Switches the camera’s viewpoint.",
+    "native_settings_keybinds_toggle_door": "Toggle Door",
+    "native_settings_keybinds_toggle_door_description": "You can operate the opening and closing of the door.",
+    "native_settings_keybinds_toggle_radio": "Toggle Radio",
+    "native_settings_keybinds_toggle_radio_description": "Switches the radio ON/OFF. If you press and hold it for a while before releasing, the radio port will open.",
+    "native_settings_keybinds_toggle_crystal_dome": "Toggle Crystal Dome",
+    "native_settings_keybinds_toggle_crystal_dome_description": "Switches the crystal dome ON/OFF. Exclusive to Excalibur and Manticore."
 }

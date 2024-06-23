@@ -1,6 +1,6 @@
 {
     "language": "日本語",
-    "version": "1.6.0",
+    "version": "1.7.0",
 
     "ui_main_window_title": "Drive an Aerial Vehicle メニュー",
     "ui_tab_garage": "ガレージ",
@@ -79,5 +79,24 @@
     "hud_auto_pilot_panel_distination" : "目的地: ",
     "hud_auto_pilot_panel_selection" : "選択種別: ",
     "hud_auto_pilot_panel_selection_custom_mappin" : "カスタムマップピン",
-    "hud_auto_pilot_panel_selection_favorite" : "お気に入り"
+    "hud_auto_pilot_panel_selection_favorite" : "お気に入り",
+
+    "native_settings_keybinds_title": "Drive AV",
+    "native_settings_general_subtitle": "全般設定",
+    "native_settings_general_language": "言語",
+    "native_settings_general_language_description": "言語を選択します。",
+    "native_settings_general_unit": "Km/h表記に変更",
+    "native_settings_general_unit_description": "速度の単位をKm/hに変更します。",
+    "native_settings_keybinds_subtitle": "キーバインド",
+    "native_settings_controller_subtitle": "キーバインド（コントローラー）",
+    "native_settings_keybinds_toggle_autopilot": "自動操縦の切り替え",
+    "native_settings_keybinds_toggle_autopilot_description": "自動操縦のON/OFFを切り替えます。自動操縦の途中で使用すると、自動操縦が解除されます。",
+    "native_settings_keybinds_toggle_camera": "カメラの視点切り替え",
+    "native_settings_keybinds_toggle_camera_description": "カメラの視点を切り替えます。",
+    "native_settings_keybinds_toggle_door": "ドアの開閉",
+    "native_settings_keybinds_toggle_door_description": "ドアの開閉を操作します。",
+    "native_settings_keybinds_toggle_radio": "ラジオのON/OFF切り替え",
+    "native_settings_keybinds_toggle_radio_description": "ラジオのON/OFFを切り替えます。長押しでラジオポートを開きます。",
+    "native_settings_keybinds_toggle_crystal_dome": "クリスタルドームのON/OFF切り替え",
+    "native_settings_keybinds_toggle_crystal_dome_description": "クリスタルドームのON/OFFを切り替えます。エクスカリバーとマンティコア限定。"
 }

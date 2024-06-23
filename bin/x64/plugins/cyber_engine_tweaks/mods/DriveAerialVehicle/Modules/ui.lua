@@ -10,6 +10,7 @@ function UI:New()
 	-- static --
 	-- record name
     obj.dummy_vehicle_record = "Vehicle.av_dav_dummy"
+	obj.delay_updating_native_settings = 0.1
 	-- dynamic --
 	-- common
 	obj.av_obj = nil
@@ -48,6 +49,9 @@ function UI:New()
 	obj.dummy_check_3 = false
 	obj.dummy_check_4 = false
 	obj.dummy_check_5 = false
+
+	-- native settings page
+	obj.option_table_list = {}
     return setmetatable(obj, self)
 end
 
@@ -55,6 +59,7 @@ function UI:Init(av_obj)
 	self.av_obj = av_obj
 	self:SetTweekDB()
 	self:SetDefaultValue()
+	self:CreateNativeSettingsBasePage()
 end
 
 function UI:SetTweekDB()
@@ -166,11 +171,6 @@ function UI:ShowSettingMenu()
 
 		if ImGui.BeginTabItem(DAV.core_obj:GetTranslationText("ui_tab_environment_setting")) then
 			self:ShowEnviromentSetting()
-			ImGui.EndTabItem()
-		end
-
-		if ImGui.BeginTabItem(DAV.core_obj:GetTranslationText("ui_tab_general_setting")) then
-			self:ShowGeneralSetting()
 			ImGui.EndTabItem()
 		end
 
@@ -637,51 +637,6 @@ function UI:ShowEnviromentSetting()
 
 end
 
-function UI:ShowGeneralSetting()
-
-	local temp_language_index = DAV.user_setting_table.language_index
-	local selected = false
-	self.selected_language_name = DAV.core_obj.language_name_list[DAV.user_setting_table.language_index]
-
-	ImGui.Text(DAV.core_obj:GetTranslationText("ui_setting_language"))
-	if ImGui.BeginCombo("##Language", self.selected_language_name) then
-		for index, value in ipairs(DAV.core_obj.language_name_list) do
-			if self.selected_language_name == value then
-				selected = true
-			else
-				selected = false
-			end
-			if(ImGui.Selectable(value, selected)) then
-				self.selected_language_name = value
-				DAV.user_setting_table.language_index = index
-			end
-		end
-		ImGui.EndCombo()
-	end
-
-	if temp_language_index ~= DAV.user_setting_table.language_index then
-		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-	end
-
-	ImGui.Separator()
-
-	local is_unit_km_per_hour = DAV.user_setting_table.is_unit_km_per_hour
-	DAV.user_setting_table.is_unit_km_per_hour = ImGui.Checkbox(DAV.core_obj:GetTranslationText("ui_setting_unit_setting"), DAV.user_setting_table.is_unit_km_per_hour)
-	if DAV.user_setting_table.is_unit_km_per_hour ~= is_unit_km_per_hour then
-		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-	end
-
-	ImGui.Separator()
-
-	if DAV.core_obj.event_obj:IsNotSpawned() then
-		ImGui.Text(DAV.core_obj:GetTranslationText("ui_setting_reset_setting"))
-		if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting_button")) then
-			DAV.core_obj:ResetSetting()
-		end
-	end
-
-end
-
 function UI:ShowInfo()
 	ImGui.Text("Drive an Aerial Vehicle Version: " .. DAV.version)
 	if DAV.cet_version_num < DAV.cet_recommended_version then
@@ -693,6 +648,19 @@ function UI:ShowInfo()
 		ImGui.TextColored(1, 0, 0, 1, "Codeware Version: " .. Codeware.Version() .. "(Not Recommended Version)")
 	else
 		ImGui.Text("CodeWare Version: " .. Codeware.Version())
+	end
+	if DAV.native_settings_version_num < DAV.native_settings_required_version then
+		ImGui.TextColored(1, 0, 0, 1, "Native Settings may not be installed or may be outdated.")
+	else
+		ImGui.Text("Native Settings Version: " .. DAV.native_settings_version_num)
+	end
+
+	ImGui.Spacing()
+	ImGui.Separator()
+
+	ImGui.Text(DAV.core_obj:GetTranslationText("ui_setting_reset_setting"))
+	if ImGui.Button(DAV.core_obj:GetTranslationText("ui_setting_reset_setting_button")) then
+		DAV.core_obj:ResetSetting()
 	end
 
 	ImGui.Spacing()
@@ -740,6 +708,86 @@ function UI:CreateStringHistory()
 		history_string = history_string .. " [" .. tostring(math.floor(history.distance)) .. "m]"
 		table.insert(self.history_list, history_string)
 	end
+end
+
+function UI:CreateNativeSettingsBasePage()
+	DAV.NativeSettings.addTab("/DAV", DAV.core_obj:GetTranslationText("native_settings_keybinds_title"))
+	DAV.NativeSettings.addSubcategory("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_subtitle"))
+	DAV.NativeSettings.addSubcategory("/DAV/keybinds", DAV.core_obj:GetTranslationText("native_settings_keybinds_subtitle"))
+	DAV.NativeSettings.addSubcategory("/DAV/controller", DAV.core_obj:GetTranslationText("native_settings_controller_subtitle"))
+	self:CreateNativeSettingsPage()
+end
+
+function UI:CreateNativeSettingsPage()
+
+	if not DAV.is_valid_native_settings then
+		return
+	end
+	self.option_table_list = {}
+	local option_table
+
+    option_table = DAV.NativeSettings.addSelectorString("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_language"), DAV.core_obj:GetTranslationText("native_settings_general_language_description"), DAV.core_obj.language_name_list, DAV.user_setting_table.language_index, 1, function(index)
+		DAV.user_setting_table.language_index = index
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+	option_table = DAV.NativeSettings.addSwitch("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_unit"), DAV.core_obj:GetTranslationText("native_settings_general_unit_description"), DAV.user_setting_table.is_unit_km_per_hour, false, function(state)
+		DAV.user_setting_table.is_unit_km_per_hour = state
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+	for index, keybind_list in ipairs(DAV.user_setting_table.keybind_table) do
+		option_table = DAV.NativeSettings.addKeyBinding("/DAV/keybinds", DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name), DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name .. "_description"), keybind_list.key, DAV.default_keybind_table[index].key, false, function(key)
+			if string.find(key, "IK_Pad") then
+				self.log_obj:Record(LogLevel.Warning, "Invalid keybind (no keyboard): " .. key)
+			else
+				DAV.user_setting_table.keybind_table[index].key = key
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
+			Cron.After(self.delay_updating_native_settings, function()
+				self:UpdateNativeSettingsPage()
+			end)
+		end)
+		table.insert(self.option_table_list, option_table)
+	end
+	for index, keybind_list in ipairs(DAV.user_setting_table.keybind_table) do
+		option_table = DAV.NativeSettings.addKeyBinding("/DAV/controller", DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name), DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name .. "_description"), keybind_list.pad, DAV.default_keybind_table[index].pad, false, function(pad)
+			if not string.find(pad, "IK_Pad") then
+				self.log_obj:Record(LogLevel.Warning, "Invalid keybind (no controller): " .. pad)
+			else
+				DAV.user_setting_table.keybind_table[index].pad = pad
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
+			Cron.After(self.delay_updating_native_settings, function()
+				self:UpdateNativeSettingsPage()
+			end)
+		end)
+		table.insert(self.option_table_list, option_table)
+	end
+
+end
+
+function UI:ClearNativeSettingsPage()
+
+	if not DAV.is_valid_native_settings then
+		return
+	end
+	for _, option_table in ipairs(self.option_table_list) do
+		DAV.NativeSettings.removeOption(option_table)
+	end
+	self.option_table_list = {}
+
+end
+
+function UI:UpdateNativeSettingsPage()
+	self:ClearNativeSettingsPage()
+	self:CreateNativeSettingsPage()
 end
 
 return UI

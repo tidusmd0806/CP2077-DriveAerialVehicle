@@ -8,8 +8,16 @@
         "enableHoldAnimation": false
     },
     {
+        "source": "RightLeftRotate",
+        "action": "dav_spinner_left_right_rotate",
+        "localizedLabel": "LocKey#15315",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false
+    },
+    {
         "source": "RightLeft",
-        "action": "dav_spinner_left_right",
+        "action": "dav_spinner_left_right_move",
         "localizedLabel": "LocKey#77765+LocKey#77763",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
@@ -27,30 +35,6 @@
         "source": "Down",
         "action": "dav_spinner_down",
         "localizedLabel": "LocKey#78531",
-        "sortingPriority": 0,
-        "holdIndicationType": "FromInputConfig",
-        "enableHoldAnimation": false
-    },
-    {
-        "source": "Door",
-        "action": "dav_toggle_door_1",
-        "localizedLabel": "LocKey#90595",
-        "sortingPriority": 0,
-        "holdIndicationType": "FromInputConfig",
-        "enableHoldAnimation": false
-    },
-    {
-        "source": "Camera",
-        "action": "dav_change_view",
-        "localizedLabel": "LocKey#36194",
-        "sortingPriority": 0,
-        "holdIndicationType": "FromInputConfig",
-        "enableHoldAnimation": false
-    },
-    {
-        "source": "Auto",
-        "action": "dav_toggle_auto_pilot",
-        "localizedLabel": "LocKey#38916",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
         "enableHoldAnimation": false

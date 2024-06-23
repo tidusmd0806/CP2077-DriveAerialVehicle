@@ -264,8 +264,17 @@ end
 function Event:CheckCollision()
     if self.av_obj.is_collision then
         self.log_obj:Record(LogLevel.Debug, "Collision detected")
+        local material = self.av_obj.position_obj.collision_trace_result.material.value
         if not self.av_obj.engine_obj:IsInFalling() then
-            self.sound_obj:PlaySound("330_crash")
+            if string.find(material, "concrete") then
+                self.sound_obj:PlaySound("331_crash_concrete")
+            elseif string.find(material, "metal") then
+                self.sound_obj:PlaySound("332_crash_metal")
+            elseif string.find(material, "glass") then
+                self.sound_obj:PlaySound("333_crash_wood")
+            else
+                self.sound_obj:PlaySound("330_crash_default")
+            end
         end
     end
 end
