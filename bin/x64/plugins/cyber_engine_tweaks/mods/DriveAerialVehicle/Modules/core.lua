@@ -285,11 +285,6 @@ function Core:SetInputListener()
     player:UnregisterInputListener(player, "dav_spinner_down")
     player:UnregisterInputListener(player, "dav_get_on")
     player:UnregisterInputListener(player, "dav_get_off")
-    player:UnregisterInputListener(player, "dav_change_view")
-    player:UnregisterInputListener(player, "dav_operate_radio")
-    player:UnregisterInputListener(player, "dav_operate_radio_sub")
-    player:UnregisterInputListener(player, "dav_toggle_door_1")
-    player:UnregisterInputListener(player, "dav_toggle_auto_pilot")
 
     player:RegisterInputListener(player, "dav_heli_lift")
     player:RegisterInputListener(player, "dav_heli_forward_backward")
@@ -302,11 +297,6 @@ function Core:SetInputListener()
     player:RegisterInputListener(player, "dav_spinner_down")
     player:RegisterInputListener(player, "dav_get_on")
     player:RegisterInputListener(player, "dav_get_off")
-    player:RegisterInputListener(player, "dav_change_view")
-    player:RegisterInputListener(player, "dav_operate_radio")
-    player:RegisterInputListener(player, "dav_operate_radio_sub")
-    player:RegisterInputListener(player, "dav_toggle_door_1")
-    player:RegisterInputListener(player, "dav_toggle_auto_pilot")
 
     local exception_common_list = Utils:ReadJson("Data/exception_common_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
@@ -560,11 +550,6 @@ function Core:ConvertHoldButtonAction(key)
         end
     end
     if keybind_name == "toggle_radio" then
-        if self.radio_button_hold_count >= self.radio_hold_complete_time_count then
-            self.queue_obj:Enqueue(Def.ActionList.OpenRadio)
-        else
-            self.queue_obj:Enqueue(Def.ActionList.ToggleRadio)
-        end
         self.is_radio_button_hold_counter = false
         self.radio_button_hold_count = 0
     end
@@ -591,8 +576,12 @@ function Core:ConvertPressButtonAction(key)
             Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
                 timer.tick = timer.tick + 1
                 self.radio_button_hold_count = timer.tick
-                if timer.tick >= self.radio_hold_complete_time_count or not self.is_radio_button_hold_counter then
+                if timer.tick >= self.radio_hold_complete_time_count then
                     self.is_radio_button_hold_counter = false
+                    self.queue_obj:Enqueue(Def.ActionList.OpenRadio)
+                    Cron.Halt(timer)
+                elseif not self.is_radio_button_hold_counter then
+                    self.queue_obj:Enqueue(Def.ActionList.ToggleRadio)
                     Cron.Halt(timer)
                 end
             end)

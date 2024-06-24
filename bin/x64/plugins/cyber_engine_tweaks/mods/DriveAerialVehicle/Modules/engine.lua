@@ -46,6 +46,7 @@ function Engine:New(position_obj, all_models)
     obj.time_to_max_spinner_vertical_force = nil
     -- Gradually adjust velocity towards desired direction
     obj.spinner_adjustment_factor = 0.02
+    obj.spinner_reduce_horizenal_velocity_boost_ratio = 0.5
 
     -- set default parameters
     obj.next_indication = {roll = 0, pitch = 0, yaw = 0}
@@ -553,10 +554,10 @@ function Engine:CalcureteSpinnerVelocity()
     local horizenal_velocity_boost_ratio = 1
     if self.is_lateral_movement_mode == 1 then
         forward.x, forward.y = forward.y, -forward.x
-        horizenal_velocity_boost_ratio = 0.5
+        horizenal_velocity_boost_ratio = self.spinner_reduce_horizenal_velocity_boost_ratio
     elseif self.is_lateral_movement_mode == -1 then
         forward.x, forward.y = -forward.y, forward.x
-        horizenal_velocity_boost_ratio = 0.5
+        horizenal_velocity_boost_ratio = self.spinner_reduce_horizenal_velocity_boost_ratio
     end
     local forward_xy_lenght = math.sqrt(forward.x * forward.x + forward.y * forward.y)
     local forward_xy_basic = {x = forward.x / forward_xy_lenght, y = forward.y / forward_xy_lenght}
