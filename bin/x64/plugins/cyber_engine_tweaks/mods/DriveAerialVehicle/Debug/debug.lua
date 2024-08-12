@@ -474,40 +474,40 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF9") then
-        Cron.Every(0.01, {tick = 1}, function(timer)
-            timer.tick = timer.tick + 1
-            local player = Game.GetPlayer()
-            local pos = player:GetWorldPosition()
-            local angle = player:GetWorldOrientation():ToEulerAngles()
-            local forward = player:GetWorldForward()
-            local length = 0.1
-            local new_pos = Vector4.new(pos.x + forward.x * length, pos.y + forward.y * length, pos.z + forward.z * length, pos.w)
-            Game.GetTeleportationFacility():Teleport(player, new_pos, angle)
-            if timer.tick > 1000 then
-                Cron.Halt(timer)
-            end
-        end)
+        local con = CustomQuestNotificationGameController.new()
+        con:OnInitialize()
+        con:Setup()
+        con:ShowRequest()
         print("Excute Test Function 9")
     end
     ImGui.SameLine()
     if ImGui.Button("TF10") then
-        local spawnTransform = WorldTransform.new()
-        local entityID = exEntitySpawner.Spawn("base\\entities\\cameras\\photo_mode_camera.ent", spawnTransform, '')
-        Cron.Every(0.1, {tick = 1}, function(timer)
-            local entity = Game.FindEntityByID(entityID)
-            timer.tick = timer.tick + 1
-            if entity then
-                self.handle = entity
-                self.hash = tostring(entity:GetEntityID().hash)
-                print("Spawned camera entity: " .. self.hash)
-                self.component = entity:FindComponentByName("FreeCamera2447")
+        local inkSystem = Game.GetInkSystem()
+        local hudRoot = inkSystem:GetLayer("inkHUDLayer"):GetVirtualWindow()
 
-                Cron.Halt(timer)
-            elseif timer.tick > 20 then
-                print("Failed to spawn camera")
-                Cron.Halt(timer)
-            end
-        end)
+        local hello = inkText.new()
+        hello:SetText("HELLO HUD")
+        hello:SetFontFamily("base\\gameplay\\gui\\fonts\\orbitron\\orbitron.inkfontfamily")
+        hello:SetFontStyle("Bold")
+        hello:SetFontSize(50)
+        hello:SetTintColor(HDRColor.new(1.1761, 0.3809, 0.3476, 1.0))
+        hello:SetAnchor(inkEAnchor.CenterFillHorizontaly)
+        hello:SetAnchorPoint(0.5, 0.5)
+        hello:Reparent(hudRoot)
+
+        -- local rectangle = inkRectangle.new()
+        -- rectangle:SetSize(100, 100)
+        -- rectangle:SetAnchor(inkEAnchor.Centered)
+        -- rectangle:SetAnchorPoint(0.5, 0.5)
+        -- rectangle:Reparent(hudRoot)
+
+        local image = inkImage.new()
+        image:SetAtlasResource("base\\gameplay\\gui\\common\\shapes\\atlas_shapes_sync.inkatlas")
+        image:SetTexturePart("button_big2_fg")
+        image:SetSize(100, 100)
+        image:SetAnchor(inkEAnchor.Centered)
+        image:SetAnchorPoint(0.5, 0.5)
+        image:Reparent(hudRoot)
         print("Excute Test Function 10")
     end
 end

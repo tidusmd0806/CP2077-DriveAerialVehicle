@@ -19,9 +19,9 @@ function AV:New(all_models)
 	obj.all_models = all_models
 	-- summon
 	obj.spawn_distance = 5.5
-	obj.spawn_high = 50
+	obj.spawn_high = 3
 	obj.spawn_wait_count = 150
-	obj.down_time_count = 300
+	obj.down_time_count = 30
 	obj.land_offset = -1.0
 	obj.door_open_time = 1.0
 	-- collision
