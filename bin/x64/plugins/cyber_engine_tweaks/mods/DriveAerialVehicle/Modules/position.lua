@@ -35,6 +35,8 @@ function Position:New(all_models)
     obj.sensor_pair_vector_num = 15
     obj.collision_trace_result = nil
 
+    obj.destination_height = 0
+
     return setmetatable(obj, self)
 end
 
@@ -77,6 +79,30 @@ function Position:SetModel(index)
     self.entry_point = { x = self.all_models[index].entry_point.x, y = self.all_models[index].entry_point.y, z = self.all_models[index].entry_point.z }
     self.entry_area_radius = self.all_models[index].entry_area_radius
     self.exit_point = { x = self.all_models[index].exit_point.x, y = self.all_models[index].exit_point.y, z = self.all_models[index].exit_point.z }
+end
+
+function Position:GetDestinationHeight()
+    return self.destination_height
+end
+
+function Position:SetDestinationHeight(destination_height)
+    local ground_position = self:GetGroundPosition()
+    local ground_offset = 1
+    if destination_height < ground_position + ground_offset then
+        destination_height = ground_position + ground_offset
+    end
+    self.destination_height = destination_height
+end
+
+function Position:GetGroundPosition()
+    local current_position = self:GetPosition()
+    for _, filter in ipairs(self.collision_filters) do
+        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x, current_position.y, current_position.z - 100, 1.0), filter, false, false)
+        if is_success then
+            return trace_result.position.z
+        end
+    end
+    return 0
 end
 
 function Position:SetEntity(entity)

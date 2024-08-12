@@ -144,7 +144,7 @@ function AV:Spawn(position, angle)
 		if entity ~= nil then
 			self.is_spawning = false
 			self.position_obj:SetEntity(entity)
-			self.engine_obj:Init()
+			self.engine_obj:Init(self.entity_id)
 			Cron.Halt(timer)
 		end
 	end)
@@ -170,6 +170,7 @@ function AV:SpawnToSky()
 					Cron.Halt(timer)
 				elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
 					self.is_landed = true
+					self.position_obj:SetDestinationHeight(self.position_obj:GetPosition().z)
 					Cron.Halt(timer)
 				end
 			end
@@ -390,7 +391,7 @@ function AV:Mount()
 	self.position_obj:ChangePosition()
 
 	if not self.is_crystal_dome then
-		self:ControlCrystalDome()
+		-- self:ControlCrystalDome()
 	end
 
 	-- return position near mounted vehicle	
@@ -497,80 +498,81 @@ function AV:Operate(action_commands)
 			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command)
 			return false
 		end
-		local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
-		x_total = x_total + x
-		y_total = y_total + y
-		z_total = z_total + z
-		roll_total = roll_total + roll
-		pitch_total = pitch_total + pitch
-		yaw_total = yaw_total + yaw
+		-- local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
+		self.engine_obj:SetVelocity(action_command)
+		-- x_total = x_total + x
+		-- y_total = y_total + y
+		-- z_total = z_total + z
+		-- roll_total = roll_total + roll
+		-- pitch_total = pitch_total + pitch
+		-- yaw_total = yaw_total + yaw
 	end
 	if #action_commands == 0 then
 		self.log_obj:Record(LogLevel.Critical, "Division by Zero")
 		return false
 	end
 
-	self.is_collision = false
+	-- self.is_collision = false
 
-	x_total = x_total / #action_commands
-	y_total = y_total / #action_commands
-	z_total = z_total / #action_commands
-	roll_total = roll_total / #action_commands
-	pitch_total = pitch_total / #action_commands
-	yaw_total = yaw_total / #action_commands
+	-- x_total = x_total / #action_commands
+	-- y_total = y_total / #action_commands
+	-- z_total = z_total / #action_commands
+	-- roll_total = roll_total / #action_commands
+	-- pitch_total = pitch_total / #action_commands
+	-- yaw_total = yaw_total / #action_commands
 
-	if x_total == 0 and y_total == 0 and z_total == 0 and roll_total == 0 and pitch_total == 0 and yaw_total == 0 then
-		self.log_obj:Record(LogLevel.Debug, "No operation")
-		return false
-	end
+	-- if x_total == 0 and y_total == 0 and z_total == 0 and roll_total == 0 and pitch_total == 0 and yaw_total == 0 then
+	-- 	self.log_obj:Record(LogLevel.Debug, "No operation")
+	-- 	return false
+	-- end
 
-	local speed_count = self.max_freeze_count
-	local level_speed_unit = self.max_speed_for_freezing / self.freeze_stage_num
-	local speed_count_unit = math.ceil((self.max_freeze_count - self.min_freeze_count) / self.freeze_stage_num)
-	for level = 1, self.freeze_stage_num do
-		if self.engine_obj:GetSpeed() < level_speed_unit * level then
-			speed_count = self.min_freeze_count + speed_count_unit * (level - 1)
-			break
-		end
-	end
+	-- local speed_count = self.max_freeze_count
+	-- local level_speed_unit = self.max_speed_for_freezing / self.freeze_stage_num
+	-- local speed_count_unit = math.ceil((self.max_freeze_count - self.min_freeze_count) / self.freeze_stage_num)
+	-- for level = 1, self.freeze_stage_num do
+	-- 	if self.engine_obj:GetSpeed() < level_speed_unit * level then
+	-- 		speed_count = self.min_freeze_count + speed_count_unit * (level - 1)
+	-- 		break
+	-- 	end
+	-- end
 
-	local is_freeze = false
-	-- Freeze for spawning vehicle and pedistrian
-	if self.freeze_count < 1 and self:IsEnableFreeze() then
-		self.freeze_count = self.freeze_count + 1
-		is_freeze = true
-	elseif self.freeze_count >= speed_count then
-		self.freeze_count = 0
-	elseif self.freeze_count >= 1 then
-		self.freeze_count = self.freeze_count + 1
-	end
+	-- local is_freeze = false
+	-- -- Freeze for spawning vehicle and pedistrian
+	-- if self.freeze_count < 1 and self:IsEnableFreeze() then
+	-- 	self.freeze_count = self.freeze_count + 1
+	-- 	is_freeze = true
+	-- elseif self.freeze_count >= speed_count then
+	-- 	self.freeze_count = 0
+	-- elseif self.freeze_count >= 1 then
+	-- 	self.freeze_count = self.freeze_count + 1
+	-- end
 
-	if DAV.user_setting_table.is_disable_spinner_roll_tilt then
-		roll_total = 0
-	end
+	-- if DAV.user_setting_table.is_disable_spinner_roll_tilt then
+	-- 	roll_total = 0
+	-- end
 
-	local res = self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total, is_freeze)
+	-- local res = self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total, is_freeze)
 
-	if res == Def.TeleportResult.Collision then
-		self.engine_obj:SetSpeedAfterRebound()
-		self.is_collision = true
-		self.colison_count = self.colison_count + 1
-		if self.colison_count > self.max_collision_count then
-			self.log_obj:Record(LogLevel.Info, "Collision Count Over. Engine Reset")
-			self.colison_count = 0
-		end
-		return false
-	elseif res == Def.TeleportResult.AvoidStack then
-		self.log_obj:Record(LogLevel.Info, "Avoid Stack")
-		self.colison_count = 0
-		return false
-	elseif res == Def.TeleportResult.Error then
-		self.log_obj:Record(LogLevel.Error, "Teleport Error")
-		self.colison_count = 0
-		return false
-	end
+	-- if res == Def.TeleportResult.Collision then
+	-- 	self.engine_obj:SetSpeedAfterRebound()
+	-- 	self.is_collision = true
+	-- 	self.colison_count = self.colison_count + 1
+	-- 	if self.colison_count > self.max_collision_count then
+	-- 		self.log_obj:Record(LogLevel.Info, "Collision Count Over. Engine Reset")
+	-- 		self.colison_count = 0
+	-- 	end
+	-- 	return false
+	-- elseif res == Def.TeleportResult.AvoidStack then
+	-- 	self.log_obj:Record(LogLevel.Info, "Avoid Stack")
+	-- 	self.colison_count = 0
+	-- 	return false
+	-- elseif res == Def.TeleportResult.Error then
+	-- 	self.log_obj:Record(LogLevel.Error, "Teleport Error")
+	-- 	self.colison_count = 0
+	-- 	return false
+	-- end
 
-	self.colison_count = 0
+	-- self.colison_count = 0
 
 	return true
 

@@ -41,6 +41,11 @@ DAV = {
     input_listener = nil,
     listening_keybind_widget = nil,
     default_keybind_table = {
+        {name = "move_up", key = "IK_Up", pad = "IK_Pad_Y_TRIANGLE"},
+        {name = "move_down", key = "IK_Down", pad = "IK_Pad_A_CROSS"},
+        {name = "move_left", key = "IK_Left", pad = "IK_Pad_LeftShoulder"},
+        {name = "move_right", key = "IK_Right", pad = "IK_Pad_RightShoulder"},
+        {name = "pitch_reset", key = "IK_Z", pad = "IK_Pad_X_SQUARE"},
         {name = "toggle_autopilot", key = "IK_T", pad = "IK_Pad_DigitRight"},
         {name = "toggle_camera", key = "IK_V", pad = "IK_Pad_DigitDown"},
         {name = "toggle_door", key = "IK_G", pad = "IK_Pad_DigitLeft"},

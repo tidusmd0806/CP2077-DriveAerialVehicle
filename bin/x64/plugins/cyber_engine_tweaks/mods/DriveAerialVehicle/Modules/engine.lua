@@ -70,6 +70,9 @@ function Engine:New(position_obj, all_models)
     obj.spinner_speed_angle = 0
     obj.is_lateral_movement_mode = 0 -- 0: forward and backward, 1: right , -1: left
 
+    -- Dynamic
+    obj.fly_av_system = nil
+
     return setmetatable(obj, self)
 end
 
@@ -110,7 +113,7 @@ function Engine:SetModel(index)
     self.heli_horizenal_boost_ratio = DAV.user_setting_table.heli_horizenal_boost_ratio
 end
 
-function Engine:Init()
+function Engine:Init(entity_id)
     if not self.is_finished_init then
         Cron.Every(0.1, {tick = 1}, function(timer)
             self.clock = self.clock + 1
@@ -125,6 +128,53 @@ function Engine:Init()
     self.vertical_speed = 0
     self.clock = 0
     self.is_finished_init = true
+
+    self.fly_av_system = FlyAVSystem.new()
+    self.fly_av_system:SetVehicle(entity_id.hash)
+end
+
+function Engine:SetVelocity(action_commands)
+
+    local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
+    local vel_vec = self.fly_av_system:GetVelocity()
+    local ang_vec = self.fly_av_system:GetAngularVelocity()
+    local dest_height = self.position_obj:GetDestinationHeight()
+    local height_increase = 0.5
+    local height_constance_rate = 3
+    if action_commands == Def.ActionList.SpinnerUp then
+        self.position_obj:SetDestinationHeight(dest_height + height_increase)
+    elseif action_commands == Def.ActionList.SpinnerDown then
+        self.position_obj:SetDestinationHeight(dest_height - height_increase)
+    end
+    dest_height = self.position_obj:GetDestinationHeight()
+    local current_height = self.position_obj:GetPosition().z
+    z = z - vel_vec.z + (dest_height - current_height) * height_constance_rate
+
+    roll = roll - ang_vec.x
+    pitch = pitch - ang_vec.y
+    yaw = yaw - ang_vec.z
+
+    local acceleration = 0.5
+    local forward_vec = self.position_obj:GetForward()
+    if action_commands == Def.ActionList.SpinnerForward then
+        x = x + acceleration * forward_vec.x
+        y = y + acceleration * forward_vec.y
+        z = z + acceleration * forward_vec.z
+    elseif action_commands == Def.ActionList.SpinnerBackward then
+        x = x - acceleration * forward_vec.x
+        y = y - acceleration * forward_vec.y
+        z = z - acceleration * forward_vec.z
+    end
+
+    local yaw_increase = 0.5
+    if action_commands == Def.ActionList.SpinnerRightRotate then
+        yaw = yaw + yaw_increase
+    elseif action_commands == Def.ActionList.SpinnerLeftRotate then
+        yaw = yaw - yaw_increase
+    end
+
+    self.fly_av_system:AddLinelyVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw))
+
 end
 
 function Engine:GetNextPosition(movement)
