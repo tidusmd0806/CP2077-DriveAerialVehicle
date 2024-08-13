@@ -23,6 +23,8 @@ Def.ActionList = {
     SpinnerDown = 36,
     SpinnerRight = 37,
     SpinnerLeft = 38,
+    SpinnerLeanForward = 39,
+    SpinnerLeanBackward = 40,
     ----------
 	Enter= 100,
 	Exit = 101,

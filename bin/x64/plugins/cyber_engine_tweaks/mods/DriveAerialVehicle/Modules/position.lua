@@ -102,7 +102,18 @@ function Position:GetGroundPosition()
             return trace_result.position.z
         end
     end
-    return 0
+    return current_position.z - 101
+end
+
+function Position:GetCeilingPosition()
+    local current_position = self:GetPosition()
+    for _, filter in ipairs(self.collision_filters) do
+        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x, current_position.y, current_position.z + 100, 1.0), filter, false, false)
+        if is_success then
+            return trace_result.position.z
+        end
+    end
+    return current_position.z + 101
 end
 
 function Position:SetEntity(entity)
@@ -154,6 +165,14 @@ function Position:GetForward()
         return Vector4.new(0, 0, 0, 1.0)
     end
     return self.entity:GetWorldForward()
+end
+
+function Position:GetRight()
+    if self.entity == nil then
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetRight")
+        return Vector4.new(0, 0, 0, 1.0)
+    end
+    return self.entity:GetWorldRight()
 end
 
 function Position:GetQuaternion()

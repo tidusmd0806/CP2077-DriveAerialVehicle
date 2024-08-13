@@ -288,13 +288,13 @@ function Debug:ImGuiChangeAutoPilotSetting()
             DAV.core_obj.av_obj.autopilot_turn_speed = autopilot_profile[speed_level].turn_speed
             DAV.core_obj.av_obj.autopilot_land_offset = autopilot_profile[speed_level].land_offset
             DAV.core_obj.av_obj.autopilot_down_time_count = autopilot_profile[speed_level].down_time_count
-            DAV.core_obj.av_obj.autopilot_leaving_hight = autopilot_profile[speed_level].leaving_hight
+            DAV.core_obj.av_obj.autopilot_leaving_height = autopilot_profile[speed_level].leaving_hight
             DAV.core_obj.av_obj.position_obj:SetSensorPairVectorNum(autopilot_profile[speed_level].sensor_pair_vector_num)
             DAV.core_obj.av_obj.position_obj:SetJudgedStackLength(autopilot_profile[speed_level].judged_stack_length)
         end
         ImGui.Text("Speed Level : " .. DAV.user_setting_table.autopilot_speed_level)
         ImGui.Text("speed : " .. DAV.core_obj.av_obj.auto_pilot_speed .. ", avoidance : " .. DAV.core_obj.av_obj.avoidance_range .. ", max_avoidance : " .. DAV.core_obj.av_obj.max_avoidance_speed .. ", sensing : " .. DAV.core_obj.av_obj.sensing_constant .. ", stack_len : " .. DAV.core_obj.av_obj.position_obj.judged_stack_length)
-        ImGui.Text("turn : " .. DAV.core_obj.av_obj.autopilot_turn_speed .. ", land : " .. DAV.core_obj.av_obj.autopilot_land_offset .. ", down_t : " .. DAV.core_obj.av_obj.autopilot_down_time_count .. ", hight : " .. DAV.core_obj.av_obj.autopilot_leaving_hight .. ", sensor_num : " .. DAV.core_obj.av_obj.position_obj.sensor_pair_vector_num)
+        ImGui.Text("turn : " .. DAV.core_obj.av_obj.autopilot_turn_speed .. ", land : " .. DAV.core_obj.av_obj.autopilot_land_offset .. ", down_t : " .. DAV.core_obj.av_obj.autopilot_down_time_count .. ", height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", sensor_num : " .. DAV.core_obj.av_obj.position_obj.sensor_pair_vector_num)
     end
 end
 
@@ -509,6 +509,11 @@ function Debug:ImGuiExcuteFunction()
         image:SetAnchorPoint(0.5, 0.5)
         image:Reparent(hudRoot)
         print("Excute Test Function 10")
+    end
+
+    if ImGui.Button("TF11") then
+        local test = InkPlaygroundPopup.new()
+        print("Excute Test Function 11")
     end
 end
 

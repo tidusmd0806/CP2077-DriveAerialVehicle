@@ -122,6 +122,26 @@ function HUD:SetObserve()
             self.popup_manager = this
         end)
 
+        Observe('gameuiInGameMenuGameController', 'RegisterInputListenersForPlayer', function(this, player)
+            print("RegisterInputListenersForPlayer")
+            if player:IsControlledByLocalPeer() then
+                player:RegisterInputListener(this, "Choice2_Hold")
+            end
+        end)
+
+        Observe('gameuiInGameMenuGameController', 'OnAction', function(this, action, consume)
+            local action_name = action:GetName(action).value
+		    local action_type = action:GetType(action).value
+
+            print("Action Name : " .. action_name .. ", Action Type : " .. action_type)
+            if action_name == "Choice2_Hold" and action_type == "BUTTON_HOLD_COMPLETE" then
+                local popup = InkPlaygroundPopup.new()
+                popup.Show(this)
+                -- local popup = setmetatable({}, InkPlaygroundPopup)
+                -- popup:Show(this)
+            end
+        end)
+
     end
 
 end
@@ -198,57 +218,57 @@ function HUD:HideChoice()
 
 end
 
-function HUD:ShowMeter()
+-- function HUD:ShowMeter()
 
-    self.hud_car_controller:ShowRequest()
-    self.hud_car_controller:OnCameraModeChanged(true)
+--     self.hud_car_controller:ShowRequest()
+--     self.hud_car_controller:OnCameraModeChanged(true)
 
-    if self.is_speed_meter_shown then
-        return
-    else
-        self.is_speed_meter_shown = true
-        Cron.Every(self.speed_meter_refresh_rate, {tick = 0}, function(timer)
-            local meter_value = 0    
-            if self.av_obj.is_auto_pilot then
-                inkTextRef.SetText(self.hud_car_controller.SpeedUnits, DAV.core_obj:GetTranslationText("hud_meter_auto_pilot_display"))
-                meter_value = math.floor(Vector4.Distance(self.av_obj.auto_pilot_info.dist_pos, Game.GetPlayer():GetWorldPosition()))
-            else
-                if DAV.user_setting_table.is_unit_km_per_hour then
-                    inkTextRef.SetText(self.hud_car_controller.SpeedUnits, DAV.core_obj:GetTranslationText("hud_meter_kph"))
-                    meter_value = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1000))
-                else
-                    inkTextRef.SetText(self.hud_car_controller.SpeedUnits,  DAV.core_obj:GetTranslationText("hud_meter_mph"))
-                    meter_value = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609))
-                end
-            end
-            inkTextRef.SetText(self.hud_car_controller.SpeedValue, meter_value)
+--     if self.is_speed_meter_shown then
+--         return
+--     else
+--         self.is_speed_meter_shown = true
+--         Cron.Every(self.speed_meter_refresh_rate, {tick = 0}, function(timer)
+--             local meter_value = 0    
+--             if self.av_obj.is_auto_pilot then
+--                 inkTextRef.SetText(self.hud_car_controller.SpeedUnits, DAV.core_obj:GetTranslationText("hud_meter_auto_pilot_display"))
+--                 meter_value = math.floor(Vector4.Distance(self.av_obj.auto_pilot_info.dist_pos, Game.GetPlayer():GetWorldPosition()))
+--             else
+--                 if DAV.user_setting_table.is_unit_km_per_hour then
+--                     inkTextRef.SetText(self.hud_car_controller.SpeedUnits, DAV.core_obj:GetTranslationText("hud_meter_kph"))
+--                     meter_value = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1000))
+--                 else
+--                     inkTextRef.SetText(self.hud_car_controller.SpeedUnits,  DAV.core_obj:GetTranslationText("hud_meter_mph"))
+--                     meter_value = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609))
+--                 end
+--             end
+--             inkTextRef.SetText(self.hud_car_controller.SpeedValue, meter_value)
 
-            local power_level = 0
-            if self.av_obj.is_auto_pilot then
-                local distance = Vector4.Distance(self.av_obj.auto_pilot_info.dist_pos, self.av_obj.auto_pilot_info.start_pos)
-                power_level = math.floor((1.01 - (meter_value / distance)) * 10)
-            else
-                if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
-                    power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
-                elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then 
-                    power_level = math.floor(self.av_obj.engine_obj.spinner_horizenal_force / (self.av_obj.engine_obj.max_spinner_horizenal_force / 10))
-                end
-            end
-            self.hud_car_controller:OnRpmValueChanged(power_level)
-            self.hud_car_controller:EvaluateRPMMeterWidget(power_level)
-            if not self.is_speed_meter_shown then
-                Cron.Halt(timer)
-            end
-        end)
-    end
+--             local power_level = 0
+--             if self.av_obj.is_auto_pilot then
+--                 local distance = Vector4.Distance(self.av_obj.auto_pilot_info.dist_pos, self.av_obj.auto_pilot_info.start_pos)
+--                 power_level = math.floor((1.01 - (meter_value / distance)) * 10)
+--             else
+--                 if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
+--                     power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
+--                 elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then 
+--                     power_level = math.floor(self.av_obj.engine_obj.spinner_horizenal_force / (self.av_obj.engine_obj.max_spinner_horizenal_force / 10))
+--                 end
+--             end
+--             self.hud_car_controller:OnRpmValueChanged(power_level)
+--             self.hud_car_controller:EvaluateRPMMeterWidget(power_level)
+--             if not self.is_speed_meter_shown then
+--                 Cron.Halt(timer)
+--             end
+--         end)
+--     end
 
-end
+-- end
 
-function HUD:HideMeter()
-    self.hud_car_controller:HideRequest()
-    self.hud_car_controller:OnCameraModeChanged(false)
-    self.is_speed_meter_shown = false
-end
+-- function HUD:HideMeter()
+--     self.hud_car_controller:HideRequest()
+--     self.hud_car_controller:OnCameraModeChanged(false)
+--     self.is_speed_meter_shown = false
+-- end
 
 function HUD:SetCustomHint()
     local hint_table = {}

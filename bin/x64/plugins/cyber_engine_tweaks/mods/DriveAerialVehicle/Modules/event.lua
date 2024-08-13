@@ -241,7 +241,7 @@ function Event:CheckInAV()
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
             self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
-            self.hud_obj:ShowMeter()
+            -- self.hud_obj:ShowMeter()
             self.hud_obj:ShowCustomHint()
             self.hud_obj:HideActionButtons()
         end
@@ -251,7 +251,7 @@ function Event:CheckInAV()
             self.log_obj:Record(LogLevel.Info, "Exit AV")
             self.sound_obj:StopSound("230_fly_loop")
             self:SetSituation(Def.Situation.Waiting)
-            self.hud_obj:HideMeter()
+            -- self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
             self.hud_obj:ShowActionButtons()
             self:StopRadio()
@@ -399,6 +399,14 @@ end
 
 function Event:IsInVehicle()
     if self.current_situation == Def.Situation.InVehicle and self.av_obj:IsPlayerIn() then
+        return true
+    else
+        return false
+    end
+end
+
+function Event:IsTakingOff()
+    if self.current_situation == Def.Situation.TalkingOff then
         return true
     else
         return false

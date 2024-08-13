@@ -27,7 +27,7 @@ DAV = {
 	model_type_index = 1,
     -- version check
     cet_required_version = 32.1, -- 1.32.1
-    cet_recommended_version = 32.2, -- 1.32.2
+    cet_recommended_version = 32.3, -- 1.32.3
     codeware_required_version = 8.2, -- 1.8.2
     codeware_recommended_version = 9.2, -- 1.9.2
     native_settings_required_version = 1.96,
@@ -111,7 +111,7 @@ registerForEvent("onTweak",function ()
 
     -- Custom manticore record
     TweakDB:CloneRecord("Vehicle.av_militech_manticore_dav", "Vehicle.av_militech_manticore")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav_.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav__.ent")
 
     -- Custom manticore record
     TweakDB:CloneRecord("Vehicle.av_zetatech_atlus_dav", "Vehicle.av_zetatech_atlus")
@@ -238,6 +238,7 @@ function DAV:CheckNativeSettings()
     DAV.native_settings_version_num = DAV.NativeSettings.version
     if DAV.NativeSettings.version < DAV.native_settings_required_version then
         DAV.is_valid_native_settings = false
+        print("Drive an Aerial Vehicle Mod requires Native Settings version " .. DAV.native_settings_required_version .. " or higher.")
         return
     end
     DAV.is_valid_native_settings = true

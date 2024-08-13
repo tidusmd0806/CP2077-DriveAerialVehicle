@@ -47,6 +47,17 @@ function Core:New()
     obj.radio_hold_complete_time_count = 5
     obj.radio_button_hold_count = 0
     obj.is_radio_button_hold_counter = false
+    obj.move_up_button_hold_count = 0
+    obj.max_move_hold_count = 50000
+    obj.is_move_up_button_hold_counter = false
+    obj.move_down_button_hold_count = 0
+    obj.is_move_down_button_hold_counter = false
+    obj.move_left_button_hold_count = 0
+    obj.is_move_left_button_hold_counter = false
+    obj.move_right_button_hold_count = 0
+    obj.is_move_right_button_hold_counter = false
+    obj.pitch_reset_button_hold_count = 0
+    obj.is_pitch_reset_button_hold_counter = false
     -- user setting table
     obj.initial_user_setting_table = {}
     -- language table
@@ -526,6 +537,10 @@ function Core:ConvertSpinnerActionList(action_name, action_type, action_value_ty
             action_command = Def.ActionList.SpinnerDown
         elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_EXIT_AV) then
             action_command = Def.ActionList.Exit
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_LEAN_FORWARD) then
+            action_command = Def.ActionList.SpinnerLeanForward
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_LEAN_BACKWARD) then
+            action_command = Def.ActionList.SpinnerLeanBackward
         end
     elseif self.event_obj.current_situation == Def.Situation.Waiting then
         if Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_ENTER_AV) then
@@ -552,6 +567,21 @@ function Core:ConvertHoldButtonAction(key)
     if keybind_name == "toggle_radio" then
         self.is_radio_button_hold_counter = false
         self.radio_button_hold_count = 0
+    elseif keybind_name == "move_up" then
+        self.is_move_up_button_hold_counter = false
+        self.move_up_button_hold_count = 0
+    elseif keybind_name == "move_down" then
+        self.is_move_down_button_hold_counter = false
+        self.move_down_button_hold_count = 0
+    elseif keybind_name == "move_left" then
+        self.is_move_left_button_hold_counter = false
+        self.move_left_button_hold_count = 0
+    elseif keybind_name == "move_right" then
+        self.is_move_right_button_hold_counter = false
+        self.move_right_button_hold_count = 0
+    elseif keybind_name == "pitch_reset" then
+        self.is_pitch_reset_button_hold_counter = false
+        self.pitch_reset_button_hold_count = 0
     end
 end
 
@@ -564,7 +594,87 @@ function Core:ConvertPressButtonAction(key)
         end
     end
     local action_list = Def.ActionList.Nothing
-    if keybind_name == "toggle_autopilot" then
+    if keybind_name == "move_up" then
+        if not self.is_move_up_button_hold_counter then
+            self.is_move_up_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.move_up_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_move_up_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_move_up_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.SpinnerUp)
+                end
+            end)
+        end
+    elseif keybind_name == "move_down" then
+        if not self.is_move_down_button_hold_counter then
+            self.is_move_down_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.move_down_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_move_down_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_move_down_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.SpinnerDown)
+                end
+            end)
+        end
+    elseif keybind_name == "move_left" then
+        if not self.is_move_left_button_hold_counter then
+            self.is_move_left_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.move_left_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_move_left_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_move_left_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.SpinnerLeft)
+                end
+            end)
+        end
+    elseif keybind_name == "move_right" then
+        if not self.is_move_right_button_hold_counter then
+            self.is_move_right_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.move_right_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_move_right_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_move_right_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.SpinnerRight)
+                end
+            end)
+        end
+    elseif keybind_name == "pitch_reset" then
+        if not self.is_pitch_reset_button_hold_counter then
+            self.is_pitch_reset_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.pitch_reset_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_pitch_reset_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_pitch_reset_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.PitchReset)
+                end
+            end)
+        end
+    elseif keybind_name == "toggle_autopilot" then
         action_list = Def.ActionList.AutoPilot
     elseif keybind_name == "toggle_camera" then
         action_list = Def.ActionList.ChangeCamera
@@ -626,7 +736,7 @@ function Core:OperateAerialVehicle(actions)
     if not self.is_locked_operation then
         if self.event_obj:IsInVehicle() then
             self.av_obj:Operate(actions)
-        elseif self.event_obj:IsWaiting() then
+        elseif self.event_obj:IsWaiting() or self.event_obj:IsTakingOff() then
             self.av_obj:Operate({Def.ActionList.Nothing})
         end
     end

@@ -5,9 +5,9 @@
         "value": "POSITIVE"
     },
     "KEY_AV_BACK_MOVE": {
-        "name": "Accelerate",
+        "name": "Decelerate",
         "type": "AXIS_CHANGE",
-        "value": "NEGATIVE"
+        "value": "POSITIVE"
     },
     "KEY_AV_RIGHT_ROTATE": {
         "name": "TurnX",
@@ -38,6 +38,16 @@
         "name": "dav_spinner_down",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
+    },
+    "KEY_AV_LEAN_FORWARD": {
+        "name": "LeanFB",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
+    },
+    "KEY_AV_LEAN_BACKWARD": {
+        "name": "LeanFB",
+        "type": "AXIS_CHANGE",
+        "value": "NEGATIVE"
     },
     "KEY_WORLD_ENTER_AV": {
         "name": "ChoiceApply",

@@ -64,7 +64,7 @@ function AV:New(all_models)
 	obj.autopilot_turn_speed = 0.8
 	obj.autopilot_land_offset = -1.0
 	obj.autopilot_down_time_count = 100
-	obj.autopilot_leaving_hight = 100
+	obj.autopilot_leaving_height = 100
 	obj.is_auto_avoidance = false
 	obj.is_failture_auto_pilot = false
 	-- for spawning vehicle and pedistrian
@@ -96,7 +96,7 @@ function AV:Init()
 	self.autopilot_turn_speed = autopilot_profile[speed_level].turn_speed
 	self.autopilot_land_offset = autopilot_profile[speed_level].land_offset
 	self.autopilot_down_time_count = autopilot_profile[speed_level].down_time_count
-	self.autopilot_leaving_hight = autopilot_profile[speed_level].leaving_hight
+	self.autopilot_leaving_height = autopilot_profile[speed_level].leaving_height
 	self.position_obj:SetSensorPairVectorNum(autopilot_profile[speed_level].sensor_pair_vector_num)
 	self.position_obj:SetJudgedStackLength(autopilot_profile[speed_level].judged_stack_length)
 
@@ -485,6 +485,8 @@ function AV:Move(x, y, z, roll, pitch, yaw)
 		return false
 	end
 
+	self.position_obj:SetDestinationHeight(self.position_obj:GetPosition().z)
+
 	return true
 
 end
@@ -507,10 +509,10 @@ function AV:Operate(action_commands)
 		-- pitch_total = pitch_total + pitch
 		-- yaw_total = yaw_total + yaw
 	end
-	if #action_commands == 0 then
-		self.log_obj:Record(LogLevel.Critical, "Division by Zero")
-		return false
-	end
+	-- if #action_commands == 0 then
+	-- 	self.log_obj:Record(LogLevel.Critical, "Division by Zero")
+	-- 	return false
+	-- end
 
 	-- self.is_collision = false
 
@@ -771,7 +773,7 @@ function AV:AutoLeaving(dist_vector)
 		end
 		local angle = self.position_obj:GetEulerAngles()
 		local current_position = self.position_obj:GetPosition()
-		self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.autopilot_down_time_count, self.autopilot_land_offset, self.autopilot_leaving_hight - current_position.z, timer.tick + self.autopilot_down_time_count + 1), -angle.roll * 0.8, -angle.pitch * 0.8, 0.0)
+		self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.autopilot_down_time_count, self.autopilot_land_offset, self.autopilot_leaving_height - current_position.z, timer.tick + self.autopilot_down_time_count + 1), -angle.roll * 0.8, -angle.pitch * 0.8, 0.0)
 		if timer.tick >= self.autopilot_down_time_count then
 			Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 				timer.tick = timer.tick + 1
@@ -812,8 +814,8 @@ function AV:AutoLeaving(dist_vector)
 	end)
 end
 
----@param hight number
-function AV:AutoLanding(hight)
+---@param height number
+function AV:AutoLanding(height)
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
@@ -822,8 +824,8 @@ function AV:AutoLanding(hight)
 			Cron.Halt(timer)
 			return
 		end
-		local down_time_count = hight / self.auto_pilot_speed
-		if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(down_time_count, self.autopilot_land_offset, hight, timer.tick + 1), 0.0, 0.0, 0.0) then
+		local down_time_count = height / self.auto_pilot_speed
+		if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(down_time_count, self.autopilot_land_offset, height, timer.tick + 1), 0.0, 0.0, 0.0) then
 			self.is_landed = true
 			self:InterruptAutoPilot()
 			Cron.Halt(timer)

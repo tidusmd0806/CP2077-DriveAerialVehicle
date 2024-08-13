@@ -70,6 +70,11 @@ function Engine:New(position_obj, all_models)
     obj.spinner_speed_angle = 0
     obj.is_lateral_movement_mode = 0 -- 0: forward and backward, 1: right , -1: left
 
+    -- static
+    obj.max_roll = 30
+    obj.max_pitch = 30
+    obj.force_restore_angle = 70
+
     -- Dynamic
     obj.fly_av_system = nil
 
@@ -135,43 +140,110 @@ end
 
 function Engine:SetVelocity(action_commands)
 
+    local physics_state = self.fly_av_system:GetPhysicsState()
+    if physics_state ~= 0 and physics_state ~= 32 then
+        self.position_obj.entity:PhysicsWakeUp()
+    end
+
     local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
     local vel_vec = self.fly_av_system:GetVelocity()
     local ang_vec = self.fly_av_system:GetAngularVelocity()
     local dest_height = self.position_obj:GetDestinationHeight()
+    local current_angle = self.position_obj:GetEulerAngles()
+
+    local air_resitance_const = 0.01
+
+    -- Holding the position
+    x = x - air_resitance_const * vel_vec.x
+    y = y - air_resitance_const * vel_vec.y
+
     local height_increase = 0.5
     local height_constance_rate = 3
+    local acceleration = 1
+    local left_roght_acceleration = 0.5
+    local roll_restore = 0.1
+    local roll_yaw_increase = 0.3
+    local roll_increase = 0.5
+    local pitch_increase = 0.5
+    local yaw_increase = 1
+    local forward_vec = self.position_obj:GetForward()
+    local right_vec = self.position_obj:GetRight()
+
+    local local_roll = 0
+    local local_pitch = 0
+
     if action_commands == Def.ActionList.SpinnerUp then
         self.position_obj:SetDestinationHeight(dest_height + height_increase)
     elseif action_commands == Def.ActionList.SpinnerDown then
         self.position_obj:SetDestinationHeight(dest_height - height_increase)
+    elseif action_commands == Def.ActionList.SpinnerForward then
+        x = x + acceleration * forward_vec.x
+        y = y + acceleration * forward_vec.y
+        self.position_obj:SetDestinationHeight(dest_height + acceleration * forward_vec.z)
+    elseif action_commands == Def.ActionList.SpinnerBackward then
+        x = x - acceleration * forward_vec.x
+        y = y - acceleration * forward_vec.y
+        self.position_obj:SetDestinationHeight(dest_height - acceleration * forward_vec.z)
+    elseif action_commands == Def.ActionList.SpinnerRightRotate then
+        yaw = yaw + yaw_increase
+        if current_angle.roll > -self.max_roll then
+            local_roll = local_roll - roll_yaw_increase
+        end
+    elseif action_commands == Def.ActionList.SpinnerLeftRotate then
+        yaw = yaw - yaw_increase
+        if current_angle.roll < self.max_roll then
+            local_roll = local_roll + roll_yaw_increase
+        end
+    elseif action_commands == Def.ActionList.SpinnerRight then
+        x = x + left_roght_acceleration * right_vec.x
+        y = y + left_roght_acceleration * right_vec.y
+        z = z + left_roght_acceleration * right_vec.z
+        if current_angle.roll < self.max_roll then
+            local_roll = local_roll + roll_increase
+        end
+    elseif action_commands == Def.ActionList.SpinnerLeft then
+        x = x - left_roght_acceleration * right_vec.x
+        y = y - left_roght_acceleration * right_vec.y
+        z = z - left_roght_acceleration * right_vec.z
+        if current_angle.roll > -self.max_roll then
+            local_roll = local_roll - roll_increase
+        end
+    elseif action_commands == Def.ActionList.SpinnerLeanForward then
+        if current_angle.pitch < -self.max_pitch then
+            local_pitch = 0
+        else
+            local_pitch = local_pitch - pitch_increase
+        end
+    elseif action_commands == Def.ActionList.SpinnerLeanBackward then
+        if current_angle.pitch > self.max_pitch then
+            local_pitch = 0
+        else
+            local_pitch = local_pitch + pitch_increase
+        end
     end
+
+    if current_angle.roll > 0 then
+        local_roll = local_roll - roll_restore
+    elseif current_angle.roll < 0 then
+        local_roll = local_roll + roll_restore
+    end
+
+    if current_angle.roll > self.force_restore_angle or current_angle.roll < -self.force_restore_angle then
+        local_roll = - current_angle.roll
+    elseif current_angle.pitch > self.force_restore_angle or current_angle.pitch < -self.force_restore_angle then
+        local_pitch = - current_angle.pitch
+    end
+
+    -- Holding the height
     dest_height = self.position_obj:GetDestinationHeight()
     local current_height = self.position_obj:GetPosition().z
     z = z - vel_vec.z + (dest_height - current_height) * height_constance_rate
 
-    roll = roll - ang_vec.x
-    pitch = pitch - ang_vec.y
-    yaw = yaw - ang_vec.z
+    local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
 
-    local acceleration = 0.5
-    local forward_vec = self.position_obj:GetForward()
-    if action_commands == Def.ActionList.SpinnerForward then
-        x = x + acceleration * forward_vec.x
-        y = y + acceleration * forward_vec.y
-        z = z + acceleration * forward_vec.z
-    elseif action_commands == Def.ActionList.SpinnerBackward then
-        x = x - acceleration * forward_vec.x
-        y = y - acceleration * forward_vec.y
-        z = z - acceleration * forward_vec.z
-    end
-
-    local yaw_increase = 0.5
-    if action_commands == Def.ActionList.SpinnerRightRotate then
-        yaw = yaw + yaw_increase
-    elseif action_commands == Def.ActionList.SpinnerLeftRotate then
-        yaw = yaw - yaw_increase
-    end
+    roll = roll - ang_vec.x + d_roll
+    pitch = pitch - ang_vec.y + d_pitch
+    yaw = yaw - ang_vec.z + d_yaw
 
     self.fly_av_system:AddLinelyVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw))
 
