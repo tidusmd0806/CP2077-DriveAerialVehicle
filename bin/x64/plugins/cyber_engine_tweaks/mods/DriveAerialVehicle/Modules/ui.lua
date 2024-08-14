@@ -50,6 +50,9 @@ function UI:New()
 	obj.dummy_check_4 = false
 	obj.dummy_check_5 = false
 
+	-- custom popup
+	obj.ui_game_menu_controller = nil
+
 	-- native settings page
 	obj.option_table_list = {}
     return setmetatable(obj, self)
@@ -57,6 +60,7 @@ end
 
 function UI:Init(av_obj)
 	self.av_obj = av_obj
+	self:SetObserver()
 	self:SetTweekDB()
 	self:SetDefaultValue()
 	self:CreateNativeSettingsBasePage()
@@ -69,6 +73,33 @@ function UI:SetTweekDB()
 	for _, model in ipairs(self.av_obj.all_models) do
 		local av_record = TweakDBID.new(model.tweakdb_id)
 		table.insert(self.av_record_list, av_record)
+	end
+
+end
+
+function UI:SetObserver()
+
+	if not DAV.is_ready then
+		Observe('gameuiInGameMenuGameController', 'RegisterInputListenersForPlayer', function(this, player)
+			print("RegisterInputListenersForPlayer")
+			if player:IsControlledByLocalPeer() then
+				self.ui_game_menu_controller = this
+				-- player:RegisterInputListener(this, "Choice2_Hold")
+			end
+		end)
+
+		Observe('gameuiInGameMenuGameController', 'OnAction', function(this, action, consume)
+			local action_name = action:GetName(action).value
+			local action_type = action:GetType(action).value
+
+			print("Action Name : " .. action_name .. ", Action Type : " .. action_type)
+			if action_name == "Choice2_Hold" and action_type == "BUTTON_HOLD_COMPLETE" then
+				local popup = InkPlaygroundPopup.new()
+				popup.Show(this)
+				-- local popup = setmetatable({}, InkPlaygroundPopup)
+				-- popup:Show(this)
+			end
+		end)
 	end
 
 end

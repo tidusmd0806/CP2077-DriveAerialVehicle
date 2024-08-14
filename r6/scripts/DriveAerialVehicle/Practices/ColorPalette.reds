@@ -71,6 +71,6 @@ public class ColorPalette extends Practice {
 			index += 1;
 		}
 
-		this.Log(this.GetLocalizedText("InkPlayground-ColorPalette-Event-Ready"));
+		this.Log("InkPlayground-ColorPalette-Event-Ready");
 	}
 }

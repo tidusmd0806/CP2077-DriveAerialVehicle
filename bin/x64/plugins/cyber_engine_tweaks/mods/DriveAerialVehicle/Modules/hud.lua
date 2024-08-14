@@ -122,26 +122,6 @@ function HUD:SetObserve()
             self.popup_manager = this
         end)
 
-        Observe('gameuiInGameMenuGameController', 'RegisterInputListenersForPlayer', function(this, player)
-            print("RegisterInputListenersForPlayer")
-            if player:IsControlledByLocalPeer() then
-                player:RegisterInputListener(this, "Choice2_Hold")
-            end
-        end)
-
-        Observe('gameuiInGameMenuGameController', 'OnAction', function(this, action, consume)
-            local action_name = action:GetName(action).value
-		    local action_type = action:GetType(action).value
-
-            print("Action Name : " .. action_name .. ", Action Type : " .. action_type)
-            if action_name == "Choice2_Hold" and action_type == "BUTTON_HOLD_COMPLETE" then
-                local popup = InkPlaygroundPopup.new()
-                popup.Show(this)
-                -- local popup = setmetatable({}, InkPlaygroundPopup)
-                -- popup:Show(this)
-            end
-        end)
-
     end
 
 end

@@ -510,10 +510,25 @@ function Debug:ImGuiExcuteFunction()
         image:Reparent(hudRoot)
         print("Excute Test Function 10")
     end
-
     if ImGui.Button("TF11") then
-        local test = InkPlaygroundPopup.new()
+        -- local tmp = Game.GetScriptableSystemsContainer():Get('MySystem')
+        -- print(tmp.GetData())
+        -- MyMod_AerialVehiclePopup.Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
+        -- print(Game[MyMod.MySystem::GetData]())
+        local popup = MyMod_MySystem.new()
+        popup:Create()
+        popup:Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
+        Cron.After(1, function()
+            popup:AddHint("popup_moveUp", "hint1")
+        end)
         print("Excute Test Function 11")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF12") then
+        local popup = AerialVehiclePopup.new()
+        popup.Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
+        -- popup.AddHint(CName.new("popup_moveUp"), "hint1")
+        print("Excute Test Function 12")
     end
 end
 

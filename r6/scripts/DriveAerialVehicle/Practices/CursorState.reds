@@ -39,7 +39,7 @@ public class CursorState extends Practice {
 
 		this.RegisterToGlobalInputCallback(n"OnPostOnRelative", this, n"OnCursorMove");
 
-		this.Log(this.GetLocalizedText("InkPlayground-CursorState-Event-Ready"));
+		this.Log("InkPlayground-CursorState-Event-Ready");
 	}
 
 	protected cb func OnUninitialize() {

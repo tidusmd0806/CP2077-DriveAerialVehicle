@@ -1,5 +1,4 @@
 module InkPlayground.Workbench
-import Codeware.Localization.*
 import Codeware.UI.*
 
 public abstract class Practice extends inkCustomController {
@@ -22,10 +21,6 @@ public abstract class Practice extends inkCustomController {
 
 	protected func GetAreaSize() -> Vector2 {
 		return this.m_workbench.GetSize();
-	}
-
-	protected func GetLocalizedText(key: String) -> String {
-		return this.m_workbench.GetTranslator().GetText(key);
 	}
 
 	protected func UpdateHint(action: CName, label: String, active: Bool) {
