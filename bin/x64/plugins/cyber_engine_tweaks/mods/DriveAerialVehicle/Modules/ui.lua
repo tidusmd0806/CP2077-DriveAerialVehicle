@@ -708,11 +708,11 @@ function UI:ShowInfo()
 	ImGui.SameLine()
 	self.dummy_check_5 = ImGui.Checkbox("5", self.dummy_check_5)
 
-	if not self.dummy_check_1 and self.dummy_check_2 and not self.dummy_check_3 and not self.dummy_check_4 and self.dummy_check_5 then
-		DAV.is_debug_mode = true
-	else
-		DAV.is_debug_mode = false
-	end
+	-- if not self.dummy_check_1 and self.dummy_check_2 and not self.dummy_check_3 and not self.dummy_check_4 and self.dummy_check_5 then
+	-- 	DAV.is_debug_mode = true
+	-- else
+	-- 	DAV.is_debug_mode = false
+	-- end
 end
 
 function UI:SetFreeSummonParameters()

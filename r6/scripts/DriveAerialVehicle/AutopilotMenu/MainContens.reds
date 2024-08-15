@@ -1,5 +1,5 @@
 // This code was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
-module AutopilotMenu
+module DAV.AutopilotMenu
 import Codeware.UI.*
 
 public class MainContents extends inkCustomController {

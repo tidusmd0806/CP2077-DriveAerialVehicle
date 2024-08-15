@@ -511,11 +511,7 @@ function Debug:ImGuiExcuteFunction()
         print("Excute Test Function 10")
     end
     if ImGui.Button("TF11") then
-        -- local tmp = Game.GetScriptableSystemsContainer():Get('MySystem')
-        -- print(tmp.GetData())
-        -- MyMod_AerialVehiclePopup.Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
-        -- print(Game[MyMod.MySystem::GetData]())
-        local popup = MyMod_MySystem.new()
+        local popup = DAV_AerialVehiclePopupWrapper.new()
         popup:Create()
         popup:Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
         Cron.After(1, function()

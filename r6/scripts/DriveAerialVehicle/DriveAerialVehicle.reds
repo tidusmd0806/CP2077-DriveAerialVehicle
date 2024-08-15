@@ -5,8 +5,8 @@
 
 // import InkPlayground.Workbench.*
 // import InkPlayground.Practices.*
-module MyMod
-import AutopilotMenu.*
+module DAV
+import DAV.AutopilotMenu.*
 import Codeware.UI.*
 
 public class AerialVehiclePopup extends InGamePopup {
@@ -38,7 +38,8 @@ public class AerialVehiclePopup extends InGamePopup {
 		this.m_main_contents.SetSize(this.m_content.GetSize());
 		this.m_main_contents.Reparent(this.m_content);
 
-		this.m_main_contents.GetHistory().AddEntry("test4");
+		// this.m_main_contents.GetHistory().AddEntry("test4");
+		// this.m_main_contents.GetHistory().AddEntry("tefs");
 		// this.m_footer.GetHints().AddButtonHint(n"popup_moveUp", "test5");
 		// this.AddHint(n"popup_moveUp", "fsawa");
 		// this.m_main_contents.UpdateHint(
@@ -86,20 +87,20 @@ public class AerialVehiclePopup extends InGamePopup {
 	
 }
 
-public class MySystem  {
-	protected let m_popup: ref<AerialVehiclePopup>;
+public class AerialVehiclePopupWrapper {
+	protected let m_aerial_vehicle_popup: ref<AerialVehiclePopup>;
 
 	public func Create() {
-		this.m_popup = new AerialVehiclePopup();
+		this.m_aerial_vehicle_popup = new AerialVehiclePopup();
 	}
 
 	public func Show(requester: ref<inkGameController>) {
-		this.m_popup.Show(requester);
+		this.m_aerial_vehicle_popup.Show(requester);
 	}
 
 	public func AddHint(action: String, label: String) {
 		LogChannel(n"DEBUG", action);
 		let actionName = StringToName(action);
-		this.m_popup.AddHint(actionName, label);
+		this.m_aerial_vehicle_popup.AddHint(actionName, label);
 	}
 }

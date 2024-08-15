@@ -1,5 +1,5 @@
 // This code was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
-module AutopilotMenu
+module DAV.AutopilotMenu
 import Codeware.UI.*
 
 public class History extends inkCustomController {
@@ -28,12 +28,18 @@ public class History extends inkCustomController {
 	}
 
 	public func AddEntry(text: String) {
-		let entry = new inkText();
-		entry.SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily");
-		entry.SetFontStyle(n"Regular");
-		entry.SetFontSize(24);
-		entry.SetTintColor(ThemeColors.Bittersweet());
+		// let entry = new inkText();
+		// entry.SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily");
+		// entry.SetFontStyle(n"Regular");
+		// entry.SetFontSize(24);
+		// entry.SetTintColor(ThemeColors.Bittersweet());
+		// entry.SetText(text);
+		// entry.Reparent(this.m_log);
+		let entry = SimpleButton.Create();
+		entry.SetName(n"RightButton");
 		entry.SetText(text);
+		entry.ToggleAnimations(true);
+		entry.ToggleSounds(true);
 		entry.Reparent(this.m_log);
 
 		this.FadeInEntry(entry);
@@ -48,7 +54,7 @@ public class History extends inkCustomController {
 		}
 	}
 
-	protected func FadeInEntry(entry: ref<inkWidget>) {
+	protected func FadeInEntry(entry: ref<SimpleButton>) {
 		let marginAnim = new inkAnimMargin();
 		marginAnim.SetStartMargin(new inkMargin(40.0, 0.0, 0.0, 0.0));
 		marginAnim.SetEndMargin(new inkMargin(0.0, 0.0, 0.0, 0.0));
@@ -65,7 +71,7 @@ public class History extends inkCustomController {
 		animDef.AddInterpolator(marginAnim);
 		animDef.AddInterpolator(alphaAnim);
 
-		entry.PlayAnimation(animDef);
+		// entry.PlayAnimation(animDef);
 	}
 
 	protected func FadeOutEntry(entry: ref<inkWidget>) {
