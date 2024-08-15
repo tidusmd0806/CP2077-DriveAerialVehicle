@@ -14,7 +14,7 @@ public class AerialVehiclePopup extends InGamePopup {
 	protected let m_footer: ref<InGamePopupFooter>;
 	protected let m_content: ref<InGamePopupContent>;
 	// protected let m_workbench: ref<Workbench>;
-	protected let m_main_contents: ref<MainContents>;
+	protected let m_autopilot_base: ref<AutopilotBase>;
 
 	protected cb func OnCreate() {
 		super.OnCreate();
@@ -37,15 +37,16 @@ public class AerialVehiclePopup extends InGamePopup {
 		this.m_content = InGamePopupContent.Create();
 		this.m_content.Reparent(this);
 
-		this.m_main_contents = MainContents.Create();
-		this.m_main_contents.SetSize(this.m_content.GetSize());
-		this.m_main_contents.Reparent(this.m_content);
+		this.m_autopilot_base = AutopilotBase.Create();
+		this.m_autopilot_base.SetFooter(this.m_footer);
+		this.m_autopilot_base.SetSize(this.m_content.GetSize());
+		this.m_autopilot_base.Reparent(this.m_content);
 
-		this.m_main_contents.GetFavoriteList().AddEntry("test4");
-		this.m_main_contents.GetFavoriteList().AddEntry("tefs");
+		this.m_autopilot_base.GetFavoriteList().AddEntry("test4");
+		this.m_autopilot_base.GetFavoriteList().AddEntry("tefs");
 		// this.m_footer.GetHints().AddButtonHint(n"popup_moveUp", "test5");
 		// this.AddHint(n"popup_moveUp", "fsawa");
-		// this.m_main_contents.UpdateHint(
+		// this.m_autopilot_base.UpdateHint(
 		// 	n"click",
 		// 	"ttt"
 		// );

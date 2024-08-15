@@ -5,6 +5,7 @@ import Codeware.UI.*
 public class RegisterButton extends inkCustomController {
     protected let m_root: wref<inkCanvas>;
     protected let m_rb_area: wref<inkHorizontalPanel>;
+	protected let m_footer: ref<InGamePopupFooter>;
 
     protected cb func OnCreate() {
 		let root = new inkCanvas();
@@ -12,12 +13,12 @@ public class RegisterButton extends inkCustomController {
 		root.SetAnchor(inkEAnchor.Fill);
 		root.SetMargin(new inkMargin(16.0, 12.0, 0.0, 12.0));
         root.SetSize(500, 500);
-		root.SetChildOrder(inkEChildOrder.Backward);
+		root.SetChildOrder(inkEChildOrder.Forward);
 
 		let rb_area = new inkHorizontalPanel();
 		rb_area.SetName(n"rb_area");
 		rb_area.SetAnchor(inkEAnchor.Fill);
-		rb_area.SetChildOrder(inkEChildOrder.Backward);
+		rb_area.SetChildOrder(inkEChildOrder.Forward);
 		rb_area.SetOpacity(0.6);
 		rb_area.Reparent(root);
 
@@ -84,13 +85,39 @@ public class RegisterButton extends inkCustomController {
 	}
 
 	protected cb func OnEnter(evt: ref<inkPointerEvent>) -> Bool {
-		// let button = evt.GetTarget().GetController() as CustomButton;
-
-		// this.UpdateHints(button);
+		let button = evt.GetTarget().GetController() as CustomButton;
+		this.UpdateHints(button);
 	}
 
 	protected cb func OnLeave(evt: ref<inkPointerEvent>) -> Bool {
-		// this.RemoveHints();
+		this.RemoveHints();
+	}
+
+	protected func UpdateHints(button: ref<CustomButton>) {
+		// this.UpdateHint(
+		// 	n"popup_moveUp",
+		// 	button.IsEnabled()
+		// 		? "InkPlayground-ButtonBasics-Action-Disable"
+		// 		: "InkPlayground-ButtonBasics-Action-Enable"
+		// );
+
+		// this.UpdateHint(
+		// 	n"click",
+		// 	"InkPlayground-ButtonBasics-Action-Interact",
+		// 	button.IsEnabled()
+		// );
+		if button.IsEnabled() {
+			LogChannel(n"DEBUG", "Interact");
+			this.m_footer.GetHints().AddButtonHint(n"click", "Interact");
+		} else {
+			LogChannel(n"DEBUG", "click");
+			this.m_footer.GetHints().RemoveButtonHint(n"click");
+		}
+
+	}
+
+	protected func RemoveHints() {
+		this.m_footer.GetHints().RemoveButtonHint(n"click");
 	}
 
     protected func CreateButton(text: String) {
@@ -102,6 +129,10 @@ public class RegisterButton extends inkCustomController {
 		button.ToggleSounds(true);
 		button.Reparent(this.m_rb_area);
     }
+
+	public func SetFooter(footer: ref<InGamePopupFooter>) {
+		this.m_footer = footer;
+	}
 
     public static func Create() -> ref<RegisterButton> {
 		let self = new RegisterButton();
