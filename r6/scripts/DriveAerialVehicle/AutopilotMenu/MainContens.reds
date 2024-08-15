@@ -5,7 +5,7 @@ import Codeware.UI.*
 public class MainContents extends inkCustomController {
 	protected let m_root: wref<inkFlex>;
 	protected let m_container: wref<inkCanvas>;
-	protected let m_history: wref<History>;
+	protected let m_favorite_list: wref<FavoriteList>;
 	protected let m_buttonHints: wref<ButtonHintsEx>;
 	protected let m_areaSize: Vector2;
 
@@ -54,20 +54,41 @@ public class MainContents extends inkCustomController {
 		container.SetAnchor(inkEAnchor.Fill);
 		container.Reparent(autopilot_menu);
 
-		let history = History.Create(inkEAnchor.RightFillVerticaly);
-		history.SetGameController(this);
-		history.Reparent(autopilot_menu);
+		let column_1 = new inkHorizontalPanel();
+		column_1.SetFitToContent(true);
+		column_1.SetAnchor(inkEAnchor.Fill);
+		column_1.Reparent(autopilot_menu);
+
+		let canvas_2 = new inkCanvas();
+		canvas_2.SetName(n"canvas_2");
+		canvas_2.SetAnchor(inkEAnchor.Fill);
+		canvas_2.SetSize(500, 500);
+		canvas_2.Reparent(column_1);
+
+		let canvas_3 = new inkCanvas();
+		canvas_3.SetName(n"canvas_3");
+		canvas_3.SetAnchor(inkEAnchor.Fill);
+		canvas_3.SetSize(500, 500);
+		canvas_3.Reparent(column_1);
+
+		let favorite_list = FavoriteList.Create();
+		favorite_list.SetGameController(this);
+		favorite_list.Reparent(canvas_2);
+
+		let register_button = RegisterButton.Create();
+		register_button.SetGameController(this);
+		register_button.Reparent(canvas_3);
 
 		this.m_root = autopilot_menu;
 		this.m_container = container;
-		this.m_history = history;
+		this.m_favorite_list = favorite_list;
 
 		this.SetRootWidget(autopilot_menu);
 		this.SetContainerWidget(container);
     }
 
-	public func GetHistory() -> wref<History> {
-		return this.m_history;
+	public func GetFavoriteList() -> wref<FavoriteList> {
+		return this.m_favorite_list;
 	}
 
 	public func SetSize(areaSize: Vector2) {

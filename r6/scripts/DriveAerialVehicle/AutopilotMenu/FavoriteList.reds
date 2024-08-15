@@ -2,16 +2,21 @@
 module DAV.AutopilotMenu
 import Codeware.UI.*
 
-public class History extends inkCustomController {
-	protected let m_root: wref<inkFlex>;
+public class FavoriteList extends inkCustomController {
+	protected let m_root: wref<inkCanvas>;
 	protected let m_log: wref<inkVerticalPanel>;
-	protected let m_anchor: inkEAnchor;
 
 	protected cb func OnCreate() {
-		let root = new inkFlex();
-		root.SetName(n"History");
-		root.SetAnchor(this.m_anchor);
+		// let root = new inkFlex();
+		// root.SetName(n"FavoriteList");
+		// root.SetAnchor(this.m_anchor);
+		// root.SetMargin(new inkMargin(16.0, 12.0, 0.0, 12.0));
+		// root.SetChildOrder(inkEChildOrder.Backward);
+		let root = new inkCanvas();
+		root.SetName(n"FavoriteList");
+		root.SetAnchor(inkEAnchor.Fill);
 		root.SetMargin(new inkMargin(16.0, 12.0, 0.0, 12.0));
+		root.SetSize(500, 500);
 		root.SetChildOrder(inkEChildOrder.Backward);
 
 		let log = new inkVerticalPanel();
@@ -28,19 +33,19 @@ public class History extends inkCustomController {
 	}
 
 	public func AddEntry(text: String) {
-		// let entry = new inkText();
-		// entry.SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily");
-		// entry.SetFontStyle(n"Regular");
-		// entry.SetFontSize(24);
-		// entry.SetTintColor(ThemeColors.Bittersweet());
-		// entry.SetText(text);
-		// entry.Reparent(this.m_log);
-		let entry = SimpleButton.Create();
-		entry.SetName(n"RightButton");
+		let entry = new inkText();
+		entry.SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily");
+		entry.SetFontStyle(n"Regular");
+		entry.SetFontSize(24);
+		entry.SetTintColor(ThemeColors.Bittersweet());
 		entry.SetText(text);
-		entry.ToggleAnimations(true);
-		entry.ToggleSounds(true);
 		entry.Reparent(this.m_log);
+		// let entry = SimpleButton.Create();
+		// entry.SetName(n"RightButton");
+		// entry.SetText(text);
+		// entry.ToggleAnimations(true);
+		// entry.ToggleSounds(true);
+		// entry.Reparent(this.m_log);
 
 		this.FadeInEntry(entry);
 		this.TrimEntries();
@@ -54,7 +59,7 @@ public class History extends inkCustomController {
 		}
 	}
 
-	protected func FadeInEntry(entry: ref<SimpleButton>) {
+	protected func FadeInEntry(entry: ref<inkText>) {
 		let marginAnim = new inkAnimMargin();
 		marginAnim.SetStartMargin(new inkMargin(40.0, 0.0, 0.0, 0.0));
 		marginAnim.SetEndMargin(new inkMargin(0.0, 0.0, 0.0, 0.0));
@@ -71,7 +76,7 @@ public class History extends inkCustomController {
 		animDef.AddInterpolator(marginAnim);
 		animDef.AddInterpolator(alphaAnim);
 
-		// entry.PlayAnimation(animDef);
+		entry.PlayAnimation(animDef);
 	}
 
 	protected func FadeOutEntry(entry: ref<inkWidget>) {
@@ -92,13 +97,8 @@ public class History extends inkCustomController {
 		this.m_log.RemoveChildByIndex(0);
 	}
 
-	protected func SetAnchor(anchor: inkEAnchor) {
-		this.m_anchor = anchor;
-	}
-
-	public static func Create(anchor: inkEAnchor) -> ref<History> {
-		let self = new History();
-		self.SetAnchor(anchor);
+	public static func Create() -> ref<FavoriteList> {
+		let self = new FavoriteList();
 		self.CreateInstance();
 
 		return self;

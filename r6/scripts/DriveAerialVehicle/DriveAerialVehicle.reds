@@ -19,7 +19,10 @@ public class AerialVehiclePopup extends InGamePopup {
 	protected cb func OnCreate() {
 		super.OnCreate();
 
-		this.m_container.SetHeight(1140.0);
+		this.m_container.SetAnchor(inkEAnchor.Centered);
+		this.m_container.SetMargin(0, 50, 0, 0);
+		this.m_container.SetWidth(2000.0);
+		this.m_container.SetHeight(1500.0);
 
 		this.m_header = InGamePopupHeader.Create();
 		this.m_header.SetTitle("test1111");
@@ -38,8 +41,8 @@ public class AerialVehiclePopup extends InGamePopup {
 		this.m_main_contents.SetSize(this.m_content.GetSize());
 		this.m_main_contents.Reparent(this.m_content);
 
-		// this.m_main_contents.GetHistory().AddEntry("test4");
-		// this.m_main_contents.GetHistory().AddEntry("tefs");
+		this.m_main_contents.GetFavoriteList().AddEntry("test4");
+		this.m_main_contents.GetFavoriteList().AddEntry("tefs");
 		// this.m_footer.GetHints().AddButtonHint(n"popup_moveUp", "test5");
 		// this.AddHint(n"popup_moveUp", "fsawa");
 		// this.m_main_contents.UpdateHint(
