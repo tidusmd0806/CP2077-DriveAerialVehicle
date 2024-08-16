@@ -514,17 +514,38 @@ function Debug:ImGuiExcuteFunction()
         local popup = DAV_AerialVehiclePopupWrapper.new()
         popup:Create()
         popup:Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
-        Cron.After(1, function()
-            popup:AddHint("popup_moveUp", "hint1")
-        end)
+        local arr = {}
+        for i = 1, 5 do
+            table.insert(arr, DAV.user_setting_table.favorite_location_list[i].name)
+        end
+        local ret_arr = popup:Test(arr)
+        for i, value in ipairs(ret_arr) do
+            print("[" .. i .. "] : " .. value)
+        end
         print("Excute Test Function 11")
     end
     ImGui.SameLine()
     if ImGui.Button("TF12") then
-        local popup = AerialVehiclePopup.new()
-        popup.Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
-        -- popup.AddHint(CName.new("popup_moveUp"), "hint1")
+        self.popup = DAV_AerialVehiclePopupWrapper.new()
+        self.popup:Create()
+        self.popup:Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
+        local arr = {}
+        for i = 1, 5 do
+            table.insert(arr, DAV.user_setting_table.favorite_location_list[i].name)
+        end
+        Cron.After(0.1, function()
+            self.popup:SetDestination("Test Destination fsa", "aaa", 2)
+            self.popup:SetFavoriteList(arr)
+            self.popup:SetCurrentAddress("Test Address wwa")
+        end)
         print("Excute Test Function 12")
+    end
+
+    ImGui.SameLine()
+    if ImGui.Button("TF13") then
+        -- self.popup:Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
+        print(self.popup:IsClosed())
+        print("Excute Test Function 13")
     end
 end
 

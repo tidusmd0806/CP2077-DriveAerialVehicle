@@ -2,21 +2,20 @@
 module DAV.AutopilotMenu
 import Codeware.UI.*
 
-public class FavoriteList extends inkCustomController {
+public class Destination extends inkCustomController {
 	protected let m_root: wref<inkCanvas>;
-	protected let m_list: wref<inkVerticalPanel>;
+	protected let m_list: wref<inkHorizontalPanel>;
+	protected let m_text: wref<inkText>;
 	protected let m_autopilot_base: ref<AutopilotBase>;
-	protected let m_row_arr: array<ref<inkHorizontalPanel>>;
-	protected let m_text_arr: array<ref<inkText>>;
 
 	protected cb func OnCreate() {
 		let root = new inkCanvas();
-		root.SetName(n"FavoriteList");
+		root.SetName(n"Destination");
 		root.SetAnchor(inkEAnchor.Fill);
-		root.SetSize(2000, 550);
+		root.SetSize(2000, 120);
 		root.SetChildOrder(inkEChildOrder.Forward);
 
-		let list = new inkVerticalPanel();
+		let list = new inkHorizontalPanel();
 		list.SetName(n"list");
 		list.SetAnchor(inkEAnchor.Fill);
 		list.SetMargin(30, 20, 0, 0);
@@ -25,66 +24,47 @@ public class FavoriteList extends inkCustomController {
 		list.SetOpacity(0.6);
 		list.Reparent(root);
 
+		let canvas = new inkCanvas();
+		canvas.SetName(n"canvas");
+		canvas.SetAnchor(inkEAnchor.Fill);
+		canvas.SetSize(1500, 100);
+		canvas.Reparent(list);
+
+		let dest_text = new inkText();
+		dest_text.SetName(n"DestinationText");
+        dest_text.SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily");
+        dest_text.SetFontStyle(n"Medium");
+        dest_text.SetFontSize(40);
+        dest_text.SetLetterCase(textLetterCase.OriginalCase);
+        dest_text.SetFitToContent(true);
+        dest_text.SetMargin(new inkMargin(48.0, 23.0, 200.0, 6.0));
+        dest_text.SetHAlign(inkEHorizontalAlign.Left);
+        dest_text.SetVAlign(inkEVerticalAlign.Center);
+        dest_text.SetTintColor(ThemeColors.Bittersweet());
+		dest_text.SetText("Destination Test");
+		dest_text.Reparent(canvas);
+
+		let reset_button = VariableSimpleButton.Create(300.0, 100.0);
+		reset_button.SetName(n"ResetButton");
+		reset_button.SetText("Reset");
+		reset_button.ToggleAnimations(true);
+		reset_button.ToggleSounds(true);
+		reset_button.Reparent(list);
+
+		list.GetWidget(n"ResetButton").SetMargin(0, 0, 0, 5);
+
 		this.m_root = root;
 		this.m_list = list;
-
-		this.CreateFavoriteList();
+		this.m_text = dest_text;
 
 		this.SetRootWidget(root);
-
-	}
-
-	protected func CreateFavoriteList() {		
-
-		let row_arr = [new inkHorizontalPanel(), new inkHorizontalPanel(), new inkHorizontalPanel(), new inkHorizontalPanel(), new inkHorizontalPanel()];
-		let text_arr = [new inkText(), new inkText(), new inkText(), new inkText(), new inkText()];
-
-		let i = 0;
-		while i < 5 {
-			let text = ToString(i + 1);
-
-			row_arr[i].SetName(StringToName("Column" + text));
-			row_arr[i].SetSize(2000, 100);
-			row_arr[i].SetMargin(30, 0, 0, 0);
-			row_arr[i].SetAnchor(inkEAnchor.Fill);
-			row_arr[i].SetChildOrder(inkEChildOrder.Forward);
-			row_arr[i].SetOpacity(0.6);
-			row_arr[i].Reparent(this.m_list);
-
-			let button = VariableSimpleButton.Create(300.0, 100.0);
-			button.SetName(StringToName("Button" + text));
-			button.SetText(text);
-			button.ToggleAnimations(true);
-			button.ToggleSounds(true);
-			button.Reparent(row_arr[i]);
-
-			let canvas = new inkCanvas();
-			canvas.SetName(StringToName("Canvas" + text));
-			canvas.SetSize(1600, 100);
-			canvas.SetMargin(30, 0, 0, 0);
-			canvas.SetAnchor(inkEAnchor.Fill);
-			canvas.Reparent(row_arr[i]);
-
-			text_arr[i].SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily");
-			text_arr[i].SetFontStyle(n"Medium");
-			text_arr[i].SetFontSize(30);
-			text_arr[i].SetMargin(0, 30, 0, 0);
-			text_arr[i].SetTintColor(ThemeColors.Bittersweet());
-			text_arr[i].SetText(text);
-			text_arr[i].Reparent(canvas);
-
-			i += 1;
-		}
-
-		this.m_row_arr = row_arr;
-		this.m_text_arr = text_arr;
 
 	}
 
 	protected cb func OnInitialize() {
 		let i = 0;
 		while i < 5 {
-			this.RegisterListeners(this.m_row_arr[i]);
+			this.RegisterListeners(this.m_list);
 			i += 1;
 		}
 	}
@@ -111,9 +91,10 @@ public class FavoriteList extends inkCustomController {
     protected cb func OnClick(widget: wref<inkWidget>) -> Bool {
 		let button = widget.GetController() as CustomButton;
 
-		let button_number = button.GetText();
+		let buttonName = button.GetText();
+		let buttonEvent = "clicked";
 
-		this.m_autopilot_base.SetFavoriteToDestination(StringToInt(button_number));
+		this.m_autopilot_base.ResetDestination();
 	}
 
 	protected cb func OnRelease(evt: ref<inkPointerEvent>) -> Bool {
@@ -122,6 +103,12 @@ public class FavoriteList extends inkCustomController {
 		if evt.IsAction(n"popup_moveUp") {
 			button.SetDisabled(!button.IsDisabled());
 
+			// let buttonName = button.GetText();
+			// let buttonEvent = button.IsDisabled()
+			// 	? "InkPlayground-ButtonBasics-Event-Disable"
+			// 	: "InkPlayground-ButtonBasics-Event-Enable";
+
+			// this.Log(buttonName + ": " + buttonEvent);
 			this.UpdateHints(button);
 
 			this.PlaySound(n"MapPin", n"OnCreate");
@@ -150,27 +137,15 @@ public class FavoriteList extends inkCustomController {
 		this.m_autopilot_base.GetHints().RemoveButtonHint(n"click");
 	}
 
-	public static func Create(autopilot_base: ref<AutopilotBase>) -> ref<FavoriteList> {
-		let self = new FavoriteList();
+	public static func Create(autopilot_base: ref<AutopilotBase>) -> ref<Destination> {
+		let self = new Destination();
 		self.CreateInstance();
 		self.m_autopilot_base = autopilot_base;
 
 		return self;
 	}
 
-	public func GetText(index: Int32) -> String {
-		return this.m_text_arr[index].GetText();
-	}
-
-	public func SetText(index: Int32, text: String) {
-		this.m_text_arr[index].SetText(text);
-	}
-
-	public func SetFavoriteList(favorite_list: array<String>) {
-		let i = 0;
-		while i < 5 {
-			this.SetText(i, favorite_list[i]);
-			i += 1;
-		}
+	public func SetDestination(dest_address: String) {
+		this.m_text.SetText(dest_address);
 	}
 }

@@ -12,7 +12,7 @@ public class TitleText extends inkText {
         self.SetFontSize(50);
         self.SetLetterCase(textLetterCase.OriginalCase);
         self.SetFitToContent(true);
-        self.SetMargin(new inkMargin(48.0, 8.0, 200.0, 6.0));
+        self.SetMargin(new inkMargin(48.0, 28.0, 200.0, 6.0));
         self.SetHAlign(inkEHorizontalAlign.Left);
         self.SetVAlign(inkEVerticalAlign.Center);
         self.SetTintColor(ThemeColors.ElectricBlue());

@@ -3,8 +3,6 @@
 // Version: 2.0.0
 // This code was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
 
-// import InkPlayground.Workbench.*
-// import InkPlayground.Practices.*
 module DAV
 import DAV.AutopilotMenu.*
 import Codeware.UI.*
@@ -13,8 +11,8 @@ public class AerialVehiclePopup extends InGamePopup {
 	protected let m_header: ref<InGamePopupHeader>;
 	protected let m_footer: ref<InGamePopupFooter>;
 	protected let m_content: ref<InGamePopupContent>;
-	// protected let m_workbench: ref<Workbench>;
 	protected let m_autopilot_base: ref<AutopilotBase>;
+	protected let m_wrapper: wref<AerialVehiclePopupWrapper>;
 
 	protected cb func OnCreate() {
 		super.OnCreate();
@@ -38,55 +36,47 @@ public class AerialVehiclePopup extends InGamePopup {
 		this.m_content.Reparent(this);
 
 		this.m_autopilot_base = AutopilotBase.Create();
-		this.m_autopilot_base.SetFooter(this.m_footer);
 		this.m_autopilot_base.SetSize(this.m_content.GetSize());
 		this.m_autopilot_base.Reparent(this.m_content);
-
-		this.m_autopilot_base.GetFavoriteList().AddEntry("test4");
-		this.m_autopilot_base.GetFavoriteList().AddEntry("tefs");
-		// this.m_footer.GetHints().AddButtonHint(n"popup_moveUp", "test5");
-		// this.AddHint(n"popup_moveUp", "fsawa");
-		// this.m_autopilot_base.UpdateHint(
-		// 	n"click",
-		// 	"ttt"
-		// );
-
-		// this.m_workbench = Workbench.Create();
-		// this.m_workbench.SetSize(this.m_content.GetSize());
-		// this.m_workbench.Reparent(this.m_content);
-
-		// this.m_workbench.AddPractice(new ColorPalette());
-		// this.m_workbench.AddPractice(new ButtonBasics());
-		// this.m_workbench.AddPractice(new DragImage());
-		// this.m_workbench.AddPractice(new CursorState());
-		// this.m_workbench.AddPractice(new InputText());
-		// this.m_workbench.AddPractice(new InnerPopup());
 	}
 
 	protected cb func OnInitialize() {
 		super.OnInitialize();
 
-		// this.m_workbench.SetHints(this.m_footer.GetHints());
+		this.m_autopilot_base.SetHints(this.m_footer.GetHints());
+	}
+
+	protected cb func OnUninitialize() {
+		super.OnUninitialize();
+		this.m_wrapper.SetOpenFlag(false);
 	}
 
 	public func UseCursor() -> Bool {
 		return true;
 	}
 
-	// public static func Show(requester: ref<inkGameController>){
-	// 	let self = new AerialVehiclePopup();
-	// 	self.Open(requester);
-	// }
+	public func SetWrapper(wrapper: ref<AerialVehiclePopupWrapper>) {
+		this.m_wrapper = wrapper;
+	}
+
 	public func Show(requester: ref<inkGameController>){
 		this.Open(requester);
 	}
 
-	public func AddHint(action: CName, label: String) {
-		this.m_footer.GetHints().AddButtonHint(action, label);
+	public func SetDestination(dest_address: String, mappim_address: String, selected_number: Int32) {
+		this.m_autopilot_base.SetDestination(dest_address, mappim_address, selected_number);
 	}
 
-	public func RemoveHint(action: CName) {
-		this.m_footer.GetHints().RemoveButtonHint(action);
+	public func SetFavoriteList(favorite_list: array<String>) {
+		this.m_autopilot_base.SetFavoriteList(favorite_list);
+	}	
+
+	public func GetCurrentAddress() -> String {
+		return this.m_autopilot_base.GetCurrentAddress();
+	}
+
+	public func SetCurrentAddress(address: String) {
+		this.m_autopilot_base.SetCurrentAddress(address);
 	}
 	
 }
@@ -94,17 +84,53 @@ public class AerialVehiclePopup extends InGamePopup {
 public class AerialVehiclePopupWrapper {
 	protected let m_aerial_vehicle_popup: ref<AerialVehiclePopup>;
 
+	protected let m_is_popup_open: Bool;
+
 	public func Create() {
 		this.m_aerial_vehicle_popup = new AerialVehiclePopup();
+		this.m_aerial_vehicle_popup.SetWrapper(this);
 	}
 
 	public func Show(requester: ref<inkGameController>) {
+		this.m_is_popup_open = true;
 		this.m_aerial_vehicle_popup.Show(requester);
 	}
 
-	public func AddHint(action: String, label: String) {
-		LogChannel(n"DEBUG", action);
-		let actionName = StringToName(action);
-		this.m_aerial_vehicle_popup.AddHint(actionName, label);
+	public func IsClosed() -> Bool {
+		if !(this.m_is_popup_open)
+		{
+			return true;
+		}
+		else 
+		{
+			return false;
+		}
 	}
+
+	public func SetOpenFlag(is_open: Bool) {
+		this.m_is_popup_open = is_open;
+	}
+
+	public func SetDestination(dest_address: String, mappim_address: String, selected_number: Int32) { // selected_number: 0 = Mappin, 1 ~ 5 = Favorite
+		this.m_aerial_vehicle_popup.SetDestination(dest_address, mappim_address, selected_number);
+	}
+
+	public func SetFavoriteList(favorite_list: array<String>) {
+		this.m_aerial_vehicle_popup.SetFavoriteList(favorite_list);
+	}
+
+	public func SetCurrentAddress(address: String) {
+		this.m_aerial_vehicle_popup.SetCurrentAddress(address);
+	}
+
+	public func Test(array: array<String>) -> array<String> {
+		let i = 0;
+		while i < 5 {
+			LogChannel(n"DEBUG", array[i]);
+			i += 1;
+		}
+		return array;
+	}
+
+
 }
