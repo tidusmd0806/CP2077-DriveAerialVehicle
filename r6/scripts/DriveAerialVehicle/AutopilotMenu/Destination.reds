@@ -1,5 +1,6 @@
 // This code was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
 module DAV.AutopilotMenu
+import DAV.*
 import Codeware.UI.*
 
 public class Destination extends inkCustomController {
@@ -41,17 +42,18 @@ public class Destination extends inkCustomController {
         dest_text.SetHAlign(inkEHorizontalAlign.Left);
         dest_text.SetVAlign(inkEVerticalAlign.Center);
         dest_text.SetTintColor(ThemeColors.Bittersweet());
-		dest_text.SetText("Destination Test");
+		dest_text.SetText(this.m_autopilot_base.GetWrapper().GetTranslation("ui_popup_destination_title"));
 		dest_text.Reparent(canvas);
 
-		let reset_button = VariableSimpleButton.Create(300.0, 100.0);
+		let reset_button = CustomSimpleButton.Create();
 		reset_button.SetName(n"ResetButton");
-		reset_button.SetText("Reset");
+		reset_button.GetRootComponent().SetSize(300, 80);
+		reset_button.GetRootComponent().SetMargin(0, 0, 0, 5);
+		reset_button.GetLabel().SetFontSize(30);
+		reset_button.SetText(this.m_autopilot_base.GetWrapper().GetTranslation("ui_popup_destination_button"));
 		reset_button.ToggleAnimations(true);
 		reset_button.ToggleSounds(true);
 		reset_button.Reparent(list);
-
-		list.GetWidget(n"ResetButton").SetMargin(0, 0, 0, 5);
 
 		this.m_root = root;
 		this.m_list = list;
@@ -103,12 +105,6 @@ public class Destination extends inkCustomController {
 		if evt.IsAction(n"popup_moveUp") {
 			button.SetDisabled(!button.IsDisabled());
 
-			// let buttonName = button.GetText();
-			// let buttonEvent = button.IsDisabled()
-			// 	? "InkPlayground-ButtonBasics-Event-Disable"
-			// 	: "InkPlayground-ButtonBasics-Event-Enable";
-
-			// this.Log(buttonName + ": " + buttonEvent);
 			this.UpdateHints(button);
 
 			this.PlaySound(n"MapPin", n"OnCreate");
@@ -126,7 +122,7 @@ public class Destination extends inkCustomController {
 
 	protected func UpdateHints(button: ref<CustomButton>) {
 		if button.IsEnabled() {
-			this.m_autopilot_base.GetHints().AddButtonHint(n"click", "Interact");
+			this.m_autopilot_base.GetHints().AddButtonHint(n"click", this.m_autopilot_base.GetWrapper().GetTranslation("ui_popup_destination_input_hint"));
 		} else {
 			this.m_autopilot_base.GetHints().RemoveButtonHint(n"click");
 		}
@@ -139,8 +135,8 @@ public class Destination extends inkCustomController {
 
 	public static func Create(autopilot_base: ref<AutopilotBase>) -> ref<Destination> {
 		let self = new Destination();
-		self.CreateInstance();
 		self.m_autopilot_base = autopilot_base;
+		self.CreateInstance();
 
 		return self;
 	}

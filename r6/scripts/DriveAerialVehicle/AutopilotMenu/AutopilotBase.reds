@@ -1,5 +1,6 @@
 // This code was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
 module DAV.AutopilotMenu
+import DAV.*
 import Codeware.UI.*
 
 public class AutopilotBase extends inkCustomController {
@@ -12,7 +13,7 @@ public class AutopilotBase extends inkCustomController {
 	protected let m_areaSize: Vector2;
 	protected let m_mappin_address: String;
 	protected let m_selected_number: Int32;
-	protected let m_changed_number_list: array<Bool>;
+	protected let m_wrapper: ref<AerialVehiclePopupWrapper>;
 
 	protected cb func OnCreate() {
 		let autopilot_menu = new inkFlex();
@@ -143,15 +144,15 @@ public class AutopilotBase extends inkCustomController {
 		base_bottom_content.Reparent(base_bottom);
 
 		let top_title = TitleText.Create();
-		top_title.SetText("Destination");
+		top_title.SetText(this.m_wrapper.GetTranslation("ui_popup_destination_title"));
 		top_title.Reparent(base_top_title);
 
 		let Middle_title = TitleText.Create();
-		Middle_title.SetText("Favorite Locations");
+		Middle_title.SetText(this.m_wrapper.GetTranslation("ui_popup_favorite_title"));
 		Middle_title.Reparent(base_middle_title);
 
 		let bottom_title = TitleText.Create();
-		bottom_title.SetText("Register Location at Current Position");
+		bottom_title.SetText(this.m_wrapper.GetTranslation("ui_popup_register_title"));
 		bottom_title.Reparent(base_bottom_title);
 
 		let destination = Destination.Create(this);
@@ -176,10 +177,6 @@ public class AutopilotBase extends inkCustomController {
 		this.SetContainerWidget(container);
     }
 
-	public func GetFavoriteList() -> wref<FavoriteList> {
-		return this.m_favorite_list;
-	}
-
 	public func GetHints() -> wref<ButtonHintsEx> {
 		return this.m_buttonHints;
 	}
@@ -192,39 +189,59 @@ public class AutopilotBase extends inkCustomController {
 		this.m_buttonHints = buttonHints;
 	}
 
-	public static func Create() -> ref<AutopilotBase> {
+	public static func Create(wrapper: ref<AerialVehiclePopupWrapper>) -> ref<AutopilotBase> {
 		let self = new AutopilotBase();
+		self.m_wrapper = wrapper;
 		self.CreateInstance();
 
 		return self;
 	}
 
-	public func SetDestination(dest_address: String, mappim_address: String, selected_number: Int32) {
-		this.m_destination.SetDestination(dest_address);
+	public func GetWrapper() -> ref<AerialVehiclePopupWrapper> {
+		return this.m_wrapper;
+	}
+
+	public func GetSelectedNumber() -> Int32 {
+		return this.m_selected_number;
+	}
+
+	public func GetFavoriteLocation(index: Int32) -> String {
+		return this.m_favorite_list.GetText(index - 1);
+	}
+
+	public func GetFavoriteList() -> array<String> {
+		return this.m_favorite_list.GetFavoriteList();
+	}
+
+	public func SetDestination(mappim_address: String, selected_number: Int32) {
 		this.m_mappin_address = mappim_address;
 		this.m_selected_number = selected_number;
+		if (selected_number == 0) {
+			this.m_destination.SetDestination(mappim_address);
+		} else {
+			this.m_destination.SetDestination(this.GetFavoriteLocation(selected_number));
+		}
 	}
 
 	public func SetFavoriteList(favorite_list: array<String>) {
 		this.m_favorite_list.SetFavoriteList(favorite_list);
 	}
 
-	public func GetCurrentAddress() -> String {
-		return this.m_register_location.GetCurrentAddress();
-	}
-
 	public func SetCurrentAddress(address: String) {
 		this.m_register_location.SetCurrentAddress(address);
-		
 	}
 
 	public func ResetDestination() {
-		this.m_destination.SetDestination(this.m_mappin_address);
 		this.m_selected_number = 0;
+		this.m_destination.SetDestination(this.m_mappin_address);
 	}
 
 	public func SetFavoriteToDestination(selected_number: Int32) {
 		this.m_selected_number = selected_number;
 		this.m_destination.SetDestination(this.m_favorite_list.GetText(selected_number - 1));
+	}
+
+	public func RegisterFavoriteList(selected_number: Int32, address: String) {
+		this.m_favorite_list.SetText(selected_number - 1, address);
 	}
 }

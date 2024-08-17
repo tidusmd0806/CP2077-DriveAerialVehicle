@@ -1,5 +1,6 @@
 // This code was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
 module DAV.AutopilotMenu
+import DAV.*
 import Codeware.UI.*
 
 public class FavoriteList extends inkCustomController {
@@ -51,8 +52,9 @@ public class FavoriteList extends inkCustomController {
 			row_arr[i].SetOpacity(0.6);
 			row_arr[i].Reparent(this.m_list);
 
-			let button = VariableSimpleButton.Create(300.0, 100.0);
+			let button = CustomSimpleButton.Create();
 			button.SetName(StringToName("Button" + text));
+			button.GetRootComponent().SetSize(300, 100);
 			button.SetText(text);
 			button.ToggleAnimations(true);
 			button.ToggleSounds(true);
@@ -139,11 +141,10 @@ public class FavoriteList extends inkCustomController {
 
 	protected func UpdateHints(button: ref<CustomButton>) {
 		if button.IsEnabled() {
-			this.m_autopilot_base.GetHints().AddButtonHint(n"click", "Interact");
+			this.m_autopilot_base.GetHints().AddButtonHint(n"click", this.m_autopilot_base.GetWrapper().GetTranslation("ui_popup_favorite_input_hint"));
 		} else {
 			this.m_autopilot_base.GetHints().RemoveButtonHint(n"click");
 		}
-
 	}
 
 	protected func RemoveHints() {
@@ -160,6 +161,16 @@ public class FavoriteList extends inkCustomController {
 
 	public func GetText(index: Int32) -> String {
 		return this.m_text_arr[index].GetText();
+	}
+
+	public func GetFavoriteList() -> array<String> {
+		let list = ["", "", "", "", ""];
+		let i = 0;
+		while i < 5 {
+			list[i] = this.GetText(i);
+			i += 1;
+		}
+		return list;
 	}
 
 	public func SetText(index: Int32, text: String) {

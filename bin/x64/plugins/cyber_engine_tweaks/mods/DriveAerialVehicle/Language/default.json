@@ -98,5 +98,17 @@
     "native_settings_keybinds_toggle_radio": "Toggle Radio",
     "native_settings_keybinds_toggle_radio_description": "Switches the radio ON/OFF. If you press and hold it for a while before releasing, the radio port will open.",
     "native_settings_keybinds_toggle_crystal_dome": "Toggle Crystal Dome",
-    "native_settings_keybinds_toggle_crystal_dome_description": "Switches the crystal dome ON/OFF. Exclusive to Excalibur and Manticore."
+    "native_settings_keybinds_toggle_crystal_dome_description": "Switches the crystal dome ON/OFF. Exclusive to Excalibur and Manticore.",
+
+    "ui_popup_title": "Autopilot Control Panel", 
+    "ui_popup_footer": "Choose your Autopilot destination from the current map pin location or your favorite locations.",
+    "ui_popup_destination_title": "Destination",
+    "ui_popup_destination_button": "Mappin",
+    "ui_popup_destination_input_hint": "Set to map pin location",
+    "ui_popup_favorite_title": "Favorite Locations",
+    "ui_popup_favorite_input_hint": "Set to favorite location",
+    "ui_popup_register_title": "Registration",
+    "ui_popup_register_input_hint": "Set to favorite location",
+    "ui_popup_register_confirm_title": "Warning",
+    "ui_popup_register_confirm_text": "Overwrites the current location with the favorite location of the specified number. Are you sure?"
 }

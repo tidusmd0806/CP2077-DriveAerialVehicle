@@ -50,8 +50,9 @@ function UI:New()
 	obj.dummy_check_4 = false
 	obj.dummy_check_5 = false
 
-	-- custom popup
+	-- autopilot setting popup
 	obj.ui_game_menu_controller = nil
+	obj.autopilot_popup_obj = nil
 
 	-- native settings page
 	obj.option_table_list = {}
@@ -81,28 +82,132 @@ function UI:SetObserver()
 
 	if not DAV.is_ready then
 		Observe('gameuiInGameMenuGameController', 'RegisterInputListenersForPlayer', function(this, player)
-			print("RegisterInputListenersForPlayer")
 			if player:IsControlledByLocalPeer() then
 				self.ui_game_menu_controller = this
-				-- player:RegisterInputListener(this, "Choice2_Hold")
-			end
-		end)
-
-		Observe('gameuiInGameMenuGameController', 'OnAction', function(this, action, consume)
-			local action_name = action:GetName(action).value
-			local action_type = action:GetType(action).value
-
-			print("Action Name : " .. action_name .. ", Action Type : " .. action_type)
-			if action_name == "Choice2_Hold" and action_type == "BUTTON_HOLD_COMPLETE" then
-				local popup = InkPlaygroundPopup.new()
-				popup.Show(this)
-				-- local popup = setmetatable({}, InkPlaygroundPopup)
-				-- popup:Show(this)
 			end
 		end)
 	end
 
 end
+
+function UI:OpenAutopilotPopup()
+
+	if self.ui_game_menu_controller == nil then
+		self.log_obj:Record(LogLevel.Error, "Do not exist game menu controller.")
+		return
+	end
+
+	if self.autopilot_popup_obj == nil then
+		self.autopilot_popup_obj = DAV_AerialVehiclePopupWrapper.new()
+		self.autopilot_popup_obj:Create()
+		self:SetPopupTranslation()
+		self.autopilot_popup_obj:Show(self.ui_game_menu_controller)
+		Cron.After(0.1, function()
+			-- Set Destination
+			local mappin_location = ""
+			if DAV.core_obj:IsCustomMappin() then
+                local dist_near_ft_index = DAV.core_obj:GetFTIndexNearbyMappin()
+                local dist_district_list = DAV.core_obj:GetNearbyDistrictList(dist_near_ft_index)
+                if dist_district_list ~= nil then
+                    for index, district in ipairs(dist_district_list) do
+                        mappin_location = mappin_location .. district
+                        if index ~= #dist_district_list then
+                            mappin_location = mappin_location .. "/"
+                        end
+                    end
+                end
+                local nearby_location = DAV.core_obj:GetNearbyLocation(dist_near_ft_index)
+                if nearby_location ~= nil then
+                    mappin_location = mappin_location .. "/" .. nearby_location
+                    local custom_ft_distance = DAV.core_obj:GetFT2MappinDistance()
+                    if custom_ft_distance ~= DAV.core_obj.huge_distance then
+                        mappin_location = mappin_location .. "[" .. tostring(math.floor(custom_ft_distance)) .. "m]"
+                    end
+                end
+            else
+				mappin_location = "Unselected"
+            end
+			-- Set Favorite List
+			local favorite_name_list = {}
+			for _, favorite_info in ipairs(DAV.user_setting_table.favorite_location_list) do
+				table.insert(favorite_name_list, favorite_info.name)
+			end
+			-- Set Current Position
+			local current_position_name = ""
+			local current_district_list = DAV.core_obj:GetCurrentDistrict()
+			local entity = Game.FindEntityByID(self.av_obj.entity_id)
+			if entity ~= nil then
+				local current_nearby_ft_index, current_nearby_ft_distance = DAV.core_obj:FindNearestFastTravelPosition(entity:GetWorldPosition())
+				local current_nearby_ft_name = DAV.core_obj:GetNearbyLocation(current_nearby_ft_index)
+				if current_district_list ~= nil then
+					for _, district in ipairs(current_district_list) do
+						current_position_name = current_position_name .. district .. "/"
+					end
+				end
+				if current_nearby_ft_name ~= nil then
+					current_position_name = current_position_name .. current_nearby_ft_name
+				end
+				if current_nearby_ft_distance ~= DAV.core_obj.huge_distance then
+					current_position_name = current_position_name .. "[" .. tostring(math.floor(current_nearby_ft_distance)) .. "m]"
+				end
+
+			else
+				current_position_name = ""
+			end
+			self.autopilot_popup_obj:Initialize(favorite_name_list, mappin_location, current_position_name, DAV.user_setting_table.autopilot_selected_index)
+			Cron.Every(0.1, {tick = 1}, function(timer)
+				if self.autopilot_popup_obj:IsClosed() then
+					DAV.user_setting_table.autopilot_selected_index = self.autopilot_popup_obj:GetSelectedNumber()
+					local favorite_list = self.autopilot_popup_obj:GetFavoriteList()
+					self:UpdateFavoriteLocationList(favorite_list, DAV.user_setting_table.autopilot_selected_index)
+					self.autopilot_popup_obj = nil
+					Cron.Halt(timer)
+				end
+			end)
+		end)
+	end
+
+end
+
+function UI:SetPopupTranslation()
+
+	if self.autopilot_popup_obj ~= nil then
+		self.autopilot_popup_obj:SetTranslation("ui_popup_title", DAV.core_obj:GetTranslationText("ui_popup_title"))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_header", GetLocalizedText("LocKey#" .. tostring(self.av_obj.all_models[DAV.model_index].display_name_lockey)))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_footer", DAV.core_obj:GetTranslationText("ui_popup_footer"))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_destination_title", DAV.core_obj:GetTranslationText("ui_popup_destination_title"))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_destination_button", DAV.core_obj:GetTranslationText("ui_popup_destination_button"))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_destination_input_hint", DAV.core_obj:GetTranslationText("ui_popup_destination_input_hint"))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_favorite_title", DAV.core_obj:GetTranslationText("ui_popup_favorite_title"))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_favorite_input_hint", DAV.core_obj:GetTranslationText("ui_popup_favorite_input_hint"))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_register_title", DAV.core_obj:GetTranslationText("ui_popup_register_title"))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_register_input_hint", DAV.core_obj:GetTranslationText("ui_popup_register_input_hint"))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_register_confirm_title", DAV.core_obj:GetTranslationText("ui_popup_register_confirm_title"))
+		self.autopilot_popup_obj:SetTranslation("ui_popup_register_confirm_text", DAV.core_obj:GetTranslationText("ui_popup_register_confirm_text"))
+	end
+
+end
+
+function UI:UpdateFavoriteLocationList(favorite_list, selected_index)
+	for index, favorite_info in ipairs(DAV.user_setting_table.favorite_location_list) do
+		if index - 1 == selected_index then
+			favorite_info.is_selected = true
+		else
+			favorite_info.is_selected = false
+		end
+		if index - 1 == 0 then
+			break
+		end
+		if favorite_info.name ~= favorite_list[index - 1] then
+			favorite_info.name = favorite_list[index - 1]
+			local current_pos = self.av_obj.position_obj:GetPosition()
+			favorite_info.pos = {x=current_pos.x, y=current_pos.y, z=current_pos.z}
+			print("UpdateFavoriteLocationList: " .. index)
+		end
+	end
+	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+end
+
 
 function UI:SetDefaultValue()
 

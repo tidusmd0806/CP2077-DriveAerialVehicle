@@ -1,5 +1,6 @@
 // This code was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
 module DAV.AutopilotMenu
+import DAV.*
 import Codeware.UI.*
 
 public class RegisterLocation extends inkCustomController {
@@ -8,6 +9,7 @@ public class RegisterLocation extends inkCustomController {
 	protected let m_input: wref<HubTextInput>;
 	protected let m_autopilot_base: ref<AutopilotBase>;
 	protected let m_button_row: ref<inkHorizontalPanel>;
+	protected let m_selected_number: Int32;
 
 	protected cb func OnCreate() {
 		let root = new inkCanvas();
@@ -26,7 +28,7 @@ public class RegisterLocation extends inkCustomController {
 		list.Reparent(root);
 
 		let input = HubTextInput.Create();
-		input.SetText("We can type things now! WEEEEE!!");
+		input.SetText("Unknown Location");
 		input.Reparent(list);
 
 		let input_container = list.GetWidget(n"input");
@@ -61,7 +63,7 @@ public class RegisterLocation extends inkCustomController {
 		let i = 0;
 		while i < 5 {
 			let text = ToString(i + 1);
-			let button = PopupButton.Create();
+			let button = CustomPopupButton.Create();
 			button.SetText(text);
 			button.RegisterToCallback(n"OnBtnClick", this, n"OnOpenPopup");
 			button.ToggleAnimations(true);
@@ -79,17 +81,14 @@ public class RegisterLocation extends inkCustomController {
 	}
 
 	protected cb func OnOpenPopup(widget: wref<inkWidget>) {
-		let popup = ConfirmationPopup.Show(this.GetGameController());
+		let popup = ConfirmationPopup.Show(this.GetGameController(), this.m_autopilot_base.GetWrapper());
 		popup.RegisterToCallback(n"OnClose", this, n"OnClosePopup");
 	}
 
 	protected cb func OnClosePopup(widget: wref<inkWidget>) {
 	    let popup = widget.GetController() as ConfirmationPopup;
-		let res = popup.GetResult();
-		if res {
-			LogChannel(n"DEBUG", "Confirmed");
-		} else {
-			LogChannel(n"DEBUG", "Canceled");
+		if popup.IsConfirmed() {
+			this.m_autopilot_base.RegisterFavoriteList(this.m_selected_number, this.GetCurrentAddress());
 		}
 	}
 
@@ -97,7 +96,7 @@ public class RegisterLocation extends inkCustomController {
 		this.RegisterListeners(this.m_button_row);
 	}
 
-protected func RegisterListeners(container: wref<inkCompoundWidget>) {
+	protected func RegisterListeners(container: wref<inkCompoundWidget>) {
 		let childIndex = 0;
 		let numChildren = container.GetNumChildren();
 
@@ -119,10 +118,9 @@ protected func RegisterListeners(container: wref<inkCompoundWidget>) {
     protected cb func OnClick(widget: wref<inkWidget>) -> Bool {
 		let button = widget.GetController() as CustomButton;
 
-		let buttonName = button.GetText();
-		let buttonEvent = "clicked";
+		let button_number = button.GetText();
 
-        LogChannel(n"DEBUG", buttonName + ": " + buttonEvent);
+        this.m_selected_number = StringToInt(button_number);
 	}
 
 	protected cb func OnRelease(evt: ref<inkPointerEvent>) -> Bool {
@@ -131,12 +129,6 @@ protected func RegisterListeners(container: wref<inkCompoundWidget>) {
 		if evt.IsAction(n"popup_moveUp") {
 			button.SetDisabled(!button.IsDisabled());
 
-			// let buttonName = button.GetText();
-			// let buttonEvent = button.IsDisabled()
-			// 	? "InkPlayground-ButtonBasics-Event-Disable"
-			// 	: "InkPlayground-ButtonBasics-Event-Enable";
-
-			// this.Log(buttonName + ": " + buttonEvent);
 			this.UpdateHints(button);
 
 			this.PlaySound(n"MapPin", n"OnCreate");
@@ -154,11 +146,10 @@ protected func RegisterListeners(container: wref<inkCompoundWidget>) {
 
 	protected func UpdateHints(button: ref<CustomButton>) {
 		if button.IsEnabled() {
-			this.m_autopilot_base.GetHints().AddButtonHint(n"click", "Interact");
+			this.m_autopilot_base.GetHints().AddButtonHint(n"click", this.m_autopilot_base.GetWrapper().GetTranslation("ui_popup_register_input_hint"));
 		} else {
 			this.m_autopilot_base.GetHints().RemoveButtonHint(n"click");
 		}
-
 	}
 
 	protected func RemoveHints() {
@@ -182,19 +173,20 @@ protected func RegisterListeners(container: wref<inkCompoundWidget>) {
 }
 
 public class ConfirmationPopup extends InMenuPopup {
-	protected let m_result: Bool;
+	protected let m_wrapper: ref<AerialVehiclePopupWrapper>;
+	protected let m_is_confirm: Bool;
 
 	protected cb func OnCreate() {
 		super.OnCreate();
 
-		this.m_result = false;
+		this.m_is_confirm = false;
 
 		let content = InMenuPopupContent.Create();
-		content.SetTitle("Inner Popup");
+		content.SetTitle(this.m_wrapper.GetTranslation("ui_popup_register_confirm_title"));
 		content.Reparent(this);
 
 		let text = new inkText();
-        text.SetText("In user interface design for computer applications, a modal window is a graphical control element subordinate to an application's main window.");
+        text.SetText(this.m_wrapper.GetTranslation("ui_popup_register_confirm_text"));
         text.SetWrapping(true, 700.0);
         text.SetFitToContent(true);
         text.SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily");
@@ -224,15 +216,17 @@ public class ConfirmationPopup extends InMenuPopup {
 	}
 
 	protected cb func OnClick(widget: wref<inkWidget>) {
-		this.m_result = true;
+		this.m_is_confirm = true;
 	}
 
-	public func GetResult() -> Bool {
-		return this.m_result;
+	public func IsConfirmed() -> Bool {
+		return this.m_is_confirm;
 	}
 
-	public static func Show(requester: ref<inkGameController>) -> ref<ConfirmationPopup> {
+	public static func Show(requester: ref<inkGameController>, wrapper: ref<AerialVehiclePopupWrapper>) -> ref<ConfirmationPopup> {
 		let popup = new ConfirmationPopup();
+		popup.m_wrapper = wrapper;
+		popup.m_is_confirm = false;
 		popup.Open(requester);
 		return popup;
 	}

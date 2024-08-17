@@ -511,41 +511,47 @@ function Debug:ImGuiExcuteFunction()
         print("Excute Test Function 10")
     end
     if ImGui.Button("TF11") then
-        local popup = DAV_AerialVehiclePopupWrapper.new()
-        popup:Create()
-        popup:Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
-        local arr = {}
-        for i = 1, 5 do
-            table.insert(arr, DAV.user_setting_table.favorite_location_list[i].name)
-        end
-        local ret_arr = popup:Test(arr)
-        for i, value in ipairs(ret_arr) do
-            print("[" .. i .. "] : " .. value)
-        end
+        self.popup = DAV_AerialVehiclePopupWrapper.new()
+        self.popup:Create()
+        self.popup:SetTranslation("ui_popup_title","abc")
+        self.popup:SetTranslation("ui_popup_destination_title","defあ")
+        self.popup:SetTranslation("ui_popup_destination_button","あああ")
+        self.popup:SetTranslation("ui_popup_register_confirm_text","でバック")
+        self.popup:SetTranslation("ui_popup_register_input_hint","AR3う")
+        Cron.After(0.1, function()
+            self.popup:Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
+            local arr = {}
+            for i = 1, 5 do
+                table.insert(arr, DAV.user_setting_table.favorite_location_list[i].name)
+            end
+            Cron.After(0.1, function()
+                self.popup:SetDestination("Test Destination fsa", "aaa", 2)
+                self.popup:SetFavoriteList(arr)
+                self.popup:SetCurrentAddress("Test Address wwa")
+            end)
+        end)
         print("Excute Test Function 11")
     end
     ImGui.SameLine()
     if ImGui.Button("TF12") then
-        self.popup = DAV_AerialVehiclePopupWrapper.new()
-        self.popup:Create()
-        self.popup:Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
-        local arr = {}
-        for i = 1, 5 do
-            table.insert(arr, DAV.user_setting_table.favorite_location_list[i].name)
+        if self.popup:IsClosed() then
+            local num = self.popup:GetSelectedNumber()
+            print(num)
+            local arr = self.popup:GetFavoriteList()
+            for i = 1, #arr do
+                print(arr[i])
+            end
         end
-        Cron.After(0.1, function()
-            self.popup:SetDestination("Test Destination fsa", "aaa", 2)
-            self.popup:SetFavoriteList(arr)
-            self.popup:SetCurrentAddress("Test Address wwa")
-        end)
         print("Excute Test Function 12")
     end
-
     ImGui.SameLine()
     if ImGui.Button("TF13") then
-        -- self.popup:Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
-        print(self.popup:IsClosed())
+        DAV.core_obj.event_obj.ui_obj:OpenAutopilotPopup()
         print("Excute Test Function 13")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF14") then
+        print("Excute Test Function 14")
     end
 end
 

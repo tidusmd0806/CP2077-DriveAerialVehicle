@@ -656,7 +656,7 @@ function AV:AutoPilot()
 
 	self.is_auto_pilot = true
 	local destination_position = Vector4.new(0, 0, 0, 1)
-	if DAV.core_obj.is_custom_mappin then
+	if DAV.user_setting_table.autopilot_selected_index == 0 then
 		destination_position = self.mappin_destination_position
 	else
 		destination_position = self.favorite_destination_position

@@ -65,6 +65,7 @@ DAV.user_setting_table = {
     model_type_index_in_free = 1,
     --- autopilot
     mappin_history = {},
+    autopilot_selected_index = 0,
     favorite_location_list = {
         {name = "Unselected", pos = {x=0,y=0,z=0}, is_selected = true},
         {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
