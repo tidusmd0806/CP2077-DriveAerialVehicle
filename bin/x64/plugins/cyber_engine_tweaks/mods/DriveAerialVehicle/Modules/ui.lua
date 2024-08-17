@@ -190,19 +190,16 @@ end
 
 function UI:UpdateFavoriteLocationList(favorite_list, selected_index)
 	for index, favorite_info in ipairs(DAV.user_setting_table.favorite_location_list) do
-		if index - 1 == selected_index then
-			favorite_info.is_selected = true
-		else
-			favorite_info.is_selected = false
-		end
-		if index - 1 == 0 then
-			break
-		end
-		if favorite_info.name ~= favorite_list[index - 1] then
-			favorite_info.name = favorite_list[index - 1]
+		if favorite_info.name ~= favorite_list[index] then
+			favorite_info.name = favorite_list[index]
 			local current_pos = self.av_obj.position_obj:GetPosition()
 			favorite_info.pos = {x=current_pos.x, y=current_pos.y, z=current_pos.z}
-			print("UpdateFavoriteLocationList: " .. index)
+		end
+		if index == selected_index then
+			favorite_info.is_selected = true
+			DAV.core_obj:SetFavoriteMappin(DAV.user_setting_table.favorite_location_list[index].pos)
+		else
+			favorite_info.is_selected = false
 		end
 	end
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
@@ -243,7 +240,7 @@ function UI:SetDefaultValue()
 			break
 		end
 	end
-	DAV.core_obj:SetFavoriteMappin(DAV.user_setting_table.favorite_location_list[self.selected_auto_pilot_favorite_index].pos)
+	-- DAV.core_obj:SetFavoriteMappin(DAV.user_setting_table.favorite_location_list[self.selected_auto_pilot_favorite_index].pos)
 
 	-- control
 	self.selected_flight_mode = DAV.user_setting_table.flight_mode

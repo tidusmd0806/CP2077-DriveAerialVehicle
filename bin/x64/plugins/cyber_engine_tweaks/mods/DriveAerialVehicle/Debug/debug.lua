@@ -51,7 +51,7 @@ function Debug:ImGuiMain()
     self:ImGuiModelTypeStatus()
     self:ImGuiMappinPosition()
     self:ImGuiAutoPilotStatus()
-    self:ImGuiToggleAutoPilotPanel()
+    -- self:ImGuiToggleAutoPilotPanel()
     self:ImGuiChangeAutoPilotSetting()
     self:ImGuiRadioInfo()
     self:ImGuiMeasurement()
@@ -271,9 +271,9 @@ function Debug:ImGuiAutoPilotStatus()
     end
 end
 
-function Debug:ImGuiToggleAutoPilotPanel()
-    DAV.core_obj.event_obj.hud_obj.is_forced_autopilot_panel = ImGui.Checkbox("[ImGui] Enable Autopilot Panel", DAV.core_obj.event_obj.hud_obj.is_forced_autopilot_panel)
-end
+-- function Debug:ImGuiToggleAutoPilotPanel()
+--     DAV.core_obj.event_obj.hud_obj.is_forced_autopilot_panel = ImGui.Checkbox("[ImGui] Enable Autopilot Panel", DAV.core_obj.event_obj.hud_obj.is_forced_autopilot_panel)
+-- end
 
 function Debug:ImGuiChangeAutoPilotSetting()
     self.is_im_gui_change_auto_setting = ImGui.Checkbox("[ImGui] Change AP Profile", self.is_im_gui_change_auto_setting)

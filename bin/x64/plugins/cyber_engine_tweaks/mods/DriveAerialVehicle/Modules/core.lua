@@ -847,12 +847,12 @@ function Core:SetCustomMappin(mappin)
             return
         end
         self.is_custom_mappin = true
-        self:SetDistinationMappin()
+        self:SetDestinationMappin()
     end
 
 end
 
-function Core:SetDistinationMappin()
+function Core:SetDestinationMappin()
     self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
     self.ft_index_nearest_mappin, self.ft_to_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
 end

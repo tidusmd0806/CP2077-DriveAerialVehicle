@@ -138,24 +138,12 @@ function Engine:Init(entity_id)
     self.fly_av_system:SetVehicle(entity_id.hash)
 end
 
-function Engine:SetVelocity(action_commands)
-
-    local physics_state = self.fly_av_system:GetPhysicsState()
-    if physics_state ~= 0 and physics_state ~= 32 then
-        self.position_obj.entity:PhysicsWakeUp()
-    end
+function Engine:CalculateLinelyVelocity(action_commands)
 
     local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
-    local vel_vec = self.fly_av_system:GetVelocity()
-    local ang_vec = self.fly_av_system:GetAngularVelocity()
+
     local dest_height = self.position_obj:GetDestinationHeight()
     local current_angle = self.position_obj:GetEulerAngles()
-
-    local air_resitance_const = 0.01
-
-    -- Holding the position
-    x = x - air_resitance_const * vel_vec.x
-    y = y - air_resitance_const * vel_vec.y
 
     local height_increase = 0.5
     local height_constance_rate = 3
@@ -237,16 +225,38 @@ function Engine:SetVelocity(action_commands)
     -- Holding the height
     dest_height = self.position_obj:GetDestinationHeight()
     local current_height = self.position_obj:GetPosition().z
-    z = z - vel_vec.z + (dest_height - current_height) * height_constance_rate
+    z = z + (dest_height - current_height) * height_constance_rate
 
     local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
 
-    roll = roll - ang_vec.x + d_roll
-    pitch = pitch - ang_vec.y + d_pitch
-    yaw = yaw - ang_vec.z + d_yaw
+    roll = roll+ d_roll
+    pitch = pitch + d_pitch
+    yaw = yaw + d_yaw
+
+    return x, y, z, roll, pitch, yaw
+
+end
+
+function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
+    local physics_state = self.fly_av_system:GetPhysicsState()
+    if physics_state ~= 0 and physics_state ~= 32 then
+        self.position_obj.entity:PhysicsWakeUp()
+    end
+
+    local vel_vec = self.fly_av_system:GetVelocity()
+    local ang_vec = self.fly_av_system:GetAngularVelocity()
+
+    local air_resitance_const = 0.01
+
+    -- Holding the position
+    x = x - air_resitance_const * vel_vec.x
+    y = y - air_resitance_const * vel_vec.y
+    z = z - vel_vec.z
+    roll = roll - ang_vec.x
+    pitch = pitch - ang_vec.y
+    yaw = yaw - ang_vec.z
 
     self.fly_av_system:AddLinelyVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw))
-
 end
 
 function Engine:GetNextPosition(movement)

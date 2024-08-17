@@ -372,7 +372,7 @@ function HUD:ShowAutoPilotInfo()
                 end
                 type = DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_selection_custom_mappin")
             else
-                location = DAV.user_setting_table.favorite_location_list[DAV.core_obj.event_obj.ui_obj.selected_auto_pilot_favorite_index].name
+                -- location = DAV.user_setting_table.favorite_location_list[DAV.core_obj.event_obj.ui_obj.selected_auto_pilot_favorite_index].name
                 type = DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_selection_favorite")
             end
         end

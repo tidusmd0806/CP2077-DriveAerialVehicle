@@ -501,14 +501,16 @@ function AV:Operate(action_commands)
 			return false
 		end
 		-- local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
-		self.engine_obj:SetVelocity(action_command)
-		-- x_total = x_total + x
-		-- y_total = y_total + y
-		-- z_total = z_total + z
-		-- roll_total = roll_total + roll
-		-- pitch_total = pitch_total + pitch
-		-- yaw_total = yaw_total + yaw
+		local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateLinelyVelocity(action_command)
+		x_total = x_total + x
+		y_total = y_total + y
+		z_total = z_total + z
+		roll_total = roll_total + roll
+		pitch_total = pitch_total + pitch
+		yaw_total = yaw_total + yaw
 	end
+
+	self.engine_obj:AddLinelyVelocity(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 	-- if #action_commands == 0 then
 	-- 	self.log_obj:Record(LogLevel.Critical, "Division by Zero")
 	-- 	return false
@@ -737,7 +739,10 @@ function AV:AutoPilot()
 		local vehicle_angle_norm = Vector4.Length(vehicle_angle)
 		local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
 		local fix_direction_vector_norm = Vector4.Length(fix_direction_vector)
-		local yaw_dist = math.atan2(fix_direction_vector.y / fix_direction_vector_norm, fix_direction_vector.x / fix_direction_vector_norm) * 180 / Pi()
+		local yaw_dist = yaw_vehicle
+		if fix_direction_vector_norm ~= 0 then
+			yaw_dist = math.atan2(fix_direction_vector.y / fix_direction_vector_norm, fix_direction_vector.x / fix_direction_vector_norm) * 180 / Pi()
+		end
 		local yaw_diff = yaw_dist - yaw_vehicle
 		local yaw_diff_half = yaw_diff * 0.1
 		if math.abs(yaw_diff_half) < 0.5 then
@@ -751,6 +756,7 @@ function AV:AutoPilot()
 			return
 		end
 		if stack_count > self.max_stack_count then
+			self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
 			self.is_auto_avoidance = true
 		end
 	end)
