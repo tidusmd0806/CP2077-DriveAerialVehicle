@@ -20,8 +20,7 @@ function Core:New()
     obj.delay_action_time_in_vehicle = 0.05
     -- import path
     obj.av_model_path = "Data/default_model.json"
-    obj.heli_input_path = "Data/heli_input.json"
-    obj.spinner_input_path = "Data/spinner_input.json"
+    obj.input_key_path = "Data/input_key.json"
     -- input setting
     obj.axis_dead_zone = 0.5
     obj.relative_dead_zone = 0.01
@@ -40,13 +39,27 @@ function Core:New()
     -- model table
     obj.all_models = nil
     -- input table
-    obj.heli_input_table = {}
-    obj.spinner_input_table = {}
+    -- obj.heli_input_table = {}
+    obj.input_key_table = {}
     obj.relative_table = {}
     obj.hold_time_resolution = 0.1
     obj.radio_hold_complete_time_count = 5
     obj.radio_button_hold_count = 0
     obj.is_radio_button_hold_counter = false
+    obj.move_up_button_hold_count = 0
+    obj.max_move_hold_count = 50000
+    obj.is_move_up_button_hold_counter = false
+    obj.move_down_button_hold_count = 0
+    obj.is_move_down_button_hold_counter = false
+    obj.move_left_button_hold_count = 0
+    obj.is_move_left_button_hold_counter = false
+    obj.move_right_button_hold_count = 0
+    obj.is_move_right_button_hold_counter = false
+    obj.lean_reset_button_hold_count = 0
+    obj.is_lean_reset_button_hold_counter = false
+    obj.auto_pilot_hold_complete_time_count = 5
+    obj.auto_pilot_button_hold_count = 0
+    obj.is_auto_pilot_button_hold_counter = false
     -- user setting table
     obj.initial_user_setting_table = {}
     -- language table
@@ -90,8 +103,7 @@ function Core:Init()
     self:SetTranslationNameList()
     self:StoreTranslationtableList()
 
-    self.heli_input_table = self:GetInputTable(self.heli_input_path)
-    self.spinner_input_table = self:GetInputTable(self.spinner_input_path)
+    self.input_key_table = self:GetInputTable(self.input_key_path)
 
     self.av_obj = AV:New(self.all_models)
     self.av_obj:Init()
@@ -149,18 +161,18 @@ function Core:SetSummonTrigger()
     Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
         local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
 
-        if self.event_obj.ui_obj.dummy_av_record.hash == record_id.hash then
-            self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
-            DAV.model_index = DAV.user_setting_table.model_index_in_free
-            DAV.model_type_index = DAV.user_setting_table.model_type_index_in_free
+        -- if self.event_obj.ui_obj.dummy_av_record.hash == record_id.hash then
+        --     self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
+        --     DAV.model_index = DAV.user_setting_table.model_index_in_free
+        --     DAV.model_type_index = DAV.user_setting_table.model_type_index_in_free
 
-            self.av_obj:Init()
-            self.is_vehicle_call = true
-            return false
-        end
+        --     self.av_obj:Init()
+        --     self.is_vehicle_call = true
+        --     return false
+        -- end
         local str = string.gsub(record_id.value, "_dummy", "")
         local new_record_id = TweakDBID.new(str)
-        for _, record in ipairs(self.event_obj.ui_obj.av_record_list) do
+        for index, record in ipairs(self.event_obj.ui_obj.av_record_list) do
             if record.hash == new_record_id.hash then
                 self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
                 for key, value in ipairs(self.av_obj.all_models) do
@@ -176,22 +188,22 @@ function Core:SetSummonTrigger()
             end
         end
         local res = wrapped_method(vehicle_type)
-        self.is_vehicle_call = false
+        -- self.is_vehicle_call = false
         self.is_purchased_vehicle_call = false
         return res
     end)
 
 end
 
-function Core:ActivateDummySummon(is_avtive)
-    Game.GetVehicleSystem():EnablePlayerVehicle(self.event_obj.ui_obj.dummy_vehicle_record, is_avtive, true)
-end
+-- function Core:ActivateDummySummon(is_avtive)
+--     Game.GetVehicleSystem():EnablePlayerVehicle(self.event_obj.ui_obj.dummy_vehicle_record, is_avtive, true)
+-- end
 
-function Core:GetCallStatus()
-    local call_status = self.is_vehicle_call
-    self.is_vehicle_call = false
-    return call_status
-end
+-- function Core:GetCallStatus()
+--     local call_status = self.is_vehicle_call
+--     self.is_vehicle_call = false
+--     return call_status
+-- end
 
 function Core:GetPurchasedCallStatus()
     local call_status = self.is_purchased_vehicle_call
@@ -272,32 +284,6 @@ end
 
 function Core:SetInputListener()
 
-    local player = Game.GetPlayer()
-
-    player:UnregisterInputListener(player, "dav_heli_lift")
-    player:UnregisterInputListener(player, "dav_heli_forward_backward")
-    player:UnregisterInputListener(player, "dav_heli_left_right")
-    player:UnregisterInputListener(player, "dav_heli_rotate")
-    player:UnregisterInputListener(player, "dav_heli_hover")
-    player:UnregisterInputListener(player, "dav_spinner_forward_backward")
-    player:UnregisterInputListener(player, "dav_spinner_left_right")
-    player:UnregisterInputListener(player, "dav_spinner_up")
-    player:UnregisterInputListener(player, "dav_spinner_down")
-    player:UnregisterInputListener(player, "dav_get_on")
-    player:UnregisterInputListener(player, "dav_get_off")
-
-    player:RegisterInputListener(player, "dav_heli_lift")
-    player:RegisterInputListener(player, "dav_heli_forward_backward")
-    player:RegisterInputListener(player, "dav_heli_left_right")
-    player:RegisterInputListener(player, "dav_heli_rotate")
-    player:RegisterInputListener(player, "dav_heli_hover")
-    player:RegisterInputListener(player, "dav_spinner_forward_backward")
-    player:RegisterInputListener(player, "dav_spinner_left_right")
-    player:RegisterInputListener(player, "dav_spinner_up")
-    player:RegisterInputListener(player, "dav_spinner_down")
-    player:RegisterInputListener(player, "dav_get_on")
-    player:RegisterInputListener(player, "dav_get_off")
-
     local exception_common_list = Utils:ReadJson("Data/exception_common_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
     local exception_radio_list = Utils:ReadJson("Data/exception_radio_input.json")
@@ -329,6 +315,9 @@ function Core:SetInputListener()
                     return
                 end
             end
+        end
+        if action_name == "Exit" and action_type == "BUTTON_HOLD_COMPLETE" then
+            consumer:Consume()
         end
 
         self.log_obj:Record(LogLevel.Debug, "Action Name: " .. action_name .. " Type: " .. action_type .. " Value: " .. action_value)
@@ -447,11 +436,11 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
 
     local cmd = 0
 
-    if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
-        cmd = self:ConvertHeliActionList(action_name, action_type, action_value_type)
-    elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then
-        cmd = self:ConvertSpinnerActionList(action_name, action_type, action_value_type)
-    end
+    -- if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
+    --     cmd = self:ConvertHeliActionList(action_name, action_type, action_value_type)
+    -- elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then
+        cmd = self:ConvertActionList(action_name, action_type, action_value_type)
+    -- end
 
     if cmd ~= Def.ActionList.Nothing then
         self.queue_obj:Enqueue(cmd)
@@ -459,80 +448,76 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
 
 end
 
-function Core:ConvertHeliActionList(action_name, action_type, action_value_type)
+-- function Core:ConvertHeliActionList(action_name, action_type, action_value_type)
+
+--     local action_command = Def.ActionList.Nothing
+--     local action_dist = {name = action_name, type = action_type, value = action_value_type}
+
+--     if self.event_obj.current_situation == Def.Situation.InVehicle then
+--         if Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_ACCELERTOR) then
+--             action_command = Def.ActionList.HeliUp
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_DOWN) then
+--             action_command = Def.ActionList.HeliDown
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_FORWARD_MOVE) then
+--             action_command = Def.ActionList.HeliForward
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_BACK_MOVE) then
+--             action_command = Def.ActionList.HeliBackward
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_RIGHT_MOVE) then
+--             action_command = Def.ActionList.HeliRight
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_LEFT_MOVE) then
+--             action_command = Def.ActionList.HeliLeft
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_RIGHT_ROTATE) then
+--             action_command = Def.ActionList.HeliTurnRight
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_LEFT_ROTATE) then
+--             action_command = Def.ActionList.HeliTurnLeft
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_HOVER) then
+--             action_command = Def.ActionList.HeliHover
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_HOLD) then
+--             action_command = Def.ActionList.HeliHold
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_EXIT_AV) then
+--             action_command = Def.ActionList.Exit
+--         end
+--     elseif self.event_obj.current_situation == Def.Situation.Waiting then
+--         if Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_ENTER_AV) then
+--             action_command = Def.ActionList.Enter
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
+--             action_command = Def.ActionList.SelectUp
+--         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
+--             action_command = Def.ActionList.SelectDown
+--         end
+--     end
+
+--     return action_command
+
+-- end
+
+function Core:ConvertActionList(action_name, action_type, action_value_type)
 
     local action_command = Def.ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
 
     if self.event_obj.current_situation == Def.Situation.InVehicle then
-        if Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_ACCELERTOR) then
-            action_command = Def.ActionList.HeliUp
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_DOWN) then
-            action_command = Def.ActionList.HeliDown
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_FORWARD_MOVE) then
-            action_command = Def.ActionList.HeliForward
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_BACK_MOVE) then
-            action_command = Def.ActionList.HeliBackward
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_RIGHT_MOVE) then
-            action_command = Def.ActionList.HeliRight
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_LEFT_MOVE) then
-            action_command = Def.ActionList.HeliLeft
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_RIGHT_ROTATE) then
-            action_command = Def.ActionList.HeliTurnRight
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_LEFT_ROTATE) then
-            action_command = Def.ActionList.HeliTurnLeft
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_HOVER) then
-            action_command = Def.ActionList.HeliHover
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_HOLD) then
-            action_command = Def.ActionList.HeliHold
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_EXIT_AV) then
+        if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_FORWARD_MOVE) then
+            action_command = Def.ActionList.Forward
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_BACK_MOVE) then
+            action_command = Def.ActionList.Backward
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_RIGHT_ROTATE) then
+            action_command = Def.ActionList.RightRotate
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEFT_ROTATE) then
+            action_command = Def.ActionList.LeftRotate
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEAN_FORWARD) then
+            action_command = Def.ActionList.LeanForward
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEAN_BACKWARD) then
+            action_command = Def.ActionList.LeanBackward
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_EXIT_AV) then
             action_command = Def.ActionList.Exit
         end
     elseif self.event_obj.current_situation == Def.Situation.Waiting then
-        if Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_ENTER_AV) then
+        if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_WORLD_ENTER_AV) then
             action_command = Def.ActionList.Enter
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
             action_command = Def.ActionList.SelectUp
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
-            action_command = Def.ActionList.SelectDown
-        end
-    end
-
-    return action_command
-
-end
-
-function Core:ConvertSpinnerActionList(action_name, action_type, action_value_type)
-
-    local action_command = Def.ActionList.Nothing
-    local action_dist = {name = action_name, type = action_type, value = action_value_type}
-
-    if self.event_obj.current_situation == Def.Situation.InVehicle then
-        if Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_FORWARD_MOVE) then
-            action_command = Def.ActionList.SpinnerForward
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_BACK_MOVE) then
-            action_command = Def.ActionList.SpinnerBackward
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_RIGHT_ROTATE) then
-            action_command = Def.ActionList.SpinnerRightRotate
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_LEFT_ROTATE) then
-            action_command = Def.ActionList.SpinnerLeftRotate
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_RIGHT_MOVE) then
-            action_command = Def.ActionList.SpinnerRight
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_LEFT_MOVE) then
-            action_command = Def.ActionList.SpinnerLeft
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_UP_MOVE) then
-            action_command = Def.ActionList.SpinnerUp
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_DOWN_MOVE) then
-            action_command = Def.ActionList.SpinnerDown
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_AV_EXIT_AV) then
-            action_command = Def.ActionList.Exit
-        end
-    elseif self.event_obj.current_situation == Def.Situation.Waiting then
-        if Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_ENTER_AV) then
-            action_command = Def.ActionList.Enter
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
-            action_command = Def.ActionList.SelectUp
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.spinner_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
             action_command = Def.ActionList.SelectDown
         end
     end
@@ -552,6 +537,24 @@ function Core:ConvertHoldButtonAction(key)
     if keybind_name == "toggle_radio" then
         self.is_radio_button_hold_counter = false
         self.radio_button_hold_count = 0
+    elseif keybind_name == "move_up" then
+        self.is_move_up_button_hold_counter = false
+        self.move_up_button_hold_count = 0
+    elseif keybind_name == "move_down" then
+        self.is_move_down_button_hold_counter = false
+        self.move_down_button_hold_count = 0
+    elseif keybind_name == "move_left" then
+        self.is_move_left_button_hold_counter = false
+        self.move_left_button_hold_count = 0
+    elseif keybind_name == "move_right" then
+        self.is_move_right_button_hold_counter = false
+        self.move_right_button_hold_count = 0
+    elseif keybind_name == "lean_reset" then
+        self.is_lean_reset_button_hold_counter = false
+        self.lean_reset_button_hold_count = 0
+    elseif keybind_name == "toggle_autopilot" then
+        self.is_auto_pilot_button_hold_counter = false
+        self.auto_pilot_button_hold_count = 0
     end
 end
 
@@ -564,8 +567,102 @@ function Core:ConvertPressButtonAction(key)
         end
     end
     local action_list = Def.ActionList.Nothing
-    if keybind_name == "toggle_autopilot" then
-        action_list = Def.ActionList.AutoPilot
+    if keybind_name == "move_up" then
+        if not self.is_move_up_button_hold_counter then
+            self.is_move_up_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.move_up_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_move_up_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_move_up_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.Up)
+                end
+            end)
+        end
+    elseif keybind_name == "move_down" then
+        if not self.is_move_down_button_hold_counter then
+            self.is_move_down_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.move_down_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_move_down_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_move_down_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.Down)
+                end
+            end)
+        end
+    elseif keybind_name == "move_left" then
+        if not self.is_move_left_button_hold_counter then
+            self.is_move_left_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.move_left_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_move_left_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_move_left_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.Left)
+                end
+            end)
+        end
+    elseif keybind_name == "move_right" then
+        if not self.is_move_right_button_hold_counter then
+            self.is_move_right_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.move_right_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_move_right_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_move_right_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.Right)
+                end
+            end)
+        end
+    elseif keybind_name == "lean_reset" then
+        if not self.is_lean_reset_button_hold_counter then
+            self.is_lean_reset_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.lean_reset_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_lean_reset_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_lean_reset_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.LeanReset)
+                end
+            end)
+        end
+    elseif keybind_name == "toggle_autopilot" then
+        if not self.is_auto_pilot_button_hold_counter then
+            self.is_auto_pilot_button_hold_counter = true
+            Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.auto_pilot_button_hold_count = timer.tick
+                if timer.tick >= self.auto_pilot_hold_complete_time_count then
+                    self.is_auto_pilot_button_hold_counter = false
+                    self.queue_obj:Enqueue(Def.ActionList.ToggleAutopilot)
+                    Cron.Halt(timer)
+                elseif not self.is_auto_pilot_button_hold_counter then
+                    self.queue_obj:Enqueue(Def.ActionList.OpenAutopilotPanel)
+                    Cron.Halt(timer)
+                end
+            end)
+        end
     elseif keybind_name == "toggle_camera" then
         action_list = Def.ActionList.ChangeCamera
     elseif keybind_name == "toggle_door" then
@@ -588,6 +685,8 @@ function Core:ConvertPressButtonAction(key)
         end
     elseif keybind_name == "toggle_crystal_dome" then
         action_list = Def.ActionList.ToggleCrystalDome
+    elseif keybind_name == "toggle_appearance" then
+        action_list = Def.ActionList.ToggleAppearance
     end
 
     if action_list ~= Def.ActionList.Nothing then
@@ -626,7 +725,7 @@ function Core:OperateAerialVehicle(actions)
     if not self.is_locked_operation then
         if self.event_obj:IsInVehicle() then
             self.av_obj:Operate(actions)
-        elseif self.event_obj:IsWaiting() then
+        elseif self.event_obj:IsWaiting() or self.event_obj:IsTakingOff() then
             self.av_obj:Operate({Def.ActionList.Nothing})
         end
     end
@@ -647,6 +746,8 @@ function Core:SetEvent(action)
         elseif action == Def.ActionList.SelectDown then
             self.is_locked_action_in_waiting = true
             self.event_obj:SelectChoice(Def.ActionList.SelectDown)
+        elseif action == Def.ActionList.ToggleAppearance then
+            self:ToggleAppearance()
         end
         Cron.After(self.delay_action_time_in_waiting, function()
             self.is_locked_action_in_waiting = false
@@ -662,14 +763,18 @@ function Core:SetEvent(action)
             self:ToggleCamera()
         elseif action == Def.ActionList.ChangeDoor1 then
             self:ToggleDoors()
-        elseif action == Def.ActionList.AutoPilot then
+        elseif action == Def.ActionList.ToggleAutopilot then
             self:ToggleAutopilot()
+        elseif action == Def.ActionList.OpenAutopilotPanel then
+            self:OpenAutopioltPanel()
         elseif action == Def.ActionList.ToggleRadio then
             self:ToggleRadio()
         elseif action == Def.ActionList.OpenRadio then
             self:OpenRadioPort()
         elseif action == Def.ActionList.ToggleCrystalDome then
             self:ToggleCrystalDome()
+        elseif action == Def.ActionList.ToggleAppearance then
+            self:ToggleAppearance()
         end
         Cron.After(self.delay_action_time_in_vehicle, function()
             self.is_locked_action_in_vehicle = false
@@ -690,6 +795,12 @@ function Core:ToggleAutopilot()
     end
 end
 
+function Core:OpenAutopioltPanel()
+    if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
+        self.event_obj.ui_obj:OpenAutopilotPopup()
+    end
+end
+
 function Core:ToggleCamera()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.av_obj.camera_obj:Toggle()
@@ -705,6 +816,22 @@ end
 function Core:ToggleCrystalDome()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.av_obj:ToggleCrystalDome()
+    end
+end
+
+function Core:ToggleAppearance()
+    local type_list = self.all_models[DAV.model_index].type
+    local type_count = #type_list
+    local type_index = DAV.user_setting_table.garage_info_list[DAV.model_index].type_index
+    if type_index >= type_count then
+        type_index = 1
+    else
+        type_index = type_index + 1
+    end
+    self:ChangeGarageAVType(self.all_models[DAV.model_index].tweakdb_id, type_index)
+    if not self.event_obj:IsNotSpawned() then
+        self.av_obj.position_obj.entity:PrefetchAppearanceChange(type_list[type_index])
+        self.av_obj.position_obj.entity:ScheduleAppearanceChange(type_list[type_index])
     end
 end
 
@@ -737,12 +864,12 @@ function Core:SetCustomMappin(mappin)
             return
         end
         self.is_custom_mappin = true
-        self:SetDistinationMappin()
+        self:SetDestinationMappin()
     end
 
 end
 
-function Core:SetDistinationMappin()
+function Core:SetDestinationMappin()
     self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
     self.ft_index_nearest_mappin, self.ft_to_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
 end

@@ -8,7 +8,7 @@
         "turn_speed": 0.7,
         "land_offset": -1.0,
         "down_time_count": 100,
-        "leaving_hight": 50,
+        "leaving_height": 50,
         "sensor_pair_vector_num": 30,
         "judged_stack_length" : 10
     },
@@ -21,7 +21,7 @@
         "turn_speed": 1.0,
         "land_offset": -1.0,
         "down_time_count": 100,
-        "leaving_hight": 100,
+        "leaving_height": 100,
         "sensor_pair_vector_num": 30,
         "judged_stack_length" : 15
     },
@@ -34,7 +34,7 @@
         "turn_speed": 1.5,
         "land_offset": -1.0,
         "down_time_count": 200,
-        "leaving_hight": 500,
+        "leaving_height": 500,
         "sensor_pair_vector_num": 30,
         "judged_stack_length" : 25
     }

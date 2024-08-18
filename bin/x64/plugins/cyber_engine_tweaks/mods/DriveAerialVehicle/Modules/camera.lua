@@ -93,8 +93,9 @@ function Camera:ChangePosition(level)
     elseif level == Def.CameraDistanceLevel.TppFar then
 		self.log_obj:Record(LogLevel.Trace, "Change Camera : TPPFar")
         camera_perspective.cameraPerspective = vehicleCameraPerspective.TPPFar
-
     end
+
+    self.current_camera_mode = level
 
     Game.GetPlayer():QueueEvent(camera_perspective)
 
