@@ -102,23 +102,23 @@ registerForEvent("onTweak",function ()
 
     -- Custom excalibur record
     TweakDB:CloneRecord(DAV.excalibur_record, "Vehicle.av_rayfield_excalibur")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.entityTemplatePath"), "base\\dav\\av_rayfield_excalibur__basic_01_dav_.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.entityTemplatePath"), "base\\dav\\av_rayfield_excalibur__basic_01_dav.ent")
 
     -- Custom manticore record
     TweakDB:CloneRecord(DAV.manticore_record, "Vehicle.av_militech_manticore")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav__.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav.ent")
 
     -- Custom manticore record
     TweakDB:CloneRecord(DAV.atlus_record, "Vehicle.av_zetatech_atlus")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_dav.entityTemplatePath"), "base\\dav\\av_zetatech_atlus_basic_02_dav_.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_dav.entityTemplatePath"), "base\\dav\\av_zetatech_atlus_basic_02_dav.ent")
 
      -- Custom surveyor record
     TweakDB:CloneRecord(DAV.surveyor_record, "Vehicle.av_zetatech_surveyor")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav_.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
 
     -- Custom valgus record
     TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav_.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.displayName"), LocKey(77966))
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.manufacturer"), "Vehicle.Zetatech")
 

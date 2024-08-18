@@ -157,12 +157,12 @@ function HUD:ShowLeftBottomHUD()
 
 end
 
-function HUD:HideRightBottomHUD()
+function HUD:HideLeftBottomHUD()
 
     self:SetVisibleConsumeItemSlot(true)
     self:SetVisiblePhoneSlot(true)
     self.ink_text:SetVisible(false)
-    self.ink_text = nil
+    -- self.ink_text = nil
 
 end
 
