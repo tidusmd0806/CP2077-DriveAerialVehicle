@@ -1,53 +1,33 @@
 {
-    "KEY_AV_ACCELERTOR": {
-        "name": "dav_heli_lift",
-        "type": "BUTTON_PRESSED",
-        "value": "POSITIVE"
-    },
-    "KEY_AV_DOWN": {
-        "name": "dav_heli_lift",
-        "type": "BUTTON_RELEASED",
-        "value": "ZERO"
-    },
     "KEY_AV_FORWARD_MOVE": {
-        "name": "dav_heli_forward_backward",
+        "name": "Accelerate",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
     "KEY_AV_BACK_MOVE": {
-        "name": "dav_heli_forward_backward",
-        "type": "AXIS_CHANGE",
-        "value": "NEGATIVE"
-    },
-    "KEY_AV_RIGHT_MOVE": {
-        "name": "dav_heli_left_right",
+        "name": "Decelerate",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
-    "KEY_AV_LEFT_MOVE": {
-        "name": "dav_heli_left_right",
-        "type": "AXIS_CHANGE",
-        "value": "NEGATIVE"
-    },
     "KEY_AV_RIGHT_ROTATE": {
-        "name": "dav_heli_rotate",
+        "name": "TurnX",
         "type": "AXIS_CHANGE",
         "value": "NEGATIVE"
     },
     "KEY_AV_LEFT_ROTATE": {
-        "name": "dav_heli_rotate",
+        "name": "TurnX",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
-    "KEY_AV_HOVER": {
-        "name": "dav_heli_hover",
+    "KEY_AV_LEAN_FORWARD": {
+        "name": "LeanFB",
         "type": "AXIS_CHANGE",
         "value": "POSITIVE"
     },
-    "KEY_AV_HOLD": {
-        "name": "dav_heli_hover",
+    "KEY_AV_LEAN_BACKWARD": {
+        "name": "LeanFB",
         "type": "AXIS_CHANGE",
-        "value": "ZERO"
+        "value": "NEGATIVE"
     },
     "KEY_WORLD_ENTER_AV": {
         "name": "ChoiceApply",
@@ -55,8 +35,8 @@
         "value": "POSITIVE"
     },
     "KEY_AV_EXIT_AV": {
-        "name": "dav_get_off",
-        "type": "BUTTON_HOLD_PROGRESS",
+        "name": "Exit",
+        "type": "BUTTON_HOLD_COMPLETE",
         "value": "POSITIVE"
     },
     "KEY_WORLD_SELECT_UPPER_CHOICE": {

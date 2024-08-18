@@ -4,27 +4,18 @@ Def.__index = Def
 
 Def.ActionList = {
     Nothing = 0,
-    HeliUp = 1,
-    HeliDown = 2,
-    HeliForward = 3,
-    HeliBackward = 4,
-    HeliRight = 5,
-    HeliLeft = 6,
-    HeliTurnRight = 7,
-    HeliTurnLeft = 8,
-    HeliHover = 9,
-    HeliHold = 10,
-	---------
-    SpinnerForward = 31,
-    SpinnerBackward = 32,
-    SpinnerRightRotate = 33,
-    SpinnerLeftRotate = 34,
-    SpinnerUp = 35,
-    SpinnerDown = 36,
-    SpinnerRight = 37,
-    SpinnerLeft = 38,
-    SpinnerLeanForward = 39,
-    SpinnerLeanBackward = 40,
+    --------
+    Forward = 1,
+    Backward = 2,
+    RightRotate = 3,
+    LeftRotate = 4,
+    LeanForward = 5,
+    LeanBackward = 6,
+    Up = 7,
+    Down = 8,
+    Right = 9,
+    Left = 10,
+    LeanReset = 11,
     ----------
 	Enter= 100,
 	Exit = 101,
@@ -36,8 +27,10 @@ Def.ActionList = {
     ToggleRadio = 107,
     OpenRadio = 108,
     ToggleCrystalDome = 109,
+    ToggleAppearance = 110,
     ----------
-    AutoPilot = 200,
+    ToggleAutopilot = 200,
+    OpenAutopilotPanel = 201,
 }
 
 Def.FlightMode = {

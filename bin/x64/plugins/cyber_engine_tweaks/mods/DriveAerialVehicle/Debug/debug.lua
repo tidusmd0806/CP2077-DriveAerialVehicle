@@ -44,9 +44,9 @@ function Debug:ImGuiMain()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
-    self:ImGuiHeliInfo()
-    self:ImGuiSpinnerInfo()
-    self:ImGuiCurrentEngineInfo()
+    -- self:ImGuiHeliInfo()
+    -- self:ImGuiSpinnerInfo()
+    -- self:ImGuiCurrentEngineInfo()
     self:ImGuiSoundCheck()
     self:ImGuiModelTypeStatus()
     self:ImGuiMappinPosition()
@@ -55,7 +55,7 @@ function Debug:ImGuiMain()
     self:ImGuiChangeAutoPilotSetting()
     self:ImGuiRadioInfo()
     self:ImGuiMeasurement()
-    self:ImGuiToggleGarageVehicle()
+    -- self:ImGuiToggleGarageVehicle()
     self:ImGuiExcuteFunction()
 
     ImGui.End()
@@ -142,44 +142,44 @@ function Debug:ImGuiAVPosition()
     end
 end
 
-function Debug:ImGuiHeliInfo()
-    self.is_im_gui_heli_info = ImGui.Checkbox("[ImGui] Heli Info", self.is_im_gui_heli_info)
-    if self.is_im_gui_heli_info then
-        if self.core_obj.av_obj.position_obj.entity == nil then
-            return
-        end
-        local f = string.format("%.2f", self.core_obj.av_obj.engine_obj.lift_force)
-        local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
-        local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
-        local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
-        ImGui.Text("F: " .. f .. ", v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z)
-    end
-end
+-- function Debug:ImGuiHeliInfo()
+--     self.is_im_gui_heli_info = ImGui.Checkbox("[ImGui] Heli Info", self.is_im_gui_heli_info)
+--     if self.is_im_gui_heli_info then
+--         if self.core_obj.av_obj.position_obj.entity == nil then
+--             return
+--         end
+--         local f = string.format("%.2f", self.core_obj.av_obj.engine_obj.lift_force)
+--         local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
+--         local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
+--         local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
+--         ImGui.Text("F: " .. f .. ", v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z)
+--     end
+-- end
 
-function Debug:ImGuiSpinnerInfo()
-    self.is_im_gui_spinner_info = ImGui.Checkbox("[ImGui] Spinner Info", self.is_im_gui_spinner_info)
-    if self.is_im_gui_spinner_info then
-        if self.core_obj.av_obj.position_obj.entity == nil then
-            return
-        end
-        local f_h = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_horizenal_force)
-        local f_v = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_vertical_force)
-        local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
-        local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
-        local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
-        local v_angle = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_speed_angle * 180 / Pi())
-        ImGui.Text("F_h: " .. f_h .. ", F_v : " .. f_v)
-        ImGui.Text("v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z .. ", v_angle: " .. v_angle)
-    end
-end
+-- function Debug:ImGuiSpinnerInfo()
+--     self.is_im_gui_spinner_info = ImGui.Checkbox("[ImGui] Spinner Info", self.is_im_gui_spinner_info)
+--     if self.is_im_gui_spinner_info then
+--         if self.core_obj.av_obj.position_obj.entity == nil then
+--             return
+--         end
+--         local f_h = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_horizenal_force)
+--         local f_v = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_vertical_force)
+--         local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
+--         local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
+--         local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
+--         local v_angle = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_speed_angle * 180 / Pi())
+--         ImGui.Text("F_h: " .. f_h .. ", F_v : " .. f_v)
+--         ImGui.Text("v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z .. ", v_angle: " .. v_angle)
+--     end
+-- end
 
-function Debug:ImGuiCurrentEngineInfo()
-    self.is_im_gui_engine_info = ImGui.Checkbox("[ImGui] Current Engine Info", self.is_im_gui_engine_info)
-    if self.is_im_gui_engine_info then
-        local v = string.format("%.2f", self.core_obj.av_obj.engine_obj.current_speed)
-        ImGui.Text("Current Power Mode : " .. self.core_obj.av_obj.engine_obj.current_mode .. ", Current Speed : " .. v .. " , Clock: " .. self.core_obj.av_obj.engine_obj.clock)
-    end
-end
+-- function Debug:ImGuiCurrentEngineInfo()
+--     self.is_im_gui_engine_info = ImGui.Checkbox("[ImGui] Current Engine Info", self.is_im_gui_engine_info)
+--     if self.is_im_gui_engine_info then
+--         local v = string.format("%.2f", self.core_obj.av_obj.engine_obj.current_speed)
+--         ImGui.Text("Current Power Mode : " .. self.core_obj.av_obj.engine_obj.current_mode .. ", Current Speed : " .. v .. " , Clock: " .. self.core_obj.av_obj.engine_obj.clock)
+--     end
+-- end
 
 function Debug:ImGuiSoundCheck()
     self.is_im_gui_sound_check = ImGui.Checkbox("[ImGui] Sound Check", self.is_im_gui_sound_check)
@@ -356,32 +356,32 @@ function Debug:ImGuiMeasurement()
     end
 end
 
-function Debug:ImGuiToggleGarageVehicle()
-    if ImGui.Button("av1") then
-        self.is_exist_av_1 = not self.is_exist_av_1
-        Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_rayfield_excalibur_dav_dummy", self.is_exist_av_1, true)
-    end
-    ImGui.SameLine()
-    if ImGui.Button("av2") then
-        self.is_exist_av_2 = not self.is_exist_av_2
-        Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_militech_manticore_dav_dummy", self.is_exist_av_2, true)
-    end
-    ImGui.SameLine()
-    if ImGui.Button("av3") then
-        self.is_exist_av_3 = not self.is_exist_av_3
-        Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_zetatech_atlus_dav_dummy", self.is_exist_av_3, true)
-    end
-    ImGui.SameLine()
-    if ImGui.Button("av4") then
-        self.is_exist_av_4 = not self.is_exist_av_4
-        Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_zetatech_surveyor_dav_dummy", self.is_exist_av_4, true)
-    end
-    ImGui.SameLine()
-    if ImGui.Button("av5") then
-        self.is_exist_av_5 = not self.is_exist_av_5
-        Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.q000_nomad_border_patrol_heli_dav_dummy", self.is_exist_av_5, true)
-    end
-end
+-- function Debug:ImGuiToggleGarageVehicle()
+--     if ImGui.Button("av1") then
+--         self.is_exist_av_1 = not self.is_exist_av_1
+--         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_rayfield_excalibur_dav_dummy", self.is_exist_av_1, true)
+--     end
+--     ImGui.SameLine()
+--     if ImGui.Button("av2") then
+--         self.is_exist_av_2 = not self.is_exist_av_2
+--         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_militech_manticore_dav_dummy", self.is_exist_av_2, true)
+--     end
+--     ImGui.SameLine()
+--     if ImGui.Button("av3") then
+--         self.is_exist_av_3 = not self.is_exist_av_3
+--         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_zetatech_atlus_dav_dummy", self.is_exist_av_3, true)
+--     end
+--     ImGui.SameLine()
+--     if ImGui.Button("av4") then
+--         self.is_exist_av_4 = not self.is_exist_av_4
+--         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_zetatech_surveyor_dav_dummy", self.is_exist_av_4, true)
+--     end
+--     ImGui.SameLine()
+--     if ImGui.Button("av5") then
+--         self.is_exist_av_5 = not self.is_exist_av_5
+--         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.q000_nomad_border_patrol_heli_dav_dummy", self.is_exist_av_5, true)
+--     end
+-- end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("TF1") then
@@ -551,6 +551,7 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF14") then
+        DAV.core_obj.event_obj.hud_obj:ShowLeftBottomHUD()
         print("Excute Test Function 14")
     end
 end
