@@ -141,9 +141,7 @@ function Event:CheckAllEvents()
 
     if self.current_situation == Def.Situation.Normal then
         self:CheckCallPurchasedVehicle()
-        -- self:CheckCallVehicle()
         self:CheckGarage()
-        -- self:CheckAvailableFreeCall()
         self:CheckCommonEvent()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
@@ -152,11 +150,9 @@ function Event:CheckAllEvents()
         self:CheckInEntryArea()
         self:CheckInAV()
         self:CheckReturnPurchasedVehicle()
-        -- self:CheckReturnVehicle()
         self:CheckCommonEvent()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
-        -- self:CheckCollision()
         self:CheckAutoModeChange()
         self:CheckFailAutoPilot()
         self:CheckCustomMappinPosition()
@@ -180,29 +176,6 @@ function Event:CheckGarage()
     DAV.core_obj:UpdateGarageInfo(false)
 end
 
--- function Event:CheckAvailableFreeCall()
-
---     if self:IsAvailableFreeCall() and not self.is_unlocked_dummy_av then
---         self.log_obj:Record(LogLevel.Info, "Unlock dummy vehicle for free call")
---         self.is_unlocked_dummy_av = true
---         DAV.core_obj:ActivateDummySummon(true)
---     elseif not self:IsAvailableFreeCall() and self.is_unlocked_dummy_av then
---         self.log_obj:Record(LogLevel.Info, "Lock dummy vehicle for free call")
---         self.is_unlocked_dummy_av = false
---         DAV.core_obj:ActivateDummySummon(false)
---     end
--- end
-
--- function Event:CheckCallVehicle()
---     if DAV.core_obj:GetCallStatus() and not self.av_obj:IsSpawning() then
---         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected")
---         self.sound_obj:PlaySound("100_call_vehicle")
---         self.sound_obj:PlaySound("210_landing")
---         self:SetSituation(Def.Situation.Landing)
---         self.av_obj:SpawnToSky()
---     end
--- end
-
 function Event:CheckCallPurchasedVehicle()
     if DAV.core_obj:GetPurchasedCallStatus() and not self.av_obj:IsSpawning() then
         self.log_obj:Record(LogLevel.Trace, "Purchased vehicle call detected")
@@ -218,6 +191,7 @@ function Event:CheckLanded()
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
         self.sound_obj:StopSound("210_landing")
         self.sound_obj:PlaySound("110_arrive_vehicle")
+        self.sound_obj:ChangeSoundResource()
         self:SetSituation(Def.Situation.Waiting)
         self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
@@ -238,13 +212,11 @@ function Event:CheckInAV()
         if self.current_situation == Def.Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
             SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
-            self.sound_obj:PlaySound("230_fly_loop")
+            -- self.sound_obj:PlaySound("230_fly_loop")
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
             self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
-            -- self.hud_obj:ShowMeter()
             self.hud_obj:ShowCustomHint()
-            -- self.hud_obj:HideActionButtons()
             Cron.After(1.5, function()
                 self.hud_obj:ShowLeftBottomHUD()
             end)
@@ -253,13 +225,10 @@ function Event:CheckInAV()
         -- when player take off from AV
         if self.current_situation == Def.Situation.InVehicle then
             self.log_obj:Record(LogLevel.Info, "Exit AV")
-            self.sound_obj:StopSound("230_fly_loop")
+            -- self.sound_obj:StopSound("230_fly_loop")
             self.hud_obj:HideLeftBottomHUD()
             self:SetSituation(Def.Situation.Waiting)
-            -- self.hud_obj:HideMeter()
             self.hud_obj:HideCustomHint()
-            -- self.hud_obj:ShowActionButtons()
-            self:StopRadio()
             self:UnsetMappin()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
@@ -270,46 +239,27 @@ function Event:CheckHUD()
     if self.hud_obj:IsVisibleConsumeItemSlot() then
         self.hud_obj:SetVisibleConsumeItemSlot(false)
     end
-    if self.hud_obj:IsVisiblePhoneSlot() then
-        self.hud_obj:SetVisiblePhoneSlot(false)
-    end
+    -- if self.hud_obj:IsVisiblePhoneSlot() then
+    --     self.hud_obj:SetVisiblePhoneSlot(false)
+    -- end
+    local success, result = pcall(function()
+        -- if not self.hud_obj.hud_car_controller.moduleShown then
+        self.hud_obj.hud_car_controller:ShowRequest()
+        self.hud_obj.hud_car_controller:OnCameraModeChanged(true)
+        self.hud_obj:SetHPDisplay()
+        -- end
+     end)
+     if not success then
+        self.log_obj:Record(LogLevel.Critical, result)
+     end
 end
-
--- function Event:CheckCollision()
---     if self.av_obj.is_collision then
---         self.log_obj:Record(LogLevel.Debug, "Collision detected")
---         local material = self.av_obj.position_obj.collision_trace_result.material.value
---         if not self.av_obj.engine_obj:IsInFalling() then
---             if string.find(material, "concrete") then
---                 self.sound_obj:PlaySound("331_crash_concrete")
---             elseif string.find(material, "metal") then
---                 self.sound_obj:PlaySound("332_crash_metal")
---             elseif string.find(material, "glass") then
---                 self.sound_obj:PlaySound("333_crash_wood")
---             else
---                 self.sound_obj:PlaySound("330_crash_default")
---             end
---         end
---     end
--- end
-
--- function Event:CheckReturnVehicle()
---     if DAV.core_obj:GetCallStatus() then
---         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected")
---         self.sound_obj:PlaySound("240_leaving")
---         self.sound_obj:PlaySound("104_call_vehicle")
---         self:SetSituation(Def.Situation.TalkingOff)
---         self.hud_obj:HideChoice()
---         self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
---         self.av_obj:DespawnFromGround()
---     end
--- end
 
 function Event:CheckReturnPurchasedVehicle()
     if DAV.core_obj:GetPurchasedCallStatus() then
         self.log_obj:Record(LogLevel.Trace, "Purchased vehicle return detected")
         self.sound_obj:PlaySound("240_leaving")
         self.sound_obj:PlaySound("104_call_vehicle")
+        self.sound_obj:ResetSoundResource()
         self:SetSituation(Def.Situation.TalkingOff)
         self.hud_obj:HideChoice()
         self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
@@ -373,18 +323,10 @@ function Event:CheckLockedSave()
 
 end
 
-function Event:StopRadio()
-    self.av_obj.radio_obj:Stop()
-end
-
 function Event:UnsetMappin()
     DAV.core_obj.is_custom_mappin = false
     DAV.core_obj:RemoveFavoriteMappin()
 end
-
--- function Event:IsAvailableFreeCall()
---     return DAV.user_setting_table.is_free_summon_mode
--- end
 
 function Event:IsNotSpawned()
     if self.current_situation == Def.Situation.Normal then

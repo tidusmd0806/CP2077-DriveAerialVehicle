@@ -1,7 +1,6 @@
 local Camera = require("Modules/camera.lua")
 local Position = require("Modules/position.lua")
 local Engine = require("Modules/engine.lua")
-local Radio = require("Modules/radio.lua")
 local Utils = require("Tools/utils.lua")
 local AV = {}
 AV.__index = AV
@@ -12,7 +11,6 @@ function AV:New(all_models)
 	obj.position_obj = Position:New(all_models)
 	obj.engine_obj = Engine:New(obj.position_obj, all_models)
 	obj.camera_obj = Camera:New(obj.position_obj, all_models)
-	obj.radio_obj = Radio:New(obj.position_obj)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
 	---static---
@@ -24,16 +22,12 @@ function AV:New(all_models)
 	obj.down_time_count = 200
 	obj.land_offset = -1.0
 	obj.door_open_time = 1.0
-	-- collision
-	-- obj.max_collision_count = obj.position_obj.collision_max_count
 	-- autopiolt
 	obj.profile_path = "Data/autopilot_profile.json"
 	obj.error_range = 3
 	obj.max_stack_count = 200
 	obj.min_stack_count = 10
 	obj.limit_stack_count = 500
-	-- for spawning vehicle and pedistrian
-	-- obj.freeze_stage_num = 10
 	---dynamic---
 	obj.multi_input_decrease_rate_const = 0.5
 	-- summon
@@ -44,9 +38,6 @@ function AV:New(all_models)
 	obj.active_door = nil
 	obj.seat_index = 1
 	obj.is_crystal_dome = true
-	-- collision
-	-- obj.is_collision = false
-	-- obj.colison_count = 0
 	-- av status
 	obj.is_player_in = false
 	obj.is_landed = false
@@ -57,7 +48,6 @@ function AV:New(all_models)
 	-- autopiolt
 	obj.mappin_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
-	-- obj.auto_pilot_info = {location = "Not Registered", type = "Not Registered", dist_pos = {x = 0, y = 0, z = 0}, start_pos = {x = 0, y = 0, z = 0}}
 	obj.auto_pilot_speed = 1
 	obj.avoidance_range = 5
 	obj.max_avoidance_speed = 10
@@ -68,11 +58,6 @@ function AV:New(all_models)
 	obj.autopilot_leaving_height = 100
 	obj.is_auto_avoidance = false
 	obj.is_failture_auto_pilot = false
-	-- for spawning vehicle and pedistrian
-	-- obj.freeze_count = 0
-	-- obj.max_freeze_count = 30
-	-- obj.min_freeze_count = 8
-	-- obj.max_speed_for_freezing = 100
 	return setmetatable(obj, self)
 end
 
@@ -398,9 +383,6 @@ function AV:Mount()
 	Cron.Every(0.01, {tick = 1}, function(timer)
 		local entity = player:GetMountedVehicle()
 		if entity ~= nil then
-			if self.vehicle_model_tweakdb_id == DAV.excalibur_record then
-				self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppClose)
-			end
 			Cron.After(1.5, function()
 				self.is_player_in = true
 			end)
@@ -421,10 +403,6 @@ function AV:Unmount()
 	self.is_ummounting = true
 
 	self.camera_obj:ResetPerspective()
-
-	if self.vehicle_model_tweakdb_id == DAV.excalibur_record then
-		self.camera_obj:ChangePosition(Def.CameraDistanceLevel.TppClose)
-	end
 
 	local seat_number = self.seat_index
 	if self.entity_id == nil then
@@ -509,7 +487,6 @@ function AV:Operate(action_commands)
 			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command)
 			return false
 		end
-		-- local x, y, z, roll, pitch, yaw = self.engine_obj:GetNextPosition(action_command)
 		local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateLinelyVelocity(action_command)
 		x_total = x_total + x
 		y_total = y_total + y
@@ -524,8 +501,6 @@ function AV:Operate(action_commands)
 		return false
 	end
 
-	-- self.is_collision = false
-
 	local multi_input_decrease_rate = 1 + (#action_commands - 1) * self.multi_input_decrease_rate_const
 
 	x_total = x_total / multi_input_decrease_rate
@@ -537,76 +512,9 @@ function AV:Operate(action_commands)
 
 	self.engine_obj:AddLinelyVelocity(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 
-	-- if x_total == 0 and y_total == 0 and z_total == 0 and roll_total == 0 and pitch_total == 0 and yaw_total == 0 then
-	-- 	self.log_obj:Record(LogLevel.Debug, "No operation")
-	-- 	return false
-	-- end
-
-	-- local speed_count = self.max_freeze_count
-	-- local level_speed_unit = self.max_speed_for_freezing / self.freeze_stage_num
-	-- local speed_count_unit = math.ceil((self.max_freeze_count - self.min_freeze_count) / self.freeze_stage_num)
-	-- for level = 1, self.freeze_stage_num do
-	-- 	if self.engine_obj:GetSpeed() < level_speed_unit * level then
-	-- 		speed_count = self.min_freeze_count + speed_count_unit * (level - 1)
-	-- 		break
-	-- 	end
-	-- end
-
-	-- local is_freeze = false
-	-- -- Freeze for spawning vehicle and pedistrian
-	-- if self.freeze_count < 1 and self:IsEnableFreeze() then
-	-- 	self.freeze_count = self.freeze_count + 1
-	-- 	is_freeze = true
-	-- elseif self.freeze_count >= speed_count then
-	-- 	self.freeze_count = 0
-	-- elseif self.freeze_count >= 1 then
-	-- 	self.freeze_count = self.freeze_count + 1
-	-- end
-
-	-- if DAV.user_setting_table.is_disable_spinner_roll_tilt then
-	-- 	roll_total = 0
-	-- end
-
-	-- local res = self.position_obj:SetNextPosition(x_total, y_total, z_total, roll_total, pitch_total, yaw_total, is_freeze)
-
-	-- if res == Def.TeleportResult.Collision then
-	-- 	self.engine_obj:SetSpeedAfterRebound()
-	-- 	self.is_collision = true
-	-- 	self.colison_count = self.colison_count + 1
-	-- 	if self.colison_count > self.max_collision_count then
-	-- 		self.log_obj:Record(LogLevel.Info, "Collision Count Over. Engine Reset")
-	-- 		self.colison_count = 0
-	-- 	end
-	-- 	return false
-	-- elseif res == Def.TeleportResult.AvoidStack then
-	-- 	self.log_obj:Record(LogLevel.Info, "Avoid Stack")
-	-- 	self.colison_count = 0
-	-- 	return false
-	-- elseif res == Def.TeleportResult.Error then
-	-- 	self.log_obj:Record(LogLevel.Error, "Teleport Error")
-	-- 	self.colison_count = 0
-	-- 	return false
-	-- end
-
-	-- self.colison_count = 0
-
 	return true
 
 end
-
--- function AV:IsEnableFreeze()
-
---     if not DAV.user_setting_table.is_enable_community_spawn then
---         return false
---     end
-
---     if self.engine_obj:GetSpeed() < self.max_speed_for_freezing then
---         return true
---     else
---         return false
---     end
-
--- end
 
 ---@param position Vector4
 function AV:SetMappinDestination(position)
@@ -618,53 +526,6 @@ function AV:SetFavoriteDestination(position)
 	self.favorite_destination_position = position
 end
 
--- ---@param destination_position Vector4
--- ---@return boolean
--- function AV:SetAutoPilotInfo(destination_position)
-
--- 	local x, y, z = destination_position.x, destination_position.y, destination_position.z
--- 	if x == 0 and y == 0 and z == 0 then
--- 		self.log_obj:Record(LogLevel.Warning, "Destination is not set")
--- 		self.auto_pilot_info.location = "Not Registered"
--- 		self.auto_pilot_info.type = "Not Registered"
--- 		return false
--- 	end
-
--- 	self.auto_pilot_info.dist_pos = destination_position
--- 	self.auto_pilot_info.start_pos = self.position_obj:GetPosition()
-
--- 	if DAV.core_obj.is_custom_mappin then
--- 		local dist_near_ft_index = DAV.core_obj:GetFTIndexNearbyMappin()
--- 		local dist_district_list = DAV.core_obj:GetNearbyDistrictList(dist_near_ft_index)
--- 		self.auto_pilot_info.location = ""
--- 		if dist_district_list ~= nil then
--- 			for index, district in ipairs(dist_district_list) do
--- 				if index == 1 then
--- 					self.auto_pilot_info.location = district
--- 				else
--- 					self.auto_pilot_info.location = self.auto_pilot_info.location .. "/" .. district
--- 				end
--- 			end
--- 		end
--- 		local nearby_location = DAV.core_obj:GetNearbyLocation(dist_near_ft_index)
--- 		if nearby_location ~= nil then
--- 			self.auto_pilot_info.location = self.auto_pilot_info.location .. "/" .. nearby_location
--- 		end
--- 		local nearby_distance = DAV.core_obj:GetFT2MappinDistance()
--- 		self.auto_pilot_info.location = self.auto_pilot_info.location .. " [" .. tostring(math.floor(nearby_distance)) .. "m]"
--- 		self.auto_pilot_info.type = "Custom Mappin"
--- 	else
--- 		for index = 1, #DAV.user_setting_table.favorite_location_list do
--- 			if DAV.user_setting_table.favorite_location_list[index].is_selected then
--- 				self.auto_pilot_info.location = DAV.user_setting_table.favorite_location_list[index].name
--- 				break
--- 			end
--- 		end
--- 		self.auto_pilot_info.type = "Favorite Location"
--- 	end
--- 	return true
--- end
-
 ---@return boolean
 function AV:AutoPilot()
 
@@ -675,12 +536,6 @@ function AV:AutoPilot()
 	else
 		destination_position = self.favorite_destination_position
 	end
-
-	-- if not self:SetAutoPilotInfo(destination_position) then
-	-- 	self.log_obj:Record(LogLevel.Warning, "AutoPilot Destination is not set")
-	-- 	self.is_auto_pilot = false
-	-- 	return false
-	-- end
 
 	local far_corner_distance = self.position_obj:GetFarCornerDistance()
 
@@ -874,6 +729,14 @@ function AV:IsFailedAutoPilot()
 	local is_failture_auto_pilot = self.is_failture_auto_pilot
 	self.is_failture_auto_pilot = false
 	return is_failture_auto_pilot
+end
+
+function AV:ToggleRadio()
+	if self.position_obj.entity:IsRadioReceiverActive() then
+		self.position_obj.entity:NextRadioReceiverStation()
+	else
+		self.position_obj.entity:ToggleRadioReceiver(true)
+	end
 end
 
 return AV

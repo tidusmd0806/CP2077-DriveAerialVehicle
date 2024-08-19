@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.0.0",
+	version = "2.0.1",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -103,24 +103,29 @@ registerForEvent("onTweak",function ()
     -- Custom excalibur record
     TweakDB:CloneRecord(DAV.excalibur_record, "Vehicle.av_rayfield_excalibur")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.entityTemplatePath"), "base\\dav\\av_rayfield_excalibur__basic_01_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.player_audio_resource"), "v_av_basilisk_tank")
 
     -- Custom manticore record
     TweakDB:CloneRecord(DAV.manticore_record, "Vehicle.av_militech_manticore")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.player_audio_resource"), "v_av_basilisk_tank")
 
     -- Custom manticore record
     TweakDB:CloneRecord(DAV.atlus_record, "Vehicle.av_zetatech_atlus")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_dav.entityTemplatePath"), "base\\dav\\av_zetatech_atlus_basic_02_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_dav.player_audio_resource"), "v_av_basilisk_tank")
 
      -- Custom surveyor record
     TweakDB:CloneRecord(DAV.surveyor_record, "Vehicle.av_zetatech_surveyor")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.player_audio_resource"), "v_av_basilisk_tank")
 
     -- Custom valgus record
     TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.displayName"), LocKey(77966))
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.manufacturer"), "Vehicle.Zetatech")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.player_audio_resource"), "v_av_basilisk_tank")
 
 end)
 
@@ -177,18 +182,9 @@ registerForEvent('onInit', function()
 end)
 
 registerForEvent("onDraw", function()
-
     if DAV.is_debug_mode then
         DAV.debug_obj:ImGuiMain()
     end
-    -- if DAV.is_opening_overlay then
-    --     if DAV.core_obj == nil or DAV.core_obj.event_obj == nil or DAV.core_obj.event_obj.ui_obj == nil then
-    --         return
-    --     end
-    --     DAV.core_obj.event_obj.ui_obj:ShowSettingMenu()
-    -- end
-    -- DAV.core_obj.event_obj.hud_obj:ShowAutoPilotInfo()
-
 end)
 
 registerForEvent('onUpdate', function(delta)

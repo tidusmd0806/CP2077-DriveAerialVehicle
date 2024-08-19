@@ -33,11 +33,6 @@ Def.ActionList = {
     OpenAutopilotPanel = 201,
 }
 
-Def.FlightMode = {
-    Heli = "Helicopter",
-    Spinner = "Spinner",
-}
-
 Def.Situation = {
     Idel = -1,
     Normal = 0,
@@ -52,13 +47,6 @@ Def.DoorOperation = {
 	Change = 0,
 	Open = 1,
 	Close = 2,
-}
-
-Def.PowerMode = {
-    Off = 0,
-    On = 1,
-    Hold = 2,
-    Hover = 3,
 }
 
 Def.TeleportResult = {
