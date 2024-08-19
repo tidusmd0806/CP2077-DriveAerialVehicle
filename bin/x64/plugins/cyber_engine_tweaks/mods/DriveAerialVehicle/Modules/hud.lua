@@ -130,21 +130,16 @@ function HUD:SetObserve()
         Observe("VehicleComponent", "EvaluateDamageLevel", function(this, destruction)
             if this.mounted then
                 self.vehicle_hp = destruction
-                self:SetHPDisplay()
             end
         end)
 
         Observe("HotkeyConsumableWidgetController", "OnInitialize", function(this)
-            print("HotkeyConsumableWidgetController")
             self.hud_consumable_controller = this
         end)
-        
+
         Observe("PhoneHotkeyController", "Initialize", function(this)
-            print("PhoneHotkeyController")
             self.hud_phone_controller = this
         end)
-        
-
     end
 
 end
@@ -152,7 +147,7 @@ end
 function HUD:ShowLeftBottomHUD()
 
     self:SetVisibleConsumeItemSlot(false)
-    self:SetVisiblePhoneSlot(false)
+    -- self:SetVisiblePhoneSlot(false)
     self:CreateHPDisplay()
 
 end
@@ -160,9 +155,8 @@ end
 function HUD:HideLeftBottomHUD()
 
     self:SetVisibleConsumeItemSlot(true)
-    self:SetVisiblePhoneSlot(true)
+    -- self:SetVisiblePhoneSlot(true)
     self.ink_text:SetVisible(false)
-    -- self.ink_text = nil
 
 end
 
@@ -184,7 +178,12 @@ end
 
 function HUD:CreateHPDisplay()
 
+    if self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer"):GetWidget("DAV_HP") == nil then
+        return
+    end
+
     self.ink_text = inkText.new()
+    self.ink_text:SetName("DAV_HP")
     self.ink_text:SetText("HP100")
     self.ink_text:SetFontFamily("base\\gameplay\\gui\\fonts\\digital_readout\\digitalreadout.inkfontfamily")
     self.ink_text:SetFontStyle("Regular")
@@ -344,11 +343,7 @@ end
 
 function HUD:SetCustomHint()
     local hint_table = {}
-    -- if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
-    --     hint_table = Utils:ReadJson("Data/heli_key_hint.json")
-    -- elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then
-        hint_table = Utils:ReadJson("Data/input_hint.json")
-    -- end
+    hint_table = Utils:ReadJson("Data/input_hint.json")
     self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()
     self.key_input_hide_hint_event = UpdateInputHintMultipleEvent.new()
     self.key_input_show_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
@@ -388,14 +383,6 @@ function HUD:HideCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_hide_hint_event)
 end
 
--- function HUD:ShowActionButtons()
---     GameSettings.Set('/interface/hud/action_buttons', true)
--- end
-
--- function HUD:HideActionButtons()
---     GameSettings.Set('/interface/hud/action_buttons', false)
--- end
-
 function HUD:ShowAutoModeDisplay()
     local text = GetLocalizedText("LocKey#84945")
     GameHUD.ShowMessage(text)
@@ -415,75 +402,6 @@ function HUD:ShowInterruptAutoPilotDisplay()
     local text = GetLocalizedText("LocKey#52322")
     GameHUD.ShowWarning(text, 2)
 end
-
--- function HUD:ShowAutoPilotInfo()
---     if (DAV.user_setting_table.is_autopilot_info_panel and not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and DAV.core_obj.event_obj:IsInVehicle()) or self.is_forced_autopilot_panel then
-
--- 		local screen_w, screen_h = GetDisplayResolution()
---         local window_w = screen_w * 0.25
---         local window_w_margin = screen_w * 0.01
---         local window_h_margin = screen_h * 0.1
-
--- 		ImGui.SetNextWindowPos(window_w_margin, screen_h - window_h_margin)
---         ImGui.SetNextWindowSize(window_w, 0)
-
--- 		ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 8)
--- 		ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 8, 7)
--- 		ImGui.PushStyleColor(ImGuiCol.WindowBg, 0xaa000000)
--- 		ImGui.PushStyleColor(ImGuiCol.Border, 0x8ffefd01)
-
--- 		ImGui.Begin('AutoPilotInfo', ImGuiWindowFlags.NoDecoration)
-
---         local switch = ""
---         local location = ""
---         local type = ""
---         if self.av_obj.is_auto_pilot then
---             switch = DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_on")
---             location = DAV.core_obj.av_obj.auto_pilot_info.location
---             type = DAV.core_obj.av_obj.auto_pilot_info.type
---         else
---             switch = DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_off")
---             if DAV.core_obj:IsCustomMappin() then
---                 local dist_near_ft_index = DAV.core_obj:GetFTIndexNearbyMappin()
---                 local dist_district_list = DAV.core_obj:GetNearbyDistrictList(dist_near_ft_index)
---                 if dist_district_list ~= nil then
---                     for index, district in ipairs(dist_district_list) do
---                         location = location .. district
---                         if index ~= #dist_district_list then
---                             location = location .. "/"
---                         end
---                     end
---                 end
---                 local nearby_location = DAV.core_obj:GetNearbyLocation(dist_near_ft_index)
---                 if nearby_location ~= nil then
---                     location = location .. "/" .. nearby_location
---                     local custom_ft_distance = DAV.core_obj:GetFT2MappinDistance()
---                     if custom_ft_distance ~= DAV.core_obj.huge_distance then
---                         location = location .. "[" .. tostring(math.floor(custom_ft_distance)) .. "m]"
---                     end
---                 end
---                 type = DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_selection_custom_mappin")
---             else
---                 -- location = DAV.user_setting_table.favorite_location_list[DAV.core_obj.event_obj.ui_obj.selected_auto_pilot_favorite_index].name
---                 type = DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_selection_favorite")
---             end
---         end
---         ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_title"))
---         ImGui.SameLine()
---         ImGui.TextColored(0.058, 1, 0.937, 1, switch)
---         ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_distination"))
---         ImGui.SameLine()
---         ImGui.TextColored(0.058, 1, 0.937, 1, location)
---         ImGui.TextColored(0.8, 0.8, 0.5, 1, DAV.core_obj:GetTranslationText("hud_auto_pilot_panel_selection"))
---         ImGui.SameLine()
---         ImGui.TextColored(0.058, 1, 0.937, 1, type)
-
--- 		ImGui.End()
-
--- 		ImGui.PopStyleColor(2)
--- 		ImGui.PopStyleVar(2)
--- 	end
--- end
 
 function HUD:ShowRadioPopup()
     if self.popup_manager ~= nil then

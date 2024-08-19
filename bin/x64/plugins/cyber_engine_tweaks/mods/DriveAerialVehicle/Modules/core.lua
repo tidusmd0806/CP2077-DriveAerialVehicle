@@ -39,7 +39,6 @@ function Core:New()
     -- model table
     obj.all_models = nil
     -- input table
-    -- obj.heli_input_table = {}
     obj.input_key_table = {}
     obj.relative_table = {}
     obj.hold_time_resolution = 0.1
@@ -120,7 +119,6 @@ function Core:Init()
     self:SetInputListener()
     self:SetMappinController()
     self:SetSummonTrigger()
-    self:SetRadioPopupController()
 
 end
 
@@ -161,15 +159,6 @@ function Core:SetSummonTrigger()
     Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
         local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
 
-        -- if self.event_obj.ui_obj.dummy_av_record.hash == record_id.hash then
-        --     self.log_obj:Record(LogLevel.Trace, "Free Summon AV call detected")
-        --     DAV.model_index = DAV.user_setting_table.model_index_in_free
-        --     DAV.model_type_index = DAV.user_setting_table.model_type_index_in_free
-
-        --     self.av_obj:Init()
-        --     self.is_vehicle_call = true
-        --     return false
-        -- end
         local str = string.gsub(record_id.value, "_dummy", "")
         local new_record_id = TweakDBID.new(str)
         for index, record in ipairs(self.event_obj.ui_obj.av_record_list) do
@@ -194,16 +183,6 @@ function Core:SetSummonTrigger()
     end)
 
 end
-
--- function Core:ActivateDummySummon(is_avtive)
---     Game.GetVehicleSystem():EnablePlayerVehicle(self.event_obj.ui_obj.dummy_vehicle_record, is_avtive, true)
--- end
-
--- function Core:GetCallStatus()
---     local call_status = self.is_vehicle_call
---     self.is_vehicle_call = false
---     return call_status
--- end
 
 function Core:GetPurchasedCallStatus()
     local call_status = self.is_purchased_vehicle_call
@@ -302,14 +281,6 @@ function Core:SetInputListener()
             end
         elseif (self.event_obj:IsInEntryArea() or self.event_obj:IsInVehicle()) then
             for _, exception in pairs(exception_common_list) do
-                if string.find(action_name, exception) then
-                    consumer:Consume()
-                    return
-                end
-            end
-        end
-        if self:IsOpenedRadioPopup() then
-            for _, exception in pairs(exception_radio_list) do
                 if string.find(action_name, exception) then
                     consumer:Consume()
                     return
@@ -436,60 +407,13 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
 
     local cmd = 0
 
-    -- if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
-    --     cmd = self:ConvertHeliActionList(action_name, action_type, action_value_type)
-    -- elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then
-        cmd = self:ConvertActionList(action_name, action_type, action_value_type)
-    -- end
+    cmd = self:ConvertActionList(action_name, action_type, action_value_type)
 
     if cmd ~= Def.ActionList.Nothing then
         self.queue_obj:Enqueue(cmd)
     end
 
 end
-
--- function Core:ConvertHeliActionList(action_name, action_type, action_value_type)
-
---     local action_command = Def.ActionList.Nothing
---     local action_dist = {name = action_name, type = action_type, value = action_value_type}
-
---     if self.event_obj.current_situation == Def.Situation.InVehicle then
---         if Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_ACCELERTOR) then
---             action_command = Def.ActionList.HeliUp
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_DOWN) then
---             action_command = Def.ActionList.HeliDown
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_FORWARD_MOVE) then
---             action_command = Def.ActionList.HeliForward
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_BACK_MOVE) then
---             action_command = Def.ActionList.HeliBackward
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_RIGHT_MOVE) then
---             action_command = Def.ActionList.HeliRight
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_LEFT_MOVE) then
---             action_command = Def.ActionList.HeliLeft
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_RIGHT_ROTATE) then
---             action_command = Def.ActionList.HeliTurnRight
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_LEFT_ROTATE) then
---             action_command = Def.ActionList.HeliTurnLeft
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_HOVER) then
---             action_command = Def.ActionList.HeliHover
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_HOLD) then
---             action_command = Def.ActionList.HeliHold
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_AV_EXIT_AV) then
---             action_command = Def.ActionList.Exit
---         end
---     elseif self.event_obj.current_situation == Def.Situation.Waiting then
---         if Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_ENTER_AV) then
---             action_command = Def.ActionList.Enter
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
---             action_command = Def.ActionList.SelectUp
---         elseif Utils:IsTablesNearlyEqual(action_dist, self.heli_input_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
---             action_command = Def.ActionList.SelectDown
---         end
---     end
-
---     return action_command
-
--- end
 
 function Core:ConvertActionList(action_name, action_type, action_value_type)
 
@@ -1060,87 +984,16 @@ function Core:GetCurrentDistrict()
 
 end
 
-function Core:SetRadioPopupController()
-
-    ObserveAfter('VehicleRadioPopupGameController', 'Activate', function(this)
-        if self.event_obj:IsInVehicle() then
-            self.current_station_index = this.selectedItem:GetStationData().record:Index()
-            if self.current_station_index >= 0 and self.current_station_index <= self.default_station_num then
-                self.current_radio_volume = this.radioVolumeSettingsController.value:GetText()
-                self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
-            else
-                self.av_obj.radio_obj:Stop()
-            end
-        end
-    end)
-
-    ObserveAfter('RadioVolumeSettingsController', 'ChangeValue', function(this)
-        if self.event_obj:IsInVehicle() then
-            if self.current_station_index <= self.default_station_num then
-                local prev_radio_volume = self.current_radio_volume
-                self.current_radio_volume = this.value:GetText()
-                if prev_radio_volume ~= "0%" then
-                    self.av_obj.radio_obj:SetVolumeFromString(self.current_radio_volume)
-                elseif self.current_station_index >= 0 and self.current_station_index <= self.default_station_num then
-                    self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
-                end
-            end
-        end
-    end)
-
-    ObserveAfter('VehicleRadioPopupGameController', 'OnInitialize', function(this)
-        if self.event_obj:IsInVehicle() then
-            self.is_opened_radio_popup = true
-            Cron.Every(self.get_track_name_time_resolution, {tick = 1}, function(timer)
-                local lockey = self.av_obj.radio_obj:GetTrackName()
-                if lockey ~= nil and this.trackName ~= nil then
-                    this.trackName:SetLocalizationKey(lockey)
-                end
-                if not self.is_opened_radio_popup or not self.event_obj:IsInVehicle() then
-                    self.log_obj:Record(LogLevel.Info, "Radio Popup is closed")
-                    Cron.Halt(timer)
-                end
-            end)
-        end
-    end)
-
-    ObserveAfter('VehicleRadioPopupGameController', 'OnClose', function(this)
-        self.is_opened_radio_popup = false
-    end)
-
-end
-
 function Core:ToggleRadio()
-
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
-        if self.current_station_index >= 0 and self.current_station_index <= self.default_station_num then
-            if self.av_obj.radio_obj:IsPlaying() then
-                self.av_obj.radio_obj:Stop()
-            else
-                -- self.current_station_index = math.random(0, self.default_station_num)
-                self.av_obj.radio_obj:Update(self.current_station_index, self.current_radio_volume)
-            end
-        else
-            self.log_obj:Record(LogLevel.Info, "Selected station is RadioEXT Station")
-            self.event_obj:ShowRadioPopup()
-        end
+        self.av_obj:ToggleRadio()
     end
-
 end
 
 function Core:OpenRadioPort()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.event_obj:ShowRadioPopup()
     end
-end
-
----@return boolean
-function Core:IsOpenedRadioPopup()
-    return self.is_opened_radio_popup
-end
-
-function Core:ShowRadioPopup()
-    self.event_obj:ShowRadioPopup()
 end
 
 return Core

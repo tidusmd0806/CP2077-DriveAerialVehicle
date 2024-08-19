@@ -44,18 +44,12 @@ function Debug:ImGuiMain()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
-    -- self:ImGuiHeliInfo()
-    -- self:ImGuiSpinnerInfo()
-    -- self:ImGuiCurrentEngineInfo()
     self:ImGuiSoundCheck()
     self:ImGuiModelTypeStatus()
     self:ImGuiMappinPosition()
     self:ImGuiAutoPilotStatus()
-    -- self:ImGuiToggleAutoPilotPanel()
     self:ImGuiChangeAutoPilotSetting()
-    self:ImGuiRadioInfo()
     self:ImGuiMeasurement()
-    -- self:ImGuiToggleGarageVehicle()
     self:ImGuiExcuteFunction()
 
     ImGui.End()
@@ -141,45 +135,6 @@ function Debug:ImGuiAVPosition()
         ImGui.Text("Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
     end
 end
-
--- function Debug:ImGuiHeliInfo()
---     self.is_im_gui_heli_info = ImGui.Checkbox("[ImGui] Heli Info", self.is_im_gui_heli_info)
---     if self.is_im_gui_heli_info then
---         if self.core_obj.av_obj.position_obj.entity == nil then
---             return
---         end
---         local f = string.format("%.2f", self.core_obj.av_obj.engine_obj.lift_force)
---         local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
---         local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
---         local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
---         ImGui.Text("F: " .. f .. ", v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z)
---     end
--- end
-
--- function Debug:ImGuiSpinnerInfo()
---     self.is_im_gui_spinner_info = ImGui.Checkbox("[ImGui] Spinner Info", self.is_im_gui_spinner_info)
---     if self.is_im_gui_spinner_info then
---         if self.core_obj.av_obj.position_obj.entity == nil then
---             return
---         end
---         local f_h = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_horizenal_force)
---         local f_v = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_vertical_force)
---         local v_x = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_x_speed)
---         local v_y = string.format("%.2f", self.core_obj.av_obj.engine_obj.horizenal_y_speed)
---         local v_z = string.format("%.2f", self.core_obj.av_obj.engine_obj.vertical_speed)
---         local v_angle = string.format("%.2f", self.core_obj.av_obj.engine_obj.spinner_speed_angle * 180 / Pi())
---         ImGui.Text("F_h: " .. f_h .. ", F_v : " .. f_v)
---         ImGui.Text("v_x: " .. v_x .. ", v_y: " .. v_y .. ", v_z: " .. v_z .. ", v_angle: " .. v_angle)
---     end
--- end
-
--- function Debug:ImGuiCurrentEngineInfo()
---     self.is_im_gui_engine_info = ImGui.Checkbox("[ImGui] Current Engine Info", self.is_im_gui_engine_info)
---     if self.is_im_gui_engine_info then
---         local v = string.format("%.2f", self.core_obj.av_obj.engine_obj.current_speed)
---         ImGui.Text("Current Power Mode : " .. self.core_obj.av_obj.engine_obj.current_mode .. ", Current Speed : " .. v .. " , Clock: " .. self.core_obj.av_obj.engine_obj.clock)
---     end
--- end
 
 function Debug:ImGuiSoundCheck()
     self.is_im_gui_sound_check = ImGui.Checkbox("[ImGui] Sound Check", self.is_im_gui_sound_check)
@@ -271,10 +226,6 @@ function Debug:ImGuiAutoPilotStatus()
     end
 end
 
--- function Debug:ImGuiToggleAutoPilotPanel()
---     DAV.core_obj.event_obj.hud_obj.is_forced_autopilot_panel = ImGui.Checkbox("[ImGui] Enable Autopilot Panel", DAV.core_obj.event_obj.hud_obj.is_forced_autopilot_panel)
--- end
-
 function Debug:ImGuiChangeAutoPilotSetting()
     self.is_im_gui_change_auto_setting = ImGui.Checkbox("[ImGui] Change AP Profile", self.is_im_gui_change_auto_setting)
     if self.is_im_gui_change_auto_setting then
@@ -295,29 +246,6 @@ function Debug:ImGuiChangeAutoPilotSetting()
         ImGui.Text("Speed Level : " .. DAV.user_setting_table.autopilot_speed_level)
         ImGui.Text("speed : " .. DAV.core_obj.av_obj.auto_pilot_speed .. ", avoidance : " .. DAV.core_obj.av_obj.avoidance_range .. ", max_avoidance : " .. DAV.core_obj.av_obj.max_avoidance_speed .. ", sensing : " .. DAV.core_obj.av_obj.sensing_constant .. ", stack_len : " .. DAV.core_obj.av_obj.position_obj.judged_stack_length)
         ImGui.Text("turn : " .. DAV.core_obj.av_obj.autopilot_turn_speed .. ", land : " .. DAV.core_obj.av_obj.autopilot_land_offset .. ", down_t : " .. DAV.core_obj.av_obj.autopilot_down_time_count .. ", height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", sensor_num : " .. DAV.core_obj.av_obj.position_obj.sensor_pair_vector_num)
-    end
-end
-
-function Debug:ImGuiRadioInfo()
-    self.is_im_gui_radio_info = ImGui.Checkbox("[ImGui] Radio Info", self.is_im_gui_radio_info)
-    if self.is_im_gui_radio_info then
-        local volume = self.core_obj.av_obj.radio_obj:GetVolume()
-        local entity_num = #self.core_obj.av_obj.radio_obj.radio_entity_list
-        local station_index = self.core_obj.av_obj.radio_obj:GetPlayingStationIndex()
-        local station_name = CName("No Play")
-        if station_index >= 0 then
-            station_name = RadioStationDataProvider.GetStationNameByIndex(station_index)
-        end
-        local track_name = GetLocalizedText(LocKeyToString(self.core_obj.av_obj.radio_obj:GetTrackName()))
-        local is_playing = self.core_obj.av_obj.radio_obj.is_playing
-        local is_opened_radio_popup = self.core_obj.is_opened_radio_popup
-        local radio_port_index = self.core_obj.current_station_index
-        local radio_port_volume = self.core_obj.current_radio_volume
-        ImGui.Text("Radio Port Index : " .. radio_port_index .. ", Radio Port Volume : " .. radio_port_volume)
-        ImGui.Text("Actual Volume : " .. volume .. ", Entity Num : " .. entity_num)
-        ImGui.Text("Actual Station Index : " .. station_index .. ", Station Name : " .. station_name.value)
-        ImGui.Text("Track Name : " .. track_name)
-        ImGui.Text("Is Playing : " .. tostring(is_playing) .. ", Is Radio Popup : " .. tostring(is_opened_radio_popup))
     end
 end
 
@@ -356,48 +284,76 @@ function Debug:ImGuiMeasurement()
     end
 end
 
--- function Debug:ImGuiToggleGarageVehicle()
---     if ImGui.Button("av1") then
---         self.is_exist_av_1 = not self.is_exist_av_1
---         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_rayfield_excalibur_dav_dummy", self.is_exist_av_1, true)
---     end
---     ImGui.SameLine()
---     if ImGui.Button("av2") then
---         self.is_exist_av_2 = not self.is_exist_av_2
---         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_militech_manticore_dav_dummy", self.is_exist_av_2, true)
---     end
---     ImGui.SameLine()
---     if ImGui.Button("av3") then
---         self.is_exist_av_3 = not self.is_exist_av_3
---         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_zetatech_atlus_dav_dummy", self.is_exist_av_3, true)
---     end
---     ImGui.SameLine()
---     if ImGui.Button("av4") then
---         self.is_exist_av_4 = not self.is_exist_av_4
---         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.av_zetatech_surveyor_dav_dummy", self.is_exist_av_4, true)
---     end
---     ImGui.SameLine()
---     if ImGui.Button("av5") then
---         self.is_exist_av_5 = not self.is_exist_av_5
---         Game.GetVehicleSystem():EnablePlayerVehicle("Vehicle.q000_nomad_border_patrol_heli_dav_dummy", self.is_exist_av_5, true)
---     end
--- end
-
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("TF1") then
-        self.component:Activate(0, false)
+        DAV.core_obj.event_obj.hud_obj.hud_car_controller:ShowRequest()
+        DAV.core_obj.event_obj.hud_obj.hud_car_controller:OnCameraModeChanged(true)
         print("Excute Test Function 1")
     end
     ImGui.SameLine()
     if ImGui.Button("TF2") then
-        DAV.core_obj.av_obj.radio_obj:Update(5, "100%")
+        local depot = Game.GetResourceDepot()
+        local token = depot:LoadResource("base\\sound\\metadata\\cooked_metadata.audio_metadata")
+        local meta_data = token:GetResource()
+        local basilisk_data
+        local aerondight_data
+        for _, value in pairs(meta_data.entries) do
+            if value.name.value == "v_av_basilisk_tank" then
+                basilisk_data = value
+                -- value.collisionCooldown = 0.5 -- 0.2
+                -- value.hasRadioReceiver = true -- false
+                -- value.radioReceiverType = CName.new("radio_car_hyper_player")
+                -- value.vehicleCollisionSettings = CName.new("v_car_default_collision") -- v_military_panzer_collision
+                -- value.vehicleGridDestructionSettings = CName.new("v_grid_dst_car_default") -- None
+                -- value.vehiclePartSettings = CName.new("v_car_damage_default") -- None
+                -- -- local mechanical_data = audioVehicleMechanicalData.new()
+                -- -- mechanical_data = value.mechanicalData
+                -- -- mechanical_data.engineStartEvent = CName.new("v_car_rayfield_aerondight_engine_on")
+                -- -- mechanical_data.engineStopEvent = CName.new("v_car_rayfield_aerondight_engine_off")
+                -- -- value.mechanicalData = mechanical_data
+                -- local general_data = audioVehicleGeneralData.new()
+                -- general_data = value.generalData
+                -- general_data.enterVehicleEvent = CName.new("v_car_rayfield_aerondight_enter") -- v_av_panzer_01_enter
+                -- general_data.exitVehicleEvent = CName.new("v_car_rayfield_aerondight_exit") -- None
+                -- value.generalData = general_data
+            end
+            if value.name.value == "v_car_rayfield_aerondight" then
+                aerondight_data = value
+            end
+        end
+        basilisk_data.collisionCooldown = 0.5 -- 0.2
+        basilisk_data.hasRadioReceiver = true -- false
+        basilisk_data.radioReceiverType = CName.new("radio_car_hyper_player")
+        basilisk_data.vehicleCollisionSettings = CName.new("v_car_default_collision") -- v_military_panzer_collision
+        basilisk_data.vehicleGridDestructionSettings = CName.new("v_grid_dst_car_default") -- None
+        basilisk_data.vehiclePartSettings = CName.new("v_car_damage_default") -- None
+        -- local mechanical_data = audioVehicleMechanicalData.new()
+        -- mechanical_data = value.mechanicalData
+        -- mechanical_data.engineStartEvent = CName.new("v_car_rayfield_aerondight_engine_on")
+        -- mechanical_data.engineStopEvent = CName.new("v_car_rayfield_aerondight_engine_off")
+        -- value.mechanicalData = mechanical_data
+        -- local general_data = audioVehicleGeneralData.new()
+        basilisk_data.generalData = aerondight_data.generalData
         print("Excute Test Function 2")
     end
     ImGui.SameLine()
     if ImGui.Button("TF3") then
-        GetMountedVehicle(GetPlayer()):ToggleRadioReceiver(false)
-        print(GetPlayer():GetPocketRadio():IsActive())
-        print(GetPlayer():GetPocketRadio():IsRestricted())
+        local depot = Game.GetResourceDepot()
+        local token = depot:LoadResource("base\\sound\\metadata\\cooked_metadata.audio_metadata")
+        local meta_data = token:GetResource()
+        for _, value in pairs(meta_data.entries) do
+            if value.name.value == "v_av_basilisk_tank" then
+                print("Collision Cooldown : " .. value.collisionCooldown)
+                print("Has Radio Receiver : " .. tostring(value.hasRadioReceiver))
+                print("Radio Receiver Type : " .. value.radioReceiverType.value)
+                print("Vehicle Collision Settings : " .. value.vehicleCollisionSettings.value)
+                print("Vehicle Grid Destruction Settings : " .. value.vehicleGridDestructionSettings.value)
+                print("Vehicle Part Settings : " .. value.vehiclePartSettings.value)
+                print("Acelleration : " .. value.mechanicalData.acelleration.value)
+                print("Enter Event : " .. value.generalData.enterVehicleEvent.value)
+                print("Exit Event : " .. value.generalData.exitVehicleEvent.value)
+            end
+        end
         print("Excute Test Function 3")
     end
     ImGui.SameLine()
@@ -432,127 +388,6 @@ function Debug:ImGuiExcuteFunction()
         self.metro_entity = GetMountedVehicle(player)
         Game.GetWorkspotSystem():UnmountFromVehicle(self.metro_entity, player, false, Vector4.new(0, 0, 0, 1), Quaternion.new(0, 0, 0, 1), "Passengers")
         print("Excute Test Function 5")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF6") then
-        local player = Game.GetPlayer()
-        Game.GetWorkspotSystem():StopInDevice(player)
-        print("Excute Test Function 6")
-    end
-    if ImGui.Button("TF7") then
-        local player = Game.GetPlayer()
-        self.metro_entity = GetMountedVehicle(player)
-        local ent_id = self.metro_entity:GetEntityID()
-        local seat = "Passengers"
-
-        local data = NewObject('handle:gameMountEventData')
-        data.isInstant = true
-        data.slotName = seat
-        data.mountParentEntityId = ent_id
-        data.entryAnimName = "forcedTransition"
-
-        local slotID = NewObject('gamemountingMountingSlotId')
-        slotID.id = seat
-
-        local mounting_info = NewObject('gamemountingMountingInfo')
-        mounting_info.childId = player:GetEntityID()
-        mounting_info.parentId = ent_id
-        mounting_info.slotId = slotID
-
-        local mount_event = NewObject('handle:gamemountingUnmountingRequest')
-        mount_event.lowLevelMountingInfo = mounting_info
-        mount_event.mountData = data
-
-		Game.GetMountingFacility():Unmount(mount_event)
-        print("Excute Test Function 7")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF8") then
-        local name = CName.new("ue_metro_next_station")
-        Game.GetQuestsSystem():SetFact(name, 1)
-        print("Excute Test Function 8")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF9") then
-        local con = CustomQuestNotificationGameController.new()
-        con:OnInitialize()
-        con:Setup()
-        con:ShowRequest()
-        print("Excute Test Function 9")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF10") then
-        local inkSystem = Game.GetInkSystem()
-        local hudRoot = inkSystem:GetLayer("inkHUDLayer"):GetVirtualWindow()
-
-        local hello = inkText.new()
-        hello:SetText("HELLO HUD")
-        hello:SetFontFamily("base\\gameplay\\gui\\fonts\\orbitron\\orbitron.inkfontfamily")
-        hello:SetFontStyle("Bold")
-        hello:SetFontSize(50)
-        hello:SetTintColor(HDRColor.new(1.1761, 0.3809, 0.3476, 1.0))
-        hello:SetAnchor(inkEAnchor.CenterFillHorizontaly)
-        hello:SetAnchorPoint(0.5, 0.5)
-        hello:Reparent(hudRoot)
-
-        -- local rectangle = inkRectangle.new()
-        -- rectangle:SetSize(100, 100)
-        -- rectangle:SetAnchor(inkEAnchor.Centered)
-        -- rectangle:SetAnchorPoint(0.5, 0.5)
-        -- rectangle:Reparent(hudRoot)
-
-        local image = inkImage.new()
-        image:SetAtlasResource("base\\gameplay\\gui\\common\\shapes\\atlas_shapes_sync.inkatlas")
-        image:SetTexturePart("button_big2_fg")
-        image:SetSize(100, 100)
-        image:SetAnchor(inkEAnchor.Centered)
-        image:SetAnchorPoint(0.5, 0.5)
-        image:Reparent(hudRoot)
-        print("Excute Test Function 10")
-    end
-    if ImGui.Button("TF11") then
-        self.popup = DAV_AerialVehiclePopupWrapper.new()
-        self.popup:Create()
-        self.popup:SetTranslation("ui_popup_title","abc")
-        self.popup:SetTranslation("ui_popup_destination_title","defあ")
-        self.popup:SetTranslation("ui_popup_destination_button","あああ")
-        self.popup:SetTranslation("ui_popup_register_confirm_text","でバック")
-        self.popup:SetTranslation("ui_popup_register_input_hint","AR3う")
-        Cron.After(0.1, function()
-            self.popup:Show(self.core_obj.event_obj.ui_obj.ui_game_menu_controller)
-            local arr = {}
-            for i = 1, 5 do
-                table.insert(arr, DAV.user_setting_table.favorite_location_list[i].name)
-            end
-            Cron.After(0.1, function()
-                self.popup:SetDestination("Test Destination fsa", "aaa", 2)
-                self.popup:SetFavoriteList(arr)
-                self.popup:SetCurrentAddress("Test Address wwa")
-            end)
-        end)
-        print("Excute Test Function 11")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF12") then
-        if self.popup:IsClosed() then
-            local num = self.popup:GetSelectedNumber()
-            print(num)
-            local arr = self.popup:GetFavoriteList()
-            for i = 1, #arr do
-                print(arr[i])
-            end
-        end
-        print("Excute Test Function 12")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF13") then
-        DAV.core_obj.event_obj.ui_obj:OpenAutopilotPopup()
-        print("Excute Test Function 13")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF14") then
-        DAV.core_obj.event_obj.hud_obj:ShowLeftBottomHUD()
-        print("Excute Test Function 14")
     end
 end
 

@@ -123,16 +123,6 @@ function Position:SetEntity(entity)
     self.entity = entity
 end
 
-function Position:SetEngineState(mode)
-    if mode == Def.PowerMode.On then
-        self.is_power_on = true
-    elseif mode == Def.PowerMode.Off then
-        self.is_power_on = false
-    else
-        self.log_obj:Record(LogLevel.Critical, "Set Invalid Power Mode")
-    end
-end
-
 function Position:SetSensorPairVectorNum(num)
     self.sensor_pair_vector_num = num
 end
