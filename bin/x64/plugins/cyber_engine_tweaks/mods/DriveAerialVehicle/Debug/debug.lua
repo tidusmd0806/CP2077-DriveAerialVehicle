@@ -59,7 +59,7 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved
+        -- reserved        
     end
     self.is_set_observer = true
 
@@ -358,36 +358,42 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        local player = Game.GetPlayer()
-        local ent_id = self.metro_entity:GetEntityID()
-        local seat = "Passengers"
-        local data = NewObject('handle:gameMountEventData')
-        data.isInstant = false
-        data.slotName = seat
-        data.mountParentEntityId = ent_id
-
-
-        local slot_id = NewObject('gamemountingMountingSlotId')
-        slot_id.id = seat
-
-        local mounting_info = NewObject('gamemountingMountingInfo')
-        mounting_info.childId = player:GetEntityID()
-        mounting_info.parentId = ent_id
-        mounting_info.slotId = slot_id
-
-        local mounting_request = NewObject('handle:gamemountingMountingRequest')
-        mounting_request.lowLevelMountingInfo = mounting_info
-        mounting_request.mountData = data
-
-        Game.GetMountingFacility():Mount(mounting_request)
+        Game.GetTeleportationFacility():Teleport(DAV.core_obj.av_obj.position_obj.entity, Vector4.new(0, 0, 0, 1), Quaternion.new(0, 0, 0, 1):ToEulerAngles())
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
+
         local player = Game.GetPlayer()
-        self.metro_entity = GetMountedVehicle(player)
-        Game.GetWorkspotSystem():UnmountFromVehicle(self.metro_entity, player, false, Vector4.new(0, 0, 0, 1), Quaternion.new(0, 0, 0, 1), "Passengers")
+        local ent_id = DAV.core_obj.av_obj.enrity_id
+        local seat = DAV.core_obj.av_obj.active_seat[1]
+
+        local data = NewObject('handle:gameMountEventData')
+        data.isInstant = true
+        data.slotName = seat
+        data.mountParentEntityId = ent_id
+        data.entryAnimName = "forcedTransition"
+
+        local slotID = NewObject('gamemountingMountingSlotId')
+        slotID.id = seat
+
+        local mounting_info = NewObject('gamemountingMountingInfo')
+        mounting_info.childId = player:GetEntityID()
+        mounting_info.parentId = ent_id
+        mounting_info.slotId = slotID
+
+        local mount_event = NewObject('handle:gamemountingUnmountingRequest')
+        mount_event.lowLevelMountingInfo = mounting_info
+        mount_event.mountData = data
+
+        Game.GetMountingFacility():Unmount(mount_event)
         print("Excute Test Function 5")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF6") then
+
+        DAV.core_obj.av_obj.engine_obj.fly_av_system:ChangeLinelyVelocity(Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 1)
+        print("Excute Test Function 6")
     end
 end
 

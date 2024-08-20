@@ -131,6 +131,10 @@ function Event:SetSituation(situation)
         self.log_obj:Record(LogLevel.Info, "Normal detected")
         self.current_situation = Def.Situation.Normal
         return true
+    elseif situation == Def.Situation.Normal then
+        self.log_obj:Record(LogLevel.Warning, "Force Reset to Normal situation")
+        self.current_situation = Def.Situation.Normal
+        return true
     else
         self.log_obj:Record(LogLevel.Critical, "Invalid translating situation")
         return false
@@ -142,35 +146,28 @@ function Event:CheckAllEvents()
     if self.current_situation == Def.Situation.Normal then
         self:CheckCallPurchasedVehicle()
         self:CheckGarage()
-        self:CheckCommonEvent()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
-        self:CheckCommonEvent()
     elseif self.current_situation == Def.Situation.Waiting then
+        self:CheckDespawn()
         self:CheckInEntryArea()
         self:CheckInAV()
         self:CheckReturnPurchasedVehicle()
-        self:CheckCommonEvent()
+        self:CheckDestroyed()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
         self:CheckAutoModeChange()
         self:CheckFailAutoPilot()
         self:CheckCustomMappinPosition()
-        self:CheckCommonEvent()
         self:CheckHUD()
+        self:CheckDestroyed()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
-        self:CheckCommonEvent()
         self:CheckLockedSave()
     end
 
 end
 
-function Event:CheckCommonEvent()
-
-    self:CheckSoundRestriction()
-
-end
 
 function Event:CheckGarage()
     DAV.core_obj:UpdateGarageInfo(false)
@@ -212,7 +209,6 @@ function Event:CheckInAV()
         if self.current_situation == Def.Situation.Waiting then
             self.log_obj:Record(LogLevel.Info, "Enter In AV")
             SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
-            -- self.sound_obj:PlaySound("230_fly_loop")
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
             self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
@@ -225,7 +221,6 @@ function Event:CheckInAV()
         -- when player take off from AV
         if self.current_situation == Def.Situation.InVehicle then
             self.log_obj:Record(LogLevel.Info, "Exit AV")
-            -- self.sound_obj:StopSound("230_fly_loop")
             self.hud_obj:HideLeftBottomHUD()
             self:SetSituation(Def.Situation.Waiting)
             self.hud_obj:HideCustomHint()
@@ -244,6 +239,7 @@ function Event:CheckHUD()
     -- end
     local success, result = pcall(function()
         -- if not self.hud_obj.hud_car_controller.moduleShown then
+        -- always show car meter
         self.hud_obj.hud_car_controller:ShowRequest()
         self.hud_obj.hud_car_controller:OnCameraModeChanged(true)
         self.hud_obj:SetHPDisplay()
@@ -252,6 +248,17 @@ function Event:CheckHUD()
      if not success then
         self.log_obj:Record(LogLevel.Critical, result)
      end
+end
+
+function Event:CheckDestroyed()
+    if self.av_obj:IsDestroyed() then
+        self.log_obj:Record(LogLevel.Trace, "Destroyed detected")
+        self.sound_obj:ResetSoundResource()
+        self.hud_obj:HideChoice()
+        self.av_obj.engine_obj.fly_av_system:EnableGravity(true)
+        self:SetSituation(Def.Situation.Normal)
+        DAV.core_obj:Reset()
+    end
 end
 
 function Event:CheckReturnPurchasedVehicle()
@@ -446,20 +453,6 @@ function Event:SelectChoice(direction)
             return
         end
         self.av_obj.seat_index = self.selected_seat_index
-    end
-end
-
-function Event:CheckSoundRestriction()
-    if not DAV.user_setting_table.is_mute_all and not DAV.user_setting_table.is_mute_flight then
-        self.sound_obj:SetRestriction(Def.SoundRestrictionLevel.None)
-    else
-        if DAV.user_setting_table.is_mute_all then
-            self.sound_obj:SetRestriction(Def.SoundRestrictionLevel.Mute)
-            self.sound_obj:Mute()
-        elseif DAV.user_setting_table.is_mute_flight then
-            self.sound_obj:SetRestriction(Def.SoundRestrictionLevel.PriorityRadio)
-            self.sound_obj:PartialMute(200, 300)
-        end
     end
 end
 

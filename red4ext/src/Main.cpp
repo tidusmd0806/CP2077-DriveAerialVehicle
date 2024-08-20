@@ -44,6 +44,39 @@ void SetVehicle(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, fl
     }
 }
 
+void HasGravity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4)
+{
+    RED4EXT_UNUSED_PARAMETER(aContext);
+    RED4EXT_UNUSED_PARAMETER(aFrame);
+    RED4EXT_UNUSED_PARAMETER(a4);
+
+    *aOut = false;
+
+    if (vehicle)
+    {
+        *aOut = vehicle->physicsData->unk1B0;
+    }
+}
+
+void EnableGravity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, float* aOut, int64_t a4)
+{
+    RED4EXT_UNUSED_PARAMETER(aContext);
+    RED4EXT_UNUSED_PARAMETER(a4);
+
+    bool is_enable;
+
+    RED4ext::GetParameter(aFrame, &is_enable);
+    aFrame->code++; // skip ParamEnd
+
+    *aOut = 0;
+
+    if (vehicle)
+    {
+        vehicle->physicsData->unk1B0 = is_enable;
+        *aOut = 1;
+    }
+}
+
 void AddLinelyVelocity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, float* aOut, int64_t a4)
 {
     RED4EXT_UNUSED_PARAMETER(aContext);
@@ -191,6 +224,33 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterSetVehicle()
     cls.RegisterFunction(func);
 }
 
+RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterHasGravity()
+{
+    auto rtti = RED4ext::CRTTISystem::Get();
+    auto scriptable = rtti->GetClass("IScriptable");
+    cls.parent = scriptable;
+
+    RED4ext::CBaseFunction::Flags flags = {.isNative = true};
+    auto func = RED4ext::CClassFunction::Create(&cls, "HasGravity", "HasGravity", &HasGravity, {.isNative = true});
+    func->flags = flags;
+    func->SetReturnType("Bool");
+    cls.RegisterFunction(func);
+}
+
+RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterEnableGravity()
+{
+    auto rtti = RED4ext::CRTTISystem::Get();
+    auto scriptable = rtti->GetClass("IScriptable");
+    cls.parent = scriptable;
+
+    RED4ext::CBaseFunction::Flags flags = {.isNative = true};
+    auto func = RED4ext::CClassFunction::Create(&cls, "EnableGravity", "EnableGravity", &EnableGravity, {.isNative = true});
+    func->flags = flags;
+    func->SetReturnType("Float");
+    func->AddParam("Bool", "is_enable");
+    cls.RegisterFunction(func);
+}
+
 RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterAddLinelyVelocity()
 {
     auto rtti = RED4ext::CRTTISystem::Get();
@@ -285,6 +345,8 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::PluginHandle aHandle, RED4ext::
     case RED4ext::EMainReason::Load:
     {
         RED4ext::RTTIRegistrator::Add(RegisterFlyAVSystem, PostRegisterSetVehicle);
+        RED4ext::RTTIRegistrator::Add(RegisterFlyAVSystem, PostRegisterHasGravity);
+        RED4ext::RTTIRegistrator::Add(RegisterFlyAVSystem, PostRegisterEnableGravity);
         RED4ext::RTTIRegistrator::Add(RegisterFlyAVSystem, PostRegisterAddLinelyVelocity);
         RED4ext::RTTIRegistrator::Add(RegisterFlyAVSystem, PostRegisterChangeLinelyVelocity);
         RED4ext::RTTIRegistrator::Add(RegisterFlyAVSystem, PostRegisterGetVelocity);

@@ -88,15 +88,38 @@ function AV:Init()
 end
 
 function AV:IsPlayerIn()
-	return self.is_player_in
+	-- return self.is_player_in
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		return false
+	end
+	return entity:IsPlayerMounted()
+end
+
+function AV:IsPlayerMounted()
+
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		return false
+	end
+	return entity:IsPlayerMounted()
+
 end
 
 function AV:IsSpawning()
 	return self.is_spawning
 end
 
+function AV:IsDestroyed()
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		return false
+	end
+	return entity:IsDestroyed()
+end
+
 function AV:IsDespawned()
-	if self.entity_id == nil then
+	if Game.FindEntityByID(self.entity_id) == nil then
 		return true
 	else
 		return false
@@ -155,7 +178,6 @@ function AV:SpawnToSky()
 					Cron.Halt(timer)
 				elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
 					self.is_landed = true
-					self.position_obj:SetDestinationHeight(self.position_obj:GetPosition().z)
 					Cron.Halt(timer)
 				end
 			end
@@ -472,8 +494,6 @@ function AV:Move(x, y, z, roll, pitch, yaw)
 		return false
 	end
 
-	self.position_obj:SetDestinationHeight(self.position_obj:GetPosition().z)
-
 	return true
 
 end
@@ -481,7 +501,7 @@ end
 function AV:Operate(action_commands)
 
 	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
-	self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_commands)
+	-- self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_commands)
 	for _, action_command in ipairs(action_commands) do
 		if action_command >= Def.ActionList.Enter then
 			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command)
@@ -573,7 +593,7 @@ function AV:AutoPilot()
 		local sum_vector = self.position_obj:CalculateVectorField(far_corner_distance, far_corner_distance + self.avoidance_range, self.max_avoidance_speed, self.sensing_constant)
 
 		local sum_vector_norm = math.sqrt(sum_vector.x * sum_vector.x + sum_vector.y * sum_vector.y + sum_vector.z * sum_vector.z)
-		if sum_vector_norm < 0.001 then
+		if sum_vector_norm < 0.1 then
 			self.is_auto_avoidance = false
 		end
 
@@ -689,6 +709,8 @@ end
 
 ---@param height number
 function AV:AutoLanding(height)
+
+	local down_time_count = height / self.auto_pilot_speed
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
@@ -697,7 +719,8 @@ function AV:AutoLanding(height)
 			Cron.Halt(timer)
 			return
 		end
-		local down_time_count = height / self.auto_pilot_speed
+		local ground_position_z = self.position_obj:GetGroundPosition()
+		local current_position_z = self.position_obj:GetPosition().z
 		if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(down_time_count, self.autopilot_land_offset, height, timer.tick + 1), 0.0, 0.0, 0.0) then
 			self.is_landed = true
 			self:InterruptAutoPilot()
@@ -706,8 +729,13 @@ function AV:AutoLanding(height)
 			self.is_landed = true
 			self:SeccessAutoPilot()
 			Cron.Halt(timer)
+		elseif current_position_z - ground_position_z < self.position_obj.minimum_distance_to_ground then
+			self.is_landed = true
+			self:SeccessAutoPilot()
+			Cron.Halt(timer)
 		end
 	end)
+
 end
 
 function AV:SeccessAutoPilot()

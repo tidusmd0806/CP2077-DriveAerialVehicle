@@ -9,5 +9,7 @@
     "upgrade_cyberware",
     "PocketRadio",
     "DescriptionChange",
-    "VehicleInsideWheel"
+    "VehicleInsideWheel",
+    "QuestExit",
+    "QuickExit"
 ]
