@@ -10,7 +10,6 @@ function HUD:New()
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "HUD")
     --static --
-    -- obj.speed_meter_refresh_rate = 0.05
     -- dynamic --
     obj.av_obj = nil
     obj.interaction_ui_base = nil
@@ -26,12 +25,11 @@ function HUD:New()
 
     obj.selected_choice_index = 1
 
-    -- obj.is_forced_autopilot_panel = false
-
     obj.popup_manager = nil
 
     obj.vehicle_hp = 0
-    obj.ink_text = nil
+    obj.ink_hp_title = nil
+    obj.ink_hp_text = nil
 
     return setmetatable(obj, self)
 end
@@ -107,6 +105,7 @@ function HUD:SetObserve()
 
         Observe("hudCarController", "OnMountingEvent", function(this)
             self.hud_car_controller = this
+            self.vehicle_hp = 100
         end)
 
         -- hide unnecessary input hint
@@ -156,7 +155,7 @@ function HUD:HideLeftBottomHUD()
 
     self:SetVisibleConsumeItemSlot(true)
     -- self:SetVisiblePhoneSlot(true)
-    self.ink_text:SetVisible(false)
+    self.ink_hp_text:SetVisible(false)
 
 end
 
@@ -178,42 +177,59 @@ end
 
 function HUD:CreateHPDisplay()
 
-    if self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer"):GetWidget("DAV_HP") == nil then
-        return
-    end
+    local parent = self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer")
+    -- if parent:GetWidget("hp_title") ~= nil and parent:GetWidget("hp_text") ~= nil then
+    --     return
+    -- end
 
-    self.ink_text = inkText.new()
-    self.ink_text:SetName("DAV_HP")
-    self.ink_text:SetText("HP100")
-    self.ink_text:SetFontFamily("base\\gameplay\\gui\\fonts\\digital_readout\\digitalreadout.inkfontfamily")
-    self.ink_text:SetFontStyle("Regular")
-    self.ink_text:SetFontSize(25)
+    self.ink_hp_title = inkText.new()
+    self.ink_hp_title:SetText(GetLocalizedText("LocKey#728"))
+    self.ink_hp_title:SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily")
+    self.ink_hp_title:SetFontStyle("Medium")
+    self.ink_hp_title:SetFontSize(20)
+    self.ink_hp_title:SetOpacity(0.4)
+    local color = HDRColor.new()
+    color.Red = 1.176
+    color.Green = 0.381
+    color.Blue = 0.348
+    color.Alpha = 1.0
+    self.ink_hp_title:SetTintColor(color)
+    self.ink_hp_title:SetMargin(265, 43, 0, 0)
+    self.ink_hp_title:Reparent(parent)
+
+    self.ink_hp_text = inkText.new()
+    self.ink_hp_text:SetText("100")
+    self.ink_hp_text:SetFontFamily("base\\gameplay\\gui\\fonts\\digital_readout\\digitalreadout.inkfontfamily")
+    self.ink_hp_text:SetFontStyle("Regular")
+    self.ink_hp_text:SetFontSize(25)
     local color = HDRColor.new()
     color.Red = 0.369
     color.Green = 0.965
     color.Blue = 1.000
     color.Alpha = 1.0
-    self.ink_text:SetTintColor(color)
-    self.ink_text:SetMargin(270, 40, 0, 0)
-    self.ink_text:Reparent(self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer"))
+    self.ink_hp_text:SetTintColor(color)
+    self.ink_hp_text:SetMargin(290, 40, 0, 0)
+    self.ink_hp_text:Reparent(parent)
 
 end
 
 function HUD:SetHPDisplay()
+
     local hp_value = self.vehicle_hp
     hp_value = math.floor(hp_value)
     local hp_text
     if hp_value < 100 and hp_value >= 10 then
-        hp_text = "HP " .. tostring(hp_value)
+        hp_text = " " .. tostring(hp_value)
     elseif hp_value < 10 then
-        hp_text = "HP  " .. tostring(hp_value)
+        hp_text = "  " .. tostring(hp_value)
     else
-        hp_text = "HP" .. tostring(hp_value)
+        hp_text = tostring(hp_value)
     end
-    if self.ink_text == nil then
+    if self.ink_hp_text == nil then
         return
     end
-    self.ink_text:SetText(hp_text)
+    self.ink_hp_text:SetText(hp_text)
+
 end
 
 function HUD:GetChoiceTitle()

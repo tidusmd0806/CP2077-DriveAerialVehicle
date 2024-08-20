@@ -351,8 +351,8 @@ function UI:CreateNativeSettingsPage()
 	end
 
 	-- advance
-	option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_height_change_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_height_change_amount_description"), 0.1, 2.0, 0.1, "%.1f", DAV.user_setting_table.height_change_amount, 0.5, function(value)
-		DAV.user_setting_table.height_change_amount = value
+	option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_horizontal_air_resistance_const"), DAV.core_obj:GetTranslationText("native_settings_advance_horizontal_air_resistance_const_description"), 0.000, 0.1, 0.005, "%.3f", DAV.user_setting_table.horizontal_air_resistance_const, 0.01, function(value)
+		DAV.user_setting_table.horizontal_air_resistance_const = value
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		Cron.After(self.delay_updating_native_settings, function()
 			self:UpdateNativeSettingsPage()
@@ -360,8 +360,8 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
-	option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_height_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_height_acceleration_description"), 0.1, 5.0, 0.1, "%.1f", DAV.user_setting_table.height_acceleration, 2.5, function(value)
-		DAV.user_setting_table.height_acceleration = value
+	option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_vertical_air_resistance_const"), DAV.core_obj:GetTranslationText("native_settings_advance_vertical_air_resistance_const_description"), 0.000, 0.1, 0.005, "%.3f", DAV.user_setting_table.vertical_air_resistance_const, 0.025, function(value)
+		DAV.user_setting_table.vertical_air_resistance_const = value
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		Cron.After(self.delay_updating_native_settings, function()
 			self:UpdateNativeSettingsPage()
@@ -371,6 +371,15 @@ function UI:CreateNativeSettingsPage()
 
 	option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_acceleration_description"), 0.1, 5.0, 0.1, "%.1f", DAV.user_setting_table.acceleration, 1.0, function(value)
 		DAV.user_setting_table.acceleration = value
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+
+	option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_vertical_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_vertical_acceleration_description"), 0.1, 5.0, 0.1, "%.1f", DAV.user_setting_table.vertical_acceleration, 1.5, function(value)
+		DAV.user_setting_table.vertical_acceleration = value
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		Cron.After(self.delay_updating_native_settings, function()
 			self:UpdateNativeSettingsPage()
@@ -388,7 +397,7 @@ function UI:CreateNativeSettingsPage()
 	table.insert(self.option_table_list, option_table)
 
 	option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_roll_change_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_roll_change_amount_description"), 0.1, 5.0, 0.1, "%.1f", DAV.user_setting_table.roll_change_amount, 0.5, function(value)
-		DAV.user_setting_table.roll_restore_amount = value
+		DAV.user_setting_table.roll_change_amount = value
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		Cron.After(self.delay_updating_native_settings, function()
 			self:UpdateNativeSettingsPage()

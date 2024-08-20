@@ -287,7 +287,7 @@ function Core:SetInputListener()
                 end
             end
         end
-        if action_name == "Exit" and action_type == "BUTTON_HOLD_COMPLETE" then
+        if action_name == "Exit" then
             consumer:Consume()
         end
 

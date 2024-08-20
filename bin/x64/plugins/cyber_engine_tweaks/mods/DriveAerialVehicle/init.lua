@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.0.1",
+	version = "2.0.2",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -85,16 +85,17 @@ DAV.user_setting_table = {
     --- input
     keybind_table = DAV.default_keybind_table,
     --- physics
-    height_change_amount = 0.5,
-    height_acceleration = 2.5,
+    horizontal_air_resistance_const = 0.01,
+    vertical_air_resistance_const = 0.025,
     acceleration = 1,
+    vertical_acceleration = 1.5,
     left_right_acceleration = 0.5,
     roll_change_amount = 0.5,
     roll_restore_amount = 0.2,
     pitch_change_amount = 0.5,
     pitch_restore_amount = 0.2,
     yaw_change_amount = 1,
-    rotate_roll_change_amount = 0.5,
+    rotate_roll_change_amount = 0.5
 }
 
 -- set custom vehicle record
@@ -233,7 +234,6 @@ function DAV:CheckNativeSettings()
         return
     end
     DAV.is_valid_native_settings = true
-    return
 
 end
 
