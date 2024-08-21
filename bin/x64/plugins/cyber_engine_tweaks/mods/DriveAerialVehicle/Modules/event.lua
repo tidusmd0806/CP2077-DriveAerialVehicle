@@ -154,6 +154,7 @@ function Event:CheckAllEvents()
         self:CheckInAV()
         self:CheckReturnPurchasedVehicle()
         self:CheckDestroyed()
+        self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
         self:CheckAutoModeChange()
@@ -190,7 +191,7 @@ function Event:CheckLanded()
         self.sound_obj:PlaySound("110_arrive_vehicle")
         self.sound_obj:ChangeSoundResource()
         self:SetSituation(Def.Situation.Waiting)
-        self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
+        -- self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
 end
 
@@ -238,16 +239,35 @@ function Event:CheckHUD()
     --     self.hud_obj:SetVisiblePhoneSlot(false)
     -- end
     local success, result = pcall(function()
-        -- if not self.hud_obj.hud_car_controller.moduleShown then
-        -- always show car meter
-        self.hud_obj.hud_car_controller:ShowRequest()
-        self.hud_obj.hud_car_controller:OnCameraModeChanged(true)
+        -- always show car mete
+        -- if not self.hud_obj.hud_car_controller.moduleShown thenr
+        -- self.hud_obj.hud_car_controller:ShowRequest()
+        -- self.hud_obj.hud_car_controller:OnCameraModeChanged(true)
         self.hud_obj:SetHPDisplay()
         -- end
      end)
      if not success then
         self.log_obj:Record(LogLevel.Critical, result)
      end
+end
+
+function Event:CheckDoor()
+
+    local veh_door = EVehicleDoor.seat_front_left
+    if self.av_obj.vehicle_model_tweakdb_id == DAV.surveyor_record then
+        veh_door = EVehicleDoor.trunk
+    end
+
+    if self:IsInEntryArea() then
+        if self.av_obj:GetDoorState(veh_door) == VehicleDoorState.Closed then
+            self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
+        end
+    else
+        if self.av_obj:GetDoorState(veh_door) == VehicleDoorState.Open then
+            self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
+        end
+    end
+
 end
 
 function Event:CheckDestroyed()

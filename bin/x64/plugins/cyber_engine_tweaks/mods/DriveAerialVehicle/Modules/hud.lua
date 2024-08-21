@@ -28,6 +28,7 @@ function HUD:New()
     obj.popup_manager = nil
 
     obj.vehicle_hp = 0
+    obj.ink_horizontal_panel = nil
     obj.ink_hp_title = nil
     obj.ink_hp_text = nil
 
@@ -148,6 +149,7 @@ function HUD:ShowLeftBottomHUD()
     self:SetVisibleConsumeItemSlot(false)
     -- self:SetVisiblePhoneSlot(false)
     self:CreateHPDisplay()
+    self.ink_horizontal_panel:SetVisible(true)
 
 end
 
@@ -155,7 +157,7 @@ function HUD:HideLeftBottomHUD()
 
     self:SetVisibleConsumeItemSlot(true)
     -- self:SetVisiblePhoneSlot(true)
-    self.ink_hp_text:SetVisible(false)
+    self.ink_horizontal_panel:SetVisible(false)
 
 end
 
@@ -178,38 +180,51 @@ end
 function HUD:CreateHPDisplay()
 
     local parent = self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer")
-    -- if parent:GetWidget("hp_title") ~= nil and parent:GetWidget("hp_text") ~= nil then
-    --     return
-    -- end
+    if parent:GetWidget("hp") ~= nil then
+        return
+    end
+
+    self.ink_horizontal_panel = inkHorizontalPanel.new()
+    self.ink_horizontal_panel:SetName(CName.new("hp"))
+    self.ink_horizontal_panel:SetAnchor(inkEAnchor.CenterRight)
+    self.ink_horizontal_panel:SetMargin(0, 0, -35, 13)
+    self.ink_horizontal_panel:SetFitToContent(false)
+    self.ink_horizontal_panel:Reparent(parent)
 
     self.ink_hp_title = inkText.new()
+    self.ink_hp_title:SetName(CName.new("title"))
     self.ink_hp_title:SetText(GetLocalizedText("LocKey#728"))
     self.ink_hp_title:SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily")
     self.ink_hp_title:SetFontStyle("Medium")
     self.ink_hp_title:SetFontSize(20)
     self.ink_hp_title:SetOpacity(0.4)
+    self.ink_hp_title:SetFitToContent(true)
+    self.ink_hp_title:SetJustificationType(textJustificationType.Right)
+    self.ink_hp_title:SetHorizontalAlignment(textHorizontalAlignment.Right)
     local color = HDRColor.new()
     color.Red = 1.176
     color.Green = 0.381
     color.Blue = 0.348
     color.Alpha = 1.0
     self.ink_hp_title:SetTintColor(color)
-    self.ink_hp_title:SetMargin(265, 43, 0, 0)
-    self.ink_hp_title:Reparent(parent)
+    self.ink_hp_title:Reparent(self.ink_horizontal_panel)
 
     self.ink_hp_text = inkText.new()
+    self.ink_hp_text:SetName(CName.new("text"))
     self.ink_hp_text:SetText("100")
     self.ink_hp_text:SetFontFamily("base\\gameplay\\gui\\fonts\\digital_readout\\digitalreadout.inkfontfamily")
     self.ink_hp_text:SetFontStyle("Regular")
     self.ink_hp_text:SetFontSize(25)
+    self.ink_hp_text:SetFitToContent(true)
+    self.ink_hp_text:SetJustificationType(textJustificationType.Left)
+    self.ink_hp_text:SetHorizontalAlignment(textHorizontalAlignment.Left)
     local color = HDRColor.new()
     color.Red = 0.369
     color.Green = 0.965
     color.Blue = 1.000
     color.Alpha = 1.0
     self.ink_hp_text:SetTintColor(color)
-    self.ink_hp_text:SetMargin(290, 40, 0, 0)
-    self.ink_hp_text:Reparent(parent)
+    self.ink_hp_text:Reparent(self.ink_horizontal_panel)
 
 end
 
