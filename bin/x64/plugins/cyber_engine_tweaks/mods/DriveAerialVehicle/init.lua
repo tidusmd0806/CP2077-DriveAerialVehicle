@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.0.2",
+	version = "2.0.3",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -88,7 +88,7 @@ DAV.user_setting_table = {
     horizontal_air_resistance_const = 0.01,
     vertical_air_resistance_const = 0.025,
     acceleration = 1,
-    vertical_acceleration = 1.5,
+    vertical_acceleration = 0.8,
     left_right_acceleration = 0.5,
     roll_change_amount = 0.5,
     roll_restore_amount = 0.2,

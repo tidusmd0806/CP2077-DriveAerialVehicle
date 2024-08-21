@@ -39,7 +39,7 @@ function AV:New(all_models)
 	obj.seat_index = 1
 	obj.is_crystal_dome = true
 	-- av status
-	obj.is_player_in = false
+	-- obj.is_player_in = false
 	obj.is_landed = false
 	obj.is_leaving = false
 	obj.is_auto_pilot = false
@@ -263,7 +263,7 @@ function AV:LockDoor()
 end
 
 ---@param e_veh_door EVehicleDoor
----@return string
+---@return VehicleDoorState
 function AV:GetDoorState(e_veh_door)
 
 	if self.entity_id == nil then
@@ -272,7 +272,7 @@ function AV:GetDoorState(e_veh_door)
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	local vehicle_ps = entity:GetVehiclePS()
-	return vehicle_ps:GetDoorState(e_veh_door).value
+	return vehicle_ps:GetDoorState(e_veh_door)
 
 end
 
@@ -302,24 +302,24 @@ function AV:ChangeDoorState(door_state)
 
 		local door_event = nil
 		local can_change = true
-		if state == "Closed" then
+		if state == VehicleDoorState.Closed then
 			if door_state == Def.DoorOperation.Close then
 				can_change = false
 			end
 			door_event = VehicleDoorOpen.new()
-		elseif state == "Open" then
+		elseif state == VehicleDoorState.Open then
 			if door_state == Def.DoorOperation.Open then
 				can_change = false
 			end
 			door_event = VehicleDoorClose.new()
 		else
 			self.log_obj:Record(LogLevel.Error, "Door state is not valid : " .. state)
-			return nil
+			return -1
 		end
 
 		if self.entity_id == nil then
 			self.log_obj:Record(LogLevel.Warning, "No entity to get door state")
-			return nil
+			return -1
 		end
 		local entity = Game.FindEntityByID(self.entity_id)
 		local vehicle_ps = entity:GetVehiclePS()
@@ -339,7 +339,7 @@ function AV:ControlCrystalDome()
 	local e_veh_door = EVehicleDoor.seat_front_left
 	if not self.is_crystal_dome then
 		Cron.Every(1, {tick = 1}, function(timer)
-			if self:GetDoorState(e_veh_door) == "Closed" then
+			if self:GetDoorState(e_veh_door) == VehicleDoorState.Closed then
 				if self.vehicle_model_tweakdb_id == DAV.excalibur_record then
 					Cron.After(3.0, function()
 						self:ToggleCrystalDome()
@@ -402,15 +402,15 @@ function AV:Mount()
 	-- end
 
 	-- return position near mounted vehicle	
-	Cron.Every(0.01, {tick = 1}, function(timer)
-		local entity = player:GetMountedVehicle()
-		if entity ~= nil then
-			Cron.After(1.5, function()
-				self.is_player_in = true
-			end)
-			Cron.Halt(timer)
-		end
-	end)
+	-- Cron.Every(0.01, {tick = 1}, function(timer)
+	-- 	local entity = player:GetMountedVehicle()
+	-- 	if entity ~= nil then
+	-- 		Cron.After(1.5, function()
+	-- 			self.is_player_in = true
+	-- 		end)
+	-- 		Cron.Halt(timer)
+	-- 	end
+	-- end)
 
 	return true
 
@@ -478,7 +478,7 @@ function AV:Unmount()
 				angle.yaw = angle.yaw + 90
 				local position = self.position_obj:GetExitPosition()
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
-				self.is_player_in = false
+				-- self.is_player_in = false
 				self.is_ummounting = false
 				Cron.Halt(timer)
 			end

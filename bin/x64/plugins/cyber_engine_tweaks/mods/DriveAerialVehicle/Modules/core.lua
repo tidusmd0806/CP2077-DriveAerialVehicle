@@ -265,7 +265,6 @@ function Core:SetInputListener()
 
     local exception_common_list = Utils:ReadJson("Data/exception_common_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
-    local exception_radio_list = Utils:ReadJson("Data/exception_radio_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
         local action_name = action:GetName(action).value
@@ -276,19 +275,14 @@ function Core:SetInputListener()
             for _, exception in pairs(exception_in_veh_list) do
                 if string.find(action_name, exception) then
                     consumer:Consume()
-                    return
                 end
             end
         elseif (self.event_obj:IsInEntryArea() or self.event_obj:IsInVehicle()) then
             for _, exception in pairs(exception_common_list) do
                 if string.find(action_name, exception) then
                     consumer:Consume()
-                    return
                 end
             end
-        end
-        if action_name == "Exit" then
-            consumer:Consume()
         end
 
         self.log_obj:Record(LogLevel.Debug, "Action Name: " .. action_name .. " Type: " .. action_type .. " Value: " .. action_value)
