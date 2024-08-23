@@ -19,7 +19,6 @@ function Event:New()
     -- set default parameters
     obj.is_initial_load = false
     obj.current_situation = Def.Situation.Idel
-    obj.is_unlocked_dummy_av = false
     obj.is_in_menu = false
     obj.is_in_popup = false
     obj.is_in_photo = false
@@ -82,8 +81,6 @@ function Event:SetObserve()
         end
 
         DAV.core_obj:SetFastTravelPosition()
-
-        self.is_unlocked_dummy_av = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(self.ui_obj.dummy_vehicle_record))
         self.current_situation = Def.Situation.Normal
 
     end)
@@ -168,7 +165,6 @@ function Event:CheckAllEvents()
     end
 
 end
-
 
 function Event:CheckGarage()
     DAV.core_obj:UpdateGarageInfo(false)

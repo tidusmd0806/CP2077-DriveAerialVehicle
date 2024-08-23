@@ -45,6 +45,7 @@ function Core:New()
     obj.radio_hold_complete_time_count = 5
     obj.radio_button_hold_count = 0
     obj.is_radio_button_hold_counter = false
+    -- AV
     obj.move_up_button_hold_count = 0
     obj.max_move_hold_count = 50000
     obj.is_move_up_button_hold_counter = false
@@ -59,6 +60,15 @@ function Core:New()
     obj.auto_pilot_hold_complete_time_count = 5
     obj.auto_pilot_button_hold_count = 0
     obj.is_auto_pilot_button_hold_counter = false
+    -- Helicopter
+    obj.h_lift_button_hold_count = 0
+    obj.is_h_lift_button_hold_counter = false
+    obj.h_turn_left_button_hold_count = 0
+    obj.is_h_turn_left_button_hold_counter = false
+    obj.h_turn_right_button_hold_count = 0
+    obj.is_h_turn_right_button_hold_counter = false
+    obj.h_acceleration_button_hold_count = 0
+    obj.is_h_acceleration_button_hold_counter = false
     -- user setting table
     obj.initial_user_setting_table = {}
     -- language table
@@ -267,6 +277,11 @@ function Core:SetInputListener()
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
+
+        if self.event_obj.current_situation ~= Def.Situation.Waiting and self.event_obj.current_situation ~= Def.Situation.InVehicle then
+            return
+        end
+
         local action_name = action:GetName(action).value
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
@@ -411,6 +426,17 @@ end
 
 function Core:ConvertActionList(action_name, action_type, action_value_type)
 
+    local flight_mode = self.av_obj.engine_obj.flight_mode
+    if flight_mode == Def.FlightMode.AV then
+        return self:GetAVAction(action_name, action_type, action_value_type)
+    elseif flight_mode == Def.FlightMode.Helicopter then
+        return self:GetHeliAction(action_name, action_type, action_value_type)
+    end
+
+end
+
+function Core:GetAVAction(action_name, action_type, action_value_type)
+
     local action_command = Def.ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
 
@@ -444,18 +470,74 @@ function Core:ConvertActionList(action_name, action_type, action_value_type)
 
 end
 
+function Core:GetHeliAction(action_name, action_type, action_value_type)
+
+    local action_command = Def.ActionList.Nothing
+    local action_dist = {name = action_name, type = action_type, value = action_value_type}
+
+    if self.event_obj.current_situation == Def.Situation.InVehicle then
+        if DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_FORWARD) then
+            action_command = Def.ActionList.HLeanForward
+        elseif not DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.PAD_HELI_LEAN_FORWARD) then
+            action_command = Def.ActionList.HLeanForward
+        elseif DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_BACKWARD) then
+            action_command = Def.ActionList.HLeanBackward
+        elseif not DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.PAD_HELI_LEAN_BACKWARD) then
+            action_command = Def.ActionList.HLeanBackward
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_RIGHT) then
+            action_command = Def.ActionList.HLeanRight
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_LEFT) then
+            action_command = Def.ActionList.HLeanLeft
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_EXIT_AV) then
+            action_command = Def.ActionList.Exit
+        end
+    elseif self.event_obj.current_situation == Def.Situation.Waiting then
+        if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_WORLD_ENTER_AV) then
+            action_command = Def.ActionList.Enter
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_WORLD_SELECT_UPPER_CHOICE) then
+            action_command = Def.ActionList.SelectUp
+        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_WORLD_SELECT_LOWER_CHOICE) then
+            action_command = Def.ActionList.SelectDown
+        end
+    end
+
+    return action_command
+
+end
+
 function Core:ConvertHoldButtonAction(key)
+
     local keybind_name = ""
+    if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
+        for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
+            if key == keybind.key or key == keybind.pad then
+                keybind_name = keybind.name
+                self:ConvertAVHoldAction(keybind_name)
+                return
+            end
+        end
+    elseif self.av_obj.engine_obj.flight_mode == Def.FlightMode.Helicopter then
+        for _, keybind in ipairs(DAV.user_setting_table.heli_keybind_table) do
+            if key == keybind.key or key == keybind.pad then
+                keybind_name = keybind.name
+                self:ConvertHeliHoldAction(keybind_name)
+                return
+            end
+        end
+    end
     for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
         if key == keybind.key or key == keybind.pad then
             keybind_name = keybind.name
-            break
+            self:ConvertCommonHoldAction(keybind_name)
+            return
         end
     end
-    if keybind_name == "toggle_radio" then
-        self.is_radio_button_hold_counter = false
-        self.radio_button_hold_count = 0
-    elseif keybind_name == "move_up" then
+
+end
+
+function Core:ConvertAVHoldAction(keybind_name)
+
+    if keybind_name == "move_up" then
         self.is_move_up_button_hold_counter = false
         self.move_up_button_hold_count = 0
     elseif keybind_name == "move_down" then
@@ -470,21 +552,72 @@ function Core:ConvertHoldButtonAction(key)
     elseif keybind_name == "lean_reset" then
         self.is_lean_reset_button_hold_counter = false
         self.lean_reset_button_hold_count = 0
+    end
+
+end
+
+function Core:ConvertHeliHoldAction(keybind_name)
+
+    if keybind_name == "lift" then
+        self.is_h_lift_button_hold_counter = false
+        self.h_lift_button_hold_count = 0
+    elseif keybind_name == "turn_left" then
+        self.is_h_turn_left_button_hold_counter = false
+        self.h_turn_left_button_hold_count = 0
+    elseif keybind_name == "turn_right" then
+        self.is_h_turn_right_button_hold_counter = false
+        self.h_turn_right_button_hold_count = 0
+    elseif keybind_name == "acceleration" then
+        self.is_h_acceleration_button_hold_counter = false
+        self.h_acceleration_button_hold_count = 0
+    end
+
+end
+
+function Core:ConvertCommonHoldAction(keybind_name)
+
+    if keybind_name == "toggle_radio" then
+        self.is_radio_button_hold_counter = false
+        self.radio_button_hold_count = 0
     elseif keybind_name == "toggle_autopilot" then
         self.is_auto_pilot_button_hold_counter = false
         self.auto_pilot_button_hold_count = 0
     end
+
 end
 
 function Core:ConvertPressButtonAction(key)
+
     local keybind_name = ""
+    if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
+        for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
+            if key == keybind.key or key == keybind.pad then
+                keybind_name = keybind.name
+                self:ConvertAVPressAction(keybind_name)
+                return
+            end
+        end
+    elseif self.av_obj.engine_obj.flight_mode == Def.FlightMode.Helicopter then
+        for _, keybind in ipairs(DAV.user_setting_table.heli_keybind_table) do
+            if key == keybind.key or key == keybind.pad then
+                keybind_name = keybind.name
+                self:ConvertHeliPressAction(keybind_name)
+                return
+            end
+        end
+    end
     for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
         if key == keybind.key or key == keybind.pad then
             keybind_name = keybind.name
-            break
+            self:ConvertCommonPressAction(keybind_name)
+            return
         end
     end
-    local action_list = Def.ActionList.Nothing
+
+end
+
+function Core:ConvertAVPressAction(keybind_name)
+
     if keybind_name == "move_up" then
         if not self.is_move_up_button_hold_counter then
             self.is_move_up_button_hold_counter = true
@@ -565,7 +698,85 @@ function Core:ConvertPressButtonAction(key)
                 end
             end)
         end
-    elseif keybind_name == "toggle_autopilot" then
+    end
+
+end
+
+function Core:ConvertHeliPressAction(keybind_name)
+
+    if keybind_name == "lift" then
+        if not self.is_h_lift_button_hold_counter then
+            self.is_h_lift_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.h_lift_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_h_lift_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_h_lift_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.HLift)
+                end
+            end)
+        end
+    elseif keybind_name == "turn_left" then
+        if not self.is_h_turn_left_button_hold_counter then
+            self.is_h_turn_left_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.h_turn_left_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_h_turn_left_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_h_turn_left_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.HLeftRotate)
+                end
+            end)
+        end
+    elseif keybind_name == "turn_right" then
+        if not self.is_h_turn_right_button_hold_counter then
+            self.is_h_turn_right_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.h_turn_right_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_h_turn_right_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_h_turn_right_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.HRightRotate)
+                end
+            end)
+        end
+    elseif keybind_name == "acceleration" then
+        if not self.is_h_acceleration_button_hold_counter then
+            self.is_h_acceleration_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.h_acceleration_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_h_acceleration_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_h_acceleration_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.HAccelerate)
+                end
+            end)
+        end
+    elseif keybind_name == "hover" then
+        self.queue_obj:Enqueue(Def.ActionList.HHover)
+    end
+
+end
+
+function Core:ConvertCommonPressAction(keybind_name)
+
+    if keybind_name == "toggle_autopilot" then
         if not self.is_auto_pilot_button_hold_counter then
             self.is_auto_pilot_button_hold_counter = true
             Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
@@ -582,9 +793,9 @@ function Core:ConvertPressButtonAction(key)
             end)
         end
     elseif keybind_name == "toggle_camera" then
-        action_list = Def.ActionList.ChangeCamera
+        self.queue_obj:Enqueue(Def.ActionList.ChangeCamera)
     elseif keybind_name == "toggle_door" then
-        action_list = Def.ActionList.ChangeDoor1
+        self.queue_obj:Enqueue(Def.ActionList.ChangeDoor1)
     elseif keybind_name == "toggle_radio" then
         if not self.is_radio_button_hold_counter then
             self.is_radio_button_hold_counter = true
@@ -602,14 +813,11 @@ function Core:ConvertPressButtonAction(key)
             end)
         end
     elseif keybind_name == "toggle_crystal_dome" then
-        action_list = Def.ActionList.ToggleCrystalDome
+        self.queue_obj:Enqueue(Def.ActionList.ToggleCrystalDome)
     elseif keybind_name == "toggle_appearance" then
-        action_list = Def.ActionList.ToggleAppearance
+        self.queue_obj:Enqueue(Def.ActionList.ToggleAppearance)
     end
 
-    if action_list ~= Def.ActionList.Nothing then
-        self.queue_obj:Enqueue(action_list)
-    end
 end
 
 function Core:GetActions()

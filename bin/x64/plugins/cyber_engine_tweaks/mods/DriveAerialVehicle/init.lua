@@ -13,11 +13,11 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.0.3",
+	version = "2.1.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
-    is_debug_mode = false,
+    is_debug_mode = true,
     -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
@@ -43,7 +43,9 @@ DAV = {
     is_valid_native_settings = false,
     NativeSettings = nil,
     -- input
-    input_listener = nil,
+    input_key_listener = nil,
+    input_axis_listener = nil,
+    is_keyboard_input = true,
     listening_keybind_widget = nil,
     default_keybind_table = {
         {name = "move_up", key = "IK_LeftMouse", pad = "IK_Pad_Y_TRIANGLE", is_hold = true},
@@ -57,6 +59,13 @@ DAV = {
         {name = "toggle_door", key = "IK_1", pad = "IK_Pad_DigitDown", is_hold = false},
         {name = "toggle_crystal_dome", key = "IK_2", pad = "IK_Pad_DigitLeft", is_hold = false},
         {name = "toggle_appearance", key = "IK_3", pad = nil, is_hold = false},
+    },
+    default_heli_keybind_table = {
+        {name = "lift", key = "IK_LeftMouse", pad = "IK_Pad_RightTrigger", is_hold = true},
+        {name = "turn_left", key = "IK_Q", pad = "IK_Pad_LeftShoulder", is_hold = true},
+        {name = "turn_right", key = "IK_E", pad = "IK_Pad_RightShoulder", is_hold = true},
+        {name = "acceleration", key = "IK_RightMouse", pad = "IK_Pad_LeftTrigger", is_hold = true},
+        {name = "hover", key = "IK_Z", pad = "IK_Pad_X_SQUARE", is_hold = true},
     }
 }
 
@@ -84,6 +93,7 @@ DAV.user_setting_table = {
     language_index = 1,
     --- input
     keybind_table = DAV.default_keybind_table,
+    heli_keybind_table = DAV.default_heli_keybind_table,
     --- physics
     horizontal_air_resistance_const = 0.01,
     vertical_air_resistance_const = 0.025,
@@ -132,13 +142,18 @@ end)
 
 registerForEvent("onHook", function ()
 
-    -- refer to https://www.nexusmods.com/cyberpunk2077/mods/8326
-    DAV.input_listener = NewProxy({
+    -- refer to Kiroshi Night Vision (https://www.nexusmods.com/cyberpunk2077/mods/8326)
+    DAV.input_key_listener = NewProxy({
         OnKeyInput = {
             args = {'handle:KeyInputEvent'},
             callback = function(event)
                 local key = event:GetKey().value
                 local action = event:GetAction().value
+                if key:find("IK_Pad") then
+                    DAV.is_keyboard_input = false
+                else
+                    DAV.is_keyboard_input = true
+                end
                 if DAV.listening_keybind_widget and key:find("IK_Pad") and action == "IACT_Release" then -- OnKeyBindingEvent has to be called manually for gamepad inputs, while there is a keybind widget listening for input
                     DAV.listening_keybind_widget:OnKeyBindingEvent(KeyBindingEvent.new({keyName = key}))
                     DAV.listening_keybind_widget = nil
@@ -155,10 +170,26 @@ registerForEvent("onHook", function ()
             end
         }
     })
-    Game.GetCallbackSystem():RegisterCallback('Input/Key', DAV.input_listener:Target(), DAV.input_listener:Function("OnKeyInput"), true)
+    Game.GetCallbackSystem():RegisterCallback('Input/Key', DAV.input_key_listener:Target(), DAV.input_key_listener:Function("OnKeyInput"), true)
+
     Observe("SettingsSelectorControllerKeyBinding", "ListenForInput", function(this)
         DAV.listening_keybind_widget = this
     end)
+
+    DAV.input_axis_listener = NewProxy({
+        OnAxisInput = {
+            args = {'handle:AxisInputEvent'},
+            callback = function(event)
+                local key = event:GetKey().value
+                if key:find("IK_Pad") then
+                    DAV.is_keyboard_input = false
+                else
+                    DAV.is_keyboard_input = true
+                end
+            end
+        }
+    })
+    Game.GetCallbackSystem():RegisterCallback('Input/Axis', DAV.input_axis_listener:Target(), DAV.input_axis_listener:Function("OnAxisInput"), true)
 
 end)
 
@@ -193,7 +224,8 @@ registerForEvent('onUpdate', function(delta)
 end)
 
 registerForEvent('onShutdown', function()
-    Game.GetCallbackSystem():UnregisterCallback('Input/Key', DAV.input_listener:Target(), DAV.input_listener:Function("OnKeyInput"))
+    Game.GetCallbackSystem():UnregisterCallback('Input/Key', DAV.input_key_listener:Target(), DAV.input_key_listener:Function("OnKeyInput"))
+    Game.GetCallbackSystem():UnregisterCallback('Input/Axis', DAV.input_axis_listener:Target(), DAV.input_axis_listener:Function("OnAxisInput"))
 end)
 
 function DAV:CheckDependencies()

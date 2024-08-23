@@ -17,6 +17,7 @@ function Engine:New(position_obj, all_models)
     obj.max_speed = 95
     obj.height_acceleration = 2
     -- Dynamic
+    obj.flight_mode = Def.FlightMode.AV
     obj.fly_av_system = nil
     obj.current_speed = 0
 
@@ -24,12 +25,58 @@ function Engine:New(position_obj, all_models)
 end
 
 function Engine:Init(entity_id)
+
+    self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
     self.fly_av_system:EnableGravity(false)
+
 end
 
 function Engine:CalculateLinelyVelocity(action_commands)
+
+    if self.flight_mode == Def.FlightMode.AV then
+        return self:CalculateAVMode(action_commands)
+    elseif self.flight_mode == Def.FlightMode.Helicopter then
+        return self:CalculateHelicopterMode(action_commands)
+    end
+
+end
+
+function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
+
+    local physics_state = self.fly_av_system:GetPhysicsState()
+    if physics_state ~= 0 and physics_state ~= 32 then
+        self.position_obj.entity:PhysicsWakeUp()
+    end
+
+    local vel_vec = self.fly_av_system:GetVelocity()
+    local ang_vec = self.fly_av_system:GetAngularVelocity()
+
+    self.current_speed = math.sqrt(x * x + y * y + z * z)
+    if self.current_speed > self.max_speed then
+        local ratio = self.max_speed / self.current_speed
+        x = x * ratio
+        y = y * ratio
+        z = z * ratio
+    end
+
+    local horizontal_air_resistance_const = DAV.user_setting_table.horizontal_air_resistance_const
+    local vertical_air_resistance_const = DAV.user_setting_table.vertical_air_resistance_const
+
+    -- Holding the position
+    x = x - horizontal_air_resistance_const * vel_vec.x
+    y = y - horizontal_air_resistance_const * vel_vec.y
+    z = z - vertical_air_resistance_const * vel_vec.z
+    roll = roll - ang_vec.x
+    pitch = pitch - ang_vec.y
+    yaw = yaw - ang_vec.z
+
+    self.fly_av_system:AddLinelyVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw))
+
+end
+
+function Engine:CalculateAVMode(action_commands)
 
     local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
     local current_angle = self.position_obj:GetEulerAngles()
@@ -126,36 +173,74 @@ function Engine:CalculateLinelyVelocity(action_commands)
 
 end
 
-function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
+function Engine:CalculateHelicopterMode(action_commands)
 
-    local physics_state = self.fly_av_system:GetPhysicsState()
-    if physics_state ~= 0 and physics_state ~= 32 then
-        self.position_obj.entity:PhysicsWakeUp()
+    local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
+    local current_angle = self.position_obj:GetEulerAngles()
+
+    local roll_change_amount = DAV.user_setting_table.roll_change_amount
+    local roll_restore_amount = DAV.user_setting_table.roll_restore_amount
+    local pitch_change_amount = DAV.user_setting_table.pitch_change_amount
+    local pitch_restore_amount = DAV.user_setting_table.pitch_restore_amount
+
+    local forward_vec = self.position_obj:GetForward()
+
+    local local_roll = 0
+    local local_pitch = 0
+
+    if action_commands == Def.ActionList.HLeanForward then
+        if current_angle.pitch < -self.max_pitch then
+            local_pitch = 0
+        else
+            local_pitch = local_pitch - pitch_change_amount
+        end
+    elseif action_commands == Def.ActionList.HLeanBackward then
+        if current_angle.pitch > self.max_pitch then
+            local_pitch = 0
+        else
+            local_pitch = local_pitch + pitch_change_amount
+        end
+    elseif action_commands == Def.ActionList.HLeanRight then
+        if current_angle.roll < -self.max_roll then
+            local_roll = 0
+        else
+            local_roll = local_roll - roll_change_amount
+        end
+    elseif action_commands == Def.ActionList.HLeanLeft then
+        if current_angle.roll > self.max_roll then
+            local_roll = 0
+        else
+            local_roll = local_roll + roll_change_amount
+        end
+    elseif action_commands == Def.ActionList.HRightRotate then
+        yaw = yaw - DAV.user_setting_table.yaw_change_amount
+    elseif action_commands == Def.ActionList.HLeftRotate then
+        yaw = yaw + DAV.user_setting_table.yaw_change_amount
+    elseif action_commands == Def.ActionList.HAccelerate then
+        x = x + DAV.user_setting_table.acceleration * forward_vec.x
+        y = y + DAV.user_setting_table.acceleration * forward_vec.y
+        z = z + DAV.user_setting_table.acceleration * forward_vec.z
     end
 
-    local vel_vec = self.fly_av_system:GetVelocity()
-    local ang_vec = self.fly_av_system:GetAngularVelocity()
-
-    self.current_speed = math.sqrt(x * x + y * y + z * z)
-    if self.current_speed > self.max_speed then
-        local ratio = self.max_speed / self.current_speed
-        x = x * ratio
-        y = y * ratio
-        z = z * ratio
+    if current_angle.pitch > pitch_restore_amount then
+        local_pitch = local_pitch - pitch_restore_amount
+    elseif current_angle.pitch < -pitch_restore_amount then
+        local_pitch = local_pitch + pitch_restore_amount
     end
 
-    local horizontal_air_resistance_const = DAV.user_setting_table.horizontal_air_resistance_const
-    local vertical_air_resistance_const = DAV.user_setting_table.vertical_air_resistance_const
+    if current_angle.roll > roll_restore_amount then
+        local_roll = local_roll - roll_restore_amount
+    elseif current_angle.roll < -roll_restore_amount then
+        local_roll = local_roll + roll_restore_amount
+    end
 
-    -- Holding the position
-    x = x - horizontal_air_resistance_const * vel_vec.x
-    y = y - horizontal_air_resistance_const * vel_vec.y
-    z = z - vertical_air_resistance_const * vel_vec.z
-    roll = roll - ang_vec.x
-    pitch = pitch - ang_vec.y
-    yaw = yaw - ang_vec.z
+    local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
 
-    self.fly_av_system:AddLinelyVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw))
+    roll = roll+ d_roll
+    pitch = pitch + d_pitch
+    yaw = yaw + d_yaw
+
+    return x, y, z, roll, pitch, yaw
 
 end
 
