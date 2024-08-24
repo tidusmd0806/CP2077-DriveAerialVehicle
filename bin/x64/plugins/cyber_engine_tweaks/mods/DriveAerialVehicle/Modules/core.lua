@@ -77,8 +77,7 @@ function Core:New()
     obj.translation_table_list = {}
     -- summon
     obj.current_purchased_vehicle_count = 0
-    obj.is_vehicle_call = false
-    obj.is_purchased_vehicle_call = false
+    -- obj.is_purchased_vehicle_call = false
     -- custom mappin
     obj.current_custom_mappin_position = Vector4.new(0, 0, 0, 1)
     obj.fast_travel_position_list = {}
@@ -168,9 +167,10 @@ function Core:SetSummonTrigger()
 
     Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
         local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
+        local prev_model_index = DAV.model_index
 
-        local str = string.gsub(record_id.value, "_dummy", "")
-        local new_record_id = TweakDBID.new(str)
+        local av_record_name = string.gsub(record_id.value, "_dummy", "")
+        local new_record_id = TweakDBID.new(av_record_name)
         for index, record in ipairs(self.event_obj.ui_obj.av_record_list) do
             if record.hash == new_record_id.hash then
                 self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
@@ -182,23 +182,30 @@ function Core:SetSummonTrigger()
                         break
                     end
                 end
-                self.is_purchased_vehicle_call = true
+                -- self.is_purchased_vehicle_call = true
+                if self.event_obj:IsNotSpawned() then
+                    self.event_obj:CallVehicle()
+                elseif self.event_obj:IsWaiting() then
+                    if prev_model_index ~= DAV.model_index then
+                        self.event_obj:CallVehicle()
+                    else
+                        self.event_obj:ReturnVehicle()
+                    end
+                end
                 return false
             end
         end
-        local res = wrapped_method(vehicle_type)
-        -- self.is_vehicle_call = false
-        self.is_purchased_vehicle_call = false
-        return res
+        -- self.is_purchased_vehicle_call = false
+        return wrapped_method(vehicle_type)
     end)
 
 end
 
-function Core:GetPurchasedCallStatus()
-    local call_status = self.is_purchased_vehicle_call
-    self.is_purchased_vehicle_call = false
-    return call_status
-end
+-- function Core:GetPurchasedCallStatus()
+--     local call_status = self.is_purchased_vehicle_call
+--     self.is_purchased_vehicle_call = false
+--     return call_status
+-- end
 
 function Core:SetTranslationNameList()
 
@@ -525,7 +532,7 @@ function Core:ConvertHoldButtonAction(key)
             end
         end
     end
-    for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
+    for _, keybind in ipairs(DAV.user_setting_table.common_keybind_table) do
         if key == keybind.key or key == keybind.pad then
             keybind_name = keybind.name
             self:ConvertCommonHoldAction(keybind_name)
@@ -606,7 +613,7 @@ function Core:ConvertPressButtonAction(key)
             end
         end
     end
-    for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
+    for _, keybind in ipairs(DAV.user_setting_table.common_keybind_table) do
         if key == keybind.key or key == keybind.pad then
             keybind_name = keybind.name
             self:ConvertCommonPressAction(keybind_name)
@@ -956,8 +963,7 @@ function Core:ToggleAppearance()
     end
     self:ChangeGarageAVType(self.all_models[DAV.model_index].tweakdb_id, type_index)
     if not self.event_obj:IsNotSpawned() then
-        self.av_obj.position_obj.entity:PrefetchAppearanceChange(type_list[type_index])
-        self.av_obj.position_obj.entity:ScheduleAppearanceChange(type_list[type_index])
+        self.av_obj:ChangeAppearance(type_list[type_index])
     end
 end
 

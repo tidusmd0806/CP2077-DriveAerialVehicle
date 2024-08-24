@@ -397,21 +397,6 @@ function AV:Mount()
 
 	self.position_obj:ChangePosition()
 
-	-- if not self.is_crystal_dome then
-	-- 	self:ControlCrystalDome()
-	-- end
-
-	-- return position near mounted vehicle	
-	-- Cron.Every(0.01, {tick = 1}, function(timer)
-	-- 	local entity = player:GetMountedVehicle()
-	-- 	if entity ~= nil then
-	-- 		Cron.After(1.5, function()
-	-- 			self.is_player_in = true
-	-- 		end)
-	-- 		Cron.Halt(timer)
-	-- 	end
-	-- end)
-
 	return true
 
 end
@@ -765,6 +750,11 @@ function AV:ToggleRadio()
 	else
 		self.position_obj.entity:ToggleRadioReceiver(true)
 	end
+end
+
+function AV:ChangeAppearance(type)
+	-- self.position_obj.entity:PrefetchAppearanceChange(type)
+	self.position_obj.entity:ScheduleAppearanceChange(type)
 end
 
 return AV

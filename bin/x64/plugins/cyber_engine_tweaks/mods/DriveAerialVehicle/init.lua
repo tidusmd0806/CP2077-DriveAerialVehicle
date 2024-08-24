@@ -17,7 +17,7 @@ DAV = {
     -- system
     is_ready = false,
     time_resolution = 0.01,
-    is_debug_mode = true,
+    is_debug_mode = false,
     -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
@@ -53,19 +53,21 @@ DAV = {
         {name = "move_left", key = "IK_Q", pad = "IK_Pad_LeftShoulder", is_hold = true},
         {name = "move_right", key = "IK_E", pad = "IK_Pad_RightShoulder", is_hold = true},
         {name = "lean_reset", key = "IK_Z", pad = "IK_Pad_X_SQUARE", is_hold = true},
-        {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_LeftThumb", is_hold = true},
-        {name = "toggle_camera", key = "IK_X", pad = "IK_Pad_DigitRight", is_hold = false},
-        {name = "toggle_radio", key = "IK_R", pad = "IK_Pad_DigitUp", is_hold = true},
-        {name = "toggle_door", key = "IK_1", pad = "IK_Pad_DigitDown", is_hold = false},
-        {name = "toggle_crystal_dome", key = "IK_2", pad = "IK_Pad_DigitLeft", is_hold = false},
-        {name = "toggle_appearance", key = "IK_3", pad = nil, is_hold = false},
     },
     default_heli_keybind_table = {
         {name = "lift", key = "IK_LeftMouse", pad = "IK_Pad_RightTrigger", is_hold = true},
         {name = "turn_left", key = "IK_Q", pad = "IK_Pad_LeftShoulder", is_hold = true},
         {name = "turn_right", key = "IK_E", pad = "IK_Pad_RightShoulder", is_hold = true},
         {name = "acceleration", key = "IK_RightMouse", pad = "IK_Pad_LeftTrigger", is_hold = true},
-        {name = "hover", key = "IK_Z", pad = "IK_Pad_X_SQUARE", is_hold = true},
+        {name = "hover", key = "IK_Z", pad = "IK_Pad_X_SQUARE", is_hold = false},
+    },
+    default_common_keybind_table = {
+        {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_LeftThumb", is_hold = true},
+        {name = "toggle_camera", key = "IK_X", pad = "IK_Pad_DigitRight", is_hold = false},
+        {name = "toggle_radio", key = "IK_R", pad = "IK_Pad_DigitUp", is_hold = true},
+        {name = "toggle_door", key = "IK_1", pad = "IK_Pad_DigitDown", is_hold = false},
+        {name = "toggle_crystal_dome", key = "IK_2", pad = "IK_Pad_DigitLeft", is_hold = false},
+        {name = "toggle_appearance", key = "IK_3", pad = nil, is_hold = false},
     }
 }
 
@@ -86,17 +88,17 @@ DAV.user_setting_table = {
     },
     autopilot_speed_level = Def.AutopilotSpeedLevel.Normal,
     is_enable_history = true,
-    --- environment
-    is_mute_all = false, -- hiden
-    is_mute_flight = false, -- hiden
     --- general
     language_index = 1,
     --- input
     keybind_table = DAV.default_keybind_table,
     heli_keybind_table = DAV.default_heli_keybind_table,
+    common_keybind_table = DAV.default_common_keybind_table,
     --- physics
+    --- common
     horizontal_air_resistance_const = 0.01,
     vertical_air_resistance_const = 0.025,
+    -- av
     acceleration = 1,
     vertical_acceleration = 0.8,
     left_right_acceleration = 0.5,
@@ -105,7 +107,16 @@ DAV.user_setting_table = {
     pitch_change_amount = 0.5,
     pitch_restore_amount = 0.2,
     yaw_change_amount = 1,
-    rotate_roll_change_amount = 0.5
+    rotate_roll_change_amount = 0.5,
+    -- helicopter
+    h_roll_change_amount = 0.8,
+    h_roll_restore_amount = 0.2,
+    h_pitch_change_amount = 0.8,
+    h_pitch_restore_amount = 0.2,
+    h_yaw_change_amount = 1,
+    h_acceleration = 0.5,
+    h_lift_acceleration = 1,
+    h_lift_idle_acceleration = 0.2,
 }
 
 -- set custom vehicle record

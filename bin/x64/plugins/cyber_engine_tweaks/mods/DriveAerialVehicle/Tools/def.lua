@@ -46,7 +46,7 @@ Def.ActionList = {
 
 ---@enum Def.Situation
 Def.Situation = {
-    Idel = -1,
+    idle = -1,
     Normal = 0,
     Landing = 1,
     Waiting = 2,

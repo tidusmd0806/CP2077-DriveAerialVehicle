@@ -60,13 +60,19 @@ function Sound:ChangeSoundResource()
         end
     end
 
+    local general_data = audioVehicleGeneralData.new()
+
+    general_data = aerondight_audio_metadata.generalData
+    general_data.ignitionStartEvent = CName.new("None")
+    general_data.ignitionEndEvent = CName.new("None")
+
     self.av_audio_metadata.collisionCooldown = 0.5
     self.av_audio_metadata.hasRadioReceiver = true
     self.av_audio_metadata.radioReceiverType = CName.new("radio_car_hyper_player")
     self.av_audio_metadata.vehicleCollisionSettings = CName.new("v_car_default_collision")
     self.av_audio_metadata.vehicleGridDestructionSettings = CName.new("v_grid_dst_car_default")
     self.av_audio_metadata.vehiclePartSettings = CName.new("v_car_damage_default")
-    self.av_audio_metadata.generalData = aerondight_audio_metadata.generalData
+    self.av_audio_metadata.generalData = general_data
 
 end
 

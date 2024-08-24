@@ -150,6 +150,14 @@ function Position:GetRight()
     return self.entity:GetWorldRight()
 end
 
+function Position:GetUp()
+    if self.entity == nil then
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetUp")
+        return Vector4.new(0, 0, 0, 1.0)
+    end
+    return self.entity:GetWorldUp()
+end
+
 function Position:GetQuaternion()
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetQuaternion")
