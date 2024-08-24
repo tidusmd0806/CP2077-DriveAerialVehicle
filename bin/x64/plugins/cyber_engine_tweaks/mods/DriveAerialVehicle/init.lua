@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.0.3",
+	version = "2.1.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -43,7 +43,9 @@ DAV = {
     is_valid_native_settings = false,
     NativeSettings = nil,
     -- input
-    input_listener = nil,
+    input_key_listener = nil,
+    input_axis_listener = nil,
+    is_keyboard_input = true,
     listening_keybind_widget = nil,
     default_keybind_table = {
         {name = "move_up", key = "IK_LeftMouse", pad = "IK_Pad_Y_TRIANGLE", is_hold = true},
@@ -51,6 +53,15 @@ DAV = {
         {name = "move_left", key = "IK_Q", pad = "IK_Pad_LeftShoulder", is_hold = true},
         {name = "move_right", key = "IK_E", pad = "IK_Pad_RightShoulder", is_hold = true},
         {name = "lean_reset", key = "IK_Z", pad = "IK_Pad_X_SQUARE", is_hold = true},
+    },
+    default_heli_keybind_table = {
+        {name = "lift", key = "IK_LeftMouse", pad = "IK_Pad_RightTrigger", is_hold = true},
+        {name = "turn_left", key = "IK_Q", pad = "IK_Pad_LeftShoulder", is_hold = true},
+        {name = "turn_right", key = "IK_E", pad = "IK_Pad_RightShoulder", is_hold = true},
+        {name = "acceleration", key = "IK_RightMouse", pad = "IK_Pad_LeftTrigger", is_hold = true},
+        {name = "hover", key = "IK_Z", pad = "IK_Pad_X_SQUARE", is_hold = false},
+    },
+    default_common_keybind_table = {
         {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_LeftThumb", is_hold = true},
         {name = "toggle_camera", key = "IK_X", pad = "IK_Pad_DigitRight", is_hold = false},
         {name = "toggle_radio", key = "IK_R", pad = "IK_Pad_DigitUp", is_hold = true},
@@ -77,16 +88,17 @@ DAV.user_setting_table = {
     },
     autopilot_speed_level = Def.AutopilotSpeedLevel.Normal,
     is_enable_history = true,
-    --- environment
-    is_mute_all = false, -- hiden
-    is_mute_flight = false, -- hiden
     --- general
     language_index = 1,
     --- input
     keybind_table = DAV.default_keybind_table,
+    heli_keybind_table = DAV.default_heli_keybind_table,
+    common_keybind_table = DAV.default_common_keybind_table,
     --- physics
+    --- common
     horizontal_air_resistance_const = 0.01,
     vertical_air_resistance_const = 0.025,
+    -- av
     acceleration = 1,
     vertical_acceleration = 0.8,
     left_right_acceleration = 0.5,
@@ -95,7 +107,16 @@ DAV.user_setting_table = {
     pitch_change_amount = 0.5,
     pitch_restore_amount = 0.2,
     yaw_change_amount = 1,
-    rotate_roll_change_amount = 0.5
+    rotate_roll_change_amount = 0.5,
+    -- helicopter
+    h_roll_change_amount = 0.8,
+    h_roll_restore_amount = 0.2,
+    h_pitch_change_amount = 0.8,
+    h_pitch_restore_amount = 0.2,
+    h_yaw_change_amount = 1,
+    h_acceleration = 0.5,
+    h_lift_acceleration = 1,
+    h_lift_idle_acceleration = 0.2,
 }
 
 -- set custom vehicle record
@@ -132,13 +153,18 @@ end)
 
 registerForEvent("onHook", function ()
 
-    -- refer to https://www.nexusmods.com/cyberpunk2077/mods/8326
-    DAV.input_listener = NewProxy({
+    -- refer to Kiroshi Night Vision (https://www.nexusmods.com/cyberpunk2077/mods/8326)
+    DAV.input_key_listener = NewProxy({
         OnKeyInput = {
             args = {'handle:KeyInputEvent'},
             callback = function(event)
                 local key = event:GetKey().value
                 local action = event:GetAction().value
+                if key:find("IK_Pad") then
+                    DAV.is_keyboard_input = false
+                else
+                    DAV.is_keyboard_input = true
+                end
                 if DAV.listening_keybind_widget and key:find("IK_Pad") and action == "IACT_Release" then -- OnKeyBindingEvent has to be called manually for gamepad inputs, while there is a keybind widget listening for input
                     DAV.listening_keybind_widget:OnKeyBindingEvent(KeyBindingEvent.new({keyName = key}))
                     DAV.listening_keybind_widget = nil
@@ -155,10 +181,26 @@ registerForEvent("onHook", function ()
             end
         }
     })
-    Game.GetCallbackSystem():RegisterCallback('Input/Key', DAV.input_listener:Target(), DAV.input_listener:Function("OnKeyInput"), true)
+    Game.GetCallbackSystem():RegisterCallback('Input/Key', DAV.input_key_listener:Target(), DAV.input_key_listener:Function("OnKeyInput"), true)
+
     Observe("SettingsSelectorControllerKeyBinding", "ListenForInput", function(this)
         DAV.listening_keybind_widget = this
     end)
+
+    DAV.input_axis_listener = NewProxy({
+        OnAxisInput = {
+            args = {'handle:AxisInputEvent'},
+            callback = function(event)
+                local key = event:GetKey().value
+                if key:find("IK_Pad") then
+                    DAV.is_keyboard_input = false
+                else
+                    DAV.is_keyboard_input = true
+                end
+            end
+        }
+    })
+    Game.GetCallbackSystem():RegisterCallback('Input/Axis', DAV.input_axis_listener:Target(), DAV.input_axis_listener:Function("OnAxisInput"), true)
 
 end)
 
@@ -193,7 +235,8 @@ registerForEvent('onUpdate', function(delta)
 end)
 
 registerForEvent('onShutdown', function()
-    Game.GetCallbackSystem():UnregisterCallback('Input/Key', DAV.input_listener:Target(), DAV.input_listener:Function("OnKeyInput"))
+    Game.GetCallbackSystem():UnregisterCallback('Input/Key', DAV.input_key_listener:Target(), DAV.input_key_listener:Function("OnKeyInput"))
+    Game.GetCallbackSystem():UnregisterCallback('Input/Axis', DAV.input_axis_listener:Target(), DAV.input_axis_listener:Function("OnAxisInput"))
 end)
 
 function DAV:CheckDependencies()

@@ -9,11 +9,10 @@ function Debug:New(core_obj)
     -- set parameters
     obj.is_set_observer = false
     obj.is_im_gui_rw_count = false
+    obj.is_im_gui_input_check = false
     obj.is_im_gui_situation = false
     obj.is_im_gui_player_position = false
     obj.is_im_gui_av_position = false
-    obj.is_im_gui_heli_info = false
-    obj.is_im_gui_spinner_info = false
     obj.is_im_gui_engine_info = false
     obj.is_im_gui_sound_check = false
     obj.selected_sound = "100_call_vehicle"
@@ -21,13 +20,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_status = false
     obj.is_im_gui_change_auto_setting = false
-    obj.is_im_gui_radio_info = false
     obj.is_im_gui_measurement = false
-    obj.is_exist_av_1 = false
-    obj.is_exist_av_2 = false
-    obj.is_exist_av_3 = false
-    obj.is_exist_av_4 = false
-    obj.is_exist_av_5 = false
 
     return setmetatable(obj, self)
 end
@@ -41,6 +34,7 @@ function Debug:ImGuiMain()
     self:SetLogLevel()
     self:SelectPrintDebug()
     self:ImGuiShowRWCount()
+    self:ImGuiInputCheck()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
@@ -95,6 +89,17 @@ function Debug:ImGuiShowRWCount()
     self.is_im_gui_rw_count = ImGui.Checkbox("[ImGui] R/W Count", self.is_im_gui_rw_count)
     if self.is_im_gui_rw_count then
         ImGui.Text("Read : " .. READ_COUNT .. ", Write : " .. WRITE_COUNT)
+    end
+end
+
+function Debug:ImGuiInputCheck()
+    self.is_im_gui_input_check = ImGui.Checkbox("[ImGui] Input Check", self.is_im_gui_input_check)
+    if self.is_im_gui_input_check then
+        if DAV.is_keyboard_input then
+            ImGui.Text("Keyboard : On")
+        else
+            ImGui.Text("Keyboard : Off")
+        end
     end
 end
 
@@ -391,8 +396,29 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF6") then
-
-        DAV.core_obj.av_obj.engine_obj.fly_av_system:ChangeLinelyVelocity(Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 1)
+        print(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetComponents())
+        -- for _, value in pairs(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetComponents()) do
+        --     print(value.name.value)
+        --     if value.name.value == "Slot9917" then
+        --         -- for _, slot in pairs(value.slots) do
+        --         --     print(slot.slotName.value)
+        --         --     if slot.slotName.value == "thruster_front_left" then
+        --         --         slot.relativePosition = Vector3.new(0, 0, 5)
+        --         --         return
+        --         --     end
+        --         -- end
+        --         local ent = value:GetEntity()
+        --         Game.GetTeleportationFacility():Teleport(ent, Vector4.new(0, 0, 0, 1), Quaternion.new(0, 0, 0, 1):ToEulerAngles())
+        --     end
+        -- end
+        local slots = DAV.core_obj.av_obj.position_obj.entity:FindComponentByName("ThrusterLight_RearRight")
+        -- for _, slot in pairs(slots.slots) do
+        --     print(slot.slotName.value)
+        -- end
+        slots:Toggle(false)
+        print(slots:GetLocalPosition())
+        slots:SetLocalPosition(Vector4.new(0, 0, 5, 1))
+        print(slots:GetLocalPosition())
         print("Excute Test Function 6")
     end
 end

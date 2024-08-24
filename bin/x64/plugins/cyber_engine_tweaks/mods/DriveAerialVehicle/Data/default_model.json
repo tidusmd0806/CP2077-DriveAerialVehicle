@@ -10,6 +10,7 @@
             "saburo_arasaka",
             "nusa_myers"
         ],
+        "flight_mode": 0,
         "actual_allocated_door": ["seat_front_left"],
         "active_seat": ["Front Left Seat", "Front Right Seat", "Back Left Seat", "Back Right Seat"],
         "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4"],
@@ -46,6 +47,7 @@
             "trauma_team_nusa",
             "barghest"
         ],
+        "flight_mode": 0,
         "actual_allocated_door": ["seat_front_left", "seat_front_right"],
         "active_seat": ["Cockpit(Left)", "Cockpit(Right)", "Left Passenger Seat", "Right Passenger Seat"],
         "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4"],
@@ -85,6 +87,7 @@
             "stealth_cloaked",
             "fia"
         ],
+        "flight_mode": 0,
         "actual_allocated_door": ["seat_front_left"],
         "active_seat": ["Passenger Seat A", "Passenger Seat B", "Passenger Seat C", "Passenger Seat D", "Passenger Seat E"],
         "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4", "seat_front_left_5"],
@@ -120,6 +123,7 @@
             "maxtac",
             "arasaka"
         ],
+        "flight_mode": 0,
         "actual_allocated_door": ["trunk"],
         "active_seat": ["Seat in Front", "Seat in Middle(Left)", "Seat in Middle(Right)", "Seat in Back"],
         "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4"],
@@ -157,6 +161,7 @@
             "arasaka",
             "nusa"
         ],
+        "flight_mode": 1,
         "actual_allocated_door": ["seat_front_left", "seat_front_right"],
         "active_seat": ["Cockpit(Front)", "Cockpit(Back)", "Left Passenger Seat", "Right Passenger Seat"],
         "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4"],

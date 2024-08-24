@@ -16,15 +16,18 @@ function Event:New()
     obj.ui_obj = Ui:New()
     obj.sound_obj = Sound:New()
 
-    -- set default parameters
+    -- static
+    obj.delay_stop_leaving_sound = 3.0
+
+    -- dynamic
     obj.is_initial_load = false
-    obj.current_situation = Def.Situation.Idel
-    obj.is_unlocked_dummy_av = false
+    obj.current_situation = Def.Situation.idle
     obj.is_in_menu = false
     obj.is_in_popup = false
     obj.is_in_photo = false
     obj.is_locked_operation = false
     obj.selected_seat_index = 1
+    obj.is_keyboard_input_prev = false
 
     return setmetatable(obj, self)
 
@@ -82,15 +85,13 @@ function Event:SetObserve()
         end
 
         DAV.core_obj:SetFastTravelPosition()
-
-        self.is_unlocked_dummy_av = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(self.ui_obj.dummy_vehicle_record))
         self.current_situation = Def.Situation.Normal
 
     end)
 
     GameUI.Observe("SessionEnd", function()
         self.log_obj:Record(LogLevel.Info, "Session end detected")
-        self.current_situation = Def.Situation.Idel
+        self.current_situation = Def.Situation.idle
     end)
 end
 
@@ -105,7 +106,7 @@ function Event:SetOverride()
 end
 
 function Event:SetSituation(situation)
-    if self.current_situation == Def.Situation.Idel then
+    if self.current_situation == Def.Situation.idle then
         return false
     elseif self.current_situation == Def.Situation.Normal and situation == Def.Situation.Landing then
         self.log_obj:Record(LogLevel.Info, "Landing detected")
@@ -144,7 +145,7 @@ end
 function Event:CheckAllEvents()
 
     if self.current_situation == Def.Situation.Normal then
-        self:CheckCallPurchasedVehicle()
+        -- self:CheckCallPurchasedVehicle()
         self:CheckGarage()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
@@ -152,7 +153,7 @@ function Event:CheckAllEvents()
         self:CheckDespawn()
         self:CheckInEntryArea()
         self:CheckInAV()
-        self:CheckReturnPurchasedVehicle()
+        -- self:CheckReturnPurchasedVehicle()
         self:CheckDestroyed()
         self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
@@ -162,6 +163,7 @@ function Event:CheckAllEvents()
         self:CheckCustomMappinPosition()
         self:CheckHUD()
         self:CheckDestroyed()
+        self:CheckInput()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
         self:CheckLockedSave()
@@ -169,18 +171,40 @@ function Event:CheckAllEvents()
 
 end
 
-
 function Event:CheckGarage()
     DAV.core_obj:UpdateGarageInfo(false)
 end
 
-function Event:CheckCallPurchasedVehicle()
-    if DAV.core_obj:GetPurchasedCallStatus() and not self.av_obj:IsSpawning() then
-        self.log_obj:Record(LogLevel.Trace, "Purchased vehicle call detected")
+function Event:CallVehicle()
+    if self:IsNotSpawned() then
+        self.log_obj:Record(LogLevel.Trace, "Vehicle call detected in Normal situation")
         self.sound_obj:PlaySound("100_call_vehicle")
         self.sound_obj:PlaySound("210_landing")
         self:SetSituation(Def.Situation.Landing)
         self.av_obj:SpawnToSky()
+    elseif self:IsWaiting() then
+        self.log_obj:Record(LogLevel.Trace, "Vehicle call detected in Waiting situation")
+        self.av_obj:Despawn()
+        DAV.core_obj:Reset()
+        Cron.After(1.0, function()
+            self.sound_obj:PlaySound("100_call_vehicle")
+            self.sound_obj:PlaySound("210_landing")
+            self:SetSituation(Def.Situation.Landing)
+            self.av_obj:SpawnToSky()
+        end)
+    end
+end
+
+function Event:ReturnVehicle()
+    if self:IsWaiting() then
+        self.log_obj:Record(LogLevel.Trace, "Vehicle return detected in Waiting situation")
+        self.sound_obj:PlaySound("240_leaving")
+        self.sound_obj:PlaySound("104_call_vehicle")
+        self.sound_obj:ResetSoundResource()
+        self:SetSituation(Def.Situation.TalkingOff)
+        self.hud_obj:HideChoice()
+        self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
+        self.av_obj:DespawnFromGround()
     end
 end
 
@@ -191,7 +215,6 @@ function Event:CheckLanded()
         self.sound_obj:PlaySound("110_arrive_vehicle")
         self.sound_obj:ChangeSoundResource()
         self:SetSituation(Def.Situation.Waiting)
-        -- self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
 end
 
@@ -214,6 +237,7 @@ function Event:CheckInAV()
             self.hud_obj:HideChoice()
             self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             self.hud_obj:ShowCustomHint()
+            self.is_keyboard_input_prev = DAV.is_keyboard_input
             Cron.After(1.5, function()
                 self.hud_obj:ShowLeftBottomHUD()
             end)
@@ -281,19 +305,6 @@ function Event:CheckDestroyed()
     end
 end
 
-function Event:CheckReturnPurchasedVehicle()
-    if DAV.core_obj:GetPurchasedCallStatus() then
-        self.log_obj:Record(LogLevel.Trace, "Purchased vehicle return detected")
-        self.sound_obj:PlaySound("240_leaving")
-        self.sound_obj:PlaySound("104_call_vehicle")
-        self.sound_obj:ResetSoundResource()
-        self:SetSituation(Def.Situation.TalkingOff)
-        self.hud_obj:HideChoice()
-        self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
-        self.av_obj:DespawnFromGround()
-    end
-end
-
 function Event:CheckDespawn()
     if self.av_obj:IsDespawned() then
         self.log_obj:Record(LogLevel.Trace, "Despawn detected")
@@ -301,6 +312,16 @@ function Event:CheckDespawn()
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
     end
+end
+
+function Event:CheckInput()
+
+    if self.is_keyboard_input_prev ~= DAV.is_keyboard_input then
+        self.is_keyboard_input_prev = DAV.is_keyboard_input
+        self.hud_obj:HideCustomHint()
+        self.hud_obj:ShowCustomHint()
+    end
+
 end
 
 function Event:CheckAutoModeChange()
@@ -342,7 +363,7 @@ function Event:CheckCustomMappinPosition()
 end
 
 function Event:CheckLockedSave()
-    local res, reason = Game.IsSavingLocked()
+    local res, _ = Game.IsSavingLocked()
     if res then
         self.log_obj:Record(LogLevel.Info, "Locked save detected. Remove lock")
         SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))

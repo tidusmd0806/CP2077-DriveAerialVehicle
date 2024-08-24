@@ -48,5 +48,35 @@
         "name": "ChoiceScrollDown",
         "type": "BUTTON_PRESSED",
         "value": "POSITIVE"
+    },
+    "KEY_HELI_LEAN_FORWARD": {
+        "name": "Accelerate",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
+    },
+    "PAD_HELI_LEAN_FORWARD": {
+        "name": "LeanFB",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
+    },
+    "KEY_HELI_LEAN_BACKWARD": {
+        "name": "Decelerate",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
+    },
+    "PAD_HELI_LEAN_BACKWARD": {
+        "name": "LeanFB",
+        "type": "AXIS_CHANGE",
+        "value": "NEGATIVE"
+    },
+    "KEY_HELI_LEAN_RIGHT": {
+        "name": "TurnX",
+        "type": "AXIS_CHANGE",
+        "value": "NEGATIVE"
+    },
+    "KEY_HELI_LEAN_LEFT": {
+        "name": "TurnX",
+        "type": "AXIS_CHANGE",
+        "value": "POSITIVE"
     }
 }

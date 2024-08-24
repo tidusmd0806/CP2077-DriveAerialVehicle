@@ -5,7 +5,9 @@
         "localizedLabel": "LocKey#77762",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
-        "enableHoldAnimation": false
+        "enableHoldAnimation": false,
+        "mode": 0,
+        "usage": "Both"
     },
     {
         "source": "Backward",
@@ -13,7 +15,9 @@
         "localizedLabel": "LocKey#78161",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
-        "enableHoldAnimation": false
+        "enableHoldAnimation": false,
+        "mode": 0,
+        "usage": "Both"
     },
     {
         "source": "RightLeftRotate",
@@ -21,7 +25,9 @@
         "localizedLabel": "LocKey#15315",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
-        "enableHoldAnimation": false
+        "enableHoldAnimation": false,
+        "mode": 0,
+        "usage": "Both"
     },
     {
         "source": "Lean",
@@ -29,7 +35,39 @@
         "localizedLabel": "LocKey#22123",
         "sortingPriority": 0,
         "holdIndicationType": "FromInputConfig",
-        "enableHoldAnimation": false
+        "enableHoldAnimation": false,
+        "mode": 0,
+        "usage": "Both"
+    },
+    {
+        "source": "LeanForwardBackward",
+        "action": "Accelerate",
+        "localizedLabel": "LocKey#77762+LocKey#78161",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false,
+        "mode": 1,
+        "usage": "keyboard"
+    },
+    {
+        "source": "LeanForwardBackward",
+        "action": "LeanFB",
+        "localizedLabel": "LocKey#77762+LocKey#78161",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false,
+        "mode": 1,
+        "usage": "gamepad"
+    },
+    {
+        "source": "LeanRightLeft",
+        "action": "TurnX",
+        "localizedLabel": "LocKey#77765+LocKey#77763",
+        "sortingPriority": 0,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false,
+        "mode": 1,
+        "usage": "Both"
     },
     {
         "source": "Exit",
@@ -37,6 +75,8 @@
         "localizedLabel": "LocKey#36196",
         "sortingPriority": 0,
         "holdIndicationType": "Hold",
-        "enableHoldAnimation": true
-    }
+        "enableHoldAnimation": true,
+        "mode": -1,
+        "usage": "Both"
+    },
 ]

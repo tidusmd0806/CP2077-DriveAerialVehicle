@@ -149,6 +149,7 @@ function HUD:ShowLeftBottomHUD()
     self:SetVisibleConsumeItemSlot(false)
     -- self:SetVisiblePhoneSlot(false)
     self:CreateHPDisplay()
+    self:SetHPDisplay()
     self.ink_horizontal_panel:SetVisible(true)
 
 end
@@ -320,65 +321,32 @@ function HUD:HideChoice()
 
 end
 
--- function HUD:ShowMeter()
-
---     self.hud_car_controller:ShowRequest()
---     self.hud_car_controller:OnCameraModeChanged(true)
-
---     if self.is_speed_meter_shown then
---         return
---     else
---         self.is_speed_meter_shown = true
---         Cron.Every(self.speed_meter_refresh_rate, {tick = 0}, function(timer)
---             local meter_value = 0    
---             if self.av_obj.is_auto_pilot then
---                 inkTextRef.SetText(self.hud_car_controller.SpeedUnits, DAV.core_obj:GetTranslationText("hud_meter_auto_pilot_display"))
---                 meter_value = math.floor(Vector4.Distance(self.av_obj.auto_pilot_info.dist_pos, Game.GetPlayer():GetWorldPosition()))
---             else
---                 if DAV.user_setting_table.is_unit_km_per_hour then
---                     inkTextRef.SetText(self.hud_car_controller.SpeedUnits, DAV.core_obj:GetTranslationText("hud_meter_kph"))
---                     meter_value = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1000))
---                 else
---                     inkTextRef.SetText(self.hud_car_controller.SpeedUnits,  DAV.core_obj:GetTranslationText("hud_meter_mph"))
---                     meter_value = math.floor(self.av_obj.engine_obj.current_speed * (3600 / 1609))
---                 end
---             end
---             inkTextRef.SetText(self.hud_car_controller.SpeedValue, meter_value)
-
---             local power_level = 0
---             if self.av_obj.is_auto_pilot then
---                 local distance = Vector4.Distance(self.av_obj.auto_pilot_info.dist_pos, self.av_obj.auto_pilot_info.start_pos)
---                 power_level = math.floor((1.01 - (meter_value / distance)) * 10)
---             else
---                 if DAV.user_setting_table.flight_mode == Def.FlightMode.Heli then
---                     power_level = math.floor((self.av_obj.engine_obj.lift_force - self.av_obj.engine_obj.min_lift_force) / ((self.av_obj.engine_obj.max_lift_force - self.av_obj.engine_obj.min_lift_force) / 10))
---                 elseif DAV.user_setting_table.flight_mode == Def.FlightMode.Spinner then 
---                     power_level = math.floor(self.av_obj.engine_obj.spinner_horizenal_force / (self.av_obj.engine_obj.max_spinner_horizenal_force / 10))
---                 end
---             end
---             self.hud_car_controller:OnRpmValueChanged(power_level)
---             self.hud_car_controller:EvaluateRPMMeterWidget(power_level)
---             if not self.is_speed_meter_shown then
---                 Cron.Halt(timer)
---             end
---         end)
---     end
-
--- end
-
--- function HUD:HideMeter()
---     self.hud_car_controller:HideRequest()
---     self.hud_car_controller:OnCameraModeChanged(false)
---     self.is_speed_meter_shown = false
--- end
-
 function HUD:SetCustomHint()
+    local flight_mode = self.av_obj.engine_obj.flight_mode
+    local is_keyboard_input = DAV.is_keyboard_input
     local hint_table = {}
     hint_table = Utils:ReadJson("Data/input_hint.json")
     self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()
     self.key_input_hide_hint_event = UpdateInputHintMultipleEvent.new()
     self.key_input_show_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
     self.key_input_hide_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
+    -- delete unnecessary hint
+    for index = #hint_table, 1, -1 do
+        local hint = hint_table[index]
+        if hint.mode ~= flight_mode and hint.mode ~= -1 then
+            table.remove(hint_table, index)
+        else
+            if is_keyboard_input then
+                if hint.usage == "gamepad" then
+                    table.remove(hint_table, index)
+                end
+            else
+                if hint.usage == "keyboard" then
+                    table.remove(hint_table, index)
+                end
+            end
+        end
+    end
     for _, hint in ipairs(hint_table) do
         local input_hint_data = InputHintData.new()
         input_hint_data.source = CName.new(hint.source)

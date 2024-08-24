@@ -13,7 +13,7 @@ function Sound:New()
     -- dynamic --
     obj.sound_data = {}
     obj.playing_sound = {}
-    obj.sound_restriction = Def.SoundRestrictionLevel.None
+    -- obj.sound_restriction = Def.SoundRestrictionLevel.None
     -- audio resource --
     obj.av_audio_metadata = nil
     obj.basilisk_audio_general_data = nil
@@ -60,13 +60,19 @@ function Sound:ChangeSoundResource()
         end
     end
 
+    local general_data = audioVehicleGeneralData.new()
+
+    general_data = aerondight_audio_metadata.generalData
+    general_data.ignitionStartEvent = CName.new("None")
+    general_data.ignitionEndEvent = CName.new("None")
+
     self.av_audio_metadata.collisionCooldown = 0.5
     self.av_audio_metadata.hasRadioReceiver = true
     self.av_audio_metadata.radioReceiverType = CName.new("radio_car_hyper_player")
     self.av_audio_metadata.vehicleCollisionSettings = CName.new("v_car_default_collision")
     self.av_audio_metadata.vehicleGridDestructionSettings = CName.new("v_grid_dst_car_default")
     self.av_audio_metadata.vehiclePartSettings = CName.new("v_car_damage_default")
-    self.av_audio_metadata.generalData = aerondight_audio_metadata.generalData
+    self.av_audio_metadata.generalData = general_data
 
 end
 
@@ -83,40 +89,40 @@ function Sound:ResetSoundResource()
 end
 
 function Sound:PlaySound(sound_name)
-    if self:CheckRestriction(sound_name) then
-        if not DAV.core_obj.av_obj.position_obj:IsPlayerAround() and self:GetIdentificationNumber(sound_name) >= 200 then
-            return
-        end
+    -- if self:CheckRestriction(sound_name) then
+    --     if not DAV.core_obj.av_obj.position_obj:IsPlayerAround() and self:GetIdentificationNumber(sound_name) >= 200 then
+    --         return
+    --     end
         Game.GetPlayer():PlaySoundEvent(self.sound_data[sound_name])
-    end
+    -- end
 end
 
 function Sound:StopSound(sound_name)
     Game.GetPlayer():StopSoundEvent(self.sound_data[sound_name])
 end
 
-function Sound:SetRestriction(level)
-    self.sound_restriction = level
-end
+-- function Sound:SetRestriction(level)
+--     self.sound_restriction = level
+-- end
 
----@return boolean -- true: play, false: mute
-function Sound:CheckRestriction(sound)
-    if self.sound_restriction == Def.SoundRestrictionLevel.None then
-        return true
-    elseif self.sound_restriction == Def.SoundRestrictionLevel.Mute then
-        return false
-    elseif self.sound_restriction == Def.SoundRestrictionLevel.PriorityRadio then
-        local num = self:GetIdentificationNumber(sound)
-        if num >= 200 or num < 300 then
-            return false
-        else
-            return true
-        end
-    else
-        return true
-    end
+-- ---@return boolean -- true: play, false: mute
+-- function Sound:CheckRestriction(sound)
+--     if self.sound_restriction == Def.SoundRestrictionLevel.None then
+--         return true
+--     elseif self.sound_restriction == Def.SoundRestrictionLevel.Mute then
+--         return false
+--     elseif self.sound_restriction == Def.SoundRestrictionLevel.PriorityRadio then
+--         local num = self:GetIdentificationNumber(sound)
+--         if num >= 200 or num < 300 then
+--             return false
+--         else
+--             return true
+--         end
+--     else
+--         return true
+--     end
 
-end
+-- end
 
 function Sound:Mute()
     for  sound_name, _  in pairs(self.sound_data) do
