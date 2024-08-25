@@ -296,6 +296,10 @@ end
 
 function Event:CheckDestroyed()
     if self.av_obj:IsDestroyed() then
+        if self.current_situation == Def.Situation.InVehicle then
+            self.hud_obj:HideCustomHint()
+            self.av_obj:Unmount()
+        end
         self.log_obj:Record(LogLevel.Trace, "Destroyed detected")
         self.sound_obj:ResetSoundResource()
         self.hud_obj:HideChoice()

@@ -13,7 +13,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_situation = false
     obj.is_im_gui_player_position = false
     obj.is_im_gui_av_position = false
-    obj.is_im_gui_engine_info = false
+    obj.is_im_gui_vehicle_info = false
     obj.is_im_gui_sound_check = false
     obj.selected_sound = "100_call_vehicle"
     obj.is_im_gui_mappin_position = false
@@ -38,6 +38,7 @@ function Debug:ImGuiMain()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
+    self:ImGuiVehicleInfo()
     self:ImGuiSoundCheck()
     self:ImGuiModelTypeStatus()
     self:ImGuiMappinPosition()
@@ -53,7 +54,14 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved        
+        -- reserved
+        Observe("PlayerPuppet", "OnDriverCombatWeaponTypeChange", function(this, newWeaponType)
+            -- method has just been called with:
+            -- this: PlayerPuppet
+            -- newWeaponType: Int32
+            print(newWeaponType)
+        end)
+        
     end
     self.is_set_observer = true
 
@@ -138,6 +146,17 @@ function Debug:ImGuiAVPosition()
         local yaw = string.format("%.2f", self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)
         ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
         ImGui.Text("Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
+    end
+end
+
+function Debug:ImGuiVehicleInfo()
+    self.is_im_gui_vehicle_info = ImGui.Checkbox("[ImGui] Vehicle Info", self.is_im_gui_vehicle_info)
+    if self.is_im_gui_vehicle_info then
+        if DAV.core_obj.av_obj:IsDestroyed() then
+            ImGui.Text("Vehicle : Destroyed")
+        else
+            ImGui.Text("Vehicle : Alive")
+        end
     end
 end
 
@@ -363,35 +382,19 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        Game.GetTeleportationFacility():Teleport(DAV.core_obj.av_obj.position_obj.entity, Vector4.new(0, 0, 0, 1), Quaternion.new(0, 0, 0, 1):ToEulerAngles())
+        local shoot_evt = VehicleMountedWeaponShootEvent.new()
+        shoot_evt.slotID = TweakDBID.new("AttachmentSlots.VehiclePowerWeaponLeftA")
+        shoot_evt.weaponID = TweakDBID.new("Items.Vehicle_Power_Weapon_Left_A")
+        DAV.core_obj.av_obj.position_obj.entity.vehicleComponent:OnWeaponShootEvent(shoot_evt)
+        shoot_evt.slotID = TweakDBID.new("AttachmentSlots.VehiclePowerWeaponRightA")
+        shoot_evt.weaponID = TweakDBID.new("Items.Vehicle_Power_Weapon_Right_A")
+        DAV.core_obj.av_obj.position_obj.entity.vehicleComponent:OnWeaponShootEvent(shoot_evt)
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
-
-        local player = Game.GetPlayer()
-        local ent_id = DAV.core_obj.av_obj.enrity_id
-        local seat = DAV.core_obj.av_obj.active_seat[1]
-
-        local data = NewObject('handle:gameMountEventData')
-        data.isInstant = true
-        data.slotName = seat
-        data.mountParentEntityId = ent_id
-        data.entryAnimName = "forcedTransition"
-
-        local slotID = NewObject('gamemountingMountingSlotId')
-        slotID.id = seat
-
-        local mounting_info = NewObject('gamemountingMountingInfo')
-        mounting_info.childId = player:GetEntityID()
-        mounting_info.parentId = ent_id
-        mounting_info.slotId = slotID
-
-        local mount_event = NewObject('handle:gamemountingUnmountingRequest')
-        mount_event.lowLevelMountingInfo = mounting_info
-        mount_event.mountData = data
-
-        Game.GetMountingFacility():Unmount(mount_event)
+        -- Game.GetPlayer():OnDriverCombatWeaponTypeChange(101)
+        Game.GetPlayer():SetPSIsInDriverCombat(true)
         print("Excute Test Function 5")
     end
     ImGui.SameLine()

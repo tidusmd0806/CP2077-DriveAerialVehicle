@@ -113,7 +113,7 @@ end
 function AV:IsDestroyed()
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
-		return false
+		return true
 	end
 	return entity:IsDestroyed()
 end

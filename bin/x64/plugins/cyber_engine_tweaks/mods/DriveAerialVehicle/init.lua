@@ -13,11 +13,11 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.1.0",
+	version = "2.1.1",
     -- system
     is_ready = false,
     time_resolution = 0.01,
-    is_debug_mode = false,
+    is_debug_mode = true,
     -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
@@ -131,6 +131,7 @@ registerForEvent("onTweak",function ()
     TweakDB:CloneRecord(DAV.manticore_record, "Vehicle.av_militech_manticore")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav.ent")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.destroyedAppearance"), "burnt")
 
     -- Custom manticore record
     TweakDB:CloneRecord(DAV.atlus_record, "Vehicle.av_zetatech_atlus")
@@ -143,11 +144,29 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.player_audio_resource"), "v_av_basilisk_tank")
 
     -- Custom valgus record
+    -- TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
+    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
+    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.displayName"), LocKey(77966))
+    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.manufacturer"), "Vehicle.Zetatech")
+    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.player_audio_resource"), "v_av_basilisk_tank")
+    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.destroyedAppearance"), "valgus_rusted")
+    -- local valgus_tag_list = {CName.new("InteractiveTrunk")}
+    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.tags"), valgus_tag_list)
+
     TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav_attack.ent")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.displayName"), LocKey(77966))
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.manufacturer"), "Vehicle.Zetatech")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.destroyedAppearance"), "valgus_rusted")
+    local valgus_tag_list = {CName.new("InteractiveTrunk")}
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.tags"), valgus_tag_list)
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.isArmoredVehicle"), true)
+    local weapon_list = {TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_A"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_A"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_B"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_B"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_C"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_C"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_A"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_B"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_C")}
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.weapons"), weapon_list)
+    TweakDB:CloneRecord("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav", "Vehicle.v_standard2_archer_quartz_nomad_inline1")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.vehDataPackage"), "Vehicle.v_standard2_archer_quartz_nomad_inline1_dav")
 
 end)
 

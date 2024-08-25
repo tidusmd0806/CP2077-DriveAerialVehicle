@@ -38,6 +38,7 @@ end
 function HUD:Init(av_obj)
 
     self.av_obj = av_obj
+    self.vehicle_hp = 100
 
     if not DAV.is_ready then
         self:SetOverride()
@@ -106,7 +107,6 @@ function HUD:SetObserve()
 
         Observe("hudCarController", "OnMountingEvent", function(this)
             self.hud_car_controller = this
-            self.vehicle_hp = 100
         end)
 
         -- hide unnecessary input hint
@@ -128,7 +128,7 @@ function HUD:SetObserve()
         end)
 
         Observe("VehicleComponent", "EvaluateDamageLevel", function(this, destruction)
-            if this.mounted then
+            if this:GetEntity():GetEntityID().hash == self.av_obj.entity_id.hash then
                 self.vehicle_hp = destruction
             end
         end)
