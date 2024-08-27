@@ -155,7 +155,7 @@
         "tweakdb_id": "Vehicle.q000_nomad_border_patrol_heli_dav",
         "display_name_lockey": 77065,
         "type": [
-            "valgus",
+            "zetatech_valgus_valgus_max_tac_306",
             "max_tac",
             "border_patrol",
             "arasaka",

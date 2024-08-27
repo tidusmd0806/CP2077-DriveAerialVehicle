@@ -61,6 +61,16 @@ function Debug:SetObserver()
             -- newWeaponType: Int32
             print(newWeaponType)
         end)
+
+        -- Observe("PlayerPuppet", "QueueEvent", function(this, event)
+        --     -- method has just been called with:
+        --     -- this: ScriptableSystem
+        --     -- request: ref<ScriptableSystemRequest>
+        --     if this:IsA("PlayerPuppet") then
+        --         print(event:ToString())
+        --     end
+        -- end)
+        
         
     end
     self.is_set_observer = true
@@ -385,43 +395,28 @@ function Debug:ImGuiExcuteFunction()
         local shoot_evt = VehicleMountedWeaponShootEvent.new()
         shoot_evt.slotID = TweakDBID.new("AttachmentSlots.VehiclePowerWeaponLeftA")
         shoot_evt.weaponID = TweakDBID.new("Items.Vehicle_Power_Weapon_Left_A")
-        DAV.core_obj.av_obj.position_obj.entity.vehicleComponent:OnWeaponShootEvent(shoot_evt)
+        DAV.core_obj.av_obj.position_obj.entity:QueueEvent(shoot_evt)
+        -- DAV.core_obj.av_obj.position_obj.entity.vehicleComponent:OnWeaponShootEvent(shoot_evt)
         shoot_evt.slotID = TweakDBID.new("AttachmentSlots.VehiclePowerWeaponRightA")
         shoot_evt.weaponID = TweakDBID.new("Items.Vehicle_Power_Weapon_Right_A")
-        DAV.core_obj.av_obj.position_obj.entity.vehicleComponent:OnWeaponShootEvent(shoot_evt)
+        -- DAV.core_obj.av_obj.position_obj.entity.vehicleComponent:OnWeaponShootEvent(shoot_evt)
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
         -- Game.GetPlayer():OnDriverCombatWeaponTypeChange(101)
-        Game.GetPlayer():SetPSIsInDriverCombat(true)
+        -- Game.GetPlayer():SetPSIsInDriverCombat(true)
+        -- Game.GetTransactionSystem():EquipActiveItemInSlot(Game.GetPlayer(), TweakDBID.new('AttachmentSlots.WeaponRight'), true)
+        local sys = Game.GetScriptableSystemsContainer():Get('EquipmentSystem')
+        local eqManipulationRequest = EquipmentSystemWeaponManipulationRequest.new()
+        -- eqManipulationRequest.requestType = EquipmentManipulationAction.RequestLastUsedOrFirstAvailableWeapon
+        eqManipulationRequest.requestType = EquipmentManipulationAction.CycleWeaponWheelItem
+        eqManipulationRequest.owner = Game.GetPlayer()
+        sys:QueueRequest(eqManipulationRequest)
         print("Excute Test Function 5")
     end
     ImGui.SameLine()
     if ImGui.Button("TF6") then
-        print(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetComponents())
-        -- for _, value in pairs(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetComponents()) do
-        --     print(value.name.value)
-        --     if value.name.value == "Slot9917" then
-        --         -- for _, slot in pairs(value.slots) do
-        --         --     print(slot.slotName.value)
-        --         --     if slot.slotName.value == "thruster_front_left" then
-        --         --         slot.relativePosition = Vector3.new(0, 0, 5)
-        --         --         return
-        --         --     end
-        --         -- end
-        --         local ent = value:GetEntity()
-        --         Game.GetTeleportationFacility():Teleport(ent, Vector4.new(0, 0, 0, 1), Quaternion.new(0, 0, 0, 1):ToEulerAngles())
-        --     end
-        -- end
-        local slots = DAV.core_obj.av_obj.position_obj.entity:FindComponentByName("ThrusterLight_RearRight")
-        -- for _, slot in pairs(slots.slots) do
-        --     print(slot.slotName.value)
-        -- end
-        slots:Toggle(false)
-        print(slots:GetLocalPosition())
-        slots:SetLocalPosition(Vector4.new(0, 0, 5, 1))
-        print(slots:GetLocalPosition())
         print("Excute Test Function 6")
     end
 end

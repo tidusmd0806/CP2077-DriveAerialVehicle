@@ -351,7 +351,6 @@ function Event:CheckCustomMappinPosition()
     end
     local success, mappin = pcall(function() return DAV.core_obj.mappin_controller:GetMappin() end)
     if not success then
-        self.log_obj:Record(LogLevel.Debug, "Mappin is not found")
         DAV.core_obj.is_custom_mappin = false
         if self.stored_mappin_pos == nil then
             return

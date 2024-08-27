@@ -280,7 +280,7 @@ end
 
 function Core:SetInputListener()
 
-    local exception_common_list = Utils:ReadJson("Data/exception_common_input.json")
+    local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
@@ -295,13 +295,13 @@ function Core:SetInputListener()
 
         if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
             for _, exception in pairs(exception_in_veh_list) do
-                if string.find(action_name, exception) then
+                if action_name == exception then
                     consumer:Consume()
                 end
             end
-        elseif (self.event_obj:IsInEntryArea() or self.event_obj:IsInVehicle()) then
-            for _, exception in pairs(exception_common_list) do
-                if string.find(action_name, exception) then
+        elseif self.event_obj:IsInEntryArea() then
+            for _, exception in pairs(exception_in_entry_area_list) do
+                if action_name == exception then
                     consumer:Consume()
                 end
             end
