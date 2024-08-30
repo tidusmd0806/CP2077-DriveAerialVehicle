@@ -278,9 +278,9 @@ end
 function Event:CheckDoor()
 
     local veh_door = EVehicleDoor.seat_front_left
-    if self.av_obj.vehicle_model_tweakdb_id == DAV.surveyor_record then
-        veh_door = EVehicleDoor.trunk
-    end
+    -- if self.av_obj.vehicle_model_tweakdb_id == DAV.surveyor_record then
+    --     veh_door = EVehicleDoor.trunk
+    -- end
 
     if self:IsInEntryArea() then
         if self.av_obj:GetDoorState(veh_door) == VehicleDoorState.Closed then

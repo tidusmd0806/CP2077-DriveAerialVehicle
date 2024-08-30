@@ -70,6 +70,24 @@ function Debug:SetObserver()
         --         print(event:ToString())
         --     end
         -- end)
+
+        Observe("VehicleComponentPS", "CloseAllVehDoors", function(this, forceScene)
+            -- method has just been called with:
+            -- this: VehicleComponentPS
+            -- forceScene: Bool
+            print("VehicleComponentPS CloseAllVehDoors")
+            print(forceScene)
+        end)
+
+        Observe("VehicleComponentPS", "OnVehicleDoorClose", function(this, evt)
+            -- method has just been called with:
+            -- this: VehicleComponentPS
+            -- evt: ref<VehicleDoorClose>
+            print("VehicleComponentPS OnVehicleDoorClose")
+            print(evt.slotID)
+        end)
+        
+        
         
         
     end
@@ -392,31 +410,46 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        local shoot_evt = VehicleMountedWeaponShootEvent.new()
-        shoot_evt.slotID = TweakDBID.new("AttachmentSlots.VehiclePowerWeaponLeftA")
-        shoot_evt.weaponID = TweakDBID.new("Items.Vehicle_Power_Weapon_Left_A")
-        DAV.core_obj.av_obj.position_obj.entity:QueueEvent(shoot_evt)
-        -- DAV.core_obj.av_obj.position_obj.entity.vehicleComponent:OnWeaponShootEvent(shoot_evt)
-        shoot_evt.slotID = TweakDBID.new("AttachmentSlots.VehiclePowerWeaponRightA")
-        shoot_evt.weaponID = TweakDBID.new("Items.Vehicle_Power_Weapon_Right_A")
-        -- DAV.core_obj.av_obj.position_obj.entity.vehicleComponent:OnWeaponShootEvent(shoot_evt)
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local effect_name = CName.new("landingWarning")
+        GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
+
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
+    if ImGui.Button("TF4-1") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local effect_name = CName.new("landingWarningGlitch")
+        GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
+
+        print("Excute Test Function 4-1")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF4-2") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local effect_name = CName.new("projectorVFX")
+        GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
+
+        print("Excute Test Function 4-2")
+    end
+    ImGui.SameLine()
     if ImGui.Button("TF5") then
-        -- Game.GetPlayer():OnDriverCombatWeaponTypeChange(101)
-        -- Game.GetPlayer():SetPSIsInDriverCombat(true)
-        -- Game.GetTransactionSystem():EquipActiveItemInSlot(Game.GetPlayer(), TweakDBID.new('AttachmentSlots.WeaponRight'), true)
-        local sys = Game.GetScriptableSystemsContainer():Get('EquipmentSystem')
-        local eqManipulationRequest = EquipmentSystemWeaponManipulationRequest.new()
-        -- eqManipulationRequest.requestType = EquipmentManipulationAction.RequestLastUsedOrFirstAvailableWeapon
-        eqManipulationRequest.requestType = EquipmentManipulationAction.CycleWeaponWheelItem
-        eqManipulationRequest.owner = Game.GetPlayer()
-        sys:QueueRequest(eqManipulationRequest)
+        local door_event = VehicleDoorOpen.new()
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local vehicle_ps = entity:GetVehiclePS()
+        door_event.slotID = CName.new("seat_front_right")
+        door_event.forceScene = false
+        vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
         print("Excute Test Function 5")
     end
     ImGui.SameLine()
     if ImGui.Button("TF6") then
+        local door_event = VehicleDoorClose.new()
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local vehicle_ps = entity:GetVehiclePS()
+        door_event.slotID = CName.new("seat_front_right")
+        door_event.forceScene = false
+        vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
         print("Excute Test Function 6")
     end
 end

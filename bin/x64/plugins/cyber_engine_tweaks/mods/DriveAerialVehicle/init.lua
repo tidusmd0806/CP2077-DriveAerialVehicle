@@ -27,6 +27,7 @@ DAV = {
     atlus_record = "Vehicle.av_zetatech_atlus_dav",
     surveyor_record = "Vehicle.av_zetatech_surveyor_dav",
     valgus_record = "Vehicle.q000_nomad_border_patrol_heli_dav",
+    mayhem_record = "Vehicle.q000_nomad_border_patrol_heli_mayhem_dav",
     -- grobal index
     model_index = 1,
 	model_type_index = 1,
@@ -122,6 +123,16 @@ DAV.user_setting_table = {
 -- set custom vehicle record
 registerForEvent("onTweak",function ()
 
+    -- Vehicle weapons list
+    local weapon_list = {TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_A"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_A"),
+                        TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_B"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_B"),
+                        TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_C"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_C"),
+                        TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_A"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_B"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_C")}
+
+    -- Combat vehicle data 
+    TweakDB:CloneRecord("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav", "Vehicle.v_standard2_archer_quartz_nomad_inline1")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+
     -- Custom excalibur record
     TweakDB:CloneRecord(DAV.excalibur_record, "Vehicle.av_rayfield_excalibur")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.entityTemplatePath"), "base\\dav\\av_rayfield_excalibur__basic_01_dav.ent")
@@ -140,33 +151,33 @@ registerForEvent("onTweak",function ()
 
      -- Custom surveyor record
     TweakDB:CloneRecord(DAV.surveyor_record, "Vehicle.av_zetatech_surveyor")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\surveyor\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.player_audio_resource"), "v_av_basilisk_tank")
-
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.isArmoredVehicle"), true)
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.weapons"), weapon_list)
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.vehDataPackage"), "Vehicle.v_standard2_archer_quartz_nomad_inline1_dav")
+    
     -- Custom valgus record
-    -- TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
-    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav.ent")
-    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.displayName"), LocKey(77966))
-    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.manufacturer"), "Vehicle.Zetatech")
-    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.player_audio_resource"), "v_av_basilisk_tank")
-    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.destroyedAppearance"), "valgus_rusted")
-    -- local valgus_tag_list = {CName.new("InteractiveTrunk")}
-    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.tags"), valgus_tag_list)
-
     TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\q000_border_patrol_heli_dav_attack.ent")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\valgus\\q000_border_patrol_heli_dav.ent")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.displayName"), LocKey(77966))
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.manufacturer"), "Vehicle.Zetatech")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.destroyedAppearance"), "valgus_rusted")
     local valgus_tag_list = {CName.new("InteractiveTrunk")}
     TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.tags"), valgus_tag_list)
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.isArmoredVehicle"), true)
-    local weapon_list = {TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_A"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_A"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_B"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_B"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_C"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_C"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_A"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_B"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_C")}
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.weapons"), weapon_list)
-    TweakDB:CloneRecord("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav", "Vehicle.v_standard2_archer_quartz_nomad_inline1")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.vehDataPackage"), "Vehicle.v_standard2_archer_quartz_nomad_inline1_dav")
+
+    -- Custom mayhem record
+    TweakDB:CloneRecord(DAV.mayhem_record, "Vehicle.q000_nomad_border_patrol_heli")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".entityTemplatePath"), "base\\dav\\mayhem\\q000_border_patrol_heli_mayhem_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".displayName"), LocKey(88814))
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".manufacturer"), "Vehicle.Militech")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".destroyedAppearance"), "valgus_rusted")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tags"), valgus_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".isArmoredVehicle"), true)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".weapons"), weapon_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDataPackage"), "Vehicle.v_standard2_archer_quartz_nomad_inline1_dav")
 
 end)
 
