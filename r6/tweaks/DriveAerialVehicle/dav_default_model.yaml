@@ -1,3 +1,4 @@
+# Excalibur
 Vehicle.av_rayfield_excalibur_dav_dummy:
   $base: Vehicle.v_sport2_quadra_type66_02_player
   displayName: LocKey#77051
@@ -11,6 +12,7 @@ Vehicle.av_rayfield_excalibur_dav_dummy.dealerPartName: "v_rayfield_excalibur_fu
 Vehicle.av_rayfield_excalibur_dav_dummy.dealerPrice: 250000
 Vehicle.av_rayfield_excalibur_dav_dummy.dealerCred: 20
 
+# Manticore
 Vehicle.av_militech_manticore_dav_dummy:
   $base:  Vehicle.v_sport2_quadra_type66_02_player
   displayName: LocKey#77967
@@ -19,12 +21,26 @@ Vehicle.av_militech_manticore_dav_dummy:
     atlasResourcePath: base/gameplay/gui/common/icons/weapon_manufacturers.inkatlas
     atlasPartName: militech_l
   isArmoredVehicle: true
+  vehDataPackage: 
+    $base: Vehicle.v_standard2_archer_quartz_nomad_inline1
+    driverCombat: DriverCombatTypes.MountedWeapons
+  weapons:
+    - Vehicle.Vehicle_Power_Weapon_Left_A
+    - Vehicle.Vehicle_Power_Weapon_Right_A
+    - Vehicle.Vehicle_Power_Weapon_Left_B
+    - Vehicle.Vehicle_Power_Weapon_Right_B
+    - Vehicle.Vehicle_Power_Weapon_Left_C
+    - Vehicle.Vehicle_Power_Weapon_Right_C
+    - Vehicle.Vehicle_Missile_Launcher_A
+    - Vehicle.Vehicle_Missile_Launcher_B
+    - Vehicle.Vehicle_Missile_Launcher_C
 
 Vehicle.av_militech_manticore_dav_dummy.dealerAtlasPath: "base/gameplay/gui/common/icons/codex/assets_fullscreen26.inkatlas"
 Vehicle.av_militech_manticore_dav_dummy.dealerPartName: "v_militech_manticore_full"
 Vehicle.av_militech_manticore_dav_dummy.dealerPrice: 400000
 Vehicle.av_militech_manticore_dav_dummy.dealerCred: 45
 
+# Atlus
 Vehicle.av_zetatech_atlus_dav_dummy:
   $base:  Vehicle.v_sport2_quadra_type66_02_player
   displayName: LocKey#77962
@@ -32,12 +48,27 @@ Vehicle.av_zetatech_atlus_dav_dummy:
   icon:
     atlasResourcePath: base/gameplay/gui/common/icons/weapon_manufacturers.inkatlas
     atlasPartName: zetatech
+  isArmoredVehicle: true
+  vehDataPackage: 
+    $base: Vehicle.v_standard2_archer_quartz_nomad_inline1
+    driverCombat: DriverCombatTypes.MountedWeapons
+  weapons:
+    - Vehicle.Vehicle_Power_Weapon_Left_A
+    - Vehicle.Vehicle_Power_Weapon_Right_A
+    - Vehicle.Vehicle_Power_Weapon_Left_B
+    - Vehicle.Vehicle_Power_Weapon_Right_B
+    - Vehicle.Vehicle_Power_Weapon_Left_C
+    - Vehicle.Vehicle_Power_Weapon_Right_C
+    - Vehicle.Vehicle_Missile_Launcher_A
+    - Vehicle.Vehicle_Missile_Launcher_B
+    - Vehicle.Vehicle_Missile_Launcher_C
 
 Vehicle.av_zetatech_atlus_dav_dummy.dealerAtlasPath: "base/gameplay/gui/common/icons/codex/assets_fullscreen26.inkatlas"
 Vehicle.av_zetatech_atlus_dav_dummy.dealerPartName: "v_zetatech_atlus_trauma_team_full"
-Vehicle.av_zetatech_atlus_dav_dummy.dealerPrice: 150000
-Vehicle.av_zetatech_atlus_dav_dummy.dealerCred: 20
+Vehicle.av_zetatech_atlus_dav_dummy.dealerPrice: 300000
+Vehicle.av_zetatech_atlus_dav_dummy.dealerCred: 40
 
+# Surveyor
 Vehicle.av_zetatech_surveyor_dav_dummy:
   $base:  Vehicle.v_sport2_quadra_type66_02_player
   displayName: LocKey#77063
@@ -46,12 +77,26 @@ Vehicle.av_zetatech_surveyor_dav_dummy:
     atlasResourcePath: base/gameplay/gui/common/icons/weapon_manufacturers.inkatlas
     atlasPartName: zetatech
   isArmoredVehicle: true
+  vehDataPackage: 
+    $base: Vehicle.v_standard2_archer_quartz_nomad_inline1
+    driverCombat: DriverCombatTypes.MountedWeapons
+  weapons:
+    - Vehicle.Vehicle_Power_Weapon_Left_A
+    - Vehicle.Vehicle_Power_Weapon_Right_A
+    - Vehicle.Vehicle_Power_Weapon_Left_B
+    - Vehicle.Vehicle_Power_Weapon_Right_B
+    - Vehicle.Vehicle_Power_Weapon_Left_C
+    - Vehicle.Vehicle_Power_Weapon_Right_C
+    - Vehicle.Vehicle_Missile_Launcher_A
+    - Vehicle.Vehicle_Missile_Launcher_B
+    - Vehicle.Vehicle_Missile_Launcher_C
 
 Vehicle.av_zetatech_surveyor_dav_dummy.dealerAtlasPath: "base/gameplay/gui/common/icons/codex/assets_fullscreen21.inkatlas"
 Vehicle.av_zetatech_surveyor_dav_dummy.dealerPartName: "v_zetatech_surveyor_full"
 Vehicle.av_zetatech_surveyor_dav_dummy.dealerPrice: 500000
-Vehicle.av_zetatech_surveyor_dav_dummy.dealerCred: 45
+Vehicle.av_zetatech_surveyor_dav_dummy.dealerCred: 50
 
+# Valgus
 Vehicle.q000_nomad_border_patrol_heli_dav_dummy:
   $base:  Vehicle.v_sport2_quadra_type66_02_player
   displayName: LocKey#77065
@@ -65,6 +110,7 @@ Vehicle.q000_nomad_border_patrol_heli_dav_dummy.dealerPartName: "v_zetatech_valg
 Vehicle.q000_nomad_border_patrol_heli_dav_dummy.dealerPrice: 200000
 Vehicle.q000_nomad_border_patrol_heli_dav_dummy.dealerCred: 20
 
+# Mayhem
 Vehicle.q000_nomad_border_patrol_heli_mayhem_dav_dummy:
   $base:  Vehicle.v_sport2_quadra_type66_02_player
   displayName: LocKey#88814
@@ -73,12 +119,26 @@ Vehicle.q000_nomad_border_patrol_heli_mayhem_dav_dummy:
     atlasResourcePath: base/gameplay/gui/common/icons/weapon_manufacturers.inkatlas
     atlasPartName: militech_l
   isArmoredVehicle: true
+  vehDataPackage: 
+    $base: Vehicle.v_standard2_archer_quartz_nomad_inline1
+    driverCombat: DriverCombatTypes.MountedWeapons
+  weapons:
+    - Vehicle.Vehicle_Power_Weapon_Left_A
+    - Vehicle.Vehicle_Power_Weapon_Right_A
+    - Vehicle.Vehicle_Power_Weapon_Left_B
+    - Vehicle.Vehicle_Power_Weapon_Right_B
+    - Vehicle.Vehicle_Power_Weapon_Left_C
+    - Vehicle.Vehicle_Power_Weapon_Right_C
+    - Vehicle.Vehicle_Missile_Launcher_A
+    - Vehicle.Vehicle_Missile_Launcher_B
+    - Vehicle.Vehicle_Missile_Launcher_C
 
 Vehicle.q000_nomad_border_patrol_heli_mayhem_dav_dummy.dealerAtlasPath: "base/gameplay/gui/common/icons/codex/assets_fullscreen21.inkatlas"
 Vehicle.q000_nomad_border_patrol_heli_mayhem_dav_dummy.dealerPartName: "v_zetatech_valgus_full"
 Vehicle.q000_nomad_border_patrol_heli_mayhem_dav_dummy.dealerPrice: 350000
 Vehicle.q000_nomad_border_patrol_heli_mayhem_dav_dummy.dealerCred: 45
 
+# Append the new vehicles to the list
 Vehicle.vehicle_list.list:
   - !append Vehicle.av_rayfield_excalibur_dav_dummy
   - !append Vehicle.av_militech_manticore_dav_dummy
