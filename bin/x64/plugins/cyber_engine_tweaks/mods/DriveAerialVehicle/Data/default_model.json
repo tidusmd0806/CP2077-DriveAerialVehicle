@@ -35,7 +35,10 @@
         "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
         "entry_area_radius": 2.5,
         "exit_point": {"x": -2.5, "y": 0, "z": 0},
-        "minimum_distance_to_ground": 1.2
+        "minimum_distance_to_ground": 1.2,
+        "combat_door": ["None"],
+        "crystal_dome": true,
+        "landing_vfx": false
     },
     {
         "name": "Militech Manticore",
@@ -45,7 +48,8 @@
             "manticore",
             "ncpd",
             "trauma_team_nusa",
-            "barghest"
+            "barghest",
+            "trauma_team"
         ],
         "flight_mode": 0,
         "actual_allocated_door": ["seat_front_left", "seat_front_right"],
@@ -72,7 +76,10 @@
         "entry_point": {"x": 0.0, "y": 0.0, "z": -2.0},
         "entry_area_radius": 4.0,
         "exit_point": {"x": -2.5, "y": 0, "z": -1.5},
-        "minimum_distance_to_ground": 1.0
+        "minimum_distance_to_ground": 1.0,
+        "combat_door": ["None"],
+        "crystal_dome": true,
+        "landing_vfx": false
     },
     {
         "name": "Zetatech Atlus",
@@ -112,7 +119,10 @@
         "entry_point": {"x": -1.5, "y": 0.0, "z": -1.0},
         "entry_area_radius": 2.5,
         "exit_point": {"x": -2.5, "y": 0, "z": 0.0},
-        "minimum_distance_to_ground": 1.0
+        "minimum_distance_to_ground": 2.5,
+        "combat_door": ["None"],
+        "crystal_dome": false,
+        "landing_vfx": true
     },
     {
         "name": "Zetatech Surveyor",
@@ -148,7 +158,10 @@
         "entry_point": {"x": -2.0, "y": 2.0, "z": -2.0},
         "entry_area_radius": 2.5,
         "exit_point": {"x": -2.5, "y": 0, "z": -1.0},
-        "minimum_distance_to_ground": 1.5
+        "minimum_distance_to_ground": 5.0,
+        "combat_door": ["trunk"],
+        "crystal_dome": false,
+        "landing_vfx": true
     },
     {
         "name": "Zetatech Valgus",
@@ -184,7 +197,10 @@
         "entry_point": {"x": -1.0, "y": 1.0, "z": -1.0},
         "entry_area_radius": 2.5,
         "exit_point": {"x": -2.5, "y": 0, "z": 0.0},
-        "minimum_distance_to_ground": 1.5
+        "minimum_distance_to_ground": 1.5,
+        "combat_door": ["None"],
+        "crystal_dome": false,
+        "landing_vfx": false
     },
     {
         "name": "Militech Mayhem",
@@ -219,6 +235,9 @@
         "entry_point": {"x": -1.0, "y": 1.0, "z": -1.0},
         "entry_area_radius": 2.5,
         "exit_point": {"x": -2.5, "y": 0, "z": 0.0},
-        "minimum_distance_to_ground": 1.5
+        "minimum_distance_to_ground": 1.5,
+        "combat_door": ["None"],
+        "crystal_dome": false,
+        "landing_vfx": false
     }
 ]

@@ -15,6 +15,9 @@ function AV:New(all_models)
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
 	---static---
 	obj.all_models = all_models
+	obj.multi_input_decrease_rate_const = 0
+	-- door
+	obj.change_door_interval = 3.0
 	-- summon
 	obj.spawn_distance = 5.5
 	obj.spawn_high = 20
@@ -29,7 +32,11 @@ function AV:New(all_models)
 	obj.min_stack_count = 10
 	obj.limit_stack_count = 500
 	---dynamic---
-	obj.multi_input_decrease_rate_const = 0.5
+	obj.is_enable_crystal_dome = false
+	obj.is_enable_landing_vfx = false
+	-- door
+	obj.open_door_list = {seat_front_left = Def.DoorOperation.Close, seat_front_right = Def.DoorOperation.Close, seat_back_left = Def.DoorOperation.Close, seat_back_right = Def.DoorOperation.Close, trunk = Def.DoorOperation.Close, hood = Def.DoorOperation.Close}
+	obj.combat_door = nil
 	-- summon
 	obj.entity_id = nil
 	obj.vehicle_model_tweakdb_id = nil
@@ -39,12 +46,12 @@ function AV:New(all_models)
 	obj.seat_index = 1
 	obj.is_crystal_dome = true
 	-- av status
-	-- obj.is_player_in = false
 	obj.is_landed = false
 	obj.is_leaving = false
 	obj.is_auto_pilot = false
 	obj.is_unmounting = false
 	obj.is_spawning = false
+	obj.is_combat = false
 	-- autopiolt
 	obj.mappin_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
@@ -69,6 +76,9 @@ function AV:Init()
 	self.vehicle_model_type = self.all_models[index].type[type_number]
 	self.active_seat = self.all_models[index].actual_allocated_seat
 	self.active_door = self.all_models[index].actual_allocated_door
+	self.combat_door = self.all_models[index].combat_door
+	self.is_enable_crystal_dome = self.all_models[index].crystal_dome
+	self.is_enable_landing_vfx = self.all_models[index].landing_vfx
 	self.position_obj:SetModel(index)
 
 	-- read autopilot profile
@@ -223,8 +233,7 @@ function AV:ToggleCrystalDome()
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change crystal dome")
 		return false
-	elseif self.vehicle_model_tweakdb_id ~= DAV.excalibur_record
-			and self.vehicle_model_tweakdb_id ~= DAV.manticore_record then
+	elseif not self.is_enable_crystal_dome then
 		self.log_obj:Record(LogLevel.Trace, "This vehicle does not have a crystal dome")
 		return false
 	end
@@ -278,11 +287,20 @@ end
 
 ---@param door_state Def.DoorOperation
 ---@return number
-function AV:ChangeDoorState(door_state)
+function AV:ChangeDoorState(door_state, door_name_list)
+
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to get door state")
+		return -1
+	end
 
 	local change_counter = 0
 
-	for _, door_name in ipairs(self.active_door) do
+	if door_name_list == nil then
+		door_name_list = self.active_door
+	end
+
+	for _, door_name in ipairs(door_name_list) do
 		local e_veh_door = EVehicleDoor.seat_front_left
 		if door_name == "seat_front_left" then
 			e_veh_door = EVehicleDoor.seat_front_left
@@ -298,41 +316,78 @@ function AV:ChangeDoorState(door_state)
 			e_veh_door = EVehicleDoor.hood
 		end
 
-		local state = self:GetDoorState(e_veh_door)
-
-		local door_event = nil
-		local can_change = true
-		if state == VehicleDoorState.Closed then
-			if door_state == Def.DoorOperation.Close then
-				can_change = false
+		local duration = 3
+		local vehicle_ps = self.position_obj.entity:GetVehiclePS()
+		local feat = AnimFeature_PartData.new()
+		feat.duration = duration
+		if door_state == Def.DoorOperation.Open then
+        	feat.state = 1
+			vehicle_ps:SetDoorState(e_veh_door, VehicleDoorState.Open, false)
+		elseif door_state == Def.DoorOperation.Close then
+			feat.state = 3
+			vehicle_ps:SetDoorState(e_veh_door, VehicleDoorState.Closed, false)
+		elseif door_state == Def.DoorOperation.Change then
+			if self:GetDoorState(e_veh_door) == VehicleDoorState.Closed then
+				feat.state = 1
+				vehicle_ps:SetDoorState(e_veh_door, VehicleDoorState.Open, false)
+			elseif self:GetDoorState(e_veh_door) == VehicleDoorState.Open then
+				feat.state = 3
+				vehicle_ps:SetDoorState(e_veh_door, VehicleDoorState.Closed, false)
 			end
-			door_event = VehicleDoorOpen.new()
-		elseif state == VehicleDoorState.Open then
-			if door_state == Def.DoorOperation.Open then
-				can_change = false
-			end
-			door_event = VehicleDoorClose.new()
-		else
-			self.log_obj:Record(LogLevel.Error, "Door state is not valid : " .. state)
-			return -1
 		end
+		AnimationControllerComponent.ApplyFeatureToReplicate(self.position_obj.entity, CName.new(door_name), feat)
 
-		if self.entity_id == nil then
-			self.log_obj:Record(LogLevel.Warning, "No entity to get door state")
-			return -1
-		end
-		local entity = Game.FindEntityByID(self.entity_id)
-		local vehicle_ps = entity:GetVehiclePS()
-		if can_change then
-			change_counter = change_counter + 1
-			door_event.slotID = CName.new(door_name)
-			door_event.forceScene = false
-			vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
-		end
+		-- local state = self:GetDoorState(e_veh_door)
+		-- local door_event = nil
+		-- local can_change = true
+		-- if state == VehicleDoorState.Closed then
+		-- 	if door_state == Def.DoorOperation.Close then
+		-- 		can_change = false
+		-- 	else
+		-- 		door_event = VehicleDoorOpen.new()
+		-- 		door_state = Def.DoorOperation.Open
+		-- 	end
+		-- elseif state == VehicleDoorState.Open then
+		-- 	if door_state == Def.DoorOperation.Open then
+		-- 		can_change = false
+		-- 	else
+		-- 		door_event = VehicleDoorClose.new()
+		-- 		door_state = Def.DoorOperation.Close
+		-- 	end
+		-- else
+		-- 	self.log_obj:Record(LogLevel.Error, "Door state is not valid : " .. state)
+		-- 	return -1
+		-- end
+
+		-- if can_change and self.open_door_list[door_name] ~= door_state then
+
+		-- 	local entity = Game.FindEntityByID(self.entity_id)
+		-- 	local vehicle_ps = entity:GetVehiclePS()
+		-- 	change_counter = change_counter + 1
+		-- 	door_event.slotID = CName.new(door_name)
+		-- 	door_event.forceScene = false
+		-- 	vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
+
+		-- 	Cron.After(self.change_door_interval, function()
+		-- 		local state = self:GetDoorState(e_veh_door)
+		-- 		if state == VehicleDoorState.Closed then
+		-- 			self.open_door_list[door_name] = Def.DoorOperation.Close
+		-- 		elseif state == VehicleDoorState.Open then
+		-- 			self.open_door_list[door_name] = Def.DoorOperation.Open
+		-- 		end
+		-- 	end)
+		-- end
+
 	end
 	return change_counter
 
 end
+
+-- function AV:ChangeDoorStateList(door_name, door_state)
+-- 	if door_state ~= Def.DoorOperation.Change then
+-- 		self.open_door_list[door_name] = door_state
+-- 	end
+-- end
 
 function AV:ControlCrystalDome()
 
@@ -395,7 +450,9 @@ function AV:Mount()
 
 	Game.GetMountingFacility():Mount(mounting_request)
 
-	self.position_obj:ChangePosition()
+	-- self.position_obj:ChangePosition()
+	self.engine_obj:ResetVelocity()
+	self.position_obj:FixPosition()
 
 	return true
 
@@ -501,19 +558,19 @@ function AV:Operate(action_commands)
 		yaw_total = yaw_total + yaw
 	end
 
-	if #action_commands == 0 then
-		self.log_obj:Record(LogLevel.Critical, "Division by Zero")
-		return false
-	end
+	-- if #action_commands == 0 then
+	-- 	self.log_obj:Record(LogLevel.Critical, "Division by Zero")
+	-- 	return false
+	-- end
 
-	local multi_input_decrease_rate = 1 + (#action_commands - 1) * self.multi_input_decrease_rate_const
+	-- local multi_input_decrease_rate = 1 + (#action_commands - 1) * self.multi_input_decrease_rate_const
 
-	x_total = x_total / multi_input_decrease_rate
-	y_total = y_total / multi_input_decrease_rate
-	z_total = z_total / multi_input_decrease_rate
-	roll_total = roll_total / multi_input_decrease_rate
-	pitch_total = pitch_total / multi_input_decrease_rate
-	yaw_total = yaw_total / multi_input_decrease_rate
+	-- x_total = x_total / multi_input_decrease_rate
+	-- y_total = y_total / multi_input_decrease_rate
+	-- z_total = z_total / multi_input_decrease_rate
+	-- roll_total = roll_total / multi_input_decrease_rate
+	-- pitch_total = pitch_total / multi_input_decrease_rate
+	-- yaw_total = yaw_total / multi_input_decrease_rate
 
 	self.engine_obj:AddLinelyVelocity(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 

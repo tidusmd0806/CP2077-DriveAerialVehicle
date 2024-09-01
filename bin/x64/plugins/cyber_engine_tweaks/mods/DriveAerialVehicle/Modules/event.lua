@@ -18,6 +18,7 @@ function Event:New()
 
     -- static
     obj.delay_stop_leaving_sound = 3.0
+    -- obj.seat_list = {"seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right", "trunk", "hood"}
 
     -- dynamic
     obj.is_initial_load = false
@@ -96,6 +97,7 @@ function Event:SetObserve()
 end
 
 function Event:SetOverride()
+
     Override("OpenVendorUI", "CreateInteraction", function(this, arg_1, arg_2, arg_3, wrapped_method)
         if this:GetActionName().value == "vehicle_door_quest_locked" and self:IsInEntryArea() then
             self.log_obj:Record(LogLevel.Trace, "Disappear vehicle door quest locked")
@@ -103,6 +105,34 @@ function Event:SetOverride()
         end
         wrapped_method(arg_1, arg_2, arg_3)
     end)
+
+    -- Override("VehicleComponentPS", "OnVehicleDoorClose", function(this, evt, wrapped_method)
+
+    --     if self:IsInVehicle() then
+    --         self.log_obj:Record(LogLevel.Trace, "Vehicle door close detected")
+    --         for index, req in ipairs(self.av_obj.current_close_request) do
+    --             if req then
+    --                 if evt.slotID.value == self.seat_list[index] then
+    --                     -- self.av_obj.current_close_request[index] = false
+    --                     return wrapped_method(evt)
+    --                 end
+    --             end
+    --         end
+    --         return EntityNotificationType.DoNotNotifyEntity
+    --     else
+    --         return wrapped_method(evt)
+    --     end
+
+    -- end)
+
+    Override("VehicleComponentPS", "GetHasAnyDoorOpen", function(this, wrapped_method)
+        if self:IsInVehicle() then
+            return false
+        else
+            return wrapped_method()
+        end
+    end)
+
 end
 
 function Event:SetSituation(situation)
@@ -145,7 +175,6 @@ end
 function Event:CheckAllEvents()
 
     if self.current_situation == Def.Situation.Normal then
-        -- self:CheckCallPurchasedVehicle()
         self:CheckGarage()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
@@ -153,7 +182,6 @@ function Event:CheckAllEvents()
         self:CheckDespawn()
         self:CheckInEntryArea()
         self:CheckInAV()
-        -- self:CheckReturnPurchasedVehicle()
         self:CheckDestroyed()
         self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
@@ -164,6 +192,7 @@ function Event:CheckAllEvents()
         self:CheckHUD()
         self:CheckDestroyed()
         self:CheckInput()
+        self:CheckCombat()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
         self:CheckLockedSave()
@@ -240,6 +269,9 @@ function Event:CheckInAV()
             self.is_keyboard_input_prev = DAV.is_keyboard_input
             Cron.After(1.5, function()
                 self.hud_obj:ShowLeftBottomHUD()
+                -- for _, door in ipairs(self.av_obj.active_seat) do
+                --     self.av_obj:ChangeDoorStateList(door ,Def.DoorOperation.Close)
+                -- end
             end)
         end
     else
@@ -249,6 +281,7 @@ function Event:CheckInAV()
             self.hud_obj:HideLeftBottomHUD()
             self:SetSituation(Def.Situation.Waiting)
             self.hud_obj:HideCustomHint()
+            self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
             self:UnsetMappin()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
@@ -278,9 +311,6 @@ end
 function Event:CheckDoor()
 
     local veh_door = EVehicleDoor.seat_front_left
-    -- if self.av_obj.vehicle_model_tweakdb_id == DAV.surveyor_record then
-    --     veh_door = EVehicleDoor.trunk
-    -- end
 
     if self:IsInEntryArea() then
         if self.av_obj:GetDoorState(veh_door) == VehicleDoorState.Closed then
@@ -290,6 +320,34 @@ function Event:CheckDoor()
         if self.av_obj:GetDoorState(veh_door) == VehicleDoorState.Open then
             self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
         end
+    end
+
+end
+
+function Event:CheckCombat()
+
+    local is_combat = Game.GetPlayer():PSIsInDriverCombat()
+    if is_combat ~= self.av_obj.is_combat then
+        self.av_obj.is_combat = is_combat
+        if is_combat then
+            if self.av_obj.combat_door[1] ~= "None" then
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Open, self.av_obj.combat_door)
+            end
+        else
+            if self.av_obj.combat_door[1] ~= "None" then
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door)
+            end
+        end
+    -- else
+    --     if is_combat and self.av_obj.combat_door[1] ~= "None" then
+    --         if self.av_obj:GetDoorState(self.av_obj.combat_door[1]) == VehicleDoorState.Closed then
+    --             self.av_obj:ChangeDoorState(Def.DoorOperation.Open, self.av_obj.combat_door)
+    --         end
+    --     elseif not is_combat and self.av_obj.combat_door[1] ~= "None" then
+    --         if self.av_obj:GetDoorState(self.av_obj.combat_door[1]) == VehicleDoorState.Open then
+    --             self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door)
+    --         end
+    --     end
     end
 
 end

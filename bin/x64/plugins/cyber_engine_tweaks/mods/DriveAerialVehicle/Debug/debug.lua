@@ -55,41 +55,6 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
-        Observe("PlayerPuppet", "OnDriverCombatWeaponTypeChange", function(this, newWeaponType)
-            -- method has just been called with:
-            -- this: PlayerPuppet
-            -- newWeaponType: Int32
-            print(newWeaponType)
-        end)
-
-        -- Observe("PlayerPuppet", "QueueEvent", function(this, event)
-        --     -- method has just been called with:
-        --     -- this: ScriptableSystem
-        --     -- request: ref<ScriptableSystemRequest>
-        --     if this:IsA("PlayerPuppet") then
-        --         print(event:ToString())
-        --     end
-        -- end)
-
-        Observe("VehicleComponentPS", "CloseAllVehDoors", function(this, forceScene)
-            -- method has just been called with:
-            -- this: VehicleComponentPS
-            -- forceScene: Bool
-            print("VehicleComponentPS CloseAllVehDoors")
-            print(forceScene)
-        end)
-
-        Observe("VehicleComponentPS", "OnVehicleDoorClose", function(this, evt)
-            -- method has just been called with:
-            -- this: VehicleComponentPS
-            -- evt: ref<VehicleDoorClose>
-            print("VehicleComponentPS OnVehicleDoorClose")
-            print(evt.slotID)
-        end)
-        
-        
-        
-        
     end
     self.is_set_observer = true
 
@@ -185,6 +150,21 @@ function Debug:ImGuiVehicleInfo()
         else
             ImGui.Text("Vehicle : Alive")
         end
+        local left_door_state = DAV.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_left)
+        local right_door_state = DAV.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_right)
+        ImGui.Text("Left Door : ")
+        ImGui.SameLine()
+        ImGui.Text(tostring(left_door_state))
+        ImGui.Text("Right Door : ")
+        ImGui.SameLine()
+        ImGui.Text(tostring(right_door_state))
+        if DAV.core_obj.av_obj.engine_obj.fly_av_system:IsOnGround() then
+            ImGui.Text("On Ground")
+        else
+            ImGui.Text("In Air")
+        end
+        ImGui.Text("Phy State: " .. tostring(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetPhysicsState()))
+
     end
 end
 
@@ -304,19 +284,6 @@ end
 function Debug:ImGuiMeasurement()
     self.is_im_gui_measurement = ImGui.Checkbox("[ImGui] Measurement", self.is_im_gui_measurement)
     if self.is_im_gui_measurement then
-        local res_x, res_y = GetDisplayResolution()
-        ImGui.SetNextWindowPos((res_x / 2) - 20, (res_y / 2) - 20)
-        ImGui.SetNextWindowSize(40, 40)
-        ImGui.SetNextWindowSizeConstraints(40, 40, 40, 40)
-        ---
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 10)
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 5)
-        ---
-        ImGui.Begin("Crosshair", ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
-        ImGui.End()
-        ---
-        ImGui.PopStyleVar(2)
-        ImGui.PopStyleColor(1)
         local look_at_pos = Game.GetTargetingSystem():GetLookAtPosition(Game.GetPlayer())
         if self.core_obj.av_obj.position_obj.entity == nil then
             return
@@ -338,9 +305,25 @@ end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("TF1") then
-        DAV.core_obj.event_obj.hud_obj.hud_car_controller:ShowRequest()
-        DAV.core_obj.event_obj.hud_obj.hud_car_controller:OnCameraModeChanged(true)
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local comp = entity:FindComponentByName("AnimationController")
+        local feat = AnimFeature_PartData.new()
+        feat.duration = 1
+        feat.state = 1
+        -- AnimationControllerComponent.ApplyFeatureToReplicate(Game.GetPlayer():GetMountedVehicle(), CName.new("seat_front_left"), feat)
+        AnimationControllerComponent.ApplyFeatureToReplicate(entity, CName.new("trunk"), feat)
         print("Excute Test Function 1")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF1-2") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local comp = entity:FindComponentByName("AnimationController")
+        local feat = AnimFeature_PartData.new()
+        feat.duration = 1
+        feat.state = 3
+        -- AnimationControllerComponent.ApplyFeatureToReplicate(Game.GetPlayer():GetMountedVehicle(), CName.new("seat_front_left"), feat)
+        AnimationControllerComponent.ApplyFeatureToReplicate(entity, CName.new("trunk"), feat)
+        print("Excute Test Function 1-2")
     end
     ImGui.SameLine()
     if ImGui.Button("TF2") then
@@ -411,25 +394,34 @@ function Debug:ImGuiExcuteFunction()
     ImGui.SameLine()
     if ImGui.Button("TF4") then
         local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local comp = entity:FindComponentByName("LandingVFXSlot")
+        local player_pos = Game.GetPlayer():GetWorldPosition()
+        comp:SetLocalPosition(Vector4.new(0,0,5,1))
+        Cron.After(3, function()
+            comp:SetLocalPosition(Vector4.new(0,0,4,1))
+        end)
+        Cron.After(6, function()
+            comp:SetLocalPosition(Vector4.new(0,0,3,1))
+        end)
         local effect_name = CName.new("landingWarning")
         GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
-
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
     if ImGui.Button("TF4-1") then
         local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local effect_name = CName.new("landingWarningGlitch")
-        GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
-
+        local effect_name = CName.new("landingWarning")
+        GameObjectEffectHelper.StopEffectEvent(entity, effect_name)
         print("Excute Test Function 4-1")
     end
     ImGui.SameLine()
     if ImGui.Button("TF4-2") then
         local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local effect_name = CName.new("projectorVFX")
+        local comp = entity:FindComponentByName("LandingVFXSlot")
+        local player_pos = Game.GetPlayer():GetWorldPosition()
+        comp:SetLocalPosition(Vector4.new(0,0,1,1))
+        local effect_name = CName.new("landingWarning")
         GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
-
         print("Excute Test Function 4-2")
     end
     ImGui.SameLine()
@@ -444,12 +436,7 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF6") then
-        local door_event = VehicleDoorClose.new()
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local vehicle_ps = entity:GetVehiclePS()
-        door_event.slotID = CName.new("seat_front_right")
-        door_event.forceScene = false
-        vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
+        DAV.core_obj.av_obj.engine_obj.fly_av_system:SetPhysicsState(16)
         print("Excute Test Function 6")
     end
 end

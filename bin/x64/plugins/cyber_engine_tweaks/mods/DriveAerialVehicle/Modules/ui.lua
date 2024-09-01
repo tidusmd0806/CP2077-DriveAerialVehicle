@@ -273,11 +273,13 @@ function UI:CreateNativeSettingsPage()
 		local atlus_dummy_record = DAV.atlus_record .. "_dummy"
 		local surveyor_dummy_record = DAV.surveyor_record .. "_dummy"
 		local valgus_dummy_record = DAV.valgus_record .. "_dummy"
+		local mayhem_dummy_record = DAV.mayhem_record .. "_dummy"
 		local is_activated_excalibur = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(excalibur_dummy_record))
 		local is_activated_manticore = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(manticore_dummy_record))
 		local is_activated_atlus = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(atlus_dummy_record))
 		local is_activated_surveyor = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(surveyor_dummy_record))
 		local is_activated_valgus = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(valgus_dummy_record))
+		local is_activated_mayhem = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(mayhem_dummy_record))
 		option_table = DAV.NativeSettings.addSwitch("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_excalibur"), DAV.core_obj:GetTranslationText("native_settings_activation_excalibur_description"), is_activated_excalibur, is_activated_excalibur, function(state)
 			Game.GetVehicleSystem():EnablePlayerVehicle(excalibur_dummy_record, state, true)
 			Cron.After(self.delay_updating_native_settings, function()
@@ -317,6 +319,13 @@ function UI:CreateNativeSettingsPage()
 			end)
 		end)
 		table.insert(self.option_table_list, option_table)
+
+		option_table = DAV.NativeSettings.addSwitch("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_mayhem"), DAV.core_obj:GetTranslationText("native_settings_activation_mayhem_description"), is_activated_mayhem, is_activated_mayhem, function(state)
+			Game.GetVehicleSystem():EnablePlayerVehicle(mayhem_dummy_record, state, true)
+			Cron.After(self.delay_updating_native_settings, function()
+				self:UpdateNativeSettingsPage()
+			end)
+		end)
 
 	end
 
@@ -432,7 +441,7 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
-	option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_vertical_air_resistance_const"), DAV.core_obj:GetTranslationText("native_settings_advance_vertical_air_resistance_const_description"), 0.000, 0.1, 0.005, "%.3f", DAV.user_setting_table.vertical_air_resistance_const, 0.025, function(value)
+	option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_vertical_air_resistance_const"), DAV.core_obj:GetTranslationText("native_settings_advance_vertical_air_resistance_const_description"), 0.000, 0.1, 0.005, "%.3f", DAV.user_setting_table.vertical_air_resistance_const, 0.01, function(value)
 		DAV.user_setting_table.vertical_air_resistance_const = value
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		Cron.After(self.delay_updating_native_settings, function()

@@ -15,14 +15,12 @@ function Engine:New(position_obj, all_models)
     obj.max_pitch = 30
     obj.force_restore_angle = 70
     obj.max_speed = 95
-    obj.heli_gravity = 0.5
     -- Dynamic
     obj.flight_mode = Def.FlightMode.AV
     obj.fly_av_system = nil
     obj.current_speed = 0
-    obj.is_hovering = false
-    obj.positive_pitch_lock = false
-    obj.negative_pitch_lock = false
+    obj.heli_lift_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
+    obj.is_idle = false
 
     return setmetatable(obj, self)
 end
@@ -32,11 +30,28 @@ function Engine:Init(entity_id)
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
-    self.fly_av_system:EnableGravity(false)
+    -- self.fly_av_system:EnableGravity(false)
 
 end
 
+function Engine:ResetVelocity()
+    self.fly_av_system:ChangeLinelyVelocity(Vector3.new(0,0,0), Vector3.new(0,0,0), 1)
+end
+
 function Engine:CalculateLinelyVelocity(action_commands)
+
+    if action_commands == Def.ActionList.Idle then
+        self.is_idle = true
+        if not self.fly_av_system:HasGravity() then
+            self.fly_av_system:EnableGravity(true)
+        end
+        return self:CalculateIdleMode()
+    else
+        self.is_idle = false
+        if self.fly_av_system:HasGravity() then
+            self.fly_av_system:EnableGravity(false)
+        end
+    end
 
     if self.flight_mode == Def.FlightMode.AV then
         return self:CalculateAVMode(action_commands)
@@ -55,9 +70,54 @@ function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
 
     local vel_vec = self.fly_av_system:GetVelocity()
     local ang_vec = self.fly_av_system:GetAngularVelocity()
+    local current_angle = self.position_obj:GetEulerAngles()
+    local roll_restore_amount
+    local pitch_restore_amount
+    if self.flight_mode == Def.FlightMode.AV then
+        roll_restore_amount = DAV.user_setting_table.roll_restore_amount
+        pitch_restore_amount = DAV.user_setting_table.pitch_restore_amount
+    elseif self.flight_mode == Def.FlightMode.Helicopter then
+        roll_restore_amount = DAV.user_setting_table.h_roll_restore_amount
+        pitch_restore_amount = DAV.user_setting_table.h_pitch_restore_amount
+    end
+    local local_roll = 0
+    local local_pitch = 0
 
-    if self.is_hovering then
-        self.fly_av_system:ChangeLinelyVelocity(Vector3.new(vel_vec.x, vel_vec.y, 0), Vector3.new(roll, pitch, yaw), 1)
+    if self.flight_mode == Def.FlightMode.Helicopter or self.is_idle then
+        if current_angle.pitch > pitch_restore_amount then
+            local_pitch = local_pitch - pitch_restore_amount
+        elseif current_angle.pitch < -pitch_restore_amount then
+            local_pitch = local_pitch + pitch_restore_amount
+        end
+    end
+
+    if current_angle.roll > roll_restore_amount then
+        local_roll = local_roll - roll_restore_amount
+    elseif current_angle.roll < -roll_restore_amount then
+        local_roll = local_roll + roll_restore_amount
+    end
+
+    if current_angle.roll > self.force_restore_angle or current_angle.roll < -self.force_restore_angle then
+        local_roll = - current_angle.roll
+    elseif current_angle.pitch > self.force_restore_angle or current_angle.pitch < -self.force_restore_angle then
+        local_pitch = - current_angle.pitch
+    end
+
+    local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
+
+    roll = roll+ d_roll
+    pitch = pitch + d_pitch
+    yaw = yaw + d_yaw
+
+    if self.flight_mode == Def.FlightMode.Helicopter then
+        local up_vec = self.position_obj:GetUp()
+        if self.heli_lift_acceleration < 0 then
+            self.heli_lift_acceleration = 0
+        end
+        x = x + self.heli_lift_acceleration * up_vec.x
+        y = y + self.heli_lift_acceleration * up_vec.y
+
+        self.heli_lift_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
     end
 
     self.current_speed = math.sqrt(x * x + y * y + z * z)
@@ -93,7 +153,6 @@ function Engine:CalculateAVMode(action_commands)
     local vertical_acceleration = DAV.user_setting_table.vertical_acceleration
     local left_right_acceleration = DAV.user_setting_table.left_right_acceleration
     local roll_change_amount = DAV.user_setting_table.roll_change_amount
-    local roll_restore_amount = DAV.user_setting_table.roll_restore_amount
     local pitch_change_amount = DAV.user_setting_table.pitch_change_amount
     local pitch_restore_amount = DAV.user_setting_table.pitch_restore_amount
     local yaw_change_amount = DAV.user_setting_table.yaw_change_amount
@@ -142,12 +201,16 @@ function Engine:CalculateAVMode(action_commands)
     elseif action_commands == Def.ActionList.LeanForward then
         if current_angle.pitch < -self.max_pitch then
             local_pitch = 0
+        elseif current_angle.pitch < 0 then
+            local_pitch = local_pitch - pitch_change_amount * ((self.max_pitch + current_angle.pitch) / self.max_pitch)
         else
             local_pitch = local_pitch - pitch_change_amount
         end
     elseif action_commands == Def.ActionList.LeanBackward then
         if current_angle.pitch > self.max_pitch then
             local_pitch = 0
+        elseif current_angle.pitch > 0 then
+            local_pitch = local_pitch + pitch_change_amount * ((self.max_pitch - current_angle.pitch) / self.max_pitch)
         else
             local_pitch = local_pitch + pitch_change_amount
         end
@@ -157,18 +220,6 @@ function Engine:CalculateAVMode(action_commands)
         elseif current_angle.pitch < 0 then
             local_pitch = local_pitch + pitch_restore_amount
         end
-    end
-
-    if current_angle.roll > roll_restore_amount then
-        local_roll = local_roll - roll_restore_amount
-    elseif current_angle.roll < -roll_restore_amount then
-        local_roll = local_roll + roll_restore_amount
-    end
-
-    if current_angle.roll > self.force_restore_angle or current_angle.roll < -self.force_restore_angle then
-        local_roll = - current_angle.roll
-    elseif current_angle.pitch > self.force_restore_angle or current_angle.pitch < -self.force_restore_angle then
-        local_pitch = - current_angle.pitch
     end
 
     local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
@@ -187,13 +238,13 @@ function Engine:CalculateHelicopterMode(action_commands)
     local current_angle = self.position_obj:GetEulerAngles()
 
     local roll_change_amount = DAV.user_setting_table.h_roll_change_amount
-    local roll_restore_amount = DAV.user_setting_table.h_roll_restore_amount
     local pitch_change_amount = DAV.user_setting_table.h_pitch_change_amount
-    local pitch_restore_amount = DAV.user_setting_table.h_pitch_restore_amount
     local yaw_change_amount = DAV.user_setting_table.h_yaw_change_amount
     local acceaeration = DAV.user_setting_table.h_acceleration
-    local lift_acceleration = DAV.user_setting_table.h_lift_acceleration
-    local lift_idle_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
+    -- local lift_acceleration = DAV.user_setting_table.h_lift_acceleration
+    -- local lift_idle_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
+    local ascend_acceleration = DAV.user_setting_table.h_ascend_acceleration
+    local descend_acceleration = DAV.user_setting_table.h_descend_acceleration
 
     local forward_vec = self.position_obj:GetForward()
     local up_vec = self.position_obj:GetUp()
@@ -202,90 +253,73 @@ function Engine:CalculateHelicopterMode(action_commands)
     local local_pitch = 0
 
     if action_commands == Def.ActionList.HLeanForward then
-        self.positive_pitch_lock = false
         if current_angle.pitch < -self.max_pitch then
             local_pitch = 0
-            self.negative_pitch_lock = true
-        elseif not self.negative_pitch_lock then
+        elseif current_angle.pitch < 0 then
+            local_pitch = local_pitch - pitch_change_amount * ((self.max_pitch + current_angle.pitch) / self.max_pitch)
+        else
             local_pitch = local_pitch - pitch_change_amount
         end
     elseif action_commands == Def.ActionList.HLeanBackward then
-        self.negative_pitch_lock = false
         if current_angle.pitch > self.max_pitch then
             local_pitch = 0
-            self.positive_pitch_lock = true
-        elseif not self.positive_pitch_lock then
+        elseif current_angle.pitch > 0 then
+            local_pitch = local_pitch + pitch_change_amount * ((self.max_pitch - current_angle.pitch) / self.max_pitch)
+        else
             local_pitch = local_pitch + pitch_change_amount
         end
     elseif action_commands == Def.ActionList.HLeanRight then
-        self.positive_pitch_lock = false
-        self.negative_pitch_lock = false
         if current_angle.roll < -self.max_roll then
             local_roll = 0
         else
             local_roll = local_roll - roll_change_amount
         end
     elseif action_commands == Def.ActionList.HLeanLeft then
-        self.positive_pitch_lock = false
-        self.negative_pitch_lock = false
         if current_angle.roll > self.max_roll then
             local_roll = 0
         else
             local_roll = local_roll + roll_change_amount
         end
     elseif action_commands == Def.ActionList.HRightRotate then
-        self.positive_pitch_lock = false
-        self.negative_pitch_lock = false
         yaw = yaw - yaw_change_amount
     elseif action_commands == Def.ActionList.HLeftRotate then
-        self.positive_pitch_lock = false
-        self.negative_pitch_lock = false
         yaw = yaw + yaw_change_amount
     elseif action_commands == Def.ActionList.HAccelerate then
         x = x + acceaeration * forward_vec.x
         y = y + acceaeration * forward_vec.y
         z = z + acceaeration * forward_vec.z
-    elseif action_commands == Def.ActionList.HLift then
-        x = x + lift_acceleration * up_vec.x
-        y = y + lift_acceleration * up_vec.y
-        z = z + lift_acceleration * up_vec.z
-    elseif action_commands == Def.ActionList.HHover then
-        if self.is_hovering then
-            self.is_hovering = false
-        else
-            self.is_hovering = true
-        end
+    elseif action_commands == Def.ActionList.HUp then
+        -- x = x + ascend_acceleration * up_vec.x
+        -- y = y + ascend_acceleration * up_vec.y
+        z = z + ascend_acceleration * up_vec.z
+        self.heli_lift_acceleration = self.heli_lift_acceleration + ascend_acceleration
+    elseif action_commands == Def.ActionList.HDown then
+        -- x = x + descend_acceleration * up_vec.x
+        -- y = y + descend_acceleration * up_vec.y
+        z = z - descend_acceleration * up_vec.z
+        self.heli_lift_acceleration = self.heli_lift_acceleration - descend_acceleration
     end
-
-    if current_angle.pitch > pitch_restore_amount then
-        if not self.positive_pitch_lock then
-            local_pitch = local_pitch - pitch_restore_amount
-        end
-    elseif current_angle.pitch < -pitch_restore_amount then
-        if not self.negative_pitch_lock then
-            local_pitch = local_pitch + pitch_restore_amount
-        end
-    end
-
-    if current_angle.roll > roll_restore_amount then
-        local_roll = local_roll - roll_restore_amount
-    elseif current_angle.roll < -roll_restore_amount then
-        local_roll = local_roll + roll_restore_amount
-    end
-
-    -- gravity
-    z = z - self.heli_gravity
-
-    -- idle
-    x = x + lift_idle_acceleration * up_vec.x
-    y = y + lift_idle_acceleration * up_vec.y
-    z = z + lift_idle_acceleration * up_vec.z
 
     local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
 
     roll = roll+ d_roll
     pitch = pitch + d_pitch
     yaw = yaw + d_yaw
+
+    return x, y, z, roll, pitch, yaw
+
+end
+
+function Engine:CalculateIdleMode()
+
+    local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
+
+    local height = self.position_obj:GetHeight()
+    local dest_height = self.position_obj.minimum_distance_to_ground
+    if height < dest_height then
+        local diff = dest_height - height
+        z = diff * diff * 0.1
+    end
 
     return x, y, z, roll, pitch, yaw
 

@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.1.1",
+	version = "2.2.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -56,11 +56,12 @@ DAV = {
         {name = "lean_reset", key = "IK_B", pad = "IK_Pad_LeftShoulder", is_hold = true},
     },
     default_heli_keybind_table = {
-        {name = "lift", key = "IK_RightMouse", pad = "IK_Pad_LeftShoulder", is_hold = true},
-        {name = "turn_left", key = "IK_Q", pad = "IK_Pad_LeftTrigger", is_hold = true},
-        {name = "turn_right", key = "IK_E", pad = "IK_Pad_RightTrigger", is_hold = true},
-        {name = "acceleration", key = "IK_V", pad = "IK_Pad_A_CROSS", is_hold = true},
-        {name = "hover", key = "IK_B", pad = "IK_Pad_X_SQUARE", is_hold = false},
+        {name = "ascend", key = "IK_G", pad = "IK_Pad_RightTrigger", is_hold = true},
+        {name = "descend", key = "IK_V", pad = "IK_Pad_LeftTrigger", is_hold = true},
+        {name = "turn_left", key = "IK_Q", pad = "IK_Pad_X_SQUARE", is_hold = true},
+        {name = "turn_right", key = "IK_E", pad = "IK_Pad_A_CROSS", is_hold = true},
+        {name = "acceleration", key = "IK_RightMouse", pad = "IK_Pad_LeftShoulder", is_hold = true},
+        -- {name = "hover", key = "IK_B", pad = "IK_Pad_X_SQUARE", is_hold = false},
     },
     default_common_keybind_table = {
         {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_LeftThumb", is_hold = true},
@@ -116,8 +117,9 @@ DAV.user_setting_table = {
     h_pitch_restore_amount = 0.2,
     h_yaw_change_amount = 1,
     h_acceleration = 0.5,
-    h_lift_acceleration = 1,
-    h_lift_idle_acceleration = 0.2,
+    h_lift_idle_acceleration = 1.0,
+    h_ascend_acceleration = 0.5,
+    h_descend_acceleration = 0.5,
 }
 
 -- set custom vehicle record
@@ -129,43 +131,51 @@ registerForEvent("onTweak",function ()
                         TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_C"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_C"),
                         TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_A"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_B"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_C")}
 
-    -- Combat vehicle data 
-    TweakDB:CloneRecord("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav", "Vehicle.v_standard2_archer_quartz_nomad_inline1")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
-
     -- Custom excalibur record
     TweakDB:CloneRecord(DAV.excalibur_record, "Vehicle.av_rayfield_excalibur")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.entityTemplatePath"), "base\\dav\\av_rayfield_excalibur__basic_01_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_dav.player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".entityTemplatePath"), "base\\dav\\excalibur\\av_rayfield_excalibur__basic_01_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".player_audio_resource"), "v_av_basilisk_tank")
 
     -- Custom manticore record
     TweakDB:CloneRecord(DAV.manticore_record, "Vehicle.av_militech_manticore")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.entityTemplatePath"), "base\\dav\\av_militech_manticore_basic_01_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.player_audio_resource"), "v_av_basilisk_tank")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_dav.destroyedAppearance"), "burnt")
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".entityTemplatePath"), "base\\dav\\manticore\\av_militech_manticore_basic_01_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".destroyedAppearance"), "burnt")
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".isArmoredVehicle"), true)
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".weapons"), weapon_list)
+    TweakDB:CloneRecord("Vehicle.av_militech_manticore_inline0_dav", "Vehicle.av_militech_manticore_inline0")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".vehDataPackage"), "Vehicle.av_militech_manticore_inline0_dav")
 
-    -- Custom manticore record
+    -- Custom atlus record
     TweakDB:CloneRecord(DAV.atlus_record, "Vehicle.av_zetatech_atlus")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_dav.entityTemplatePath"), "base\\dav\\av_zetatech_atlus_basic_02_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_dav.player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".entityTemplatePath"), "base\\dav\\atlus\\av_zetatech_atlus_basic_02_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".isArmoredVehicle"), true)
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".weapons"), weapon_list)
+    TweakDB:CloneRecord("Vehicle.av_zetatech_atlus_inline0_dav", "Vehicle.av_zetatech_atlus_inline0")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_atlus_inline0_dav")
 
      -- Custom surveyor record
     TweakDB:CloneRecord(DAV.surveyor_record, "Vehicle.av_zetatech_surveyor")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.entityTemplatePath"), "base\\dav\\surveyor\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.player_audio_resource"), "v_av_basilisk_tank")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.isArmoredVehicle"), true)
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.weapons"), weapon_list)
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_dav.vehDataPackage"), "Vehicle.v_standard2_archer_quartz_nomad_inline1_dav")
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".entityTemplatePath"), "base\\dav\\surveyor\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".isArmoredVehicle"), true)
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".weapons"), weapon_list)
+    TweakDB:CloneRecord("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav", "Vehicle.v_standard2_archer_quartz_nomad_inline1")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.v_standard2_archer_quartz_nomad_inline1_dav")
     
     -- Custom valgus record
     TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.entityTemplatePath"), "base\\dav\\valgus\\q000_border_patrol_heli_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.displayName"), LocKey(77966))
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.manufacturer"), "Vehicle.Zetatech")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.player_audio_resource"), "v_av_basilisk_tank")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.destroyedAppearance"), "valgus_rusted")
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".entityTemplatePath"), "base\\dav\\valgus\\q000_border_patrol_heli_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".displayName"), LocKey(77966))
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".manufacturer"), "Vehicle.Zetatech")
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".destroyedAppearance"), "valgus_rusted")
     local valgus_tag_list = {CName.new("InteractiveTrunk")}
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.q000_nomad_border_patrol_heli_dav.tags"), valgus_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tags"), valgus_tag_list)
 
     -- Custom mayhem record
     TweakDB:CloneRecord(DAV.mayhem_record, "Vehicle.q000_nomad_border_patrol_heli")
@@ -177,7 +187,9 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tags"), valgus_tag_list)
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".isArmoredVehicle"), true)
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".weapons"), weapon_list)
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDataPackage"), "Vehicle.v_standard2_archer_quartz_nomad_inline1_dav")
+    TweakDB:CloneRecord("Vehicle.av_zetatech_valgus_inline0_dav", "Vehicle.av_zetatech_valgus_inline0")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDataPackage"), "Vehicle.av_zetatech_valgus_inline0_dav")
 
 end)
 

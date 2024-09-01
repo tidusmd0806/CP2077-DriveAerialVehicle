@@ -14,6 +14,7 @@ function Position:New(all_models)
     obj.collision_max_count = 80
     obj.dividing_rate = 0.5
     obj.judged_stack_length = 3
+    obj.search_distance = 100
     -- obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
     obj.collision_filters = {"Static", "Terrain", "Water"}
     obj.far_distance = 100
@@ -82,23 +83,27 @@ end
 function Position:GetGroundPosition()
     local current_position = self:GetPosition()
     for _, filter in ipairs(self.collision_filters) do
-        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x, current_position.y, current_position.z - 100, 1.0), filter, false, false)
+        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x, current_position.y, current_position.z - self.search_distance, 1.0), filter, false, false)
         if is_success then
             return trace_result.position.z
         end
     end
-    return current_position.z - 101
+    return current_position.z - self.search_distance - 1
 end
 
 function Position:GetCeilingPosition()
     local current_position = self:GetPosition()
     for _, filter in ipairs(self.collision_filters) do
-        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x, current_position.y, current_position.z + 100, 1.0), filter, false, false)
+        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x, current_position.y, current_position.z + self.search_distance, 1.0), filter, false, false)
         if is_success then
             return trace_result.position.z
         end
     end
-    return current_position.z + 101
+    return current_position.z + self.search_distance + 1
+end
+
+function Position:GetHeight()
+    return self:GetPosition().z - self:GetGroundPosition()
 end
 
 function Position:SetEntity(entity)
