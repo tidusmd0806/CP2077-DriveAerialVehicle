@@ -14,7 +14,7 @@ function Engine:New(position_obj, all_models)
     obj.max_roll = 30
     obj.max_pitch = 30
     obj.force_restore_angle = 70
-    obj.max_speed = 95
+    obj.max_speed = 95 -- CANNOT OVER 100
     -- Dynamic
     obj.flight_mode = Def.FlightMode.AV
     obj.fly_av_system = nil
@@ -63,10 +63,10 @@ end
 
 function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
 
-    local physics_state = self.fly_av_system:GetPhysicsState()
-    if physics_state ~= 0 and physics_state ~= 32 then
-        self.position_obj.entity:PhysicsWakeUp()
-    end
+    -- local physics_state = self.fly_av_system:GetPhysicsState()
+    -- if physics_state ~= 0 and physics_state ~= 32 then
+    --     self.position_obj.entity:PhysicsWakeUp()
+    -- end
 
     local vel_vec = self.fly_av_system:GetVelocity()
     local ang_vec = self.fly_av_system:GetAngularVelocity()
@@ -314,11 +314,13 @@ function Engine:CalculateIdleMode()
 
     local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
 
+    local vel_vec = self.fly_av_system:GetVelocity()
     local height = self.position_obj:GetHeight()
     local dest_height = self.position_obj.minimum_distance_to_ground
+    z = z - vel_vec.z
     if height < dest_height then
         local diff = dest_height - height
-        z = diff * diff * 0.1
+        z = z + diff * diff
     end
 
     return x, y, z, roll, pitch, yaw

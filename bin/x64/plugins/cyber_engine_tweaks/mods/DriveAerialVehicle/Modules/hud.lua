@@ -128,6 +128,9 @@ function HUD:SetObserve()
         end)
 
         Observe("VehicleComponent", "EvaluateDamageLevel", function(this, destruction)
+            if self.av_obj.entity_id == nil then
+                return
+            end
             if this:GetEntity():GetEntityID().hash == self.av_obj.entity_id.hash then
                 self.vehicle_hp = destruction
             end

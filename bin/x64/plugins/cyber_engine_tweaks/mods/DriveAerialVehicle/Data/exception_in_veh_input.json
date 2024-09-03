@@ -15,5 +15,6 @@
     "CameraAim",
     "DriverCombatVisionHold",
     "VisionHold",
-    "VehicleHorn"
+    "VehicleHorn",
+    "CycleLights"
 ]

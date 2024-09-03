@@ -163,9 +163,10 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".isArmoredVehicle"), true)
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".weapons"), weapon_list)
-    TweakDB:CloneRecord("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav", "Vehicle.v_standard2_archer_quartz_nomad_inline1")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
-    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.v_standard2_archer_quartz_nomad_inline1_dav")
+    -- TweakDB:CloneRecord("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav", "Vehicle.v_standard2_archer_quartz_nomad_inline1")
+    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    -- TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.v_standard2_archer_quartz_nomad_inline1_dav")
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.av_zetatech_atlus_inline0_dav")
     
     -- Custom valgus record
     TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")

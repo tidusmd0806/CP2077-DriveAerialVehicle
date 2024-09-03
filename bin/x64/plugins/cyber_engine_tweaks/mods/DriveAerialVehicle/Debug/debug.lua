@@ -54,7 +54,7 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved
+        -- reserved        
     end
     self.is_set_observer = true
 
@@ -434,10 +434,34 @@ function Debug:ImGuiExcuteFunction()
         vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
         print("Excute Test Function 5")
     end
-    ImGui.SameLine()
     if ImGui.Button("TF6") then
-        DAV.core_obj.av_obj.engine_obj.fly_av_system:SetPhysicsState(16)
+        -- local feature = AnimFeature_DoorDevice.new()
+        -- feature.isOpen = true
+        -- feature.isLocked = false
+        -- feature.isSealed = false
+        -- AnimationControllerComponent.ApplyFeatureToReplicate(DAV.core_obj.av_obj.position_obj.entity, CName.new("seat_front_left"), feature)
+        local comp = DAV.core_obj.av_obj.position_obj.entity.vehicleComponent
+        comp:EvaluateDoorReaction(CName.new("seat_front_left"), false, VehicleDoorState.Open)
+        
         print("Excute Test Function 6")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF7") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local pos = entity:GetWorldPosition()
+        local angle = entity:GetWorldOrientation():ToEulerAngles()
+        pos.z = pos.z - 0.1
+        Game.GetTeleportationFacility():Teleport(entity, pos, angle)
+        print("Excute Test Function 7")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF8") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local pos = entity:GetWorldPosition()
+        local angle = entity:GetWorldOrientation():ToEulerAngles()
+        pos.z = pos.z + 0.1
+        Game.GetTeleportationFacility():Teleport(entity, pos, angle)
+        print("Excute Test Function 8")
     end
 end
 

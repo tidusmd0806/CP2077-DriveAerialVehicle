@@ -24,7 +24,7 @@ function AV:New(all_models)
 	obj.spawn_wait_count = 150
 	obj.down_time_count = 200
 	obj.land_offset = -1.0
-	obj.door_open_time = 1.0
+	-- obj.door_open_time = 1.0
 	-- autopiolt
 	obj.profile_path = "Data/autopilot_profile.json"
 	obj.error_range = 3
@@ -35,7 +35,7 @@ function AV:New(all_models)
 	obj.is_enable_crystal_dome = false
 	obj.is_enable_landing_vfx = false
 	-- door
-	obj.open_door_list = {seat_front_left = Def.DoorOperation.Close, seat_front_right = Def.DoorOperation.Close, seat_back_left = Def.DoorOperation.Close, seat_back_right = Def.DoorOperation.Close, trunk = Def.DoorOperation.Close, hood = Def.DoorOperation.Close}
+	-- obj.open_door_list = {seat_front_left = Def.DoorOperation.Close, seat_front_right = Def.DoorOperation.Close, seat_back_left = Def.DoorOperation.Close, seat_back_right = Def.DoorOperation.Close, trunk = Def.DoorOperation.Close, hood = Def.DoorOperation.Close}
 	obj.combat_door = nil
 	-- summon
 	obj.entity_id = nil
@@ -76,7 +76,10 @@ function AV:Init()
 	self.vehicle_model_type = self.all_models[index].type[type_number]
 	self.active_seat = self.all_models[index].actual_allocated_seat
 	self.active_door = self.all_models[index].actual_allocated_door
+	self.enter_duration = self.all_models[index].enter_duration
+	self.exit_duration = self.all_models[index].exit_duration
 	self.combat_door = self.all_models[index].combat_door
+	self.combat_door_duration = self.all_models[index].combat_door_duration
 	self.is_enable_crystal_dome = self.all_models[index].crystal_dome
 	self.is_enable_landing_vfx = self.all_models[index].landing_vfx
 	self.position_obj:SetModel(index)
@@ -189,6 +192,9 @@ function AV:SpawnToSky()
 				elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
 					self.is_landed = true
 					Cron.Halt(timer)
+				elseif self.position_obj:GetHeight() < self.position_obj.minimum_distance_to_ground then
+					self.is_landed = true
+					Cron.Halt(timer)
 				end
 			end
 		end
@@ -286,21 +292,27 @@ function AV:GetDoorState(e_veh_door)
 end
 
 ---@param door_state Def.DoorOperation
----@return number
-function AV:ChangeDoorState(door_state, door_name_list)
+---@return boolean
+function AV:ChangeDoorState(door_state, door_name_list, duration_list)
 
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to get door state")
-		return -1
+		return false
 	end
 
-	local change_counter = 0
+	local vehicle_ps = self.position_obj.entity:GetVehiclePS()
+	local anim_feature = AnimFeature_PartData.new()
+
+	-- local change_counter = 0
 
 	if door_name_list == nil then
 		door_name_list = self.active_door
+	elseif #door_name_list ~= #duration_list then
+		self.log_obj:Record(LogLevel.Error, "Door name list length is not duration list length")
+		return false
 	end
 
-	for _, door_name in ipairs(door_name_list) do
+	for index, door_name in ipairs(door_name_list) do
 		local e_veh_door = EVehicleDoor.seat_front_left
 		if door_name == "seat_front_left" then
 			e_veh_door = EVehicleDoor.seat_front_left
@@ -315,27 +327,51 @@ function AV:ChangeDoorState(door_state, door_name_list)
 		elseif door_name == "hood" then
 			e_veh_door = EVehicleDoor.hood
 		end
-
-		local duration = 3
-		local vehicle_ps = self.position_obj.entity:GetVehiclePS()
-		local feat = AnimFeature_PartData.new()
-		feat.duration = duration
+		
 		if door_state == Def.DoorOperation.Open then
-        	feat.state = 1
+        	anim_feature.state = 1
+			if duration_list == nil then
+				anim_feature.duration =  self.enter_duration
+			else
+				anim_feature.duration =  duration_list[index]
+			end
 			vehicle_ps:SetDoorState(e_veh_door, VehicleDoorState.Open, false)
 		elseif door_state == Def.DoorOperation.Close then
-			feat.state = 3
+			anim_feature.state = 3
+			if duration_list == nil then
+				anim_feature.duration =  self.exit_duration
+			else
+				anim_feature.duration =  duration_list[index]
+			end
 			vehicle_ps:SetDoorState(e_veh_door, VehicleDoorState.Closed, false)
 		elseif door_state == Def.DoorOperation.Change then
 			if self:GetDoorState(e_veh_door) == VehicleDoorState.Closed then
-				feat.state = 1
+				anim_feature.state = 1
+				if duration_list == nil then
+					anim_feature.duration =  self.enter_duration
+				else
+					anim_feature.duration =  duration_list[index]
+				end
 				vehicle_ps:SetDoorState(e_veh_door, VehicleDoorState.Open, false)
 			elseif self:GetDoorState(e_veh_door) == VehicleDoorState.Open then
-				feat.state = 3
+				anim_feature.state = 3
+				if duration_list == nil then
+					anim_feature.duration =  self.exit_duration
+				else
+					anim_feature.duration =  duration_list[index]
+				end
 				vehicle_ps:SetDoorState(e_veh_door, VehicleDoorState.Closed, false)
 			end
 		end
-		AnimationControllerComponent.ApplyFeatureToReplicate(self.position_obj.entity, CName.new(door_name), feat)
+		if anim_feature.duration == 0 then
+			if anim_feature.state == 1 then
+				self.position_obj.entity.vehicleComponent:EvaluateDoorReaction(CName.new(door_name), false, VehicleDoorState.Open)
+			elseif anim_feature.state == 3 then
+				self.position_obj.entity.vehicleComponent:EvaluateDoorReaction(CName.new(door_name), false, VehicleDoorState.Closed)
+			end
+		else
+			AnimationControllerComponent.ApplyFeatureToReplicate(self.position_obj.entity, CName.new(door_name), anim_feature)
+		end
 
 		-- local state = self:GetDoorState(e_veh_door)
 		-- local door_event = nil
@@ -379,7 +415,7 @@ function AV:ChangeDoorState(door_state, door_name_list)
 		-- end
 
 	end
-	return change_counter
+	return true
 
 end
 
@@ -501,12 +537,12 @@ function AV:Unmount()
 	end
 
 	-- if all door are open, wait time is short
-	local open_door_wait = self.door_open_time
-	if self:ChangeDoorState(Def.DoorOperation.Open) == 0 then
-		open_door_wait = 0.1
-	end
+	-- local open_door_wait = self.door_open_time
+	-- if self:ChangeDoorState(Def.DoorOperation.Open) == 0 then
+	-- 	open_door_wait = 0.1
+	-- end
 
-	Cron.After(open_door_wait, function()
+	Cron.After(self.exit_duration, function()
 
 		self.position_obj:FixPosition()
 

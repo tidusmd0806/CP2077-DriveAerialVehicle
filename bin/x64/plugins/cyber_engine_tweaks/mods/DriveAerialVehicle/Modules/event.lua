@@ -264,7 +264,7 @@ function Event:CheckInAV()
             SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
-            self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
+            -- self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             self.hud_obj:ShowCustomHint()
             self.is_keyboard_input_prev = DAV.is_keyboard_input
             Cron.After(1.5, function()
@@ -331,11 +331,11 @@ function Event:CheckCombat()
         self.av_obj.is_combat = is_combat
         if is_combat then
             if self.av_obj.combat_door[1] ~= "None" then
-                self.av_obj:ChangeDoorState(Def.DoorOperation.Open, self.av_obj.combat_door)
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Open, self.av_obj.combat_door, self.av_obj.combat_door_duration)
             end
         else
             if self.av_obj.combat_door[1] ~= "None" then
-                self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door)
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door, self.av_obj.combat_door_duration)
             end
         end
     -- else
