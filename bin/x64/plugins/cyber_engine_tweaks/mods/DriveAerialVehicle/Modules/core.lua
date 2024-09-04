@@ -845,10 +845,10 @@ function Core:GetActions()
 
     local move_actions = {}
 
-    if self.event_obj:IsInMenuOrPopupOrPhoto() then
-        self.queue_obj:Clear()
-        return
-    end
+    -- if self.event_obj:IsInMenuOrPopupOrPhoto() then
+    --     self.queue_obj:Clear()
+    --     return
+    -- end
 
     while not self.queue_obj:IsEmpty() do
         local action = self.queue_obj:Dequeue()
@@ -870,7 +870,7 @@ end
 function Core:OperateAerialVehicle(actions)
 
     if not self.is_locked_operation then
-        if self.event_obj:IsInVehicle() then
+        if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
             self.av_obj:Operate(actions)
         elseif self.event_obj:IsWaiting() or self.event_obj:IsTakingOff() then
             self.av_obj:Operate({Def.ActionList.Idle})

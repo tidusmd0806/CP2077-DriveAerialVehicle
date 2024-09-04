@@ -145,6 +145,9 @@ end
 function Debug:ImGuiVehicleInfo()
     self.is_im_gui_vehicle_info = ImGui.Checkbox("[ImGui] Vehicle Info", self.is_im_gui_vehicle_info)
     if self.is_im_gui_vehicle_info then
+        if DAV.core_obj.av_obj == nil then
+            return
+        end
         if DAV.core_obj.av_obj:IsDestroyed() then
             ImGui.Text("Vehicle : Destroyed")
         else
@@ -152,12 +155,13 @@ function Debug:ImGuiVehicleInfo()
         end
         local left_door_state = DAV.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_left)
         local right_door_state = DAV.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_right)
-        ImGui.Text("Left Door : ")
-        ImGui.SameLine()
-        ImGui.Text(tostring(left_door_state))
-        ImGui.Text("Right Door : ")
-        ImGui.SameLine()
+        ImGui.Text("Door State : " .. tostring(left_door_state) .. ", ")
         ImGui.Text(tostring(right_door_state))
+        local lock_list = DAV.core_obj.av_obj.door_input_lock_list
+        ImGui.Text("Door Input Lock : " .. tostring(lock_list["seat_front_left"]) .. ", " .. tostring(lock_list["seat_front_right"]))
+        if DAV.core_obj.av_obj.engine_obj.fly_av_system == nil then
+            return
+        end
         if DAV.core_obj.av_obj.engine_obj.fly_av_system:IsOnGround() then
             ImGui.Text("On Ground")
         else

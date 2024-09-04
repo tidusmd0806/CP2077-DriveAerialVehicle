@@ -183,7 +183,7 @@ function Event:CheckAllEvents()
         self:CheckInEntryArea()
         self:CheckInAV()
         self:CheckDestroyed()
-        self:CheckDoor()
+        -- self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
         self:CheckAutoModeChange()
@@ -244,6 +244,7 @@ function Event:CheckLanded()
         self.sound_obj:PlaySound("110_arrive_vehicle")
         self.sound_obj:ChangeSoundResource()
         self:SetSituation(Def.Situation.Waiting)
+        self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
 end
 
@@ -264,14 +265,11 @@ function Event:CheckInAV()
             SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
-            -- self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             self.hud_obj:ShowCustomHint()
             self.is_keyboard_input_prev = DAV.is_keyboard_input
             Cron.After(1.5, function()
                 self.hud_obj:ShowLeftBottomHUD()
-                -- for _, door in ipairs(self.av_obj.active_seat) do
-                --     self.av_obj:ChangeDoorStateList(door ,Def.DoorOperation.Close)
-                -- end
+                -- self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             end)
         end
     else
@@ -281,9 +279,11 @@ function Event:CheckInAV()
             self.hud_obj:HideLeftBottomHUD()
             self:SetSituation(Def.Situation.Waiting)
             self.hud_obj:HideCustomHint()
-            self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
             self:UnsetMappin()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
+            -- Cron.After(0.2, function()
+            --     self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
+            -- end)
         end
     end
 end

@@ -15,6 +15,7 @@ function Engine:New(position_obj, all_models)
     obj.max_pitch = 30
     obj.force_restore_angle = 70
     obj.max_speed = 95 -- CANNOT OVER 100
+    obj.idle_height_offset = 0.8
     -- Dynamic
     obj.flight_mode = Def.FlightMode.AV
     obj.fly_av_system = nil
@@ -241,8 +242,6 @@ function Engine:CalculateHelicopterMode(action_commands)
     local pitch_change_amount = DAV.user_setting_table.h_pitch_change_amount
     local yaw_change_amount = DAV.user_setting_table.h_yaw_change_amount
     local acceaeration = DAV.user_setting_table.h_acceleration
-    -- local lift_acceleration = DAV.user_setting_table.h_lift_acceleration
-    -- local lift_idle_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
     local ascend_acceleration = DAV.user_setting_table.h_ascend_acceleration
     local descend_acceleration = DAV.user_setting_table.h_descend_acceleration
 
@@ -316,7 +315,7 @@ function Engine:CalculateIdleMode()
 
     local vel_vec = self.fly_av_system:GetVelocity()
     local height = self.position_obj:GetHeight()
-    local dest_height = self.position_obj.minimum_distance_to_ground
+    local dest_height = self.position_obj.minimum_distance_to_ground + self.idle_height_offset
     z = z - vel_vec.z
     if height < dest_height then
         local diff = dest_height - height

@@ -117,7 +117,7 @@ DAV.user_setting_table = {
     h_pitch_restore_amount = 0.2,
     h_yaw_change_amount = 1,
     h_acceleration = 0.5,
-    h_lift_idle_acceleration = 1.0,
+    h_lift_idle_acceleration = 0.6,
     h_ascend_acceleration = 0.5,
     h_descend_acceleration = 0.5,
 }
