@@ -192,6 +192,13 @@ end
 
 function UI:CreateNativeSettingsBasePage()
 	DAV.NativeSettings.addTab("/DAV", DAV.core_obj:GetTranslationText("native_settings_top_title"))
+	DAV.NativeSettings.registerRestoreDefaultsCallback("/DAV", true, function()
+		print('[DAV][Info] Restore All Settings')
+		self:ResetParameters()
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
 	self:CreateNativeSettingsSubCategory()
 	self:CreateNativeSettingsPage()
 end
@@ -326,6 +333,7 @@ function UI:CreateNativeSettingsPage()
 				self:UpdateNativeSettingsPage()
 			end)
 		end)
+		table.insert(self.option_table_list, option_table)
 
 	end
 
@@ -340,14 +348,17 @@ function UI:CreateNativeSettingsPage()
 	table.insert(self.option_table_list, option_table)
 
 	local keybind_table
+	local default_table
 	if self.selected_flight_mode_index == 1 then
 		keybind_table = DAV.user_setting_table.keybind_table
+		default_table = DAV.default_keybind_table
 	elseif self.selected_flight_mode_index == 2 then
 		keybind_table = DAV.user_setting_table.heli_keybind_table
+		default_table = DAV.default_heli_keybind_table
 	end
 	for index, keybind_list in ipairs(keybind_table) do
 		if keybind_list.key ~= nil then
-			option_table = DAV.NativeSettings.addKeyBinding("/DAV/keybinds", DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name), DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name .. "_description"), keybind_list.key, keybind_table[index].key, keybind_table[index].is_hold, function(key)
+			option_table = DAV.NativeSettings.addKeyBinding("/DAV/keybinds", DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name), DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name .. "_description"), keybind_list.key, default_table[index].key, keybind_table[index].is_hold, function(key)
 				if string.find(key, "IK_Pad") then
 					self.log_obj:Record(LogLevel.Warning, "Invalid keybind (no keyboard): " .. key)
 				else
@@ -639,6 +650,16 @@ function UI:UpdateNativeSettingsPage()
 	self:ClearNativeSettingsPage()
 	self:CreateNativeSettingsSubCategory()
 	self:CreateNativeSettingsPage()
+end
+
+function UI:ResetParameters()
+
+	if not DAV.is_valid_native_settings then
+		return
+	end
+	DAV.user_setting_table = Utils:DeepCopy(DAV.core_obj.initial_user_setting_table)
+    Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+
 end
 
 return UI

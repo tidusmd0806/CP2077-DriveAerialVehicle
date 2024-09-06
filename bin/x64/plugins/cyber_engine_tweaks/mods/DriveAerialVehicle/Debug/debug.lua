@@ -54,7 +54,7 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved        
+        -- reserved
     end
     self.is_set_observer = true
 
@@ -303,7 +303,7 @@ function Debug:ImGuiMeasurement()
         local absolute_position_x = string.format("%.2f", x)
         local absolute_position_y = string.format("%.2f", y)
         local absolute_position_z = string.format("%.2f", z)
-        ImGui.Text("[LookAt]X:" .. absolute_position_x .. ", Y:" .. absolute_position_y .. ", Z:" .. absolute_position_z) 
+        ImGui.Text("[LookAt]X:" .. absolute_position_x .. ", Y:" .. absolute_position_y .. ", Z:" .. absolute_position_z)
     end
 end
 
@@ -439,14 +439,6 @@ function Debug:ImGuiExcuteFunction()
         print("Excute Test Function 5")
     end
     if ImGui.Button("TF6") then
-        -- local feature = AnimFeature_DoorDevice.new()
-        -- feature.isOpen = true
-        -- feature.isLocked = false
-        -- feature.isSealed = false
-        -- AnimationControllerComponent.ApplyFeatureToReplicate(DAV.core_obj.av_obj.position_obj.entity, CName.new("seat_front_left"), feature)
-        local comp = DAV.core_obj.av_obj.position_obj.entity.vehicleComponent
-        comp:EvaluateDoorReaction(CName.new("seat_front_left"), false, VehicleDoorState.Open)
-        
         print("Excute Test Function 6")
     end
     ImGui.SameLine()

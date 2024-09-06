@@ -21,7 +21,6 @@ function Engine:New(position_obj, all_models)
     obj.fly_av_system = nil
     obj.current_speed = 0
     obj.heli_lift_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
-    obj.is_idle = false
 
     return setmetatable(obj, self)
 end
@@ -42,13 +41,11 @@ end
 function Engine:CalculateLinelyVelocity(action_commands)
 
     if action_commands == Def.ActionList.Idle then
-        self.is_idle = true
         if not self.fly_av_system:HasGravity() then
             self.fly_av_system:EnableGravity(true)
         end
         return self:CalculateIdleMode()
     else
-        self.is_idle = false
         if self.fly_av_system:HasGravity() then
             self.fly_av_system:EnableGravity(false)
         end
@@ -84,7 +81,7 @@ function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
     local local_roll = 0
     local local_pitch = 0
 
-    if self.flight_mode == Def.FlightMode.Helicopter or self.is_idle then
+    if self.flight_mode == Def.FlightMode.Helicopter or self.fly_av_system:HasGravity() then
         if current_angle.pitch > pitch_restore_amount then
             local_pitch = local_pitch - pitch_restore_amount
         elseif current_angle.pitch < -pitch_restore_amount then

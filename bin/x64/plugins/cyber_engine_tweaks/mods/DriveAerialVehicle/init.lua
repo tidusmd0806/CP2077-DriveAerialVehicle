@@ -17,7 +17,7 @@ DAV = {
     -- system
     is_ready = false,
     time_resolution = 0.01,
-    is_debug_mode = true,
+    is_debug_mode = false,
     -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
@@ -58,18 +58,17 @@ DAV = {
     default_heli_keybind_table = {
         {name = "ascend", key = "IK_G", pad = "IK_Pad_RightTrigger", is_hold = true},
         {name = "descend", key = "IK_V", pad = "IK_Pad_LeftTrigger", is_hold = true},
-        {name = "turn_left", key = "IK_Q", pad = "IK_Pad_X_SQUARE", is_hold = true},
-        {name = "turn_right", key = "IK_E", pad = "IK_Pad_A_CROSS", is_hold = true},
+        {name = "turn_left", key = "IK_Q", pad = "IK_Pad_DigitLeft", is_hold = true},
+        {name = "turn_right", key = "IK_E", pad = "IK_Pad_DigitRight", is_hold = true},
         {name = "acceleration", key = "IK_RightMouse", pad = "IK_Pad_LeftShoulder", is_hold = true},
-        -- {name = "hover", key = "IK_B", pad = "IK_Pad_X_SQUARE", is_hold = false},
     },
     default_common_keybind_table = {
         {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_LeftThumb", is_hold = true},
-        {name = "toggle_camera", key = "IK_4", pad = "IK_Pad_DigitDown", is_hold = false},
-        {name = "toggle_radio", key = "IK_R", pad = "IK_Pad_DigitUp", is_hold = true},
-        {name = "toggle_door", key = "IK_1", pad = nil, is_hold = false},
-        {name = "toggle_crystal_dome", key = "IK_2", pad = nil, is_hold = false},
-        {name = "toggle_appearance", key = "IK_3", pad = nil, is_hold = false},
+        {name = "toggle_camera", key = "IK_1", pad = "IK_Pad_DigitDown", is_hold = false},
+        {name = "toggle_radio", key = "IK_2", pad = "IK_Pad_DigitUp", is_hold = true},
+        {name = "toggle_door", key = "IK_3", pad = nil, is_hold = false},
+        {name = "toggle_crystal_dome", key = "IK_4", pad = nil, is_hold = false},
+        {name = "toggle_appearance", key = "IK_5", pad = nil, is_hold = false},
     }
 }
 
@@ -250,7 +249,7 @@ end)
 registerForEvent('onInit', function()
 
     if not DAV:CheckDependencies() then
-        print('[Error] Drive an Aerial Vehicle Mod failed to load due to missing dependencies.')
+        print('[DAV][Error] Drive an Aerial Vehicle Mod failed to load due to missing dependencies.')
         return
     end
 
@@ -263,7 +262,7 @@ registerForEvent('onInit', function()
 
     DAV.is_ready = true
 
-    print('Drive an Aerial Vehicle Mod is ready!')
+    print('[DAV][Info] Finished initializing Drive an Aerial Vehicle Mod.')
 
 end)
 
@@ -295,10 +294,10 @@ function DAV:CheckDependencies()
     DAV.codeware_version_num = tonumber(code_version_major .. "." .. code_version_minor)
 
     if DAV.cet_version_num < DAV.cet_required_version then
-        print("Drive an Aerial Vehicle Mod requires Cyber Engine Tweaks version 1." .. DAV.cet_required_version .. " or higher.")
+        print("[DAV][Error] requires Cyber Engine Tweaks version 1." .. DAV.cet_required_version .. " or higher.")
         return false
     elseif DAV.codeware_version_num < DAV.codeware_required_version then
-        print("Drive an Aerial Vehicle Mod requires CodeWare version 1." .. DAV.codeware_required_version .. " or higher.")
+        print("[DAV][Error] requires CodeWare version 1." .. DAV.codeware_required_version .. " or higher.")
         return false
     end
 
@@ -316,7 +315,7 @@ function DAV:CheckNativeSettings()
     DAV.native_settings_version_num = DAV.NativeSettings.version
     if DAV.NativeSettings.version < DAV.native_settings_required_version then
         DAV.is_valid_native_settings = false
-        print("Drive an Aerial Vehicle Mod requires Native Settings version " .. DAV.native_settings_required_version .. " or higher.")
+        print("[DAV][Error] requires Native Settings version " .. DAV.native_settings_required_version .. " or higher.")
         return
     end
     DAV.is_valid_native_settings = true

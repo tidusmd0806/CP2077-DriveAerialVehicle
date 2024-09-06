@@ -143,6 +143,20 @@ function HUD:SetObserve()
         Observe("PhoneHotkeyController", "Initialize", function(this)
             self.hud_phone_controller = this
         end)
+
+        local exception_hint_table = Utils:ReadJson("Data/exception_input_hint.json")
+        ObserveAfter("UISystem", "QueueEvent", function(this, event)
+            if DAV.core_obj.event_obj:IsInVehicle() and event:IsA("gameuiUpdateInputHintEvent") then
+                for _, hint in ipairs(exception_hint_table) do
+                    if event.data.action == CName.new(hint) then
+                        if event.show then
+                            event.show = false
+                            this:QueueEvent(event)
+                        end
+                    end
+                end
+            end
+        end)
     end
 
 end

@@ -7,6 +7,21 @@ Utils.log_obj:SetLevel(LogLevel.Info, "Utils")
 READ_COUNT = 0
 WRITE_COUNT = 0
 
+function Utils:DeepCopy(orig)
+   local orig_type = type(orig)
+   local copy
+   if orig_type == 'table' then
+       copy = {}
+       for orig_key, orig_value in next, orig, nil do
+           copy[self:DeepCopy(orig_key)] = self:DeepCopy(orig_value)
+       end
+       setmetatable(copy, self:DeepCopy(getmetatable(orig)))
+   else -- number, string, boolean, etc
+       copy = orig
+   end
+   return copy
+end
+
 function Utils:IsTablesEqual(table1, table2)
     for key, value in pairs(table1) do
        if value ~= table2[key] then

@@ -108,7 +108,7 @@ function Core:Init()
     self:InitGarageInfo()
 
     -- set initial user setting
-    self.initial_user_setting_table = DAV.user_setting_table
+    self.initial_user_setting_table = Utils:DeepCopy(DAV.user_setting_table)
     self:LoadSetting()
     self:SetTranslationNameList()
     self:StoreTranslationtableList()
@@ -150,18 +150,6 @@ function Core:LoadSetting()
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
     end
-
-end
-
-function Core:ResetSetting()
-
-    DAV.user_setting_table = self.initial_user_setting_table
-    self:UpdateGarageInfo(true)
-    for key, _ in ipairs(DAV.user_setting_table.garage_info_list) do
-        DAV.user_setting_table.garage_info_list[key].type_index = 1
-    end
-    Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-    self:Reset()
 
 end
 
@@ -277,6 +265,7 @@ function Core:SetInputListener()
 
     local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
+    local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
 
@@ -288,16 +277,26 @@ function Core:SetInputListener()
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
 
-        if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
+        if self.event_obj:IsInVehicle() then
             for _, exception in pairs(exception_in_veh_list) do
                 if action_name == exception then
                     consumer:Consume()
+                    break
+                end
+            end
+            if self.event_obj:IsInMenuOrPopupOrPhoto() then
+                for _, exception in pairs(exception_in_popup_list) do
+                    if action_name == exception then
+                        consumer:Consume()
+                        break
+                    end
                 end
             end
         elseif self.event_obj:IsInEntryArea() then
             for _, exception in pairs(exception_in_entry_area_list) do
                 if action_name == exception then
                     consumer:Consume()
+                    break
                 end
             end
         end

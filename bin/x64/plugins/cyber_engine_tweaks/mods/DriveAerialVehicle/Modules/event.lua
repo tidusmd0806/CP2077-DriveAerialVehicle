@@ -269,7 +269,7 @@ function Event:CheckInAV()
             self.is_keyboard_input_prev = DAV.is_keyboard_input
             Cron.After(1.5, function()
                 self.hud_obj:ShowLeftBottomHUD()
-                -- self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             end)
         end
     else
@@ -281,9 +281,9 @@ function Event:CheckInAV()
             self.hud_obj:HideCustomHint()
             self:UnsetMappin()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
-            -- Cron.After(0.2, function()
-            --     self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
-            -- end)
+            Cron.After(0.2, function()
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
+            end)
         end
     end
 end
