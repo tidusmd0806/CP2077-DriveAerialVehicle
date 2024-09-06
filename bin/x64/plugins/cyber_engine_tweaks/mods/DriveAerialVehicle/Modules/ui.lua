@@ -192,6 +192,13 @@ end
 
 function UI:CreateNativeSettingsBasePage()
 	DAV.NativeSettings.addTab("/DAV", DAV.core_obj:GetTranslationText("native_settings_top_title"))
+	DAV.NativeSettings.registerRestoreDefaultsCallback("/DAV", true, function()
+		print('[DAV][Info] Restore All Settings')
+		self:ResetParameters()
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
 	self:CreateNativeSettingsSubCategory()
 	self:CreateNativeSettingsPage()
 end
@@ -273,11 +280,13 @@ function UI:CreateNativeSettingsPage()
 		local atlus_dummy_record = DAV.atlus_record .. "_dummy"
 		local surveyor_dummy_record = DAV.surveyor_record .. "_dummy"
 		local valgus_dummy_record = DAV.valgus_record .. "_dummy"
+		local mayhem_dummy_record = DAV.mayhem_record .. "_dummy"
 		local is_activated_excalibur = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(excalibur_dummy_record))
 		local is_activated_manticore = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(manticore_dummy_record))
 		local is_activated_atlus = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(atlus_dummy_record))
 		local is_activated_surveyor = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(surveyor_dummy_record))
 		local is_activated_valgus = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(valgus_dummy_record))
+		local is_activated_mayhem = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(mayhem_dummy_record))
 		option_table = DAV.NativeSettings.addSwitch("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_excalibur"), DAV.core_obj:GetTranslationText("native_settings_activation_excalibur_description"), is_activated_excalibur, is_activated_excalibur, function(state)
 			Game.GetVehicleSystem():EnablePlayerVehicle(excalibur_dummy_record, state, true)
 			Cron.After(self.delay_updating_native_settings, function()
@@ -318,6 +327,14 @@ function UI:CreateNativeSettingsPage()
 		end)
 		table.insert(self.option_table_list, option_table)
 
+		option_table = DAV.NativeSettings.addSwitch("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_mayhem"), DAV.core_obj:GetTranslationText("native_settings_activation_mayhem_description"), is_activated_mayhem, is_activated_mayhem, function(state)
+			Game.GetVehicleSystem():EnablePlayerVehicle(mayhem_dummy_record, state, true)
+			Cron.After(self.delay_updating_native_settings, function()
+				self:UpdateNativeSettingsPage()
+			end)
+		end)
+		table.insert(self.option_table_list, option_table)
+
 	end
 
 	-- keybinds
@@ -331,14 +348,17 @@ function UI:CreateNativeSettingsPage()
 	table.insert(self.option_table_list, option_table)
 
 	local keybind_table
+	local default_table
 	if self.selected_flight_mode_index == 1 then
 		keybind_table = DAV.user_setting_table.keybind_table
+		default_table = DAV.default_keybind_table
 	elseif self.selected_flight_mode_index == 2 then
 		keybind_table = DAV.user_setting_table.heli_keybind_table
+		default_table = DAV.default_heli_keybind_table
 	end
 	for index, keybind_list in ipairs(keybind_table) do
 		if keybind_list.key ~= nil then
-			option_table = DAV.NativeSettings.addKeyBinding("/DAV/keybinds", DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name), DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name .. "_description"), keybind_list.key, keybind_table[index].key, keybind_table[index].is_hold, function(key)
+			option_table = DAV.NativeSettings.addKeyBinding("/DAV/keybinds", DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name), DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name .. "_description"), keybind_list.key, default_table[index].key, keybind_table[index].is_hold, function(key)
 				if string.find(key, "IK_Pad") then
 					self.log_obj:Record(LogLevel.Warning, "Invalid keybind (no keyboard): " .. key)
 				else
@@ -442,7 +462,7 @@ function UI:CreateNativeSettingsPage()
 	table.insert(self.option_table_list, option_table)
 
 	if self.selected_flight_mode_index == 1 then
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_acceleration_description"), 0.1, 5.0, 0.1, "%.1f", DAV.user_setting_table.acceleration, 1.0, function(value)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_acceleration_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.acceleration, 1.0, function(value)
 			DAV.user_setting_table.acceleration = value
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			Cron.After(self.delay_updating_native_settings, function()
@@ -451,7 +471,7 @@ function UI:CreateNativeSettingsPage()
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_vertical_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_vertical_acceleration_description"), 0.1, 5.0, 0.1, "%.1f", DAV.user_setting_table.vertical_acceleration, 0.8, function(value)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_vertical_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_vertical_acceleration_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.vertical_acceleration, 0.8, function(value)
 			DAV.user_setting_table.vertical_acceleration = value
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			Cron.After(self.delay_updating_native_settings, function()
@@ -460,7 +480,7 @@ function UI:CreateNativeSettingsPage()
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_left_right_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_left_right_acceleration_description"), 0.1, 5.0, 0.1, "%.1f", DAV.user_setting_table.left_right_acceleration, 0.5, function(value)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_left_right_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_left_right_acceleration_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.left_right_acceleration, 0.5, function(value)
 			DAV.user_setting_table.left_right_acceleration = value
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			Cron.After(self.delay_updating_native_settings, function()
@@ -469,43 +489,51 @@ function UI:CreateNativeSettingsPage()
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_roll_change_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_roll_change_amount_description"), 0.1, 5.0, 0.1, "%.1f", DAV.user_setting_table.roll_change_amount, 0.5, function(value)
-			DAV.user_setting_table.roll_change_amount = value
-			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_roll_change_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_roll_change_amount_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.roll_change_amount, 0.5, function(value)
+			if value > DAV.user_setting_table.roll_restore_amount then
+				DAV.user_setting_table.roll_change_amount = value
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_roll_restore_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_roll_restore_amount_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.roll_restore_amount, 0.2, function(value)
-			DAV.user_setting_table.roll_restore_amount = value
-			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_roll_restore_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_roll_restore_amount_description"), 0.1, 1.5, 0.1, "%.1f", DAV.user_setting_table.roll_restore_amount, 0.2, function(value)
+			if value < DAV.user_setting_table.roll_change_amount then
+				DAV.user_setting_table.roll_restore_amount = value
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_pitch_change_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_pitch_change_amount_description"), 0.1, 5.0, 0.1, "%.1f", DAV.user_setting_table.pitch_change_amount, 0.5, function(value)
-			DAV.user_setting_table.pitch_change_amount = value
-			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_pitch_change_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_pitch_change_amount_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.pitch_change_amount, 0.5, function(value)
+			if value > DAV.user_setting_table.pitch_restore_amount then
+				DAV.user_setting_table.pitch_change_amount = value
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_pitch_restore_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_pitch_restore_amount_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.pitch_restore_amount, 0.2, function(value)
-			DAV.user_setting_table.pitch_restore_amount = value
-			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_pitch_restore_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_pitch_restore_amount_description"), 0.1, 1.5, 0.1, "%.1f", DAV.user_setting_table.pitch_restore_amount, 0.2, function(value)
+			if value < DAV.user_setting_table.pitch_change_amount then
+				DAV.user_setting_table.pitch_restore_amount = value
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_yaw_change_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_yaw_change_amount_description"), 0.1, 8.0, 0.1, "%.1f", DAV.user_setting_table.yaw_change_amount, 1.0, function(value)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_yaw_change_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_yaw_change_amount_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.yaw_change_amount, 1.0, function(value)
 			DAV.user_setting_table.yaw_change_amount = value
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			Cron.After(self.delay_updating_native_settings, function()
@@ -524,17 +552,21 @@ function UI:CreateNativeSettingsPage()
 		table.insert(self.option_table_list, option_table)
 	elseif self.selected_flight_mode_index == 2 then
 		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_roll_change_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_h_roll_change_amount_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.h_roll_change_amount, 0.8, function(value)
-			DAV.user_setting_table.h_roll_change_amount = value
-			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			if value > DAV.user_setting_table.h_roll_restore_amount then
+				DAV.user_setting_table.h_roll_change_amount = value
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_roll_restore_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_h_roll_restore_amount_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.h_roll_restore_amount, 0.2, function(value)
-			DAV.user_setting_table.h_pitch_change_amount = value
-			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_roll_restore_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_h_roll_restore_amount_description"), 0.1, 1.5, 0.1, "%.1f", DAV.user_setting_table.h_roll_restore_amount, 0.2, function(value)
+			if value < DAV.user_setting_table.h_roll_change_amount then
+				DAV.user_setting_table.h_roll_restore_amount = value
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
@@ -542,17 +574,21 @@ function UI:CreateNativeSettingsPage()
 		table.insert(self.option_table_list, option_table)
 
 		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_pitch_change_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_h_pitch_change_amount_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.h_pitch_change_amount, 0.8, function(value)
-			DAV.user_setting_table.h_pitch_change_amount = value
-			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			if value > DAV.user_setting_table.h_pitch_restore_amount then
+				DAV.user_setting_table.h_pitch_change_amount = value
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_pitch_restore_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_h_pitch_restore_amount_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.h_pitch_restore_amount, 0.2, function(value)
-			DAV.user_setting_table.h_yaw_change_amount = value
-			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_pitch_restore_amount"), DAV.core_obj:GetTranslationText("native_settings_advance_h_pitch_restore_amount_description"), 0.1, 1.5, 0.1, "%.1f", DAV.user_setting_table.h_pitch_restore_amount, 0.2, function(value)
+			if value < DAV.user_setting_table.h_pitch_change_amount then
+				DAV.user_setting_table.h_pitch_restore_amount = value
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
@@ -568,7 +604,7 @@ function UI:CreateNativeSettingsPage()
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_h_acceleration_description"), 0.1, 3.0, 0.1, "%.1f", DAV.user_setting_table.h_acceleration, 0.5, function(value)
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_h_acceleration_description"), 0.1, 2.0, 0.1, "%.1f", DAV.user_setting_table.h_acceleration, 0.5, function(value)
 			DAV.user_setting_table.h_acceleration = value
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			Cron.After(self.delay_updating_native_settings, function()
@@ -577,8 +613,8 @@ function UI:CreateNativeSettingsPage()
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_lift_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_h_lift_acceleration_description"), 0.1, 5.0, 0.1, "%.1f", DAV.user_setting_table.h_lift_acceleration, 1.0, function(value)
-			DAV.user_setting_table.h_lift_acceleration = value
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_lift_idle_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_h_lift_idle_acceleration_description"), 0.0, 2.5, 0.1, "%.1f", DAV.user_setting_table.h_lift_idle_acceleration, 1.0, function(value)
+			DAV.user_setting_table.h_lift_idle_acceleration = value
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
@@ -586,8 +622,17 @@ function UI:CreateNativeSettingsPage()
 		end)
 		table.insert(self.option_table_list, option_table)
 
-		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_lift_idle_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_h_lift_idle_acceleration_description"), 0.0, 0.5, 0.05, "%.2f", DAV.user_setting_table.h_lift_idle_acceleration, 0.20, function(value)
-			DAV.user_setting_table.h_lift_idle_acceleration = value
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_ascend_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_h_ascend_acceleration_description"), 0.0, 2.0, 0.1, "%.1f", DAV.user_setting_table.h_ascend_acceleration, 0.5, function(value)
+			DAV.user_setting_table.h_ascend_acceleration = value
+			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			Cron.After(self.delay_updating_native_settings, function()
+				self:UpdateNativeSettingsPage()
+			end)
+		end)
+		table.insert(self.option_table_list, option_table)
+
+		option_table = DAV.NativeSettings.addRangeFloat("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_descend_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_h_descend_acceleration_description"), 0.0, 2.0, 0.1, "%.1f", DAV.user_setting_table.h_descend_acceleration, 0.5, function(value)
+			DAV.user_setting_table.h_descend_acceleration = value
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
@@ -621,6 +666,16 @@ function UI:UpdateNativeSettingsPage()
 	self:ClearNativeSettingsPage()
 	self:CreateNativeSettingsSubCategory()
 	self:CreateNativeSettingsPage()
+end
+
+function UI:ResetParameters()
+
+	if not DAV.is_valid_native_settings then
+		return
+	end
+	DAV.user_setting_table = Utils:DeepCopy(DAV.core_obj.initial_user_setting_table)
+    Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+
 end
 
 return UI

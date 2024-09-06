@@ -18,6 +18,7 @@ function Event:New()
 
     -- static
     obj.delay_stop_leaving_sound = 3.0
+    -- obj.seat_list = {"seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right", "trunk", "hood"}
 
     -- dynamic
     obj.is_initial_load = false
@@ -96,6 +97,7 @@ function Event:SetObserve()
 end
 
 function Event:SetOverride()
+
     Override("OpenVendorUI", "CreateInteraction", function(this, arg_1, arg_2, arg_3, wrapped_method)
         if this:GetActionName().value == "vehicle_door_quest_locked" and self:IsInEntryArea() then
             self.log_obj:Record(LogLevel.Trace, "Disappear vehicle door quest locked")
@@ -103,6 +105,34 @@ function Event:SetOverride()
         end
         wrapped_method(arg_1, arg_2, arg_3)
     end)
+
+    -- Override("VehicleComponentPS", "OnVehicleDoorClose", function(this, evt, wrapped_method)
+
+    --     if self:IsInVehicle() then
+    --         self.log_obj:Record(LogLevel.Trace, "Vehicle door close detected")
+    --         for index, req in ipairs(self.av_obj.current_close_request) do
+    --             if req then
+    --                 if evt.slotID.value == self.seat_list[index] then
+    --                     -- self.av_obj.current_close_request[index] = false
+    --                     return wrapped_method(evt)
+    --                 end
+    --             end
+    --         end
+    --         return EntityNotificationType.DoNotNotifyEntity
+    --     else
+    --         return wrapped_method(evt)
+    --     end
+
+    -- end)
+
+    Override("VehicleComponentPS", "GetHasAnyDoorOpen", function(this, wrapped_method)
+        if self:IsInVehicle() then
+            return false
+        else
+            return wrapped_method()
+        end
+    end)
+
 end
 
 function Event:SetSituation(situation)
@@ -145,7 +175,6 @@ end
 function Event:CheckAllEvents()
 
     if self.current_situation == Def.Situation.Normal then
-        -- self:CheckCallPurchasedVehicle()
         self:CheckGarage()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
@@ -153,9 +182,8 @@ function Event:CheckAllEvents()
         self:CheckDespawn()
         self:CheckInEntryArea()
         self:CheckInAV()
-        -- self:CheckReturnPurchasedVehicle()
         self:CheckDestroyed()
-        self:CheckDoor()
+        -- self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
         self:CheckAutoModeChange()
@@ -164,6 +192,7 @@ function Event:CheckAllEvents()
         self:CheckHUD()
         self:CheckDestroyed()
         self:CheckInput()
+        self:CheckCombat()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
         self:CheckLockedSave()
@@ -215,6 +244,7 @@ function Event:CheckLanded()
         self.sound_obj:PlaySound("110_arrive_vehicle")
         self.sound_obj:ChangeSoundResource()
         self:SetSituation(Def.Situation.Waiting)
+        self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
 end
 
@@ -235,11 +265,11 @@ function Event:CheckInAV()
             SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
-            self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             self.hud_obj:ShowCustomHint()
             self.is_keyboard_input_prev = DAV.is_keyboard_input
             Cron.After(1.5, function()
                 self.hud_obj:ShowLeftBottomHUD()
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             end)
         end
     else
@@ -251,6 +281,9 @@ function Event:CheckInAV()
             self.hud_obj:HideCustomHint()
             self:UnsetMappin()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
+            Cron.After(0.2, function()
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
+            end)
         end
     end
 end
@@ -278,9 +311,6 @@ end
 function Event:CheckDoor()
 
     local veh_door = EVehicleDoor.seat_front_left
-    if self.av_obj.vehicle_model_tweakdb_id == DAV.surveyor_record then
-        veh_door = EVehicleDoor.trunk
-    end
 
     if self:IsInEntryArea() then
         if self.av_obj:GetDoorState(veh_door) == VehicleDoorState.Closed then
@@ -294,12 +324,46 @@ function Event:CheckDoor()
 
 end
 
+function Event:CheckCombat()
+
+    local is_combat = Game.GetPlayer():PSIsInDriverCombat()
+    if is_combat ~= self.av_obj.is_combat then
+        self.av_obj.is_combat = is_combat
+        if is_combat then
+            if self.av_obj.combat_door[1] ~= "None" then
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Open, self.av_obj.combat_door, self.av_obj.combat_door_duration)
+            end
+        else
+            if self.av_obj.combat_door[1] ~= "None" then
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door, self.av_obj.combat_door_duration)
+            end
+        end
+    -- else
+    --     if is_combat and self.av_obj.combat_door[1] ~= "None" then
+    --         if self.av_obj:GetDoorState(self.av_obj.combat_door[1]) == VehicleDoorState.Closed then
+    --             self.av_obj:ChangeDoorState(Def.DoorOperation.Open, self.av_obj.combat_door)
+    --         end
+    --     elseif not is_combat and self.av_obj.combat_door[1] ~= "None" then
+    --         if self.av_obj:GetDoorState(self.av_obj.combat_door[1]) == VehicleDoorState.Open then
+    --             self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door)
+    --         end
+    --     end
+    end
+
+end
+
 function Event:CheckDestroyed()
     if self.av_obj:IsDestroyed() then
+        if self.current_situation == Def.Situation.InVehicle then
+            self.hud_obj:HideCustomHint()
+            self.av_obj:Unmount()
+        end
         self.log_obj:Record(LogLevel.Trace, "Destroyed detected")
         self.sound_obj:ResetSoundResource()
         self.hud_obj:HideChoice()
-        self.av_obj.engine_obj.fly_av_system:EnableGravity(true)
+        if self.av_obj.engine_obj.fly_av_system ~= nil then
+            self.av_obj.engine_obj.fly_av_system:EnableGravity(true)
+        end
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
     end
@@ -347,7 +411,6 @@ function Event:CheckCustomMappinPosition()
     end
     local success, mappin = pcall(function() return DAV.core_obj.mappin_controller:GetMappin() end)
     if not success then
-        self.log_obj:Record(LogLevel.Debug, "Mappin is not found")
         DAV.core_obj.is_custom_mappin = false
         if self.stored_mappin_pos == nil then
             return

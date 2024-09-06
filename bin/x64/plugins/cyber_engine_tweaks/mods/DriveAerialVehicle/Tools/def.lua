@@ -4,6 +4,7 @@ Def.__index = Def
 
 ---@enum Def.ActionList
 Def.ActionList = {
+    Idle = -1,
     Nothing = 0,
     --------
     Forward = 1,
@@ -18,15 +19,17 @@ Def.ActionList = {
     Left = 10,
     LeanReset = 11,
     ----------
-    HLift = 21,
-    HLeanForward = 22,
-    HLeanBackward = 23,
-    HLeanRight = 24,
-    HLeanLeft = 25,
-    HRightRotate = 26,
-    HLeftRotate = 27,
-    HAccelerate = 28,
-    HHover = 29,
+    -- HLift = 21,
+    HUp = 21,
+    HDown = 22,
+    HLeanForward = 23,
+    HLeanBackward = 24,
+    HLeanRight = 25,
+    HLeanLeft = 26,
+    HRightRotate = 27,
+    HLeftRotate = 28,
+    HAccelerate = 29,
+    -- HHover = 30,
     ----------
 	Enter= 100,
 	Exit = 101,
@@ -81,12 +84,6 @@ Def.AutopilotSpeedLevel = {
     Normal = 2,
     Fast = 3,
 }
-
--- Def.SoundRestrictionLevel = {
---     None = -1,
---     Mute = 0,
---     PriorityRadio = 1,
--- }
 
 Def.FlightMode = {
     AV = 0,

@@ -61,8 +61,10 @@ function Core:New()
     obj.auto_pilot_button_hold_count = 0
     obj.is_auto_pilot_button_hold_counter = false
     -- Helicopter
-    obj.h_lift_button_hold_count = 0
-    obj.is_h_lift_button_hold_counter = false
+    obj.h_ascend_button_hold_count = 0
+    obj.is_h_ascend_button_hold_counter = false
+    obj.h_descend_button_hold_count = 0
+    obj.is_h_descend_button_hold_counter = false
     obj.h_turn_left_button_hold_count = 0
     obj.is_h_turn_left_button_hold_counter = false
     obj.h_turn_right_button_hold_count = 0
@@ -106,7 +108,7 @@ function Core:Init()
     self:InitGarageInfo()
 
     -- set initial user setting
-    self.initial_user_setting_table = DAV.user_setting_table
+    self.initial_user_setting_table = Utils:DeepCopy(DAV.user_setting_table)
     self:LoadSetting()
     self:SetTranslationNameList()
     self:StoreTranslationtableList()
@@ -151,18 +153,6 @@ function Core:LoadSetting()
 
 end
 
-function Core:ResetSetting()
-
-    DAV.user_setting_table = self.initial_user_setting_table
-    self:UpdateGarageInfo(true)
-    for key, _ in ipairs(DAV.user_setting_table.garage_info_list) do
-        DAV.user_setting_table.garage_info_list[key].type_index = 1
-    end
-    Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-    self:Reset()
-
-end
-
 function Core:SetSummonTrigger()
 
     Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
@@ -195,17 +185,10 @@ function Core:SetSummonTrigger()
                 return false
             end
         end
-        -- self.is_purchased_vehicle_call = false
         return wrapped_method(vehicle_type)
     end)
 
 end
-
--- function Core:GetPurchasedCallStatus()
---     local call_status = self.is_purchased_vehicle_call
---     self.is_purchased_vehicle_call = false
---     return call_status
--- end
 
 function Core:SetTranslationNameList()
 
@@ -280,8 +263,9 @@ end
 
 function Core:SetInputListener()
 
-    local exception_common_list = Utils:ReadJson("Data/exception_common_input.json")
+    local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
+    local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
 
@@ -293,16 +277,26 @@ function Core:SetInputListener()
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
 
-        if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
+        if self.event_obj:IsInVehicle() then
             for _, exception in pairs(exception_in_veh_list) do
-                if string.find(action_name, exception) then
+                if action_name == exception then
                     consumer:Consume()
+                    break
                 end
             end
-        elseif (self.event_obj:IsInEntryArea() or self.event_obj:IsInVehicle()) then
-            for _, exception in pairs(exception_common_list) do
-                if string.find(action_name, exception) then
+            if self.event_obj:IsInMenuOrPopupOrPhoto() then
+                for _, exception in pairs(exception_in_popup_list) do
+                    if action_name == exception then
+                        consumer:Consume()
+                        break
+                    end
+                end
+            end
+        elseif self.event_obj:IsInEntryArea() then
+            for _, exception in pairs(exception_in_entry_area_list) do
+                if action_name == exception then
                     consumer:Consume()
+                    break
                 end
             end
         end
@@ -565,9 +559,12 @@ end
 
 function Core:ConvertHeliHoldAction(keybind_name)
 
-    if keybind_name == "lift" then
-        self.is_h_lift_button_hold_counter = false
-        self.h_lift_button_hold_count = 0
+    if keybind_name == "ascend" then
+        self.is_h_ascend_button_hold_counter = false
+        self.h_ascend_button_hold_count = 0
+    elseif keybind_name == "descend" then
+        self.is_h_descend_button_hold_counter = false
+        self.h_descend_button_hold_count = 0
     elseif keybind_name == "turn_left" then
         self.is_h_turn_left_button_hold_counter = false
         self.h_turn_left_button_hold_count = 0
@@ -711,19 +708,35 @@ end
 
 function Core:ConvertHeliPressAction(keybind_name)
 
-    if keybind_name == "lift" then
-        if not self.is_h_lift_button_hold_counter then
-            self.is_h_lift_button_hold_counter = true
+    if keybind_name == "ascend" then
+        if not self.is_h_ascend_button_hold_counter then
+            self.is_h_ascend_button_hold_counter = true
             Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
                 timer.tick = timer.tick + 1
-                self.h_lift_button_hold_count = timer.tick
+                self.h_ascend_button_hold_count = timer.tick
                 if timer.tick >= self.max_move_hold_count then
-                    self.is_h_lift_button_hold_counter = false
+                    self.is_h_ascend_button_hold_counter = false
                     Cron.Halt(timer)
-                elseif not self.is_h_lift_button_hold_counter then
+                elseif not self.is_h_ascend_button_hold_counter then
                     Cron.Halt(timer)
                 else
-                    self.queue_obj:Enqueue(Def.ActionList.HLift)
+                    self.queue_obj:Enqueue(Def.ActionList.HUp)
+                end
+            end)
+        end
+    elseif keybind_name == "descend" then
+        if not self.is_h_descend_button_hold_counter then
+            self.is_h_descend_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.h_descend_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_h_descend_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_h_descend_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.HDown)
                 end
             end)
         end
@@ -775,8 +788,8 @@ function Core:ConvertHeliPressAction(keybind_name)
                 end
             end)
         end
-    elseif keybind_name == "hover" then
-        self.queue_obj:Enqueue(Def.ActionList.HHover)
+    -- elseif keybind_name == "hover" then
+    --     self.queue_obj:Enqueue(Def.ActionList.HHover)
     end
 
 end
@@ -831,10 +844,10 @@ function Core:GetActions()
 
     local move_actions = {}
 
-    if self.event_obj:IsInMenuOrPopupOrPhoto() then
-        self.queue_obj:Clear()
-        return
-    end
+    -- if self.event_obj:IsInMenuOrPopupOrPhoto() then
+    --     self.queue_obj:Clear()
+    --     return
+    -- end
 
     while not self.queue_obj:IsEmpty() do
         local action = self.queue_obj:Dequeue()
@@ -856,10 +869,10 @@ end
 function Core:OperateAerialVehicle(actions)
 
     if not self.is_locked_operation then
-        if self.event_obj:IsInVehicle() then
+        if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
             self.av_obj:Operate(actions)
         elseif self.event_obj:IsWaiting() or self.event_obj:IsTakingOff() then
-            self.av_obj:Operate({Def.ActionList.Nothing})
+            self.av_obj:Operate({Def.ActionList.Idle})
         end
     end
 

@@ -13,7 +13,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_situation = false
     obj.is_im_gui_player_position = false
     obj.is_im_gui_av_position = false
-    obj.is_im_gui_engine_info = false
+    obj.is_im_gui_vehicle_info = false
     obj.is_im_gui_sound_check = false
     obj.selected_sound = "100_call_vehicle"
     obj.is_im_gui_mappin_position = false
@@ -38,6 +38,7 @@ function Debug:ImGuiMain()
     self:ImGuiSituation()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
+    self:ImGuiVehicleInfo()
     self:ImGuiSoundCheck()
     self:ImGuiModelTypeStatus()
     self:ImGuiMappinPosition()
@@ -53,7 +54,7 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved        
+        -- reserved
     end
     self.is_set_observer = true
 
@@ -138,6 +139,36 @@ function Debug:ImGuiAVPosition()
         local yaw = string.format("%.2f", self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)
         ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
         ImGui.Text("Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
+    end
+end
+
+function Debug:ImGuiVehicleInfo()
+    self.is_im_gui_vehicle_info = ImGui.Checkbox("[ImGui] Vehicle Info", self.is_im_gui_vehicle_info)
+    if self.is_im_gui_vehicle_info then
+        if DAV.core_obj.av_obj == nil then
+            return
+        end
+        if DAV.core_obj.av_obj:IsDestroyed() then
+            ImGui.Text("Vehicle : Destroyed")
+        else
+            ImGui.Text("Vehicle : Alive")
+        end
+        local left_door_state = DAV.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_left)
+        local right_door_state = DAV.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_right)
+        ImGui.Text("Door State : " .. tostring(left_door_state) .. ", ")
+        ImGui.Text(tostring(right_door_state))
+        local lock_list = DAV.core_obj.av_obj.door_input_lock_list
+        ImGui.Text("Door Input Lock : " .. tostring(lock_list["seat_front_left"]) .. ", " .. tostring(lock_list["seat_front_right"]))
+        if DAV.core_obj.av_obj.engine_obj.fly_av_system == nil then
+            return
+        end
+        if DAV.core_obj.av_obj.engine_obj.fly_av_system:IsOnGround() then
+            ImGui.Text("On Ground")
+        else
+            ImGui.Text("In Air")
+        end
+        ImGui.Text("Phy State: " .. tostring(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetPhysicsState()))
+
     end
 end
 
@@ -257,19 +288,6 @@ end
 function Debug:ImGuiMeasurement()
     self.is_im_gui_measurement = ImGui.Checkbox("[ImGui] Measurement", self.is_im_gui_measurement)
     if self.is_im_gui_measurement then
-        local res_x, res_y = GetDisplayResolution()
-        ImGui.SetNextWindowPos((res_x / 2) - 20, (res_y / 2) - 20)
-        ImGui.SetNextWindowSize(40, 40)
-        ImGui.SetNextWindowSizeConstraints(40, 40, 40, 40)
-        ---
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 10)
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 5)
-        ---
-        ImGui.Begin("Crosshair", ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
-        ImGui.End()
-        ---
-        ImGui.PopStyleVar(2)
-        ImGui.PopStyleColor(1)
         local look_at_pos = Game.GetTargetingSystem():GetLookAtPosition(Game.GetPlayer())
         if self.core_obj.av_obj.position_obj.entity == nil then
             return
@@ -285,15 +303,31 @@ function Debug:ImGuiMeasurement()
         local absolute_position_x = string.format("%.2f", x)
         local absolute_position_y = string.format("%.2f", y)
         local absolute_position_z = string.format("%.2f", z)
-        ImGui.Text("[LookAt]X:" .. absolute_position_x .. ", Y:" .. absolute_position_y .. ", Z:" .. absolute_position_z) 
+        ImGui.Text("[LookAt]X:" .. absolute_position_x .. ", Y:" .. absolute_position_y .. ", Z:" .. absolute_position_z)
     end
 end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("TF1") then
-        DAV.core_obj.event_obj.hud_obj.hud_car_controller:ShowRequest()
-        DAV.core_obj.event_obj.hud_obj.hud_car_controller:OnCameraModeChanged(true)
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local comp = entity:FindComponentByName("AnimationController")
+        local feat = AnimFeature_PartData.new()
+        feat.duration = 1
+        feat.state = 1
+        -- AnimationControllerComponent.ApplyFeatureToReplicate(Game.GetPlayer():GetMountedVehicle(), CName.new("seat_front_left"), feat)
+        AnimationControllerComponent.ApplyFeatureToReplicate(entity, CName.new("trunk"), feat)
         print("Excute Test Function 1")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF1-2") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local comp = entity:FindComponentByName("AnimationController")
+        local feat = AnimFeature_PartData.new()
+        feat.duration = 1
+        feat.state = 3
+        -- AnimationControllerComponent.ApplyFeatureToReplicate(Game.GetPlayer():GetMountedVehicle(), CName.new("seat_front_left"), feat)
+        AnimationControllerComponent.ApplyFeatureToReplicate(entity, CName.new("trunk"), feat)
+        print("Excute Test Function 1-2")
     end
     ImGui.SameLine()
     if ImGui.Button("TF2") then
@@ -363,63 +397,67 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        Game.GetTeleportationFacility():Teleport(DAV.core_obj.av_obj.position_obj.entity, Vector4.new(0, 0, 0, 1), Quaternion.new(0, 0, 0, 1):ToEulerAngles())
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local comp = entity:FindComponentByName("LandingVFXSlot")
+        local player_pos = Game.GetPlayer():GetWorldPosition()
+        comp:SetLocalPosition(Vector4.new(0,0,5,1))
+        Cron.After(3, function()
+            comp:SetLocalPosition(Vector4.new(0,0,4,1))
+        end)
+        Cron.After(6, function()
+            comp:SetLocalPosition(Vector4.new(0,0,3,1))
+        end)
+        local effect_name = CName.new("landingWarning")
+        GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
-    if ImGui.Button("TF5") then
-
-        local player = Game.GetPlayer()
-        local ent_id = DAV.core_obj.av_obj.enrity_id
-        local seat = DAV.core_obj.av_obj.active_seat[1]
-
-        local data = NewObject('handle:gameMountEventData')
-        data.isInstant = true
-        data.slotName = seat
-        data.mountParentEntityId = ent_id
-        data.entryAnimName = "forcedTransition"
-
-        local slotID = NewObject('gamemountingMountingSlotId')
-        slotID.id = seat
-
-        local mounting_info = NewObject('gamemountingMountingInfo')
-        mounting_info.childId = player:GetEntityID()
-        mounting_info.parentId = ent_id
-        mounting_info.slotId = slotID
-
-        local mount_event = NewObject('handle:gamemountingUnmountingRequest')
-        mount_event.lowLevelMountingInfo = mounting_info
-        mount_event.mountData = data
-
-        Game.GetMountingFacility():Unmount(mount_event)
-        print("Excute Test Function 5")
+    if ImGui.Button("TF4-1") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local effect_name = CName.new("landingWarning")
+        GameObjectEffectHelper.StopEffectEvent(entity, effect_name)
+        print("Excute Test Function 4-1")
     end
     ImGui.SameLine()
+    if ImGui.Button("TF4-2") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local comp = entity:FindComponentByName("LandingVFXSlot")
+        local player_pos = Game.GetPlayer():GetWorldPosition()
+        comp:SetLocalPosition(Vector4.new(0,0,1,1))
+        local effect_name = CName.new("landingWarning")
+        GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
+        print("Excute Test Function 4-2")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF5") then
+        local door_event = VehicleDoorOpen.new()
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local vehicle_ps = entity:GetVehiclePS()
+        door_event.slotID = CName.new("seat_front_right")
+        door_event.forceScene = false
+        vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
+        print("Excute Test Function 5")
+    end
     if ImGui.Button("TF6") then
-        print(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetComponents())
-        -- for _, value in pairs(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetComponents()) do
-        --     print(value.name.value)
-        --     if value.name.value == "Slot9917" then
-        --         -- for _, slot in pairs(value.slots) do
-        --         --     print(slot.slotName.value)
-        --         --     if slot.slotName.value == "thruster_front_left" then
-        --         --         slot.relativePosition = Vector3.new(0, 0, 5)
-        --         --         return
-        --         --     end
-        --         -- end
-        --         local ent = value:GetEntity()
-        --         Game.GetTeleportationFacility():Teleport(ent, Vector4.new(0, 0, 0, 1), Quaternion.new(0, 0, 0, 1):ToEulerAngles())
-        --     end
-        -- end
-        local slots = DAV.core_obj.av_obj.position_obj.entity:FindComponentByName("ThrusterLight_RearRight")
-        -- for _, slot in pairs(slots.slots) do
-        --     print(slot.slotName.value)
-        -- end
-        slots:Toggle(false)
-        print(slots:GetLocalPosition())
-        slots:SetLocalPosition(Vector4.new(0, 0, 5, 1))
-        print(slots:GetLocalPosition())
         print("Excute Test Function 6")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF7") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local pos = entity:GetWorldPosition()
+        local angle = entity:GetWorldOrientation():ToEulerAngles()
+        pos.z = pos.z - 0.1
+        Game.GetTeleportationFacility():Teleport(entity, pos, angle)
+        print("Excute Test Function 7")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF8") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local pos = entity:GetWorldPosition()
+        local angle = entity:GetWorldOrientation():ToEulerAngles()
+        pos.z = pos.z + 0.1
+        Game.GetTeleportationFacility():Teleport(entity, pos, angle)
+        print("Excute Test Function 8")
     end
 end
 
