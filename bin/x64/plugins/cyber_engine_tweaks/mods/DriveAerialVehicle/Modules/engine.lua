@@ -118,12 +118,14 @@ function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
         self.heli_lift_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
     end
 
-    self.current_speed = math.sqrt(x * x + y * y + z * z)
+    local current_x = x + vel_vec.x
+    local current_y = y + vel_vec.y
+    local current_z = z + vel_vec.z
+    self.current_speed = math.sqrt(current_x * current_x + current_y * current_y + current_z * current_z)
     if self.current_speed > self.max_speed then
-        local ratio = self.max_speed / self.current_speed
-        x = x * ratio
-        y = y * ratio
-        z = z * ratio
+        x = 0
+        y = 0
+        z = 0
     end
 
     local horizontal_air_resistance_const = DAV.user_setting_table.horizontal_air_resistance_const

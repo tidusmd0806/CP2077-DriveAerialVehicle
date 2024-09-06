@@ -361,7 +361,9 @@ function Event:CheckDestroyed()
         self.log_obj:Record(LogLevel.Trace, "Destroyed detected")
         self.sound_obj:ResetSoundResource()
         self.hud_obj:HideChoice()
-        self.av_obj.engine_obj.fly_av_system:EnableGravity(true)
+        if self.av_obj.engine_obj.fly_av_system ~= nil then
+            self.av_obj.engine_obj.fly_av_system:EnableGravity(true)
+        end
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
     end

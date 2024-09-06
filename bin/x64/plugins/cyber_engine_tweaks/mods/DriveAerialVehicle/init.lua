@@ -56,10 +56,10 @@ DAV = {
         {name = "lean_reset", key = "IK_B", pad = "IK_Pad_LeftShoulder", is_hold = true},
     },
     default_heli_keybind_table = {
-        {name = "ascend", key = "IK_G", pad = "IK_Pad_RightTrigger", is_hold = true},
-        {name = "descend", key = "IK_V", pad = "IK_Pad_LeftTrigger", is_hold = true},
-        {name = "turn_left", key = "IK_Q", pad = "IK_Pad_DigitLeft", is_hold = true},
-        {name = "turn_right", key = "IK_E", pad = "IK_Pad_DigitRight", is_hold = true},
+        {name = "ascend", key = "IK_G", pad = "IK_Pad_X_SQUARE", is_hold = true},
+        {name = "descend", key = "IK_V", pad = "IK_Pad_A_CROSS", is_hold = true},
+        {name = "turn_left", key = "IK_Q", pad = "IK_Pad_LeftTrigger", is_hold = true},
+        {name = "turn_right", key = "IK_E", pad = "IK_Pad_RightTrigger", is_hold = true},
         {name = "acceleration", key = "IK_RightMouse", pad = "IK_Pad_LeftShoulder", is_hold = true},
     },
     default_common_keybind_table = {
@@ -116,7 +116,7 @@ DAV.user_setting_table = {
     h_pitch_restore_amount = 0.2,
     h_yaw_change_amount = 1,
     h_acceleration = 0.5,
-    h_lift_idle_acceleration = 0.6,
+    h_lift_idle_acceleration = 1.0,
     h_ascend_acceleration = 0.5,
     h_descend_acceleration = 0.5,
 }
