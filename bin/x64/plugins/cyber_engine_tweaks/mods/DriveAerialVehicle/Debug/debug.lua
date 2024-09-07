@@ -54,7 +54,7 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved
+        -- reserved        
     end
     self.is_set_observer = true
 
@@ -319,17 +319,6 @@ function Debug:ImGuiExcuteFunction()
         print("Excute Test Function 1")
     end
     ImGui.SameLine()
-    if ImGui.Button("TF1-2") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local comp = entity:FindComponentByName("AnimationController")
-        local feat = AnimFeature_PartData.new()
-        feat.duration = 1
-        feat.state = 3
-        -- AnimationControllerComponent.ApplyFeatureToReplicate(Game.GetPlayer():GetMountedVehicle(), CName.new("seat_front_left"), feat)
-        AnimationControllerComponent.ApplyFeatureToReplicate(entity, CName.new("trunk"), feat)
-        print("Excute Test Function 1-2")
-    end
-    ImGui.SameLine()
     if ImGui.Button("TF2") then
         local depot = Game.GetResourceDepot()
         local token = depot:LoadResource("base\\sound\\metadata\\cooked_metadata.audio_metadata")
@@ -381,52 +370,20 @@ function Debug:ImGuiExcuteFunction()
         local token = depot:LoadResource("base\\sound\\metadata\\cooked_metadata.audio_metadata")
         local meta_data = token:GetResource()
         for _, value in pairs(meta_data.entries) do
-            if value.name.value == "v_av_basilisk_tank" then
-                print("Collision Cooldown : " .. value.collisionCooldown)
-                print("Has Radio Receiver : " .. tostring(value.hasRadioReceiver))
-                print("Radio Receiver Type : " .. value.radioReceiverType.value)
-                print("Vehicle Collision Settings : " .. value.vehicleCollisionSettings.value)
-                print("Vehicle Grid Destruction Settings : " .. value.vehicleGridDestructionSettings.value)
-                print("Vehicle Part Settings : " .. value.vehiclePartSettings.value)
-                print("Acelleration : " .. value.mechanicalData.acelleration.value)
-                print("Enter Event : " .. value.generalData.enterVehicleEvent.value)
-                print("Exit Event : " .. value.generalData.exitVehicleEvent.value)
+            if value.name.value == "v_heli_q000_border_heli" then
+                local settings = audioCommonEntitySettings.new()
+                settings.onAttachEvent = CName.new("q000_nomad_sc_04_heli")
+                settings.onDetachEvent = CName.new("q000_nomad_sc_04_heli_stop")
+                settings.stopAllSoundsOnDetach = true
+                value.commonSettings = settings
             end
         end
         print("Excute Test Function 3")
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local comp = entity:FindComponentByName("LandingVFXSlot")
-        local player_pos = Game.GetPlayer():GetWorldPosition()
-        comp:SetLocalPosition(Vector4.new(0,0,5,1))
-        Cron.After(3, function()
-            comp:SetLocalPosition(Vector4.new(0,0,4,1))
-        end)
-        Cron.After(6, function()
-            comp:SetLocalPosition(Vector4.new(0,0,3,1))
-        end)
-        local effect_name = CName.new("landingWarning")
-        GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
+        GameObjectEffectHelper.StartEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("landingWarningGlitch"), false)
         print("Excute Test Function 4")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF4-1") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local effect_name = CName.new("landingWarning")
-        GameObjectEffectHelper.StopEffectEvent(entity, effect_name)
-        print("Excute Test Function 4-1")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF4-2") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local comp = entity:FindComponentByName("LandingVFXSlot")
-        local player_pos = Game.GetPlayer():GetWorldPosition()
-        comp:SetLocalPosition(Vector4.new(0,0,1,1))
-        local effect_name = CName.new("landingWarning")
-        GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
-        print("Excute Test Function 4-2")
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
@@ -439,6 +396,7 @@ function Debug:ImGuiExcuteFunction()
         print("Excute Test Function 5")
     end
     if ImGui.Button("TF6") then
+        DAV.core_obj.event_obj.hud_obj.popup_manager:SpawnVehiclesManagerPopup()
         print("Excute Test Function 6")
     end
     ImGui.SameLine()

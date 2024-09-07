@@ -42,6 +42,7 @@ Def.ActionList = {
     OpenRadio = 108,
     ToggleCrystalDome = 109,
     ToggleAppearance = 110,
+    OpenVehicleManager = 111,
     ----------
     ToggleAutopilot = 200,
     OpenAutopilotPanel = 201,

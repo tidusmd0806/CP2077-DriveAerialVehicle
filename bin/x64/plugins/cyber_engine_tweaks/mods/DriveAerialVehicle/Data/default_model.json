@@ -41,7 +41,9 @@
         "combat_door": ["None"],
         "combat_door_duration": [0],
         "crystal_dome": true,
-        "landing_vfx": false
+        "landing_vfx": false,
+        "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "engine_audio_name": "310_av_engine_idle"
     },
     {
         "name": "Militech Manticore",
@@ -85,7 +87,9 @@
         "combat_door": ["None"],
         "combat_door_duration": [0],
         "crystal_dome": true,
-        "landing_vfx": false
+        "landing_vfx": false,
+        "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "engine_audio_name": "310_av_engine_idle"
     },
     {
         "name": "Zetatech Atlus",
@@ -131,7 +135,9 @@
         "combat_door": ["None"],
         "combat_door_duration": [0],
         "crystal_dome": false,
-        "landing_vfx": true
+        "landing_vfx": true,
+        "projection_offset": {"x": -0.8, "y": 0.0, "z": 0.0},
+        "engine_audio_name": "310_av_engine_idle"
     },
     {
         "name": "Zetatech Surveyor",
@@ -173,7 +179,9 @@
         "combat_door": ["trunk"],
         "combat_door_duration": [0.3],
         "crystal_dome": false,
-        "landing_vfx": true
+        "landing_vfx": true,
+        "projection_offset": {"x": -0.6, "y": 0.0, "z": 0.0},
+        "engine_audio_name": "310_av_engine_idle"
     },
     {
         "name": "Zetatech Valgus",
@@ -215,7 +223,9 @@
         "combat_door": ["None"],
         "combat_door_duration": [0],
         "crystal_dome": false,
-        "landing_vfx": false
+        "landing_vfx": false,
+        "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "engine_audio_name": "320_heli_engine_idle"
     },
     {
         "name": "Militech Mayhem",
@@ -256,6 +266,8 @@
         "combat_door": ["None"],
         "combat_door_duration": [0],
         "crystal_dome": false,
-        "landing_vfx": false
+        "landing_vfx": false,
+        "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "engine_audio_name": "320_heli_engine_idle"
     }
 ]

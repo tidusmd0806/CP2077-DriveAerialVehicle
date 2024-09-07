@@ -16,11 +16,13 @@ function Event:New()
     obj.ui_obj = Ui:New()
     obj.sound_obj = Sound:New()
 
-    -- static
-    obj.delay_stop_leaving_sound = 3.0
-    -- obj.seat_list = {"seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right", "trunk", "hood"}
-
-    -- dynamic
+    --static---
+    -- distance limit
+    obj.distance_limit = 80
+    obj.engine_audio_limit = 40
+    -- projection
+    obj.projection_max_height_offset = 4
+    -- dynamic---
     obj.is_initial_load = false
     obj.current_situation = Def.Situation.idle
     obj.is_in_menu = false
@@ -29,6 +31,9 @@ function Event:New()
     obj.is_locked_operation = false
     obj.selected_seat_index = 1
     obj.is_keyboard_input_prev = false
+    obj.is_enable_audio = true
+    -- projection
+    obj.is_landing_projection = false
 
     return setmetatable(obj, self)
 
@@ -41,6 +46,8 @@ function Event:Init(av_obj)
     self.ui_obj:Init(self.av_obj)
     self.hud_obj:Init(self.av_obj)
     self.sound_obj:Init(self.av_obj)
+
+    self.is_enable_audio = true
 
     if not DAV.is_ready then
         self:SetObserve()
@@ -106,25 +113,6 @@ function Event:SetOverride()
         wrapped_method(arg_1, arg_2, arg_3)
     end)
 
-    -- Override("VehicleComponentPS", "OnVehicleDoorClose", function(this, evt, wrapped_method)
-
-    --     if self:IsInVehicle() then
-    --         self.log_obj:Record(LogLevel.Trace, "Vehicle door close detected")
-    --         for index, req in ipairs(self.av_obj.current_close_request) do
-    --             if req then
-    --                 if evt.slotID.value == self.seat_list[index] then
-    --                     -- self.av_obj.current_close_request[index] = false
-    --                     return wrapped_method(evt)
-    --                 end
-    --             end
-    --         end
-    --         return EntityNotificationType.DoNotNotifyEntity
-    --     else
-    --         return wrapped_method(evt)
-    --     end
-
-    -- end)
-
     Override("VehicleComponentPS", "GetHasAnyDoorOpen", function(this, wrapped_method)
         if self:IsInVehicle() then
             return false
@@ -178,11 +166,14 @@ function Event:CheckAllEvents()
         self:CheckGarage()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
+        self:CheckHeight()
     elseif self.current_situation == Def.Situation.Waiting then
         self:CheckDespawn()
         self:CheckInEntryArea()
         self:CheckInAV()
         self:CheckDestroyed()
+        self:CheckDistance()
+        self:CheckHeight()
         -- self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
@@ -193,9 +184,11 @@ function Event:CheckAllEvents()
         self:CheckDestroyed()
         self:CheckInput()
         self:CheckCombat()
+        self:CheckHeight()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
         self:CheckLockedSave()
+        self:CheckHeight()
     end
 
 end
@@ -206,28 +199,33 @@ end
 
 function Event:CallVehicle()
     if self:IsNotSpawned() then
-        self.log_obj:Record(LogLevel.Trace, "Vehicle call detected in Normal situation")
-        self.sound_obj:PlaySound("100_call_vehicle")
-        self.sound_obj:PlaySound("210_landing")
-        self:SetSituation(Def.Situation.Landing)
-        self.av_obj:SpawnToSky()
+        self:SpawnVehicle()
     elseif self:IsWaiting() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected in Waiting situation")
         self.av_obj:Despawn()
         DAV.core_obj:Reset()
         Cron.After(1.0, function()
-            self.sound_obj:PlaySound("100_call_vehicle")
-            self.sound_obj:PlaySound("210_landing")
-            self:SetSituation(Def.Situation.Landing)
-            self.av_obj:SpawnToSky()
+            self:SpawnVehicle()
         end)
     end
 end
 
-function Event:ReturnVehicle()
+function Event:SpawnVehicle()
+
+    self.sound_obj:PlaySound("100_call_vehicle")
+    self.sound_obj:PlaySound("210_landing")
+    self.sound_obj:PlaySound(self.av_obj.engine_audio_name)
+    self:SetSituation(Def.Situation.Landing)
+    self.av_obj:SpawnToSky()
+
+end
+
+function Event:ReturnVehicle(is_leaving_sound)
     if self:IsWaiting() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected in Waiting situation")
-        self.sound_obj:PlaySound("240_leaving")
+        if is_leaving_sound then
+            self.sound_obj:PlaySound("240_leaving")
+        end
         self.sound_obj:PlaySound("104_call_vehicle")
         self.sound_obj:ResetSoundResource()
         self:SetSituation(Def.Situation.TalkingOff)
@@ -281,31 +279,22 @@ function Event:CheckInAV()
             self.hud_obj:HideCustomHint()
             self:UnsetMappin()
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
-            Cron.After(0.2, function()
-                self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
-            end)
         end
     end
 end
 
 function Event:CheckHUD()
+
     if self.hud_obj:IsVisibleConsumeItemSlot() then
         self.hud_obj:SetVisibleConsumeItemSlot(false)
     end
-    -- if self.hud_obj:IsVisiblePhoneSlot() then
-    --     self.hud_obj:SetVisiblePhoneSlot(false)
-    -- end
     local success, result = pcall(function()
-        -- always show car mete
-        -- if not self.hud_obj.hud_car_controller.moduleShown thenr
-        -- self.hud_obj.hud_car_controller:ShowRequest()
-        -- self.hud_obj.hud_car_controller:OnCameraModeChanged(true)
         self.hud_obj:SetHPDisplay()
-        -- end
-     end)
-     if not success then
-        self.log_obj:Record(LogLevel.Critical, result)
-     end
+    end)
+    if not success then
+    self.log_obj:Record(LogLevel.Critical, result)
+    end
+
 end
 
 function Event:CheckDoor()
@@ -338,16 +327,6 @@ function Event:CheckCombat()
                 self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door, self.av_obj.combat_door_duration)
             end
         end
-    -- else
-    --     if is_combat and self.av_obj.combat_door[1] ~= "None" then
-    --         if self.av_obj:GetDoorState(self.av_obj.combat_door[1]) == VehicleDoorState.Closed then
-    --             self.av_obj:ChangeDoorState(Def.DoorOperation.Open, self.av_obj.combat_door)
-    --         end
-    --     elseif not is_combat and self.av_obj.combat_door[1] ~= "None" then
-    --         if self.av_obj:GetDoorState(self.av_obj.combat_door[1]) == VehicleDoorState.Open then
-    --             self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door)
-    --         end
-    --     end
     end
 
 end
@@ -360,6 +339,7 @@ function Event:CheckDestroyed()
         end
         self.log_obj:Record(LogLevel.Trace, "Destroyed detected")
         self.sound_obj:ResetSoundResource()
+        self.sound_obj:Mute()
         self.hud_obj:HideChoice()
         if self.av_obj.engine_obj.fly_av_system ~= nil then
             self.av_obj.engine_obj.fly_av_system:EnableGravity(true)
@@ -372,10 +352,40 @@ end
 function Event:CheckDespawn()
     if self.av_obj:IsDespawned() then
         self.log_obj:Record(LogLevel.Trace, "Despawn detected")
-        self.sound_obj:StopSound("240_leaving")
+        self.sound_obj:Mute()
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
     end
+end
+
+function Event:CheckDistance()
+    local player_pos = Game.GetPlayer():GetWorldPosition()
+    local av_pos = self.av_obj.position_obj:GetPosition()
+    local distance = Vector4.Distance(player_pos, av_pos)
+    if distance > self.distance_limit then
+        self:ReturnVehicle(false)
+    elseif distance > self.engine_audio_limit then
+        self.sound_obj:PartialMute(200, 400)
+        self.is_enable_audio = false
+    else
+        if not self.is_enable_audio then
+            self.sound_obj:PlaySound(self.av_obj.engine_audio_name)
+        end
+        self.is_enable_audio = true
+    end
+end
+
+function Event:CheckHeight()
+
+    local height = self.av_obj.position_obj:GetHeight()
+    if height < self.projection_max_height_offset + self.av_obj.position_obj.minimum_distance_to_ground then
+        local height_offset = - height + self.av_obj.projection_offset.z
+        self.av_obj:SetLandingVFXPosition(Vector4.new(self.av_obj.projection_offset.x, self.av_obj.projection_offset.y, height_offset, 1))
+        self.av_obj:ProjectLandingWarning(true)
+    else
+        self.av_obj:ProjectLandingWarning(false)
+    end
+
 end
 
 function Event:CheckInput()
@@ -535,6 +545,12 @@ end
 function Event:ShowRadioPopup()
     if self:IsInVehicle() then
         self.hud_obj:ShowRadioPopup()
+    end
+end
+
+function Event:ShowVehicleManagerPopup()
+    if self.current_situation == Def.Situation.Normal or self.current_situation == Def.Situation.Waiting then
+        self.hud_obj:ShowVehicleManagerPopup()
     end
 end
 
