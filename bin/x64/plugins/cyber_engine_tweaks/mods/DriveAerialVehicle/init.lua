@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.2.0",
+	version = "2.2.1",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -28,7 +28,7 @@ DAV = {
     surveyor_record = "Vehicle.av_zetatech_surveyor_dav",
     valgus_record = "Vehicle.q000_nomad_border_patrol_heli_dav",
     mayhem_record = "Vehicle.q000_nomad_border_patrol_heli_mayhem_dav",
-    -- grobal index
+    -- global index
     model_index = 1,
 	model_type_index = 1,
     -- version check
@@ -44,6 +44,7 @@ DAV = {
     is_valid_native_settings = false,
     NativeSettings = nil,
     -- input
+    axis_dead_zone = 0.5,
     input_key_listener = nil,
     input_axis_listener = nil,
     is_keyboard_input = true,
@@ -66,9 +67,10 @@ DAV = {
         {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_LeftThumb", is_hold = true},
         {name = "toggle_camera", key = "IK_1", pad = "IK_Pad_DigitDown", is_hold = false},
         {name = "toggle_radio", key = "IK_2", pad = "IK_Pad_DigitUp", is_hold = true},
-        {name = "toggle_door", key = "IK_3", pad = nil, is_hold = false},
-        {name = "toggle_crystal_dome", key = "IK_4", pad = nil, is_hold = false},
-        {name = "toggle_appearance", key = "IK_5", pad = nil, is_hold = false},
+        {name = "toggle_door", key = "IK_3", pad = "IK_None", is_hold = false},
+        {name = "toggle_crystal_dome", key = "IK_4", pad = "IK_None", is_hold = false},
+        {name = "toggle_appearance", key = "IK_5", pad = "IK_None", is_hold = false},
+        {name = "open_vehicle_manager", key = "IK_6", pad = "IK_None", is_hold = false},
     }
 }
 
@@ -91,12 +93,13 @@ DAV.user_setting_table = {
     is_enable_history = true,
     --- general
     language_index = 1,
+    is_enable_landing_vfx = true,
     --- input
     keybind_table = DAV.default_keybind_table,
     heli_keybind_table = DAV.default_heli_keybind_table,
     common_keybind_table = DAV.default_common_keybind_table,
     --- physics
-    --- common
+    -- common
     horizontal_air_resistance_const = 0.01,
     vertical_air_resistance_const = 0.025,
     -- av
@@ -162,9 +165,6 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".isArmoredVehicle"), true)
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".weapons"), weapon_list)
-    -- TweakDB:CloneRecord("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav", "Vehicle.v_standard2_archer_quartz_nomad_inline1")
-    -- TweakDB:SetFlat(TweakDBID.new("Vehicle.v_standard2_archer_quartz_nomad_inline1_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
-    -- TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.v_standard2_archer_quartz_nomad_inline1_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.av_zetatech_atlus_inline0_dav")
     
     -- Custom valgus record
@@ -193,7 +193,7 @@ registerForEvent("onTweak",function ()
 
 end)
 
-registerForEvent("onHook", function ()
+registerForEvent("onHook", function()
 
     -- refer to Kiroshi Night Vision (https://www.nexusmods.com/cyberpunk2077/mods/8326)
     DAV.input_key_listener = NewProxy({
@@ -213,7 +213,8 @@ registerForEvent("onHook", function ()
                 elseif DAV.listening_keybind_widget and action == "IACT_Release" then -- Key was bound, by keyboard
                     DAV.listening_keybind_widget = nil
                 end
-                if DAV.core_obj.event_obj.current_situation == Def.Situation.InVehicle or DAV.core_obj.event_obj.current_situation == Def.Situation.Waiting then
+                local current_situation = DAV.core_obj.event_obj.current_situation
+                if current_situation == Def.Situation.InVehicle or current_situation == Def.Situation.Waiting or current_situation == Def.Situation.Normal then
                     if action == "IACT_Press" then
                         DAV.core_obj:ConvertPressButtonAction(key)
                     elseif action == "IACT_Release" then
@@ -234,7 +235,8 @@ registerForEvent("onHook", function ()
             args = {'handle:AxisInputEvent'},
             callback = function(event)
                 local key = event:GetKey().value
-                if key:find("IK_Pad") then
+                local value = event:GetValue()
+                if key:find("IK_Pad") and math.abs(value) > DAV.axis_dead_zone then
                     DAV.is_keyboard_input = false
                 else
                     DAV.is_keyboard_input = true

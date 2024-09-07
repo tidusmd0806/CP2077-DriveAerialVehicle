@@ -1,9 +1,9 @@
 {
     "language": "English",
-    "version": "2.2.0",
+    "version": "2.2.1",
 
     "native_settings_top_title": "Drive AV",
-    "native_settings_general_subtitle": "General",
+    "native_settings_general_subtitle": "General Settings",
     "native_settings_general_language": "Language",
     "native_settings_general_language_description": "Select the language.",
     "native_settings_general_autopilot_speed": "Autopilot Speed",
@@ -11,7 +11,9 @@
     "native_settings_general_speed_slow": "Slow",
     "native_settings_general_speed_normal": "Normal",
     "native_settings_general_speed_fast": "Fast",
-    "native_settings_general_activation": "Enable Unlock Switch for Aerial Vehicles",
+    "native_settings_general_landing_vfx": "Enable Landing VFX",
+    "native_settings_general_landing_vfx_description": "Enable projection mapping on the ground. (Atlus and Surveyor only)",
+    "native_settings_general_activation": "Manually Unlock Aerial Vehicles",
     "native_settings_general_activation_description": "Add an item to enable and disable Aerial Vehicles without Virtual Car Dealer.",
     "native_settings_activation_subtitle": "Unlock Aerial Vehicles",
     "native_settings_activation_excalibur": "Rayfield Excalibur",
@@ -48,8 +50,6 @@
     "native_settings_keybinds_turn_right_description": "Hold on this to turn the Helicopter right.",
     "native_settings_keybinds_acceleration": "Acceleration",
     "native_settings_keybinds_acceleration_description": "Hold on this to accelerate the Helicopter forward.",
-    "native_settings_keybinds_hover": "Hover",
-    "native_settings_keybinds_hover_description": "Press and hold this button to maintain altitude and control the Helicopter. Press it again to cancel hover mode.",
     "native_settings_keybinds_toggle_autopilot": "Toggle Autopilot",
     "native_settings_keybinds_toggle_autopilot_description": "Press this to open the autopilot setting screen. Press and hold to start Autopilot. Pressing this button during Autopilot will interrupt it.",
     "native_settings_keybinds_toggle_camera": "Toggle Camera",
@@ -62,7 +62,9 @@
     "native_settings_keybinds_toggle_crystal_dome_description": "Switches the crystal dome ON/OFF. Exclusive to Excalibur and Manticore.",
     "native_settings_keybinds_toggle_appearance": "Toggle Appearance",
     "native_settings_keybinds_toggle_appearance_description": "Switches the appearance of the AV.",
-    "native_settings_advance_subtitle": "Advance",
+    "native_settings_keybinds_open_vehicle_manager": "Open Vehicle List Popup",
+    "native_settings_keybinds_open_vehicle_manager_description": "Opens a vehicle list popup in a safety zone or other location where normal vehicle calls are restricted.",
+    "native_settings_advance_subtitle": "Advanced Settings",
     "native_settings_advance_horizontal_air_resistance_const": "Horizontal Air Resistance",
     "native_settings_advance_horizontal_air_resistance_const_description": "The larger the value, the more resistance it has when moving Forward.",
     "native_settings_advance_vertical_air_resistance_const": "Vertical Air Resistance",
@@ -107,8 +109,6 @@
     "native_settings_common_flight_mode_description": "Setting items for the selected vehicle type will be displayed.",
     "native_settings_common_flight_mode_av": "AV",
     "native_settings_common_flight_mode_heli": "Helicopter",
-
-
 
     "ui_popup_title": "Autopilot Control Panel", 
     "ui_popup_footer": "Choose your Autopilot destination from the current map pin location or your favorite locations.",

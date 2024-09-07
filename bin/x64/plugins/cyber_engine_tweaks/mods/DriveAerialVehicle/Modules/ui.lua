@@ -265,6 +265,15 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
+	option_table = DAV.NativeSettings.addSwitch("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_landing_vfx"), DAV.core_obj:GetTranslationText("native_settings_general_landing_vfx_description"), DAV.user_setting_table.is_enable_landing_vfx, true, function(state)
+		DAV.user_setting_table.is_enable_landing_vfx = state
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+
 	option_table = DAV.NativeSettings.addSwitch("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_activation"), DAV.core_obj:GetTranslationText("native_settings_general_activation_description"), self.is_activate_vehicle_switch, false, function(state)
 		self.is_activate_vehicle_switch = state
 		Cron.After(self.delay_updating_native_settings, function()
@@ -673,7 +682,9 @@ function UI:ResetParameters()
 	if not DAV.is_valid_native_settings then
 		return
 	end
+	local favorite_location_list = DAV.user_setting_table.favorite_location_list
 	DAV.user_setting_table = Utils:DeepCopy(DAV.core_obj.initial_user_setting_table)
+	DAV.user_setting_table.favorite_location_list = favorite_location_list
     Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 
 end

@@ -425,4 +425,10 @@ function HUD:ShowRadioPopup()
     end
 end
 
+function HUD:ShowVehicleManagerPopup()
+    if self.popup_manager ~= nil then
+        self.popup_manager:SpawnVehiclesManagerPopup()
+    end
+end
+
 return HUD

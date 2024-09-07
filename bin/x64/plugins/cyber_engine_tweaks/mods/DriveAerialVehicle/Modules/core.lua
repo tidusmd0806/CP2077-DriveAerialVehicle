@@ -22,7 +22,7 @@ function Core:New()
     obj.av_model_path = "Data/default_model.json"
     obj.input_key_path = "Data/input_key.json"
     -- input setting
-    obj.axis_dead_zone = 0.5
+    obj.axis_dead_zone = DAV.axis_dead_zone
     obj.relative_dead_zone = 0.01
     obj.relative_resolution = 0.1
     obj.hold_progress = 0.9
@@ -179,7 +179,7 @@ function Core:SetSummonTrigger()
                     if prev_model_index ~= DAV.model_index then
                         self.event_obj:CallVehicle()
                     else
-                        self.event_obj:ReturnVehicle()
+                        self.event_obj:ReturnVehicle(true)
                     end
                 end
                 return false
@@ -836,6 +836,8 @@ function Core:ConvertCommonPressAction(keybind_name)
         self.queue_obj:Enqueue(Def.ActionList.ToggleCrystalDome)
     elseif keybind_name == "toggle_appearance" then
         self.queue_obj:Enqueue(Def.ActionList.ToggleAppearance)
+    elseif keybind_name == "open_vehicle_manager" then
+        self.queue_obj:Enqueue(Def.ActionList.OpenVehicleManager)
     end
 
 end
@@ -894,6 +896,8 @@ function Core:SetEvent(action)
             self.event_obj:SelectChoice(Def.ActionList.SelectDown)
         elseif action == Def.ActionList.ToggleAppearance then
             self:ToggleAppearance()
+        elseif action == Def.ActionList.OpenVehicleManager then
+            self:OpenVehicleManager()
         end
         Cron.After(self.delay_action_time_in_waiting, function()
             self.is_locked_action_in_waiting = false
@@ -925,6 +929,10 @@ function Core:SetEvent(action)
         Cron.After(self.delay_action_time_in_vehicle, function()
             self.is_locked_action_in_vehicle = false
         end)
+    elseif self.event_obj.current_situation == Def.Situation.Normal and not self.event_obj:IsInMenuOrPopupOrPhoto() then
+        if action == Def.ActionList.OpenVehicleManager then
+            self:OpenVehicleManager()
+        end
     end
 
 end
@@ -978,6 +986,10 @@ function Core:ToggleAppearance()
     if not self.event_obj:IsNotSpawned() then
         self.av_obj:ChangeAppearance(type_list[type_index])
     end
+end
+
+function Core:OpenVehicleManager()
+    self.event_obj:ShowVehicleManagerPopup()
 end
 
 function Core:SetMappinController()
