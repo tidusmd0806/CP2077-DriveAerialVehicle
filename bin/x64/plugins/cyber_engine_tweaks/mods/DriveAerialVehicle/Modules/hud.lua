@@ -211,14 +211,16 @@ function HUD:CreateHPDisplay()
 
     self.ink_hp_title = inkText.new()
     self.ink_hp_title:SetName(CName.new("title"))
-    self.ink_hp_title:SetText(GetLocalizedText("LocKey#728"))
+    self.ink_hp_title:SetText(GetLocalizedText("LocKey#91867"))
     self.ink_hp_title:SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily")
     self.ink_hp_title:SetFontStyle("Medium")
-    self.ink_hp_title:SetFontSize(20)
+    self.ink_hp_title:SetFontSize(15)
     self.ink_hp_title:SetOpacity(0.4)
+    self.ink_hp_title:SetMargin(0, 15, 0, 0)
     self.ink_hp_title:SetFitToContent(true)
     self.ink_hp_title:SetJustificationType(textJustificationType.Right)
     self.ink_hp_title:SetHorizontalAlignment(textHorizontalAlignment.Right)
+    self.ink_hp_title:SetVerticalAlignment(textVerticalAlignment.Center)
     local color = HDRColor.new()
     color.Red = 1.176
     color.Green = 0.381

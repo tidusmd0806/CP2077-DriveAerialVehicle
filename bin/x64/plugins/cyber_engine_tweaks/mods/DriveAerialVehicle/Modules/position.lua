@@ -206,10 +206,6 @@ function Position:IsPlayerAround()
     end
 end
 
-function Position:FixPosition()
-    self.next_position = self:GetPosition()
-end
-
 function Position:SetNextPosition(x, y, z, roll, pitch, yaw, is_freeze)
 
     if self.entity == nil then
