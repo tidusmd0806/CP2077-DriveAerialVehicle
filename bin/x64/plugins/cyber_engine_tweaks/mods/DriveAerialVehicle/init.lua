@@ -44,7 +44,7 @@ DAV = {
     is_valid_native_settings = false,
     NativeSettings = nil,
     -- input
-    axis_dead_zone = 0.5,
+    axis_dead_zone = 0.1,
     input_key_listener = nil,
     input_axis_listener = nil,
     is_keyboard_input = true,

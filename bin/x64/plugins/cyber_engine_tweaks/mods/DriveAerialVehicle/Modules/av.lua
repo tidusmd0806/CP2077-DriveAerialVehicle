@@ -598,6 +598,139 @@ function AV:SetFavoriteDestination(position)
 end
 
 ---@return boolean
+-- function AV:AutoPilot()
+
+-- 	self.is_auto_pilot = true
+-- 	local destination_position = Vector4.new(0, 0, 0, 1)
+-- 	if DAV.user_setting_table.autopilot_selected_index == 0 then
+-- 		destination_position = self.mappin_destination_position
+-- 	else
+-- 		destination_position = self.favorite_destination_position
+-- 	end
+
+-- 	local far_corner_distance = self.position_obj:GetFarCornerDistance()
+
+-- 	local current_position = self.position_obj:GetPosition()
+
+-- 	local direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
+-- 	self:AutoLeaving(direction_vector)
+
+-- 	self.is_auto_avoidance = false
+
+-- 	local dist_height = 30
+-- 	local is_avoiding_left = false
+-- 	local is_avoiding_right = false
+
+-- 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
+-- 		timer.tick = timer.tick + 1
+
+-- 		local height_diff = dist_height - self.position_obj:GetHeight()
+-- 		local speed_z = height_diff / 100
+
+-- 		if self.is_leaving or DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+-- 			return
+-- 		end
+
+-- 		if not self.is_auto_pilot then
+-- 			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted")
+-- 			Cron.Halt(timer)
+-- 			return
+-- 		end
+
+-- 		local stack_count = self.position_obj:CheckAutoPilotStackCount(destination_position)
+
+-- 		if stack_count > self.limit_stack_count then
+-- 			self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
+-- 			self:InterruptAutoPilot()
+-- 			Cron.Halt(timer)
+-- 			return
+-- 		end
+
+-- 		current_position = self.position_obj:GetPosition()
+
+-- 		local sum_vector = self.position_obj:CalculateVectorField(far_corner_distance, far_corner_distance + self.avoidance_range, self.max_avoidance_speed, self.sensing_constant)
+
+-- 		local sum_vector_norm = math.sqrt(sum_vector.x * sum_vector.x + sum_vector.y * sum_vector.y + sum_vector.z * sum_vector.z)
+-- 		-- if sum_vector_norm < 0.1 then
+-- 		-- 	self.is_auto_avoidance = false
+-- 		-- end
+-- 		if self.position_obj:IsWallInFront(7) then
+-- 			self.is_auto_avoidance = false
+-- 			is_avoiding_left = false
+-- 			is_avoiding_right = false
+-- 		end
+
+-- 		-- direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
+-- 		direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
+-- 		direction_air_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
+
+-- 		local direction_vector_norm = Vector4.Length(direction_vector)
+-- 		local direction_air_vector_norm = Vector4.Length(direction_air_vector)
+
+-- 		if direction_air_vector_norm < self.error_range then
+-- 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
+-- 			self:AutoLanding(current_position.z)
+-- 			Cron.Halt(timer)
+-- 			return
+-- 		end
+
+-- 		local auto_pilot_speed = self.auto_pilot_speed * (1 - sum_vector_norm / (self.max_avoidance_speed + 1))
+
+-- 		if stack_count > self.min_stack_count and stack_count <= self.max_stack_count then
+-- 			auto_pilot_speed = auto_pilot_speed * ((self.max_stack_count - stack_count) / self.max_stack_count)
+-- 		end
+
+-- 		-- local fix_direction_vector = Vector4.new(auto_pilot_speed * direction_vector.x / direction_vector_norm, auto_pilot_speed * direction_vector.y / direction_vector_norm, 0, 1)
+-- 		local fix_direction_vector = Vector4.new(auto_pilot_speed * direction_vector.x / direction_vector_norm, auto_pilot_speed * direction_vector.y / direction_vector_norm, auto_pilot_speed * direction_vector.z / direction_vector_norm, 1)
+
+-- 		-- local next_positon = {x = fix_direction_vector.x + sum_vector.x, y = fix_direction_vector.y + sum_vector.y, z = sum_vector.z}
+-- 		local next_positon = {x = fix_direction_vector.x + sum_vector.x, y = fix_direction_vector.y + sum_vector.y, z = fix_direction_vector.z + sum_vector.z}
+
+
+-- 		if self.is_auto_avoidance then
+-- 			local left_distance = self.position_obj:GetLeftWallDistance()
+-- 			local right_distance = self.position_obj:GetRightWallDistance()
+-- 			local right_vec = self.position_obj:GetRight()
+-- 			if left_distance < right_distance and not is_avoiding_left then
+-- 				next_positon = {x = right_vec.x * self.auto_pilot_speed, y = right_vec.y * self.auto_pilot_speed, z = 0}
+-- 				is_avoiding_right = true
+-- 			elseif right_distance <= left_distance and not is_avoiding_right then
+-- 				local left_vec = Vector4.new(-right_vec.x, -right_vec.y, -right_vec.z, 1)
+-- 				next_positon = {x = left_vec.x * self.auto_pilot_speed, y = left_vec.y * self.auto_pilot_speed, z = 0}
+-- 				is_avoiding_left = true
+-- 			end
+-- 			-- next_positon = {x = 0, y = 0, z = self.auto_pilot_speed}
+-- 		end
+
+-- 		local vehicle_angle = self.position_obj:GetForward()
+-- 		local vehicle_angle_norm = Vector4.Length(vehicle_angle)
+-- 		local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
+-- 		local fix_direction_vector_norm = Vector4.Length(fix_direction_vector)
+-- 		local yaw_dist = yaw_vehicle
+-- 		if fix_direction_vector_norm ~= 0 then
+-- 			yaw_dist = math.atan2(fix_direction_vector.y / fix_direction_vector_norm, fix_direction_vector.x / fix_direction_vector_norm) * 180 / Pi()
+-- 		end
+-- 		local yaw_diff = yaw_dist - yaw_vehicle
+-- 		local yaw_diff_half = yaw_diff * 0.1
+-- 		if math.abs(yaw_diff_half) < 0.5 then
+-- 			yaw_diff_half = yaw_diff
+-- 		end
+
+-- 		if not self:Move(next_positon.x, next_positon.y, next_positon.z, 0.0, 0.0, yaw_diff_half) then
+-- 			self.log_obj:Record(LogLevel.Error, "AutoPilot Move Error")
+-- 			self:InterruptAutoPilot()
+-- 			Cron.Halt(timer)
+-- 			return
+-- 		end
+-- 		if stack_count > self.max_stack_count then
+-- 			self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
+-- 			self.is_auto_avoidance = true
+-- 		end
+-- 	end)
+-- 	return true
+
+-- end
+
 function AV:AutoPilot()
 
 	self.is_auto_pilot = true
@@ -608,78 +741,83 @@ function AV:AutoPilot()
 		destination_position = self.favorite_destination_position
 	end
 
-	local far_corner_distance = self.position_obj:GetFarCornerDistance()
-
-	local current_position = self.position_obj:GetPosition()
-
-	local direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
-	self:AutoLeaving(direction_vector)
-
-	self.is_auto_avoidance = false
+	self.auto_pilot_speed  = 0.1
 
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
-
+		local x,y,z = 0,0,0
+		local left_right_move_count = 0
+		local current_position = self.position_obj:GetPosition()
+		local direction_vector_ = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
+		local direction_vector = Vector4.Normalize(direction_vector_)
 		if self.is_leaving or DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			return
 		end
-
 		if not self.is_auto_pilot then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted")
 			Cron.Halt(timer)
 			return
 		end
-
-		local stack_count = self.position_obj:CheckAutoPilotStackCount(destination_position)
-
-		if stack_count > self.limit_stack_count then
-			self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
-			self:InterruptAutoPilot()
-			Cron.Halt(timer)
-			return
+		local height = self.position_obj:GetHeight()
+		if height < 5 then
+			z = z + 5 - height
 		end
 
-		current_position = self.position_obj:GetPosition()
-
-		local sum_vector = self.position_obj:CalculateVectorField(far_corner_distance, far_corner_distance + self.avoidance_range, self.max_avoidance_speed, self.sensing_constant)
-
-		local sum_vector_norm = math.sqrt(sum_vector.x * sum_vector.x + sum_vector.y * sum_vector.y + sum_vector.z * sum_vector.z)
-		if sum_vector_norm < 0.1 then
-			self.is_auto_avoidance = false
-		end
-
-		direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
-
-		local direction_vector_norm = Vector4.Length(direction_vector)
-
-		if direction_vector_norm < self.error_range then
+		if Vector4.Distance(current_position, destination_position) < self.error_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self:AutoLanding(current_position.z)
 			Cron.Halt(timer)
 			return
 		end
 
-		local auto_pilot_speed = self.auto_pilot_speed * (1 - sum_vector_norm / (self.max_avoidance_speed + 1))
-
-		if stack_count > self.min_stack_count and stack_count <= self.max_stack_count then
-			auto_pilot_speed = auto_pilot_speed * ((self.max_stack_count - stack_count) / self.max_stack_count)
-		end
-
-		local fix_direction_vector = Vector4.new(auto_pilot_speed * direction_vector.x / direction_vector_norm, auto_pilot_speed * direction_vector.y / direction_vector_norm, 0, 1)
-
-		local next_positon = {x = fix_direction_vector.x + sum_vector.x, y = fix_direction_vector.y + sum_vector.y, z = sum_vector.z}
-
-		if self.is_auto_avoidance then
-			next_positon = {x = 0, y = 0, z = self.auto_pilot_speed}
+		local index, collision_distance = self.position_obj:CheckForwardWall(direction_vector)
+		-- print("index:" .. index)
+		-- print("collision_distance:" .. collision_distance)
+		if collision_distance < 10 then
+			left_right_move_count = left_right_move_count + 1
+			local left_distance = self.position_obj:GetLeftWallDistance()
+			local right_distance = self.position_obj:GetRightWallDistance()
+			local right_vec = self.position_obj:GetRight()
+			local left_vec = Vector4.new(-right_vec.x, -right_vec.y, -right_vec.z, 1)
+			if left_distance < right_distance then
+				x = x + right_vec.x * self.auto_pilot_speed
+				y = y + right_vec.y * self.auto_pilot_speed
+			else
+				x = x + left_vec.x * self.auto_pilot_speed
+				y = y + left_vec.y * self.auto_pilot_speed
+			end
+			if left_right_move_count > 500 then
+				z = z + self.auto_pilot_speed
+				if left_right_move_count > 1000 then
+					self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
+					self:InterruptAutoPilot()
+					Cron.Halt(timer)
+					return
+				end
+			end
+		else
+			left_right_move_count = 0
+			if index == 1 then
+				x = x + direction_vector.x * self.auto_pilot_speed
+				y = y + direction_vector.y * self.auto_pilot_speed
+				z = z + direction_vector.z * self.auto_pilot_speed
+			else
+				local right_vector = direction_vector.RIGHT()
+    			local forward_around_search_vector_base = Vector4.RotateAxis(direction_vector, right_vector, 20 / 180 * Pi())
+				local forward_around_search_vector = Vector4.RotateAxis(forward_around_search_vector_base, direction_vector, (index - 2) * 45 / 180 * Pi())
+				x = x + forward_around_search_vector.x * self.auto_pilot_speed
+				y = y + forward_around_search_vector.y * self.auto_pilot_speed
+				z = z + forward_around_search_vector.z * self.auto_pilot_speed
+			end
 		end
 
 		local vehicle_angle = self.position_obj:GetForward()
 		local vehicle_angle_norm = Vector4.Length(vehicle_angle)
 		local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
-		local fix_direction_vector_norm = Vector4.Length(fix_direction_vector)
+		local direction_vector_norm = Vector4.Length(direction_vector)
 		local yaw_dist = yaw_vehicle
-		if fix_direction_vector_norm ~= 0 then
-			yaw_dist = math.atan2(fix_direction_vector.y / fix_direction_vector_norm, fix_direction_vector.x / fix_direction_vector_norm) * 180 / Pi()
+		if direction_vector_norm ~= 0 then
+			yaw_dist = math.atan2(direction_vector.y / direction_vector_norm, direction_vector.x / direction_vector_norm) * 180 / Pi()
 		end
 		local yaw_diff = yaw_dist - yaw_vehicle
 		local yaw_diff_half = yaw_diff * 0.1
@@ -687,18 +825,14 @@ function AV:AutoPilot()
 			yaw_diff_half = yaw_diff
 		end
 
-		if not self:Move(next_positon.x, next_positon.y, next_positon.z, 0.0, 0.0, yaw_diff_half) then
+		if not self:Move(x, y, z, 0.0, 0.0, yaw_diff_half) then
 			self.log_obj:Record(LogLevel.Error, "AutoPilot Move Error")
 			self:InterruptAutoPilot()
 			Cron.Halt(timer)
 			return
 		end
-		if stack_count > self.max_stack_count then
-			self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
-			self.is_auto_avoidance = true
-		end
+
 	end)
-	return true
 
 end
 
