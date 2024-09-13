@@ -66,13 +66,7 @@ function Position:SetModel(index)
         { x = self.all_models[index].shape.E.x, y = self.all_models[index].shape.E.y, z = self.all_models[index].shape.E.z },
         { x = self.all_models[index].shape.F.x, y = self.all_models[index].shape.F.y, z = self.all_models[index].shape.F.z },
         { x = self.all_models[index].shape.G.x, y = self.all_models[index].shape.G.y, z = self.all_models[index].shape.G.z },
-        { x = self.all_models[index].shape.H.x, y = self.all_models[index].shape.H.y, z = self.all_models[index].shape.H.z },
-        { x = self.all_models[index].shape.ABFE.x, y = self.all_models[index].shape.ABFE.y, z = self.all_models[index].shape.ABFE.z },
-        { x = self.all_models[index].shape.CDHG.x, y = self.all_models[index].shape.CDHG.y, z = self.all_models[index].shape.CDHG.z },
-        { x = self.all_models[index].shape.ABDC.x, y = self.all_models[index].shape.ABDC.y, z = self.all_models[index].shape.ABDC.z },
-        { x = self.all_models[index].shape.EFHG.x, y = self.all_models[index].shape.EFHG.y, z = self.all_models[index].shape.EFHG.z },
-        { x = self.all_models[index].shape.ACGE.x, y = self.all_models[index].shape.ACGE.y, z = self.all_models[index].shape.ACGE.z },
-        { x = self.all_models[index].shape.BDHF.x, y = self.all_models[index].shape.BDHF.y, z = self.all_models[index].shape.BDHF.z }
+        { x = self.all_models[index].shape.H.x, y = self.all_models[index].shape.H.y, z = self.all_models[index].shape.H.z }
     }
     self.entry_point = { x = self.all_models[index].entry_point.x, y = self.all_models[index].entry_point.y, z = self.all_models[index].entry_point.z }
     self.entry_area_radius = self.all_models[index].entry_area_radius
@@ -148,6 +142,7 @@ end
 function Position:CheckForwardWall(forward_vector)
 
     local collision_distance_list = {}
+    local avoid_vector_list = {}
     local current_position = self:GetPosition()
     local forward_search_vector = Vector4.new(self.search_distance * forward_vector.x, self.search_distance * forward_vector.y, self.search_distance * forward_vector.z, 1.0)
     for _, filter in ipairs(self.collision_filters) do
@@ -158,8 +153,9 @@ function Position:CheckForwardWall(forward_vector)
         else
             table.insert(collision_distance_list, self.search_distance)
         end
+        table.insert(avoid_vector_list, Vector4.Normalize(forward_search_vector))
     end
-    local right_vector = forward_vector.RIGHT()
+    local right_vector = self:GetRight()
     local forward_around_search_vector_base = Vector4.RotateAxis(forward_search_vector, right_vector, 20 / 180 * Pi())
     for i = 2, 9 do
         local forward_around_search_vector = Vector4.RotateAxis(forward_around_search_vector_base, forward_vector, (i - 2) * 45 / 180 * Pi())
@@ -171,10 +167,8 @@ function Position:CheckForwardWall(forward_vector)
             else
                 table.insert(collision_distance_list, self.search_distance)
             end
+            table.insert(avoid_vector_list, Vector4.Normalize(forward_around_search_vector))
         end
-    end
-    for i = 1, 9 do
-        print(collision_distance_list[i])
     end
 
     local max_value = collision_distance_list[1]
@@ -186,7 +180,7 @@ function Position:CheckForwardWall(forward_vector)
             max_index = i
         end
     end
-    return max_index, max_value
+    return avoid_vector_list[max_index], max_value
 
 end
 
@@ -290,32 +284,20 @@ function Position:IsPlayerAround()
     end
 end
 
-function Position:SetNextPosition(x, y, z, roll, pitch, yaw, is_freeze)
+function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
 
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Error, "No vehicle entity for SetNextPosition")
         return Def.TeleportResult.Error
     end
 
-    local pos
-    if not is_freeze then
-        pos = self:GetPosition()
-    else
-        pos = self.next_position
-    end
+    local pos = self:GetPosition()
     self.next_position = Vector4.new(pos.x + x, pos.y + y, pos.z + z, 1.0)
 
-    local rot
-    if not is_freeze then
-        rot = self:GetEulerAngles()
-    else
-        rot = self.next_angle
-    end
+    local rot = self:GetEulerAngles()
     self.next_angle = EulerAngles.new(rot.roll + roll, rot.pitch + pitch, rot.yaw + yaw)
 
-    if not is_freeze then
-        self:ChangePosition()
-    end
+    self:ChangePosition()
 
     if self:CheckCollision(pos, self.next_position) then
         self.log_obj:Record(LogLevel.Debug, "Collision Detected")
@@ -323,24 +305,10 @@ function Position:SetNextPosition(x, y, z, roll, pitch, yaw, is_freeze)
         self.next_position = Vector4.new(pos.x, pos.y, pos.z, 1.0)
         self.next_angle = EulerAngles.new(rot.roll, rot.pitch, rot.yaw)
 
-        if not is_freeze then
-            self:ChangePosition()
-        end
+        self:ChangePosition()
 
-        if self.is_power_on then
-            self.collision_count = self.collision_count + 1
-        else
-            self.collision_count = 0
-        end
-        if self.collision_count > self.collision_max_count then
-            self.log_obj:Record(LogLevel.Trace, "Collision Count Over")
-            self:AvoidStacking()
-            self.collision_count = 0
-            return Def.TeleportResult.AvoidStack
-        end
         return Def.TeleportResult.Collision
     else
-        self.collision_count = 0
         return Def.TeleportResult.Success
     end
 end
@@ -377,7 +345,6 @@ function Position:CheckCollision(current_pos, next_pos)
                 self.collision_trace_result = trace_result
                 self.stack_corner_num = i
                 self.is_collision = true
-                self:CalculateReflection(current_corner, trace_result)
                 return true
             end
         end
@@ -386,24 +353,10 @@ function Position:CheckCollision(current_pos, next_pos)
     return false
 end
 
-function Position:CalculateReflection(current_pos, trace_result)
-    local collision_point = trace_result.position
-    local normal_vector = trace_result.normal
-    local collision_vector = {x = collision_point.x - current_pos.x, y = collision_point.y - current_pos.y, z = collision_point.z - current_pos.z}
-    local inner_product = normal_vector.x * collision_vector.x + normal_vector.y * collision_vector.y + normal_vector.z * collision_vector.z
-    self.reflection_vector.x = collision_vector.x - 2 * inner_product * normal_vector.x
-    self.reflection_vector.y = collision_vector.y - 2 * inner_product * normal_vector.y
-    self.reflection_vector.z = collision_vector.z - 2 * inner_product * normal_vector.z
-end
-
 function Position:IsCollision()
     local collision_status = self.is_collision
     self.is_collision = false
     return collision_status
-end
-
-function Position:GetReflectionVector()
-    return self.reflection_vector
 end
 
 function Position:IsPlayerInEntryArea()
@@ -426,46 +379,6 @@ function Position:IsPlayerInEntryArea()
     end
 end
 
-function Position:AvoidStacking()
-
-    local pos = self:GetPosition()
-    local angle = self:GetEulerAngles()
-
-    self.log_obj:Record(LogLevel.Debug, "Avoid Stacking")
-
-    if self.stack_corner_num == 1 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[8].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[8].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[8].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 2 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[7].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[7].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[7].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 3 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[6].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[6].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[6].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 4 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[5].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[5].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[5].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 5 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[4].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[4].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[4].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 6 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[3].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[3].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[3].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 7 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[2].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[2].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[2].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 8 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[1].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[1].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[1].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 9 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[10].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[10].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[10].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 10 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[9].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[9].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[9].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 11 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[12].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[12].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[12].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 12 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[11].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[11].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[11].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 13 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[14].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[14].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[14].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    elseif self.stack_corner_num == 14 then
-        self.next_position = Vector4.new(self.dividing_rate * self.corners[13].x + (1 - self.dividing_rate) * pos.x, self.dividing_rate * self.corners[13].y + (1 - self.dividing_rate) * pos.y, self.dividing_rate * self.corners[13].z + (1 - self.dividing_rate) * pos.z, 1.0)
-    end
-
-    self.next_angle = EulerAngles.new(0, 0, angle.yaw)
-    self:ChangePosition()
-end
 
 function Position:GetExitPosition()
     local basic_vector = self:GetPosition()

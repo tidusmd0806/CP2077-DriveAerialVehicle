@@ -275,7 +275,7 @@ function Debug:ImGuiChangeAutoPilotSetting()
             DAV.core_obj.av_obj.autopilot_turn_speed = autopilot_profile[speed_level].turn_speed
             DAV.core_obj.av_obj.autopilot_land_offset = autopilot_profile[speed_level].land_offset
             DAV.core_obj.av_obj.autopilot_down_time_count = autopilot_profile[speed_level].down_time_count
-            DAV.core_obj.av_obj.autopilot_leaving_height = autopilot_profile[speed_level].leaving_hight
+            DAV.core_obj.av_obj.autopilot_leaving_height = autopilot_profile[speed_level].leaving_height
             DAV.core_obj.av_obj.position_obj:SetSensorPairVectorNum(autopilot_profile[speed_level].sensor_pair_vector_num)
             DAV.core_obj.av_obj.position_obj:SetJudgedStackLength(autopilot_profile[speed_level].judged_stack_length)
         end

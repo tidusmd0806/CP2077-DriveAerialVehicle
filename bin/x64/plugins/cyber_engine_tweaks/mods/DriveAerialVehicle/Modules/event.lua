@@ -278,6 +278,9 @@ function Event:CheckInAV()
             self:SetSituation(Def.Situation.Waiting)
             self.hud_obj:HideCustomHint()
             self:UnsetMappin()
+            if self:IsAutoMode() then
+                self.av_obj:InterruptAutoPilot()
+            end
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
     end
