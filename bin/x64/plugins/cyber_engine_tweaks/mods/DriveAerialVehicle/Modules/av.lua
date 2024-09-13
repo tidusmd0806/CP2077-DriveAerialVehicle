@@ -469,9 +469,14 @@ function AV:Mount()
 
 	Game.GetMountingFacility():Mount(mounting_request)
 
-	-- self.position_obj:ChangePosition()
-	self.engine_obj:ResetVelocity()
-	self.position_obj:FixPosition()
+	Cron.Every(0.001, {tick = 1}, function(timer)
+		timer.tick = timer.tick + 1
+		if self:IsPlayerMounted() or timer.tick > 5000 then
+			self.log_obj:Record(LogLevel.Info, "Player Mounted")
+			Cron.Halt(timer)
+		end
+		self.engine_obj:ResetVelocity()
+	end)
 
 	return true
 
@@ -519,12 +524,6 @@ function AV:Unmount()
 		self:ControlCrystalDome()
 	end
 
-	-- if all door are open, wait time is short
-	-- local open_door_wait = self.door_open_time
-	-- if self:ChangeDoorState(Def.DoorOperation.Open) == 0 then
-	-- 	open_door_wait = 0.1
-	-- end
-
 	self:ChangeDoorState(Def.DoorOperation.Open)
 
 	local unmount_wait_time = self.exit_duration
@@ -533,8 +532,6 @@ function AV:Unmount()
 	end
 
 	Cron.After(unmount_wait_time, function()
-
-		-- self.position_obj:FixPosition()
 
 		Game.GetMountingFacility():Unmount(mount_event)
 
@@ -546,7 +543,6 @@ function AV:Unmount()
 				angle.yaw = angle.yaw + 90
 				local position = self.position_obj:GetExitPosition()
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
-				-- self.is_player_in = false
 				self.is_ummounting = false
 				Cron.Halt(timer)
 			end
@@ -558,7 +554,7 @@ end
 
 function AV:Move(x, y, z, roll, pitch, yaw)
 
-	if not self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw, false) then
+	if self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) == Def.TeleportResult.Collision then
 		return false
 	end
 
@@ -775,7 +771,7 @@ function AV:AutoLanding(height)
 		end
 		if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(down_time_count, self.autopilot_land_offset, height, timer.tick + 1), 0.0, 0.0, 0.0) then
 			self.is_landed = true
-			self:InterruptAutoPilot()
+			self:SeccessAutoPilot()
 			Cron.Halt(timer)
 		elseif timer.tick >= down_time_count then
 			self.is_landed = true

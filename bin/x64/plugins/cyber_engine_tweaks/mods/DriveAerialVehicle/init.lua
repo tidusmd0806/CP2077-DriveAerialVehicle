@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.2.1",
+	version = "2.2.2",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -44,7 +44,7 @@ DAV = {
     is_valid_native_settings = false,
     NativeSettings = nil,
     -- input
-    axis_dead_zone = 0.5,
+    axis_dead_zone = 0.1,
     input_key_listener = nil,
     input_axis_listener = nil,
     is_keyboard_input = true,
@@ -176,6 +176,8 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".destroyedAppearance"), "valgus_rusted")
     local valgus_tag_list = {CName.new("InteractiveTrunk")}
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tags"), valgus_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".savable"), false)
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".isHackable"), "Vehicle.Never")
 
     -- Custom mayhem record
     TweakDB:CloneRecord(DAV.mayhem_record, "Vehicle.q000_nomad_border_patrol_heli")
@@ -185,6 +187,8 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".destroyedAppearance"), "valgus_rusted")
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tags"), valgus_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".savable"), false)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".isHackable"), "Vehicle.Never")
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".isArmoredVehicle"), true)
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".weapons"), weapon_list)
     TweakDB:CloneRecord("Vehicle.av_zetatech_valgus_inline0_dav", "Vehicle.av_zetatech_valgus_inline0")
