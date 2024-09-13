@@ -91,12 +91,12 @@ void AddLinelyVelocity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFr
 
     *aOut = 0;
 
-     if (vehicle)
-     {
-         vehicle->physicsData->velocity += velocity;
-         vehicle->physicsData->angularVelocity += angularVelocity;
-         *aOut = 1;
-     }
+    if (vehicle)
+    {
+        vehicle->physicsData->velocity += velocity;
+        vehicle->physicsData->angularVelocity += angularVelocity;
+        *aOut = 1;
+    }
 }
 
 void ChangeLinelyVelocity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, float* aOut, int64_t a4)
@@ -154,7 +154,8 @@ void GetVelocity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, R
     }
 }
 
-void GetAngularVelocity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector3* aOut, int64_t a4)
+void GetAngularVelocity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector3* aOut,
+                        int64_t a4)
 {
     RED4EXT_UNUSED_PARAMETER(aContext);
     RED4EXT_UNUSED_PARAMETER(aFrame);
@@ -179,7 +180,6 @@ void GetPhysicsState(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFram
     RED4EXT_UNUSED_PARAMETER(aFrame);
     RED4EXT_UNUSED_PARAMETER(a4);
 
-
     *aOut = -1;
 
     if (vehicle)
@@ -188,7 +188,7 @@ void GetPhysicsState(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFram
     }
 }
 
-void IsOnGround(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool*aOut, int64_t a4)
+void IsOnGround(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4)
 {
     RED4EXT_UNUSED_PARAMETER(aContext);
     RED4EXT_UNUSED_PARAMETER(aFrame);
@@ -244,7 +244,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterEnableGravity()
     cls.parent = scriptable;
 
     RED4ext::CBaseFunction::Flags flags = {.isNative = true};
-    auto func = RED4ext::CClassFunction::Create(&cls, "EnableGravity", "EnableGravity", &EnableGravity, {.isNative = true});
+    auto func =
+        RED4ext::CClassFunction::Create(&cls, "EnableGravity", "EnableGravity", &EnableGravity, {.isNative = true});
     func->flags = flags;
     func->SetReturnType("Float");
     func->AddParam("Bool", "is_enable");
@@ -258,7 +259,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterAddLinelyVelocity()
     cls.parent = scriptable;
 
     RED4ext::CBaseFunction::Flags flags = {.isNative = true};
-    auto func = RED4ext::CClassFunction::Create(&cls, "AddLinelyVelocity", "AddLinelyVelocity", &AddLinelyVelocity, {.isNative = true});
+    auto func = RED4ext::CClassFunction::Create(&cls, "AddLinelyVelocity", "AddLinelyVelocity", &AddLinelyVelocity,
+                                                {.isNative = true});
     func->flags = flags;
     func->SetReturnType("Float");
     func->AddParam("Vector3", "velocity");
@@ -273,7 +275,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterChangeLinelyVelocity()
     cls.parent = scriptable;
 
     RED4ext::CBaseFunction::Flags flags = {.isNative = true};
-    auto func = RED4ext::CClassFunction::Create(&cls, "ChangeLinelyVelocity", "ChangeLinelyVelocity", &ChangeLinelyVelocity, {.isNative = true});
+    auto func = RED4ext::CClassFunction::Create(&cls, "ChangeLinelyVelocity", "ChangeLinelyVelocity",
+                                                &ChangeLinelyVelocity, {.isNative = true});
     func->flags = flags;
     func->SetReturnType("Float");
     func->AddParam("Vector3", "velocity");
@@ -302,7 +305,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterGetAngularVelocity()
     cls.parent = scriptable;
 
     RED4ext::CBaseFunction::Flags flags = {.isNative = true};
-    auto func = RED4ext::CClassFunction::Create(&cls, "GetAngularVelocity", "GetAngularVelocity", &GetAngularVelocity, {.isNative = true});
+    auto func = RED4ext::CClassFunction::Create(&cls, "GetAngularVelocity", "GetAngularVelocity", &GetAngularVelocity,
+                                                {.isNative = true});
     func->flags = flags;
     func->SetReturnType("Vector3");
     cls.RegisterFunction(func);
@@ -315,7 +319,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterGetPhysicsState()
     cls.parent = scriptable;
 
     RED4ext::CBaseFunction::Flags flags = {.isNative = true};
-    auto func = RED4ext::CClassFunction::Create(&cls, "GetPhysicsState", "GetPhysicsState", &GetPhysicsState, {.isNative = true});
+    auto func = RED4ext::CClassFunction::Create(&cls, "GetPhysicsState", "GetPhysicsState", &GetPhysicsState,
+                                                {.isNative = true});
     func->flags = flags;
     func->SetReturnType("Float");
     cls.RegisterFunction(func);
@@ -366,10 +371,10 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::PluginHandle aHandle, RED4ext::
 
 RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::PluginInfo* aInfo)
 {
-    aInfo->name = L"Flying Tank API";
+    aInfo->name = L"DAV API";
     aInfo->author = L"tidus";
-    aInfo->version = RED4EXT_SEMVER(1, 0, 0);
-    aInfo->runtime = RED4EXT_RUNTIME_LATEST;
+    aInfo->version = RED4EXT_SEMVER(2, 2, 2);
+    aInfo->runtime = RED4EXT_RUNTIME_INDEPENDENT;
     aInfo->sdk = RED4EXT_SDK_LATEST;
 }
 
