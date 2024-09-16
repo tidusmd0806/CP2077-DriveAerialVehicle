@@ -50,6 +50,7 @@ function AV:New(all_models)
 	obj.is_spawning = false
 	obj.is_combat = false
 	-- autopiolt
+	obj.autopilot_profile = nil
 	obj.mappin_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.auto_pilot_speed = 1
@@ -88,21 +89,23 @@ function AV:Init()
 	self.is_enable_landing_vfx = self.all_models[index].landing_vfx
 	self.projection_offset = self.all_models[index].projection_offset
 	self.engine_audio_name = self.all_models[index].engine_audio_name
+	self.is_enable_manual_speed_meter = self.all_models[index].manual_speed_meter
+	self.is_enable_manual_rpm_meter = self.all_models[index].manual_rpm_meter
 	self.position_obj:SetModel(index)
 
 	-- read autopilot profile
-	local autopilot_profile = Utils:ReadJson(self.profile_path)
 	local speed_level = DAV.user_setting_table.autopilot_speed_level
-	self.auto_pilot_speed = autopilot_profile[speed_level].speed
-	self.avoidance_range = autopilot_profile[speed_level].avoidance_range
-	self.max_avoidance_speed = autopilot_profile[speed_level].max_avoidance_speed
-	self.sensing_constant = autopilot_profile[speed_level].sensing_constant
-	self.autopilot_turn_speed = autopilot_profile[speed_level].turn_speed
-	self.autopilot_land_offset = autopilot_profile[speed_level].land_offset
-	self.autopilot_down_time_count = autopilot_profile[speed_level].down_time_count
-	self.autopilot_leaving_height = autopilot_profile[speed_level].leaving_height
-	self.position_obj:SetSensorPairVectorNum(autopilot_profile[speed_level].sensor_pair_vector_num)
-	self.position_obj:SetJudgedStackLength(autopilot_profile[speed_level].judged_stack_length)
+	self.autopilot_profile = Utils:ReadJson(self.profile_path)
+	self.auto_pilot_speed = self.autopilot_profile[speed_level].speed
+	self.avoidance_range = self.autopilot_profile[speed_level].avoidance_range
+	self.max_avoidance_speed = self.autopilot_profile[speed_level].max_avoidance_speed
+	self.sensing_constant = self.autopilot_profile[speed_level].sensing_constant
+	self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
+	self.autopilot_land_offset = self.autopilot_profile[speed_level].land_offset
+	self.autopilot_down_time_count = self.autopilot_profile[speed_level].down_time_count
+	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
+	self.position_obj:SetSensorPairVectorNum(self.autopilot_profile[speed_level].sensor_pair_vector_num)
+	self.position_obj:SetJudgedStackLength(self.autopilot_profile[speed_level].judged_stack_length)
 
 end
 
@@ -293,6 +296,10 @@ function AV:GetDoorState(e_veh_door)
 		return nil
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to get door state")
+		return nil
+	end
 	local vehicle_ps = entity:GetVehiclePS()
 	return vehicle_ps:GetDoorState(e_veh_door)
 
@@ -435,6 +442,10 @@ function AV:Mount()
 	self.is_landed = false
 	self.camera_obj:SetPerspective(self.seat_index)
 
+	-- For staying current position
+	local current_position = self.position_obj:GetPosition()
+	local current_angle = self.position_obj:GetEulerAngles()
+
 	local seat_number = self.seat_index
 
 	self.log_obj:Record(LogLevel.Debug, "Mount Aerial Vehicle : " .. seat_number)
@@ -452,7 +463,8 @@ function AV:Mount()
 	data.isInstant = false
 	data.slotName = seat
 	data.mountParentEntityId = ent_id
-	data.entryAnimName = "stand__2h_on_sides__01__to__sit_couch__AV_excalibur__01__turn270__getting_into_AV__01"
+	-- data.entryAnimName = "stand__2h_on_sides__01__to__sit_couch__AV_excalibur__01__turn270__getting_into_AV__01"
+	data.entryAnimName = "forcedTransition"
 
 
 	local slot_id = NewObject('gamemountingMountingSlotId')
@@ -469,13 +481,13 @@ function AV:Mount()
 
 	Game.GetMountingFacility():Mount(mounting_request)
 
-	Cron.Every(0.001, {tick = 1}, function(timer)
+	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if self:IsPlayerMounted() or timer.tick > 5000 then
 			self.log_obj:Record(LogLevel.Info, "Player Mounted")
 			Cron.Halt(timer)
 		end
-		self.engine_obj:ResetVelocity()
+		self.position_obj:SetPosition(current_position, current_angle)
 	end)
 
 	return true
@@ -601,6 +613,7 @@ function AV:AutoPilot()
 
 	self.is_auto_pilot = true
 	local destination_position = Vector4.new(0, 0, 0, 1)
+	local relay_position = nil
 	if DAV.user_setting_table.autopilot_selected_index == 0 then
 		destination_position = self.mappin_destination_position
 	else
@@ -612,9 +625,11 @@ function AV:AutoPilot()
 	local current_position = self.position_obj:GetPosition()
 
 	local direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
+
 	self:AutoLeaving(direction_vector)
 
 	self.is_auto_avoidance = false
+	local stack_count = 0
 
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
@@ -629,16 +644,70 @@ function AV:AutoPilot()
 			return
 		end
 
-		local stack_count = self.position_obj:CheckAutoPilotStackCount(destination_position)
+		-- local stack_count = self.position_obj:CheckAutoPilotStackCount(destination_position)
 
-		if stack_count > self.limit_stack_count then
-			self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
-			self:InterruptAutoPilot()
-			Cron.Halt(timer)
-			return
-		end
+		-- if stack_count > self.limit_stack_count then
+		-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
+		-- 	self:InterruptAutoPilot()
+		-- 	Cron.Halt(timer)
+		-- 	return
+		-- end
 
 		current_position = self.position_obj:GetPosition()
+		local dest_dir_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
+		local dest_dir_vector_norm = Vector4.Length(dest_dir_vector)
+
+		if relay_position ~= nil then
+			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, 0, 1)
+		end
+		local direction_vector_norm = Vector4.Length(direction_vector)
+
+		if dest_dir_vector_norm < 100 then
+			if relay_position ~= destination_position then
+				relay_position = destination_position
+				stack_count = timer.tick
+			end
+		elseif relay_position ~= nil and direction_vector_norm < self.error_range then
+			relay_position = nil
+			stack_count = timer.tick
+		end
+
+		if relay_position == nil then
+			local max_searcg_angle = 90
+			local search_angle_step = 2
+			local temp_relay_distance = 0
+			local temp_dir_vec = Vector4.Zero()
+			local point_offset = 10
+			for search_angle = 0, max_searcg_angle, search_angle_step do
+				for sign = -1, 1, 2 do
+					local distance, dir_vec = self.position_obj:GetWallDistanceAt(sign * search_angle, dest_dir_vector)
+					if distance == 100 then
+						temp_relay_distance = 100
+						temp_dir_vec = dir_vec
+						self.autopilot_angle = sign * search_angle
+						break
+					elseif distance > temp_relay_distance then
+						temp_relay_distance = distance
+						temp_dir_vec = dir_vec
+						self.autopilot_angle = sign * search_angle
+					end
+				end
+				if temp_relay_distance == 100 then
+					break
+				end
+			end
+			if not temp_dir_vec:IsZero() then
+				local relat_length = temp_relay_distance - point_offset
+				relay_position = Vector4.new(current_position.x + relat_length * temp_dir_vec.x, current_position.y + relat_length * temp_dir_vec.y, current_position.z, 1)
+			end
+		end
+		print(self.autopilot_angle)
+
+		if relay_position ~= nil then
+			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, 0, 1)
+		end
+
+		direction_vector_norm = Vector4.Length(direction_vector)
 
 		local sum_vector = self.position_obj:CalculateVectorField(far_corner_distance, far_corner_distance + self.avoidance_range, self.max_avoidance_speed, self.sensing_constant)
 
@@ -647,11 +716,10 @@ function AV:AutoPilot()
 			self.is_auto_avoidance = false
 		end
 
-		direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
+		-- direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
 
-		local direction_vector_norm = Vector4.Length(direction_vector)
-
-		if direction_vector_norm < self.error_range then
+		-- if direction_vector_norm < self.error_range then
+		if dest_dir_vector_norm < self.error_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self:AutoLanding(current_position.z)
 			Cron.Halt(timer)
@@ -660,12 +728,14 @@ function AV:AutoPilot()
 
 		local auto_pilot_speed = self.auto_pilot_speed * (1 - sum_vector_norm / (self.max_avoidance_speed + 1))
 
-		if stack_count > self.min_stack_count and stack_count <= self.max_stack_count then
-			auto_pilot_speed = auto_pilot_speed * ((self.max_stack_count - stack_count) / self.max_stack_count)
-		end
+		-- if stack_count > self.min_stack_count and stack_count <= self.max_stack_count then
+		-- 	auto_pilot_speed = auto_pilot_speed * ((self.max_stack_count - stack_count) / self.max_stack_count)
+		-- end
 
+		-- local fix_direction_vector = Vector4.new(auto_pilot_speed * direction_vector.x / direction_vector_norm, auto_pilot_speed * direction_vector.y / direction_vector_norm, 0, 1)
 		local fix_direction_vector = Vector4.new(auto_pilot_speed * direction_vector.x / direction_vector_norm, auto_pilot_speed * direction_vector.y / direction_vector_norm, 0, 1)
 
+		-- local next_positon = {x = fix_direction_vector.x + sum_vector.x, y = fix_direction_vector.y + sum_vector.y, z = sum_vector.z}
 		local next_positon = {x = fix_direction_vector.x + sum_vector.x, y = fix_direction_vector.y + sum_vector.y, z = sum_vector.z}
 
 		if self.is_auto_avoidance then
@@ -675,10 +745,13 @@ function AV:AutoPilot()
 		local vehicle_angle = self.position_obj:GetForward()
 		local vehicle_angle_norm = Vector4.Length(vehicle_angle)
 		local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
-		local fix_direction_vector_norm = Vector4.Length(fix_direction_vector)
+		-- local fix_direction_vector_norm = Vector4.Length(fix_direction_vector)
 		local yaw_dist = yaw_vehicle
-		if fix_direction_vector_norm ~= 0 then
-			yaw_dist = math.atan2(fix_direction_vector.y / fix_direction_vector_norm, fix_direction_vector.x / fix_direction_vector_norm) * 180 / Pi()
+		-- if fix_direction_vector_norm ~= 0 then
+		-- 	yaw_dist = math.atan2(fix_direction_vector.y / fix_direction_vector_norm, fix_direction_vector.x / fix_direction_vector_norm) * 180 / Pi()
+		-- end
+		if dest_dir_vector_norm ~= 0 then
+			yaw_dist = math.atan2(dest_dir_vector.y / dest_dir_vector_norm, dest_dir_vector.x / dest_dir_vector_norm) * 180 / Pi()
 		end
 		local yaw_diff = yaw_dist - yaw_vehicle
 		local yaw_diff_half = yaw_diff * 0.1
@@ -692,9 +765,20 @@ function AV:AutoPilot()
 			Cron.Halt(timer)
 			return
 		end
-		if stack_count > self.max_stack_count then
+		-- if stack_count > self.max_stack_count then
+		-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
+		-- 	self.is_auto_avoidance = true
+		-- end
+		if timer.tick - stack_count > 500 then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Stack Over")
-			self.is_auto_avoidance = true
+			if relay_position == destination_position then
+				self.log_obj:Record(LogLevel.Info, "Arrived at destination")
+				self:AutoLanding(current_position.z)
+				Cron.Halt(timer)
+				return
+			end
+			relay_position = nil
+			stack_count = timer.tick
 		end
 	end)
 	return true
@@ -805,6 +889,22 @@ function AV:IsFailedAutoPilot()
 	local is_failture_auto_pilot = self.is_failture_auto_pilot
 	self.is_failture_auto_pilot = false
 	return is_failture_auto_pilot
+end
+
+function AV:ReloadAutopilotProfile()
+
+	local speed_level = DAV.user_setting_table.autopilot_speed_level
+	self.auto_pilot_speed = self.autopilot_profile[speed_level].speed
+	-- self.avoidance_range = self.autopilot_profile[speed_level].avoidance_range
+	-- self.max_avoidance_speed = self.autopilot_profile[speed_level].max_avoidance_speed
+	-- self.sensing_constant = self.autopilot_profile[speed_level].sensing_constant
+	-- self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
+	-- self.autopilot_land_offset = self.autopilot_profile[speed_level].land_offset
+	-- self.autopilot_down_time_count = self.autopilot_profile[speed_level].down_time_count
+	-- self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
+	-- self.position_obj:SetSensorPairVectorNum(self.autopilot_profile[speed_level].sensor_pair_vector_num)
+	-- self.position_obj:SetJudgedStackLength(self.autopilot_profile[speed_level].judged_stack_length)
+
 end
 
 function AV:ToggleRadio()

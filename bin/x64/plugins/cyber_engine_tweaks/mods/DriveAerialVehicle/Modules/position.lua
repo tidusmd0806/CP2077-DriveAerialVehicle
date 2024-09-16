@@ -127,16 +127,22 @@ function Position:GetHeight()
     return self:GetPosition().z - self:GetGroundPosition()
 end
 
-function Position:IsWallInFront(distance)
+function Position:GetWallDistanceAt(angle, forward)
+    local distance = 100
+    local collision_distance = distance
     local current_position = self:GetPosition()
-    local forward_vector = self:GetForward()
+    local forward_vector = Vector4.Normalize(forward)
+    local up_vector = self:GetUp()
+    local dir_vector = Vector4.RotateAxis(forward_vector, up_vector, angle / 180 * Pi())
     for _, filter in ipairs(self.collision_filters) do
-        local is_success, _ = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + distance * forward_vector.x, current_position.y + distance * forward_vector.y, current_position.z + distance * forward_vector.z, 1.0), filter, false, false)
+        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + distance * dir_vector.x, current_position.y + distance * dir_vector.y, current_position.z + distance * dir_vector.z, 1.0), filter, false, false)
         if is_success then
-            return true
+            local trace_result_vec4 = Vector4.new(trace_result.position.x, trace_result.position.y, trace_result.position.z, 1.0)
+            collision_distance = Vector4.Distance(current_position, trace_result_vec4)
+            return collision_distance, dir_vector
         end
     end
-    return false
+    return collision_distance, dir_vector
 end
 
 function Position:CheckForwardWall(forward_vector)
@@ -323,6 +329,17 @@ function Position:ChangePosition()
     Game.GetTeleportationFacility():Teleport(self.entity, self.next_position, self.next_angle)
     return true
 
+end
+
+function Position:SetPosition(position, angle)
+
+    if self.entity == nil then
+        self.log_obj:Record(LogLevel.Error, "No vehicle entity for ChangePosition")
+        return false
+    end
+
+    Game.GetTeleportationFacility():Teleport(self.entity, position, angle)
+    return true
 end
 
 function Position:CheckCollision(current_pos, next_pos)

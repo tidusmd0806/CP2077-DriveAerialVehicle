@@ -251,14 +251,17 @@ function UI:CreateNativeSettingsPage()
 		selected_index = 3
 	end
 	option_table = DAV.NativeSettings.addSelectorString("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_autopilot_speed"), DAV.core_obj:GetTranslationText("native_settings_general_autopilot_speed_description"), autopilot_speed_level_list, selected_index, 2, function(index)
-		if index == 1 then
-			DAV.user_setting_table.autopilot_speed_level = Def.AutopilotSpeedLevel.Slow
-		elseif index == 2 then
-			DAV.user_setting_table.autopilot_speed_level = Def.AutopilotSpeedLevel.Normal
-		elseif index == 3 then
-			DAV.user_setting_table.autopilot_speed_level = Def.AutopilotSpeedLevel.Fast
+		if not DAV.core_obj.av_obj.is_auto_pilot then
+			if index == 1 then
+				DAV.user_setting_table.autopilot_speed_level = Def.AutopilotSpeedLevel.Slow
+			elseif index == 2 then
+				DAV.user_setting_table.autopilot_speed_level = Def.AutopilotSpeedLevel.Normal
+			elseif index == 3 then
+				DAV.user_setting_table.autopilot_speed_level = Def.AutopilotSpeedLevel.Fast
+			end
+			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			DAV.core_obj.av_obj:ReloadAutopilotProfile()
 		end
-		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 		Cron.After(self.delay_updating_native_settings, function()
 			self:UpdateNativeSettingsPage()
 		end)

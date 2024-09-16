@@ -37,7 +37,9 @@
         "crystal_dome": true,
         "landing_vfx": false,
         "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "310_av_engine_idle"
+        "engine_audio_name": "310_av_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true
     },
     {
         "name": "Militech Manticore",
@@ -77,7 +79,9 @@
         "crystal_dome": true,
         "landing_vfx": false,
         "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "310_av_engine_idle"
+        "engine_audio_name": "310_av_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true
     },
     {
         "name": "Zetatech Atlus",
@@ -119,7 +123,9 @@
         "crystal_dome": false,
         "landing_vfx": true,
         "projection_offset": {"x": -0.8, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "310_av_engine_idle"
+        "engine_audio_name": "310_av_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true
     },
     {
         "name": "Zetatech Surveyor",
@@ -157,7 +163,9 @@
         "crystal_dome": false,
         "landing_vfx": true,
         "projection_offset": {"x": -0.6, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "310_av_engine_idle"
+        "engine_audio_name": "310_av_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true
     },
     {
         "name": "Zetatech Valgus",
@@ -195,7 +203,9 @@
         "crystal_dome": false,
         "landing_vfx": false,
         "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "320_heli_engine_idle"
+        "engine_audio_name": "320_heli_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true
     },
     {
         "name": "Militech Mayhem",
@@ -232,6 +242,8 @@
         "crystal_dome": false,
         "landing_vfx": false,
         "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "320_heli_engine_idle"
+        "engine_audio_name": "320_heli_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true
     }
 ]

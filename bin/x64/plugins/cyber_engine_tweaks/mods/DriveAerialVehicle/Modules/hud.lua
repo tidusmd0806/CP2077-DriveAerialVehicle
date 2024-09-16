@@ -9,24 +9,25 @@ function HUD:New()
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "HUD")
-    --static --
-    -- dynamic --
     obj.av_obj = nil
-    obj.interaction_ui_base = nil
-    obj.interaction_hub = nil
-    obj.choice_title = "AV"
+    -- static --
+    -- dynamic --
+    -- hud controller
 	obj.hud_car_controller = nil
     obj.hud_consumable_controller = nil
     obj.hud_phone_controller = nil
-
-    -- obj.is_speed_meter_shown = false
+    obj.is_manually_setting_speed = false
+    obj.is_manually_setting_rpm = false
+    -- input hint
     obj.key_input_show_hint_event = nil
     obj.key_input_hide_hint_event = nil
-
+    -- interaction choice
     obj.selected_choice_index = 1
-
+    obj.interaction_ui_base = nil
+    obj.interaction_hub = nil
+    -- popups
     obj.popup_manager = nil
-
+    -- HP display
     obj.vehicle_hp = 0
     obj.ink_horizontal_panel = nil
     obj.ink_hp_title = nil
@@ -86,6 +87,24 @@ function HUD:SetOverride()
                 return wrapped_metthod(id)
             end
         end)
+
+        Override("hudCarController", "OnSpeedValueChanged", function(this, speedValue, wrappedMethod)
+            local result = true
+            if not self.is_manually_setting_speed then
+                result = wrappedMethod(speedValue)
+            end
+            return result
+        end)
+
+        Override("hudCarController", "OnRpmValueChanged", function(this, rpmValue, wrappedMethod)
+            local result = true
+            if not self.is_manually_setting_rpm then
+                result = wrappedMethod(rpmValue)
+            end
+            return result
+        end)
+
+
     end
 
 end
@@ -265,6 +284,25 @@ function HUD:SetHPDisplay()
     end
     self.ink_hp_text:SetText(hp_text)
 
+end
+
+function HUD:EnableManualMeter(is_manual_speed, is_manual_rpm)
+    self.is_manually_setting_speed = is_manual_speed
+    self.is_manually_setting_rpm = is_manual_rpm
+end
+
+function HUD:SetSpeedMeterValue(speed_value)
+    if self.hud_car_controller == nil or not self.is_manually_setting_speed then
+        return
+    end
+    inkTextRef.SetText(self.hud_car_controller.SpeedValue, speed_value)
+end
+
+function HUD:SetRPMMeterValue(rpm_value)
+    if self.hud_car_controller == nil or not self.is_manually_setting_rpm then
+        return
+    end
+    self.hud_car_controller:EvaluateRPMMeterWidget(rpm_value)
 end
 
 function HUD:GetChoiceTitle()

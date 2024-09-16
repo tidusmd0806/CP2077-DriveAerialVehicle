@@ -139,6 +139,7 @@ function Debug:ImGuiAVPosition()
         local yaw = string.format("%.2f", self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)
         ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
         ImGui.Text("Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
+        ImGui.Text("Height : " .. tostring(DAV.core_obj.av_obj.position_obj:GetHeight()))
     end
 end
 
@@ -168,6 +169,16 @@ function Debug:ImGuiVehicleInfo()
             ImGui.Text("In Air")
         end
         ImGui.Text("Phy State: " .. tostring(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetPhysicsState()))
+        if DAV.core_obj.av_obj.engine_obj.fly_av_system:HasGravity() then
+            ImGui.Text("Gravity : On")
+        else
+            ImGui.Text("Gravity : Off")
+        end
+        local speed = DAV.core_obj.av_obj.engine_obj.fly_av_system:GetVelocity()
+        local speed_x = string.format("%.2f", speed.x)
+        local speed_y = string.format("%.2f", speed.y)
+        local speed_z = string.format("%.2f", speed.z)
+        ImGui.Text("Speed : X:" .. speed_x .. ", Y:" .. speed_y .. ", Z:" .. speed_z)
 
     end
 end
@@ -266,18 +277,8 @@ function Debug:ImGuiChangeAutoPilotSetting()
     self.is_im_gui_change_auto_setting = ImGui.Checkbox("[ImGui] Change AP Profile", self.is_im_gui_change_auto_setting)
     if self.is_im_gui_change_auto_setting then
         if ImGui.Button("Update Profile") then
-            local autopilot_profile = Utils:ReadJson(DAV.core_obj.av_obj.profile_path)
-            local speed_level = DAV.user_setting_table.autopilot_speed_level
-            DAV.core_obj.av_obj.auto_pilot_speed = autopilot_profile[speed_level].speed
-            DAV.core_obj.av_obj.avoidance_range = autopilot_profile[speed_level].avoidance_range
-            DAV.core_obj.av_obj.max_avoidance_speed = autopilot_profile[speed_level].max_avoidance_speed
-            DAV.core_obj.av_obj.sensing_constant = autopilot_profile[speed_level].sensing_constant
-            DAV.core_obj.av_obj.autopilot_turn_speed = autopilot_profile[speed_level].turn_speed
-            DAV.core_obj.av_obj.autopilot_land_offset = autopilot_profile[speed_level].land_offset
-            DAV.core_obj.av_obj.autopilot_down_time_count = autopilot_profile[speed_level].down_time_count
-            DAV.core_obj.av_obj.autopilot_leaving_height = autopilot_profile[speed_level].leaving_height
-            DAV.core_obj.av_obj.position_obj:SetSensorPairVectorNum(autopilot_profile[speed_level].sensor_pair_vector_num)
-            DAV.core_obj.av_obj.position_obj:SetJudgedStackLength(autopilot_profile[speed_level].judged_stack_length)
+            DAV.core_obj.av_obj.autopilot_profile = Utils:ReadJson(DAV.core_obj.av_obj.profile_path)
+            DAV.core_obj.av_obj:ReloadAutopilotProfile()
         end
         ImGui.Text("Speed Level : " .. DAV.user_setting_table.autopilot_speed_level)
         ImGui.Text("speed : " .. DAV.core_obj.av_obj.auto_pilot_speed .. ", avoidance : " .. DAV.core_obj.av_obj.avoidance_range .. ", max_avoidance : " .. DAV.core_obj.av_obj.max_avoidance_speed .. ", sensing : " .. DAV.core_obj.av_obj.sensing_constant .. ", stack_len : " .. DAV.core_obj.av_obj.position_obj.judged_stack_length)
@@ -320,48 +321,11 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF2") then
-        local depot = Game.GetResourceDepot()
-        local token = depot:LoadResource("base\\sound\\metadata\\cooked_metadata.audio_metadata")
-        local meta_data = token:GetResource()
-        local basilisk_data
-        local aerondight_data
-        for _, value in pairs(meta_data.entries) do
-            if value.name.value == "v_av_basilisk_tank" then
-                basilisk_data = value
-                -- value.collisionCooldown = 0.5 -- 0.2
-                -- value.hasRadioReceiver = true -- false
-                -- value.radioReceiverType = CName.new("radio_car_hyper_player")
-                -- value.vehicleCollisionSettings = CName.new("v_car_default_collision") -- v_military_panzer_collision
-                -- value.vehicleGridDestructionSettings = CName.new("v_grid_dst_car_default") -- None
-                -- value.vehiclePartSettings = CName.new("v_car_damage_default") -- None
-                -- -- local mechanical_data = audioVehicleMechanicalData.new()
-                -- -- mechanical_data = value.mechanicalData
-                -- -- mechanical_data.engineStartEvent = CName.new("v_car_rayfield_aerondight_engine_on")
-                -- -- mechanical_data.engineStopEvent = CName.new("v_car_rayfield_aerondight_engine_off")
-                -- -- value.mechanicalData = mechanical_data
-                -- local general_data = audioVehicleGeneralData.new()
-                -- general_data = value.generalData
-                -- general_data.enterVehicleEvent = CName.new("v_car_rayfield_aerondight_enter") -- v_av_panzer_01_enter
-                -- general_data.exitVehicleEvent = CName.new("v_car_rayfield_aerondight_exit") -- None
-                -- value.generalData = general_data
-            end
-            if value.name.value == "v_car_rayfield_aerondight" then
-                aerondight_data = value
-            end
-        end
-        basilisk_data.collisionCooldown = 0.5 -- 0.2
-        basilisk_data.hasRadioReceiver = true -- false
-        basilisk_data.radioReceiverType = CName.new("radio_car_hyper_player")
-        basilisk_data.vehicleCollisionSettings = CName.new("v_car_default_collision") -- v_military_panzer_collision
-        basilisk_data.vehicleGridDestructionSettings = CName.new("v_grid_dst_car_default") -- None
-        basilisk_data.vehiclePartSettings = CName.new("v_car_damage_default") -- None
-        -- local mechanical_data = audioVehicleMechanicalData.new()
-        -- mechanical_data = value.mechanicalData
-        -- mechanical_data.engineStartEvent = CName.new("v_car_rayfield_aerondight_engine_on")
-        -- mechanical_data.engineStopEvent = CName.new("v_car_rayfield_aerondight_engine_off")
-        -- value.mechanicalData = mechanical_data
-        -- local general_data = audioVehicleGeneralData.new()
-        basilisk_data.generalData = aerondight_data.generalData
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local comp = entity:FindComponentByName("ThrusterLight_FrontLeft1617")
+        local evt = ToggleLightEvent.new()
+        evt.toggle = false
+        comp:OnToggleLight(evt)
         print("Excute Test Function 2")
     end
     ImGui.SameLine()
@@ -382,40 +346,17 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        GameObjectEffectHelper.StartEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("landingWarningGlitch"), false)
+        DAV.core_obj.event_obj.hud_obj.is_manually_setting_speed = true
+        DAV.core_obj.event_obj.hud_obj.is_manually_setting_rpm = true
+        inkTextRef.SetText(DAV.core_obj.event_obj.hud_obj.hud_car_controller.SpeedValue, 101)
+        DAV.core_obj.event_obj.hud_obj.hud_car_controller:EvaluateRPMMeterWidget(7)
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
-        local door_event = VehicleDoorOpen.new()
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local vehicle_ps = entity:GetVehiclePS()
-        door_event.slotID = CName.new("seat_front_right")
-        door_event.forceScene = false
-        vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
+        DAV.core_obj.event_obj.hud_obj.is_manually_setting_speed = false
+        DAV.core_obj.event_obj.hud_obj.is_manually_setting_rpm = false
         print("Excute Test Function 5")
-    end
-    if ImGui.Button("TF6") then
-        DAV.core_obj.event_obj.hud_obj.popup_manager:SpawnVehiclesManagerPopup()
-        print("Excute Test Function 6")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF7") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local pos = entity:GetWorldPosition()
-        local angle = entity:GetWorldOrientation():ToEulerAngles()
-        pos.z = pos.z - 0.1
-        Game.GetTeleportationFacility():Teleport(entity, pos, angle)
-        print("Excute Test Function 7")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF8") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local pos = entity:GetWorldPosition()
-        local angle = entity:GetWorldOrientation():ToEulerAngles()
-        pos.z = pos.z + 0.1
-        Game.GetTeleportationFacility():Teleport(entity, pos, angle)
-        print("Excute Test Function 8")
     end
 end
 

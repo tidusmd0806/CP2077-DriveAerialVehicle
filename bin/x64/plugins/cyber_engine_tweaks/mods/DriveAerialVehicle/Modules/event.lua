@@ -264,6 +264,7 @@ function Event:CheckInAV()
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
             self.hud_obj:ShowCustomHint()
+            self.hud_obj:EnableManualMeter(false, self.av_obj.is_enable_manual_rpm_meter)
             self.is_keyboard_input_prev = DAV.is_keyboard_input
             Cron.After(1.5, function()
                 self.hud_obj:ShowLeftBottomHUD()
@@ -277,6 +278,7 @@ function Event:CheckInAV()
             self.hud_obj:HideLeftBottomHUD()
             self:SetSituation(Def.Situation.Waiting)
             self.hud_obj:HideCustomHint()
+            self.hud_obj:EnableManualMeter(false, false)
             self:UnsetMappin()
             if self:IsAutoMode() then
                 self.av_obj:InterruptAutoPilot()
@@ -297,6 +299,8 @@ function Event:CheckHUD()
     if not success then
     self.log_obj:Record(LogLevel.Critical, result)
     end
+    local rpm_count = self.av_obj.engine_obj:GetRPMCount()
+    self.hud_obj:SetRPMMeterValue(math.abs(rpm_count))
 
 end
 

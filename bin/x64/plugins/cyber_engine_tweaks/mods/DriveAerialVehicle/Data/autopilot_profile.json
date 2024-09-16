@@ -1,10 +1,10 @@
 [
     {
         "level": 1,
-        "speed": 0.4,
+        "speed": 0.2,
         "avoidance_range": 3,
-        "max_avoidance_speed": 0.38,
-        "sensing_constant": 0.00015,
+        "max_avoidance_speed": 0.5,
+        "sensing_constant": 0.00005,
         "turn_speed": 0.7,
         "land_offset": -1.0,
         "down_time_count": 100,
