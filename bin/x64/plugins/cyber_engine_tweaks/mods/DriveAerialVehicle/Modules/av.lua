@@ -626,7 +626,7 @@ function AV:AutoPilot()
 
 	local direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
 
-	self:AutoLeaving(direction_vector)
+	-- self:AutoLeaving(direction_vector)
 
 	self.is_auto_avoidance = false
 	local stack_count = 0
@@ -658,63 +658,65 @@ function AV:AutoPilot()
 		local dest_dir_vector_norm = Vector4.Length(dest_dir_vector)
 
 		if relay_position ~= nil then
-			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, 0, 1)
+			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, relay_position.z - current_position.z, 1)
 		end
 		local direction_vector_norm = Vector4.Length(direction_vector)
 
 		if dest_dir_vector_norm < 100 then
-			if relay_position ~= destination_position then
-				relay_position = destination_position
-				stack_count = timer.tick
-			end
+			relay_position = destination_position
+			relay_position.z = current_position.z
 		elseif relay_position ~= nil and direction_vector_norm < self.error_range then
 			relay_position = nil
 			stack_count = timer.tick
 		end
 
 		if relay_position == nil then
-			local max_searcg_angle = 90
+			local max_search_angle = 90
 			local search_angle_step = 2
 			local temp_relay_distance = 0
 			local temp_dir_vec = Vector4.Zero()
-			local point_offset = 10
-			for search_angle = 0, max_searcg_angle, search_angle_step do
-				for sign = -1, 1, 2 do
-					local distance, dir_vec = self.position_obj:GetWallDistanceAt(sign * search_angle, dest_dir_vector)
-					if distance == 100 then
-						temp_relay_distance = 100
-						temp_dir_vec = dir_vec
-						self.autopilot_angle = sign * search_angle
+			for _, swing_direction in ipairs({"Horizontal", "Vertical"}) do
+				for search_angle = 0, max_search_angle, search_angle_step do
+					for sign = -1, 1, 2 do
+						local res, vec = self.position_obj:IsWallAt(sign * search_angle, dest_dir_vector, 50, swing_direction)
+						if not res then
+							temp_relay_distance = 10
+							temp_dir_vec = vec
+							self.autopilot_angle = sign * search_angle
+							break
+						end
+					end
+					if temp_relay_distance == 10 then
 						break
-					elseif distance > temp_relay_distance then
-						temp_relay_distance = distance
-						temp_dir_vec = dir_vec
-						self.autopilot_angle = sign * search_angle
 					end
 				end
-				if temp_relay_distance == 100 then
+				if temp_relay_distance == 10 then
 					break
 				end
 			end
 			if not temp_dir_vec:IsZero() then
-				local relat_length = temp_relay_distance - point_offset
-				relay_position = Vector4.new(current_position.x + relat_length * temp_dir_vec.x, current_position.y + relat_length * temp_dir_vec.y, current_position.z, 1)
+				relay_position = Vector4.new(current_position.x + temp_relay_distance * temp_dir_vec.x, current_position.y + temp_relay_distance * temp_dir_vec.y, current_position.z +  temp_relay_distance * temp_dir_vec.z, 1)
+			else
+				self.log_obj:Record(LogLevel.Error, "AutoPilot Move Error")
+				self:InterruptAutoPilot()
+				Cron.Halt(timer)
+				return
 			end
 		end
 		print(self.autopilot_angle)
 
 		if relay_position ~= nil then
-			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, 0, 1)
+			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, relay_position.z - current_position.z, 1)
 		end
 
 		direction_vector_norm = Vector4.Length(direction_vector)
 
-		local sum_vector = self.position_obj:CalculateVectorField(far_corner_distance, far_corner_distance + self.avoidance_range, self.max_avoidance_speed, self.sensing_constant)
+		-- local sum_vector = self.position_obj:CalculateVectorField(far_corner_distance, far_corner_distance + self.avoidance_range, self.max_avoidance_speed, self.sensing_constant)
 
-		local sum_vector_norm = math.sqrt(sum_vector.x * sum_vector.x + sum_vector.y * sum_vector.y + sum_vector.z * sum_vector.z)
-		if sum_vector_norm < 0.1 then
-			self.is_auto_avoidance = false
-		end
+		-- local sum_vector_norm = math.sqrt(sum_vector.x * sum_vector.x + sum_vector.y * sum_vector.y + sum_vector.z * sum_vector.z)
+		-- if sum_vector_norm < 0.1 then
+		-- 	self.is_auto_avoidance = false
+		-- end
 
 		-- direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, 0, 1)
 
@@ -726,17 +728,18 @@ function AV:AutoPilot()
 			return
 		end
 
-		local auto_pilot_speed = self.auto_pilot_speed * (1 - sum_vector_norm / (self.max_avoidance_speed + 1))
+		local auto_pilot_speed = self.auto_pilot_speed
+		-- local auto_pilot_speed = self.auto_pilot_speed * (1 - sum_vector_norm / (self.max_avoidance_speed + 1))
 
 		-- if stack_count > self.min_stack_count and stack_count <= self.max_stack_count then
 		-- 	auto_pilot_speed = auto_pilot_speed * ((self.max_stack_count - stack_count) / self.max_stack_count)
 		-- end
 
-		-- local fix_direction_vector = Vector4.new(auto_pilot_speed * direction_vector.x / direction_vector_norm, auto_pilot_speed * direction_vector.y / direction_vector_norm, 0, 1)
 		local fix_direction_vector = Vector4.new(auto_pilot_speed * direction_vector.x / direction_vector_norm, auto_pilot_speed * direction_vector.y / direction_vector_norm, 0, 1)
 
 		-- local next_positon = {x = fix_direction_vector.x + sum_vector.x, y = fix_direction_vector.y + sum_vector.y, z = sum_vector.z}
-		local next_positon = {x = fix_direction_vector.x + sum_vector.x, y = fix_direction_vector.y + sum_vector.y, z = sum_vector.z}
+		-- local next_positon = {x = fix_direction_vector.x + sum_vector.x, y = fix_direction_vector.y + sum_vector.y, z = sum_vector.z}
+		local next_positon = {x = fix_direction_vector.x, y = fix_direction_vector.y, z = fix_direction_vector.z}
 
 		if self.is_auto_avoidance then
 			next_positon = {x = 0, y = 0, z = self.auto_pilot_speed}

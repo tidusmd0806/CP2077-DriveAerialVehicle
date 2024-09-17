@@ -145,6 +145,35 @@ function Position:GetWallDistanceAt(angle, forward)
     return collision_distance, dir_vector
 end
 
+function Position:IsWallAt(angle, dir_vec, distance, swing_direction)
+    local dir_base_vec = Vector4.Normalize(dir_vec)
+    local up_vec = Vector4.new(0, 0, 1, 1)
+    local right_vec = Vector4.Cross(dir_base_vec, up_vec)
+    local search_vec
+    if swing_direction == "Vertical" then
+        search_vec = Vector4.RotateAxis(dir_base_vec, right_vec, angle / 180 * Pi())
+    else
+        search_vec = Vector4.RotateAxis(dir_base_vec, up_vec, angle / 180 * Pi())
+    end
+    for _, i in ipairs({0, 5, -5}) do
+        for _, j in ipairs({0, 3, -3}) do
+            for _, k in ipairs({0, 3, -3}) do
+                local current_position = self:GetPosition()
+                current_position.x = current_position.x + dir_base_vec.x * i + right_vec.x * j + up_vec.x * k
+                current_position.y = current_position.y + dir_base_vec.y * i + right_vec.y * j + up_vec.y * k
+                current_position.z = current_position.z + dir_base_vec.z * i + right_vec.z * j + up_vec.z * k
+                for _, filter in ipairs(self.collision_filters) do
+                    local is_success, _ = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0), filter, false, false)
+                    if is_success then
+                        return true, search_vec
+                    end
+                end
+            end
+        end
+    end
+    return false, search_vec
+end
+
 function Position:CheckForwardWall(forward_vector)
 
     local collision_distance_list = {}
