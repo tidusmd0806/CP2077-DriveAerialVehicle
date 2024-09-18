@@ -10,7 +10,9 @@
         "down_time_count": 100,
         "leaving_height": 50,
         "sensor_pair_vector_num": 30,
-        "judged_stack_length" : 10
+        "judged_stack_length" : 10,
+        "searching_range": 30,
+        "searching_step": 10
     },
     {
         "level": 2,
@@ -23,7 +25,9 @@
         "down_time_count": 100,
         "leaving_height": 100,
         "sensor_pair_vector_num": 30,
-        "judged_stack_length" : 15
+        "judged_stack_length" : 15,
+        "searching_range": 50,
+        "searching_step": 5
     },
     {
         "level": 3,
@@ -36,6 +40,8 @@
         "down_time_count": 200,
         "leaving_height": 500,
         "sensor_pair_vector_num": 30,
-        "judged_stack_length" : 25
+        "judged_stack_length" : 25,
+        "searching_range": 50,
+        "searching_step": 5
     }
 ]

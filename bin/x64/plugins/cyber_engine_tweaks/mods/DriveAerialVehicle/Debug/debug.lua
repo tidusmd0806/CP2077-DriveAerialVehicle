@@ -20,6 +20,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_status = false
     obj.is_im_gui_change_auto_setting = false
+    obj.is_im_gui_auto_pilot_info = false
     obj.is_im_gui_measurement = false
 
     return setmetatable(obj, self)
@@ -44,6 +45,7 @@ function Debug:ImGuiMain()
     self:ImGuiMappinPosition()
     self:ImGuiAutoPilotStatus()
     self:ImGuiChangeAutoPilotSetting()
+    self:ImGuiAutoPilotInfo()
     self:ImGuiMeasurement()
     self:ImGuiExcuteFunction()
 
@@ -281,8 +283,16 @@ function Debug:ImGuiChangeAutoPilotSetting()
             DAV.core_obj.av_obj:ReloadAutopilotProfile()
         end
         ImGui.Text("Speed Level : " .. DAV.user_setting_table.autopilot_speed_level)
-        ImGui.Text("speed : " .. DAV.core_obj.av_obj.auto_pilot_speed .. ", avoidance : " .. DAV.core_obj.av_obj.avoidance_range .. ", max_avoidance : " .. DAV.core_obj.av_obj.max_avoidance_speed .. ", sensing : " .. DAV.core_obj.av_obj.sensing_constant .. ", stack_len : " .. DAV.core_obj.av_obj.position_obj.judged_stack_length)
-        ImGui.Text("turn : " .. DAV.core_obj.av_obj.autopilot_turn_speed .. ", land : " .. DAV.core_obj.av_obj.autopilot_land_offset .. ", down_t : " .. DAV.core_obj.av_obj.autopilot_down_time_count .. ", height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", sensor_num : " .. DAV.core_obj.av_obj.position_obj.sensor_pair_vector_num)
+        ImGui.Text("speed : " .. DAV.core_obj.av_obj.auto_pilot_speed .. ", searching_range : " .. DAV.core_obj.av_obj.searching_range .. ", searching_step : " .. DAV.core_obj.av_obj.searching_step)
+    end
+end
+
+function Debug:ImGuiAutoPilotInfo()
+    self.is_im_gui_auto_pilot_info = ImGui.Checkbox("[ImGui] Auto Pilot Info", self.is_im_gui_auto_pilot_info)
+    if self.is_im_gui_auto_pilot_info then
+        ImGui.Text("Angle : " .. tostring(DAV.core_obj.av_obj.autopilot_angle))
+        ImGui.Text("hotizontal : " .. tostring(DAV.core_obj.av_obj.autopilot_horizontal_sign))
+        ImGui.Text("vertical : " .. tostring(DAV.core_obj.av_obj.autopilot_vertical_sign))
     end
 end
 

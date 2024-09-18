@@ -45,7 +45,6 @@ function Engine:CalculateLinelyVelocity(action_command)
             self.fly_av_system:EnableGravity(true)
         end
         self.rpm_count = 0
-        print("Idle")
         return self:CalculateIdleMode()
     else
         if self.fly_av_system:HasGravity() then

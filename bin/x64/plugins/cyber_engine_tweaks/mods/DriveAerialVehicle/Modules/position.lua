@@ -16,7 +16,8 @@ function Position:New(all_models)
     obj.judged_stack_length = 3
     obj.search_distance = 100
     -- obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
-    obj.collision_filters = {"Static", "Terrain", "Water"}
+    -- obj.collision_filters = {"Static", "Terrain", "Water"}
+    obj.collision_filters = {"Static", "Terrain"}
     obj.far_distance = 100
     -- dyanmic --
     obj.entity = nil
@@ -35,6 +36,7 @@ function Position:New(all_models)
     obj.stack_count = 0
     obj.sensor_pair_vector_num = 15
     obj.collision_trace_result = nil
+    obj.autopilot_prevention_length = 10
     return setmetatable(obj, self)
 end
 
@@ -72,6 +74,7 @@ function Position:SetModel(index)
     self.entry_area_radius = self.all_models[index].entry_area_radius
     self.exit_point = { x = self.all_models[index].exit_point.x, y = self.all_models[index].exit_point.y, z = self.all_models[index].exit_point.z }
     self.minimum_distance_to_ground = self.all_models[index].minimum_distance_to_ground
+    self.autopilot_prevention_length = self:GetFarCornerDistance() + 1
 end
 
 function Position:GetGroundPosition()
@@ -85,67 +88,11 @@ function Position:GetGroundPosition()
     return current_position.z - self.search_distance - 1
 end
 
-function Position:GetCeilingPosition()
-    local current_position = self:GetPosition()
-    for _, filter in ipairs(self.collision_filters) do
-        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x, current_position.y, current_position.z + self.search_distance, 1.0), filter, false, false)
-        if is_success then
-            return trace_result.position.z
-        end
-    end
-    return current_position.z + self.search_distance + 1
-end
-
-function Position:GetLeftWallDistance()
-    local current_position = self:GetPosition()
-    local right_vector = self:GetRight()
-    local left_vector = Vector4.new(-right_vector.x, -right_vector.y, -right_vector.z, 1.0)
-    for _, filter in ipairs(self.collision_filters) do
-        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + self.search_distance * left_vector.x, current_position.y + self.search_distance * left_vector.y, current_position.z + self.search_distance * left_vector.z, 1.0), filter, false, false)
-        if is_success then
-            local trace_result_vec4 = Vector4.new(trace_result.position.x, trace_result.position.y, trace_result.position.z, 1.0)
-            return Vector4.Distance(current_position, trace_result_vec4)
-        end
-    end
-    return self.search_distance
-end
-
-function Position:GetRightWallDistance()
-    local current_position = self:GetPosition()
-    local right_vector = self:GetRight()
-    for _, filter in ipairs(self.collision_filters) do
-        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + self.search_distance * right_vector.x, current_position.y + self.search_distance * right_vector.y, current_position.z + self.search_distance * right_vector.z, 1.0), filter, false, false)
-        if is_success then
-            local trace_result_vec = Vector4.new(trace_result.position.x, trace_result.position.y, trace_result.position.z, 1.0)
-            return Vector4.Distance(current_position, trace_result_vec)
-        end
-    end
-    return self.search_distance
-end
-
 function Position:GetHeight()
     return self:GetPosition().z - self:GetGroundPosition()
 end
 
-function Position:GetWallDistanceAt(angle, forward)
-    local distance = 100
-    local collision_distance = distance
-    local current_position = self:GetPosition()
-    local forward_vector = Vector4.Normalize(forward)
-    local up_vector = self:GetUp()
-    local dir_vector = Vector4.RotateAxis(forward_vector, up_vector, angle / 180 * Pi())
-    for _, filter in ipairs(self.collision_filters) do
-        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + distance * dir_vector.x, current_position.y + distance * dir_vector.y, current_position.z + distance * dir_vector.z, 1.0), filter, false, false)
-        if is_success then
-            local trace_result_vec4 = Vector4.new(trace_result.position.x, trace_result.position.y, trace_result.position.z, 1.0)
-            collision_distance = Vector4.Distance(current_position, trace_result_vec4)
-            return collision_distance, dir_vector
-        end
-    end
-    return collision_distance, dir_vector
-end
-
-function Position:IsWallAt(angle, dir_vec, distance, swing_direction)
+function Position:IsWall(dir_vec, distance, angle, swing_direction)
     local dir_base_vec = Vector4.Normalize(dir_vec)
     local up_vec = Vector4.new(0, 0, 1, 1)
     local right_vec = Vector4.Cross(dir_base_vec, up_vec)
@@ -155,9 +102,9 @@ function Position:IsWallAt(angle, dir_vec, distance, swing_direction)
     else
         search_vec = Vector4.RotateAxis(dir_base_vec, up_vec, angle / 180 * Pi())
     end
-    for _, i in ipairs({0, 5, -5}) do
-        for _, j in ipairs({0, 3, -3}) do
-            for _, k in ipairs({0, 3, -3}) do
+    for _, i in ipairs({0, self.autopilot_prevention_length, -self.autopilot_prevention_length}) do
+        for _, j in ipairs({0, self.autopilot_prevention_length, -self.autopilot_prevention_length}) do
+            for _, k in ipairs({0, self.autopilot_prevention_length, -self.autopilot_prevention_length}) do
                 local current_position = self:GetPosition()
                 current_position.x = current_position.x + dir_base_vec.x * i + right_vec.x * j + up_vec.x * k
                 current_position.y = current_position.y + dir_base_vec.y * i + right_vec.y * j + up_vec.y * k
@@ -172,51 +119,6 @@ function Position:IsWallAt(angle, dir_vec, distance, swing_direction)
         end
     end
     return false, search_vec
-end
-
-function Position:CheckForwardWall(forward_vector)
-
-    local collision_distance_list = {}
-    local avoid_vector_list = {}
-    local current_position = self:GetPosition()
-    local forward_search_vector = Vector4.new(self.search_distance * forward_vector.x, self.search_distance * forward_vector.y, self.search_distance * forward_vector.z, 1.0)
-    for _, filter in ipairs(self.collision_filters) do
-        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + forward_search_vector.x, current_position.y + forward_search_vector.y, current_position.z + forward_search_vector.z, 1.0), filter, false, false)
-        if is_success then
-            local trace_result_vec4 = Vector4.new(trace_result.position.x, trace_result.position.y, trace_result.position.z, 1.0)
-            table.insert(collision_distance_list, Vector4.Distance(current_position, trace_result_vec4))
-        else
-            table.insert(collision_distance_list, self.search_distance)
-        end
-        table.insert(avoid_vector_list, Vector4.Normalize(forward_search_vector))
-    end
-    local right_vector = self:GetRight()
-    local forward_around_search_vector_base = Vector4.RotateAxis(forward_search_vector, right_vector, 20 / 180 * Pi())
-    for i = 2, 9 do
-        local forward_around_search_vector = Vector4.RotateAxis(forward_around_search_vector_base, forward_vector, (i - 2) * 45 / 180 * Pi())
-        for _, filter in ipairs(self.collision_filters) do
-            local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + forward_around_search_vector.x, current_position.y + forward_around_search_vector.y, current_position.z + forward_around_search_vector.z, 1.0), filter, false, false)
-            if is_success then
-                local trace_result_vec4 = Vector4.new(trace_result.position.x, trace_result.position.y, trace_result.position.z, 1.0)
-                table.insert(collision_distance_list, Vector4.Distance(current_position, trace_result_vec4))
-            else
-                table.insert(collision_distance_list, self.search_distance)
-            end
-            table.insert(avoid_vector_list, Vector4.Normalize(forward_around_search_vector))
-        end
-    end
-
-    local max_value = collision_distance_list[1]
-    local max_index = 1
-
-    for i = 2, #collision_distance_list do
-        if collision_distance_list[i] > max_value then
-            max_value = collision_distance_list[i]
-            max_index = i
-        end
-    end
-    return avoid_vector_list[max_index], max_value
-
 end
 
 function Position:SetEntity(entity)
