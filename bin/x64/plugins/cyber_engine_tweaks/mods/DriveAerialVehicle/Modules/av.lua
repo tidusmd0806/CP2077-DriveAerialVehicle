@@ -26,10 +26,8 @@ function AV:New(all_models)
 	obj.land_offset = -1.0
 	-- autopiolt
 	obj.profile_path = "Data/autopilot_profile.json"
-	obj.error_range = 3
-	obj.max_stack_count = 200
-	obj.min_stack_count = 10
-	obj.limit_stack_count = 500
+	obj.destination_range = 3
+	obj.destination_z_offset = 20
 	---dynamic---
 	-- door
 	obj.combat_door = nil
@@ -53,19 +51,19 @@ function AV:New(all_models)
 	obj.autopilot_profile = nil
 	obj.mappin_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
-	obj.auto_pilot_speed = 1
-	obj.avoidance_range = 5
-	obj.max_avoidance_speed = 10
-	obj.sensing_constant = 0.001
+	obj.autopilot_speed = 1
 	obj.autopilot_turn_speed = 0.8
 	obj.autopilot_land_offset = -1.0
 	obj.autopilot_down_time_count = 100
 	obj.autopilot_leaving_height = 100
-	obj.searching_range = 50
-	obj.searching_step = 5
+	obj.autopilot_searching_range = 50
+	obj.autopilot_searching_step = 5
 	obj.is_failture_auto_pilot = false
 	obj.autopilot_horizontal_sign = 0
 	obj.autopilot_vertical_sign = 0
+	obj.lock_search_horizontal_angle = 0
+	obj.lock_search_vertical_angle = 0
+	obj.auto_speed_reduce_rate = 1
 	-- appearance
 	obj.is_enable_crystal_dome = false
 	obj.is_enable_landing_vfx = false
@@ -99,22 +97,17 @@ function AV:Init()
 	-- read autopilot profile
 	local speed_level = DAV.user_setting_table.autopilot_speed_level
 	self.autopilot_profile = Utils:ReadJson(self.profile_path)
-	self.auto_pilot_speed = self.autopilot_profile[speed_level].speed
-	self.avoidance_range = self.autopilot_profile[speed_level].avoidance_range
-	self.max_avoidance_speed = self.autopilot_profile[speed_level].max_avoidance_speed
-	self.sensing_constant = self.autopilot_profile[speed_level].sensing_constant
+	self.autopilot_speed = self.autopilot_profile[speed_level].speed
 	self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
 	self.autopilot_land_offset = self.autopilot_profile[speed_level].land_offset
 	self.autopilot_down_time_count = self.autopilot_profile[speed_level].down_time_count
 	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
-	self.position_obj:SetSensorPairVectorNum(self.autopilot_profile[speed_level].sensor_pair_vector_num)
-	self.position_obj:SetJudgedStackLength(self.autopilot_profile[speed_level].judged_stack_length)
-	self.searching_range = self.autopilot_profile[speed_level].searching_range
-	self.searching_step = self.autopilot_profile[speed_level].searching_step
-
-	self.autopilot_angle = 0
-	self.autopilot_horizontal_sign = 0
-	self.autopilot_vertical_sign = 0
+	self.autopilot_searching_range = self.autopilot_profile[speed_level].searching_range
+	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
+	self.autopilot_increase_rate = self.autopilot_profile[speed_level].increase_rate
+	self.autopilot_decrease_rate = self.autopilot_profile[speed_level].decrease_rate
+	self.autopilot_min_speed_rate = self.autopilot_profile[speed_level].min_speed_rate
+	self.autopilot_is_only_horizontal = self.autopilot_profile[speed_level].is_only_horizontal
 
 end
 
@@ -498,8 +491,9 @@ function AV:Mount()
 	-- 	end
 	-- 	self.position_obj:SetPosition(current_position, current_angle)
 	-- end)
-	Cron.After(2, function()
+	Cron.After(5, function()
 		if self.engine_obj.fly_av_system:IsOnGround() then
+			self.log_obj:Record(LogLevel.Warning, "Unexpected Error : AV is on ground when mounting")
 			if self.flight_mode == Def.FlightMode.AV then
 				self:Operate(Def.ActionList.Down)
 			else
@@ -650,14 +644,22 @@ function AV:AutoPilot()
 		destination_position = self.favorite_destination_position
 	end
 
-	destination_position.z = destination_position.z + 20
+	destination_position.z = destination_position.z + self.destination_z_offset
 
 	local current_position = self.position_obj:GetPosition()
 
 	local direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
 
-	-- self:AutoLeaving(direction_vector)
+	if self.autopilot_is_only_horizontal then
+		self:AutoLeaving(direction_vector)
+	end
 
+	self.autopilot_angle = 0
+	self.autopilot_horizontal_sign = 0
+	self.autopilot_vertical_sign = 0
+	self.lock_search_horizontal_angle = 0
+	self.lock_search_vertical_angle = 0
+	self.auto_speed_reduce_rate = 1
 
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
@@ -674,6 +676,9 @@ function AV:AutoPilot()
 
 		current_position = self.position_obj:GetPosition()
 		local dest_dir_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
+		if self.autopilot_is_only_horizontal then
+			dest_dir_vector.z = 0
+		end
 		local dest_dir_vector_norm = Vector4.Length(dest_dir_vector)
 
 		if relay_position ~= nil then
@@ -681,41 +686,45 @@ function AV:AutoPilot()
 		end
 		local direction_vector_norm = Vector4.Length(direction_vector)
 
-		if dest_dir_vector_norm < self.searching_range then
+		if dest_dir_vector_norm < self.autopilot_searching_range then
 			relay_position = destination_position
 			relay_position.z = current_position.z
-		elseif relay_position ~= nil and direction_vector_norm < self.error_range then
+		elseif relay_position ~= nil and direction_vector_norm < self.destination_range then
 			relay_position = nil
 		end
 
 		if relay_position == nil then
 			local search_vec = Vector4.Zero()
 			local is_wall = true
-			for i = 1, 4 do
-				local search_angle_step = 4
-				local min_search_angle = 40 * (i - 1)
-				local max_search_angle = 40 * (i - 1) + 40 - search_angle_step
+			for i = 1, 6 do
+				local search_angle_step = 5
+				local min_search_angle = 30 * (i - 1)
+				local max_search_angle = 30 * (i - 1) + 30 - search_angle_step
 				for _, swing_direction in ipairs({"Horizontal", "Vertical"}) do
-					for search_angle = min_search_angle, max_search_angle, search_angle_step do
-						for sign = -1, 1, 2 do
+					for sign = -1, 1, 2 do
+						for search_angle = min_search_angle, max_search_angle, search_angle_step do
 							if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign ~= -sign) or (swing_direction == "Vertical" and self.autopilot_vertical_sign ~= -sign) then
-								local res, vec = self.position_obj:IsWall(dest_dir_vector, self.searching_range, sign * search_angle, swing_direction)
+								local res, vec = self.position_obj:IsWall(dest_dir_vector, self.autopilot_searching_range, sign * search_angle, swing_direction)
 								if not res then
 									is_wall = false
 									search_vec = vec
 									self.autopilot_angle = sign * search_angle
 									if swing_direction == "Horizontal" then
-										self.autopilot_vertical_sign = 0
-										if search_angle == 0 then
+										if search_angle <= 45 then
+											self.lock_search_horizontal_angle = 0
+										elseif search_angle > self.lock_search_horizontal_angle then
+											self.lock_search_horizontal_angle = max_search_angle
 											self.autopilot_horizontal_sign = 0
-										else
+										elseif search_angle > 45 then
 											self.autopilot_horizontal_sign = sign
 										end
 									elseif swing_direction == "Vertical" then
-										self.autopilot_horizontal_sign = 0
-										if search_angle == 0 then
+										if search_angle <= 45 then
+											self.lock_search_vertical_angle = 0
+										elseif search_angle > self.lock_search_vertical_angle  then
+											self.lock_search_vertical_angle = max_search_angle
 											self.autopilot_vertical_sign = 0
-										else
+										elseif search_angle > 45 then
 											self.autopilot_vertical_sign = sign
 										end
 									end
@@ -736,7 +745,7 @@ function AV:AutoPilot()
 				end
 			end
 			if not search_vec:IsZero() then
-				relay_position = Vector4.new(current_position.x + self.searching_step * search_vec.x, current_position.y + self.searching_step * search_vec.y, current_position.z +  self.searching_step * search_vec.z, 1)
+				relay_position = Vector4.new(current_position.x + self.autopilot_searching_step * search_vec.x, current_position.y + self.autopilot_searching_step * search_vec.y, current_position.z + self.autopilot_searching_step * search_vec.z, 1)
 			else
 				self.log_obj:Record(LogLevel.Error, "AutoPilot Move Error")
 				self:InterruptAutoPilot()
@@ -748,6 +757,11 @@ function AV:AutoPilot()
 		if self.autopilot_angle == 0 then
 			self.autopilot_horizontal_sign = 0
 			self.autopilot_vertical_sign = 0
+			self.lock_search_horizontal_angle = 0
+			self.lock_search_vertical_angle = 0
+			self.auto_speed_reduce_rate = self.auto_speed_reduce_rate + self.autopilot_increase_rate
+		else
+			self.auto_speed_reduce_rate = self.auto_speed_reduce_rate - self.autopilot_decrease_rate
 		end
 
 		if relay_position ~= nil then
@@ -756,16 +770,22 @@ function AV:AutoPilot()
 
 		direction_vector_norm = Vector4.Length(direction_vector)
 
-		if dest_dir_vector_norm < self.error_range then
+		if dest_dir_vector_norm < self.destination_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
-			self:AutoLanding(current_position.z)
+			self:AutoLanding()
 			Cron.Halt(timer)
 			return
 		end
 
-		local auto_pilot_speed = self.auto_pilot_speed
+		if self.auto_speed_reduce_rate < self.autopilot_min_speed_rate then
+			self.auto_speed_reduce_rate = self.autopilot_min_speed_rate
+		elseif self.auto_speed_reduce_rate > 1 then
+			self.auto_speed_reduce_rate = 1
+		end
 
-		local fix_direction_vector = Vector4.new(auto_pilot_speed * direction_vector.x / direction_vector_norm, auto_pilot_speed * direction_vector.y / direction_vector_norm, auto_pilot_speed * direction_vector.z / direction_vector_norm, 1)
+		local autopilot_speed = self.autopilot_speed * self.auto_speed_reduce_rate
+
+		local fix_direction_vector = Vector4.new(autopilot_speed * direction_vector.x / direction_vector_norm, autopilot_speed * direction_vector.y / direction_vector_norm, autopilot_speed * direction_vector.z / direction_vector_norm, 1)
 
 		local next_positon = {x = fix_direction_vector.x, y = fix_direction_vector.y, z = fix_direction_vector.z}
 
@@ -843,10 +863,15 @@ function AV:AutoLeaving(dist_vector)
 	end)
 end
 
----@param height number
-function AV:AutoLanding(height)
+function AV:AutoLanding()
 
-	local down_time_count = height / self.auto_pilot_speed
+	local height
+	if self.autopilot_is_only_horizontal then
+		height = self.autopilot_leaving_height
+	else
+		height = self.position_obj:GetHeight()
+	end
+	local down_time_count = height / self.autopilot_speed
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
@@ -876,7 +901,7 @@ function AV:SeccessAutoPilot()
 
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = false
-	self.position_obj:ResetStackCount()
+	-- self.position_obj:ResetStackCount()
 	DAV.core_obj:SetAutoPilotHistory()
 
 end
@@ -884,7 +909,7 @@ end
 function AV:InterruptAutoPilot()
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = true
-	self.position_obj:ResetStackCount()
+	-- self.position_obj:ResetStackCount()
 end
 
 function AV:IsFailedAutoPilot()
@@ -896,18 +921,17 @@ end
 function AV:ReloadAutopilotProfile()
 
 	local speed_level = DAV.user_setting_table.autopilot_speed_level
-	self.auto_pilot_speed = self.autopilot_profile[speed_level].speed
-	-- self.avoidance_range = self.autopilot_profile[speed_level].avoidance_range
-	-- self.max_avoidance_speed = self.autopilot_profile[speed_level].max_avoidance_speed
-	-- self.sensing_constant = self.autopilot_profile[speed_level].sensing_constant
-	-- self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
-	-- self.autopilot_land_offset = self.autopilot_profile[speed_level].land_offset
-	-- self.autopilot_down_time_count = self.autopilot_profile[speed_level].down_time_count
-	-- self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
-	-- self.position_obj:SetSensorPairVectorNum(self.autopilot_profile[speed_level].sensor_pair_vector_num)
-	-- self.position_obj:SetJudgedStackLength(self.autopilot_profile[speed_level].judged_stack_length)
-	self.searching_range = self.autopilot_profile[speed_level].searching_range
-	self.searching_step = self.autopilot_profile[speed_level].searching_step
+	self.autopilot_speed = self.autopilot_profile[speed_level].speed
+	self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
+	self.autopilot_land_offset = self.autopilot_profile[speed_level].land_offset
+	self.autopilot_down_time_count = self.autopilot_profile[speed_level].down_time_count
+	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
+	self.autopilot_searching_range = self.autopilot_profile[speed_level].searching_range
+	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
+	self.autopilot_increase_rate = self.autopilot_profile[speed_level].increase_rate
+	self.autopilot_decrease_rate = self.autopilot_profile[speed_level].decrease_rate
+	self.autopilot_min_speed_rate = self.autopilot_profile[speed_level].min_speed_rate
+	self.autopilot_is_only_horizontal = self.autopilot_profile[speed_level].is_only_horizontal
 
 end
 

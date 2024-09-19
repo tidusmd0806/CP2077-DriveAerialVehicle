@@ -846,11 +846,6 @@ function Core:GetActions()
 
     local move_actions = {}
 
-    -- if self.event_obj:IsInMenuOrPopupOrPhoto() then
-    --     self.queue_obj:Clear()
-    --     return
-    -- end
-
     while not self.queue_obj:IsEmpty() do
         local action = self.queue_obj:Dequeue()
         if action >= Def.ActionList.Enter then

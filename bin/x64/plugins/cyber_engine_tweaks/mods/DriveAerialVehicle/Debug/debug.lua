@@ -282,17 +282,20 @@ function Debug:ImGuiChangeAutoPilotSetting()
             DAV.core_obj.av_obj.autopilot_profile = Utils:ReadJson(DAV.core_obj.av_obj.profile_path)
             DAV.core_obj.av_obj:ReloadAutopilotProfile()
         end
-        ImGui.Text("Speed Level : " .. DAV.user_setting_table.autopilot_speed_level)
-        ImGui.Text("speed : " .. DAV.core_obj.av_obj.auto_pilot_speed .. ", searching_range : " .. DAV.core_obj.av_obj.searching_range .. ", searching_step : " .. DAV.core_obj.av_obj.searching_step)
+        ImGui.Text("Level : " .. DAV.user_setting_table.autopilot_speed_level)
+        ImGui.Text("Speed : " .. DAV.core_obj.av_obj.autopilot_speed .. ", Search Range : " .. DAV.core_obj.av_obj.autopilot_searching_range .. ", Search Step : " .. DAV.core_obj.av_obj.autopilot_searching_step)
+        ImGui.Text("Increase Speed : " .. DAV.core_obj.av_obj.autopilot_increase_rate .. ", Decrease Speed : " .. DAV.core_obj.av_obj.autopilot_decrease_rate .. ", Min Speed : " .. DAV.core_obj.av_obj.autopilot_min_speed_rate)
+        ImGui.Text("Turn Speed : " .. DAV.core_obj.av_obj.autopilot_turn_speed .. ", Land Offset : " .. DAV.core_obj.av_obj.autopilot_land_offset .. ", Down Count : " .. DAV.core_obj.av_obj.autopilot_down_time_count)
+        ImGui.Text("Leaving Height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", Only Horizontal : " .. tostring(DAV.core_obj.av_obj.autopilot_is_only_horizontal))
     end
 end
 
 function Debug:ImGuiAutoPilotInfo()
     self.is_im_gui_auto_pilot_info = ImGui.Checkbox("[ImGui] Auto Pilot Info", self.is_im_gui_auto_pilot_info)
     if self.is_im_gui_auto_pilot_info then
-        ImGui.Text("Angle : " .. tostring(DAV.core_obj.av_obj.autopilot_angle))
-        ImGui.Text("hotizontal : " .. tostring(DAV.core_obj.av_obj.autopilot_horizontal_sign))
-        ImGui.Text("vertical : " .. tostring(DAV.core_obj.av_obj.autopilot_vertical_sign))
+        ImGui.Text("Angle : " .. tostring(DAV.core_obj.av_obj.autopilot_angle) .. ", H Sign : " .. tostring(DAV.core_obj.av_obj.autopilot_horizontal_sign) .. ", V Sign : " .. tostring(DAV.core_obj.av_obj.autopilot_vertical_sign))
+        ImGui.Text("H Lock Angle : ".. DAV.core_obj.av_obj.lock_search_horizontal_angle .. ", V Lock Angle : ".. DAV.core_obj.av_obj.lock_search_vertical_angle)
+        ImGui.Text("Current Speed : " .. DAV.core_obj.av_obj.autopilot_speed * DAV.core_obj.av_obj.auto_speed_reduce_rate)
     end
 end
 
