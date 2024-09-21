@@ -14,13 +14,18 @@ function Engine:New(position_obj, all_models)
     obj.max_roll = 30
     obj.max_pitch = 30
     obj.force_restore_angle = 70
-    obj.max_speed = 95 -- CANNOT OVER 100
+    obj.max_speed = 95 -- Cannot take values ​​greater than 100
     obj.idle_height_offset = 0.8
+    obj.rpm_count_step = 4
+    obj.rpm_restore_step = 2
+    obj.rpm_count_scale = 80
+    obj.rpm_max_count = 10 * obj.rpm_count_scale
     -- Dynamic
     obj.flight_mode = Def.FlightMode.AV
     obj.fly_av_system = nil
     obj.current_speed = 0
     obj.heli_lift_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
+    obj.rpm_count = 0
 
     return setmetatable(obj, self)
 end
@@ -30,20 +35,16 @@ function Engine:Init(entity_id)
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
-    -- self.fly_av_system:EnableGravity(false)
 
 end
 
-function Engine:ResetVelocity()
-    self.fly_av_system:ChangeLinelyVelocity(Vector3.new(0,0,0), Vector3.new(0,0,0), 1)
-end
+function Engine:CalculateLinelyVelocity(action_command)
 
-function Engine:CalculateLinelyVelocity(action_commands)
-
-    if action_commands == Def.ActionList.Idle then
+    if action_command == Def.ActionList.Idle then
         if not self.fly_av_system:HasGravity() then
             self.fly_av_system:EnableGravity(true)
         end
+        self.rpm_count = 0
         return self:CalculateIdleMode()
     else
         if self.fly_av_system:HasGravity() then
@@ -51,10 +52,21 @@ function Engine:CalculateLinelyVelocity(action_commands)
         end
     end
 
+    if (action_command == Def.ActionList.Forward or action_command == Def.ActionList.Up or action_command == Def.ActionList.HAccelerate or action_command == Def.ActionList.HUp) and self.rpm_count <= self.rpm_max_count then
+        self.rpm_count = self.rpm_count + self.rpm_count_step
+    elseif (action_command == Def.ActionList.Backward or action_command == Def.ActionList.Down or action_command == Def.ActionList.HDown) and self.rpm_count >= -self.rpm_max_count then
+        self.rpm_count = self.rpm_count - self.rpm_count_step
+    end
+    if self.rpm_count > 0 then
+        self.rpm_count = self.rpm_count - self.rpm_restore_step
+    elseif self.rpm_count < 0 then
+        self.rpm_count = self.rpm_count + self.rpm_restore_step
+    end
+
     if self.flight_mode == Def.FlightMode.AV then
-        return self:CalculateAVMode(action_commands)
+        return self:CalculateAVMode(action_command)
     elseif self.flight_mode == Def.FlightMode.Helicopter then
-        return self:CalculateHelicopterMode(action_commands)
+        return self:CalculateHelicopterMode(action_command)
     end
 
 end
@@ -71,6 +83,7 @@ function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
     local current_angle = self.position_obj:GetEulerAngles()
     local roll_restore_amount
     local pitch_restore_amount
+
     if self.flight_mode == Def.FlightMode.AV then
         roll_restore_amount = DAV.user_setting_table.roll_restore_amount
         pitch_restore_amount = DAV.user_setting_table.pitch_restore_amount
@@ -323,6 +336,10 @@ function Engine:CalculateIdleMode()
 
     return x, y, z, roll, pitch, yaw
 
+end
+
+function Engine:GetRPMCount()
+    return math.floor(self.rpm_count / self.rpm_count_scale)
 end
 
 return Engine

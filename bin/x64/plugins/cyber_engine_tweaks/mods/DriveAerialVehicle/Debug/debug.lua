@@ -20,6 +20,10 @@ function Debug:New(core_obj)
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_status = false
     obj.is_im_gui_change_auto_setting = false
+    obj.is_im_gui_auto_pilot_info = false
+    obj.is_im_gui_auto_pilot_exception_area = false
+    obj.exception_area_entity_list = {}
+    obj.spawn_lock = false
     obj.is_im_gui_measurement = false
 
     return setmetatable(obj, self)
@@ -44,6 +48,8 @@ function Debug:ImGuiMain()
     self:ImGuiMappinPosition()
     self:ImGuiAutoPilotStatus()
     self:ImGuiChangeAutoPilotSetting()
+    self:ImGuiAutoPilotInfo()
+    self:ImGuiAutoPilotExceptionArea()
     self:ImGuiMeasurement()
     self:ImGuiExcuteFunction()
 
@@ -54,7 +60,7 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved        
+        -- reserved       
     end
     self.is_set_observer = true
 
@@ -139,6 +145,7 @@ function Debug:ImGuiAVPosition()
         local yaw = string.format("%.2f", self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)
         ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
         ImGui.Text("Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
+        ImGui.Text("Height : " .. tostring(DAV.core_obj.av_obj.position_obj:GetHeight()))
     end
 end
 
@@ -168,6 +175,16 @@ function Debug:ImGuiVehicleInfo()
             ImGui.Text("In Air")
         end
         ImGui.Text("Phy State: " .. tostring(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetPhysicsState()))
+        if DAV.core_obj.av_obj.engine_obj.fly_av_system:HasGravity() then
+            ImGui.Text("Gravity : On")
+        else
+            ImGui.Text("Gravity : Off")
+        end
+        local speed = DAV.core_obj.av_obj.engine_obj.fly_av_system:GetVelocity()
+        local speed_x = string.format("%.2f", speed.x)
+        local speed_y = string.format("%.2f", speed.y)
+        local speed_z = string.format("%.2f", speed.z)
+        ImGui.Text("Speed : X:" .. speed_x .. ", Y:" .. speed_y .. ", Z:" .. speed_z)
 
     end
 end
@@ -266,22 +283,95 @@ function Debug:ImGuiChangeAutoPilotSetting()
     self.is_im_gui_change_auto_setting = ImGui.Checkbox("[ImGui] Change AP Profile", self.is_im_gui_change_auto_setting)
     if self.is_im_gui_change_auto_setting then
         if ImGui.Button("Update Profile") then
-            local autopilot_profile = Utils:ReadJson(DAV.core_obj.av_obj.profile_path)
-            local speed_level = DAV.user_setting_table.autopilot_speed_level
-            DAV.core_obj.av_obj.auto_pilot_speed = autopilot_profile[speed_level].speed
-            DAV.core_obj.av_obj.avoidance_range = autopilot_profile[speed_level].avoidance_range
-            DAV.core_obj.av_obj.max_avoidance_speed = autopilot_profile[speed_level].max_avoidance_speed
-            DAV.core_obj.av_obj.sensing_constant = autopilot_profile[speed_level].sensing_constant
-            DAV.core_obj.av_obj.autopilot_turn_speed = autopilot_profile[speed_level].turn_speed
-            DAV.core_obj.av_obj.autopilot_land_offset = autopilot_profile[speed_level].land_offset
-            DAV.core_obj.av_obj.autopilot_down_time_count = autopilot_profile[speed_level].down_time_count
-            DAV.core_obj.av_obj.autopilot_leaving_height = autopilot_profile[speed_level].leaving_height
-            DAV.core_obj.av_obj.position_obj:SetSensorPairVectorNum(autopilot_profile[speed_level].sensor_pair_vector_num)
-            DAV.core_obj.av_obj.position_obj:SetJudgedStackLength(autopilot_profile[speed_level].judged_stack_length)
+            DAV.core_obj.av_obj.autopilot_profile = Utils:ReadJson(DAV.core_obj.av_obj.profile_path)
+            DAV.core_obj.av_obj:ReloadAutopilotProfile()
         end
-        ImGui.Text("Speed Level : " .. DAV.user_setting_table.autopilot_speed_level)
-        ImGui.Text("speed : " .. DAV.core_obj.av_obj.auto_pilot_speed .. ", avoidance : " .. DAV.core_obj.av_obj.avoidance_range .. ", max_avoidance : " .. DAV.core_obj.av_obj.max_avoidance_speed .. ", sensing : " .. DAV.core_obj.av_obj.sensing_constant .. ", stack_len : " .. DAV.core_obj.av_obj.position_obj.judged_stack_length)
-        ImGui.Text("turn : " .. DAV.core_obj.av_obj.autopilot_turn_speed .. ", land : " .. DAV.core_obj.av_obj.autopilot_land_offset .. ", down_t : " .. DAV.core_obj.av_obj.autopilot_down_time_count .. ", height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", sensor_num : " .. DAV.core_obj.av_obj.position_obj.sensor_pair_vector_num)
+        ImGui.Text("Level : " .. DAV.user_setting_table.autopilot_speed_level)
+        ImGui.Text("Speed : " .. DAV.core_obj.av_obj.autopilot_speed .. ", Search Range : " .. DAV.core_obj.av_obj.autopilot_searching_range .. ", Search Step : " .. DAV.core_obj.av_obj.autopilot_searching_step)
+        ImGui.Text("Increase Speed : " .. DAV.core_obj.av_obj.autopilot_increase_rate .. ", Decrease Speed : " .. DAV.core_obj.av_obj.autopilot_decrease_rate .. ", Min Speed : " .. DAV.core_obj.av_obj.autopilot_min_speed_rate)
+        ImGui.Text("Turn Speed : " .. DAV.core_obj.av_obj.autopilot_turn_speed .. ", Land Offset : " .. DAV.core_obj.av_obj.autopilot_land_offset .. ", Down Count : " .. DAV.core_obj.av_obj.autopilot_down_time_count)
+        ImGui.Text("Leaving Height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", Only Horizontal : " .. tostring(DAV.core_obj.av_obj.autopilot_is_only_horizontal))
+    end
+end
+
+function Debug:ImGuiAutoPilotInfo()
+    self.is_im_gui_auto_pilot_info = ImGui.Checkbox("[ImGui] Auto Pilot Info", self.is_im_gui_auto_pilot_info)
+    if self.is_im_gui_auto_pilot_info then
+        ImGui.Text("Angle : " .. tostring(DAV.core_obj.av_obj.autopilot_angle) .. ", H Sign : " .. tostring(DAV.core_obj.av_obj.autopilot_horizontal_sign) .. ", V Sign : " .. tostring(DAV.core_obj.av_obj.autopilot_vertical_sign))
+        ImGui.Text("H Lock Angle : ".. DAV.core_obj.av_obj.lock_search_horizontal_angle .. ", V Lock Angle : ".. DAV.core_obj.av_obj.lock_search_vertical_angle)
+        ImGui.Text("Current Speed : " .. DAV.core_obj.av_obj.autopilot_speed * DAV.core_obj.av_obj.auto_speed_reduce_rate .. ", Serach Range : " .. DAV.core_obj.av_obj.search_range)
+    end
+end
+
+function Debug:ImGuiAutoPilotExceptionArea()
+    self.is_im_gui_auto_pilot_exception_area = ImGui.Checkbox("[ImGui] Auto Pilot Exception Area", self.is_im_gui_auto_pilot_exception_area)
+    if self.is_im_gui_auto_pilot_exception_area and #self.exception_area_entity_list == 0 and not self.spawn_lock then
+        self.spawn_lock = true
+        local entity_path = "base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent"
+        local entity_id = nil
+        local entity = nil
+        local entity_spawn_lock = false
+        local positions = {}
+        local position_index = 1
+        local position_count = 1
+        for _, value in ipairs(DAV.core_obj.av_obj.position_obj.autopilot_exception_area_list) do
+            local position = {
+                {value.min_x, value.min_y, value.min_z},
+                {value.max_x, value.min_y, value.min_z},
+                {value.min_x, value.max_y, value.min_z},
+                {value.max_x, value.max_y, value.min_z},
+                {value.min_x, value.min_y, value.max_z},
+                {value.max_x, value.min_y, value.max_z},
+                {value.min_x, value.max_y, value.max_z},
+                {value.max_x, value.max_y, value.max_z}
+            }
+            table.insert(positions, position)
+        end
+        Cron.Every(0.01, {tick=1}, function(timer)
+            if position_index > #positions then
+                self.spawn_lock = false
+                Cron.Halt(timer)
+            elseif not entity_spawn_lock then
+                local transform = WorldTransform.new()
+                local pos = WorldPosition.new()
+                entity_spawn_lock = true
+                pos:SetXYZ(table.unpack(positions[position_index][position_count]))
+                transform.Position = pos
+                entity_id = exEntitySpawner.Spawn(entity_path, transform, '')
+            elseif entity_id ~= nil then
+                entity = Game.FindEntityByID(entity_id)
+                if entity ~= nil then
+                    table.insert(self.exception_area_entity_list, entity)
+                    position_count = position_count + 1
+                    if position_count > 8 then
+                        position_index = position_index + 1
+                        position_count = 1
+                    end
+                    entity_spawn_lock = false
+                end
+            end
+        end)
+    elseif not self.is_im_gui_auto_pilot_exception_area and #self.exception_area_entity_list ~= 0 and not self.spawn_lock then
+        self.spawn_lock = true
+        for _, value in ipairs(self.exception_area_entity_list) do
+            exEntitySpawner.Despawn(value)
+        end
+        self.exception_area_entity_list = {}
+        Cron.After(3, function()
+            self.spawn_lock = false
+        end)
+    end
+    if self.is_im_gui_auto_pilot_exception_area then
+        local current_position = Game.GetPlayer():GetWorldPosition()
+        local res, tag = DAV.core_obj.av_obj.position_obj:IsInExceptionArea(current_position)
+        if res then
+            ImGui.Text("In Exception Area : " .. tag)
+        else
+            ImGui.Text("Not In Exception Area")
+        end
+        if ImGui.Button("Reload Area") then
+            DAV.core_obj.av_obj.position_obj.autopilot_exception_area_list = Utils:ReadJson(DAV.core_obj.av_obj.position_obj.exception_area_path)
+        end
     end
 end
 
@@ -309,113 +399,65 @@ end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("TF1") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local comp = entity:FindComponentByName("AnimationController")
-        local feat = AnimFeature_PartData.new()
-        feat.duration = 1
-        feat.state = 1
-        -- AnimationControllerComponent.ApplyFeatureToReplicate(Game.GetPlayer():GetMountedVehicle(), CName.new("seat_front_left"), feat)
-        AnimationControllerComponent.ApplyFeatureToReplicate(entity, CName.new("trunk"), feat)
+        local list = Utils:ReadJson("Data\\autopilot_exception_area.json")
+        for _, value in ipairs(list) do
+            local transform = WorldTransform.new()
+            local pos = WorldPosition.new()
+            pos:SetXYZ(value.min_x, value.min_y, value.min_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.max_x, value.min_y, value.min_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.min_x, value.max_y, value.min_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.max_x, value.max_y, value.min_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.min_x, value.min_y, value.max_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.max_x, value.min_y, value.max_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.min_x, value.max_y, value.max_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.max_x, value.max_y, value.max_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+        end
         print("Excute Test Function 1")
     end
     ImGui.SameLine()
     if ImGui.Button("TF2") then
-        local depot = Game.GetResourceDepot()
-        local token = depot:LoadResource("base\\sound\\metadata\\cooked_metadata.audio_metadata")
-        local meta_data = token:GetResource()
-        local basilisk_data
-        local aerondight_data
-        for _, value in pairs(meta_data.entries) do
-            if value.name.value == "v_av_basilisk_tank" then
-                basilisk_data = value
-                -- value.collisionCooldown = 0.5 -- 0.2
-                -- value.hasRadioReceiver = true -- false
-                -- value.radioReceiverType = CName.new("radio_car_hyper_player")
-                -- value.vehicleCollisionSettings = CName.new("v_car_default_collision") -- v_military_panzer_collision
-                -- value.vehicleGridDestructionSettings = CName.new("v_grid_dst_car_default") -- None
-                -- value.vehiclePartSettings = CName.new("v_car_damage_default") -- None
-                -- -- local mechanical_data = audioVehicleMechanicalData.new()
-                -- -- mechanical_data = value.mechanicalData
-                -- -- mechanical_data.engineStartEvent = CName.new("v_car_rayfield_aerondight_engine_on")
-                -- -- mechanical_data.engineStopEvent = CName.new("v_car_rayfield_aerondight_engine_off")
-                -- -- value.mechanicalData = mechanical_data
-                -- local general_data = audioVehicleGeneralData.new()
-                -- general_data = value.generalData
-                -- general_data.enterVehicleEvent = CName.new("v_car_rayfield_aerondight_enter") -- v_av_panzer_01_enter
-                -- general_data.exitVehicleEvent = CName.new("v_car_rayfield_aerondight_exit") -- None
-                -- value.generalData = general_data
-            end
-            if value.name.value == "v_car_rayfield_aerondight" then
-                aerondight_data = value
-            end
-        end
-        basilisk_data.collisionCooldown = 0.5 -- 0.2
-        basilisk_data.hasRadioReceiver = true -- false
-        basilisk_data.radioReceiverType = CName.new("radio_car_hyper_player")
-        basilisk_data.vehicleCollisionSettings = CName.new("v_car_default_collision") -- v_military_panzer_collision
-        basilisk_data.vehicleGridDestructionSettings = CName.new("v_grid_dst_car_default") -- None
-        basilisk_data.vehiclePartSettings = CName.new("v_car_damage_default") -- None
-        -- local mechanical_data = audioVehicleMechanicalData.new()
-        -- mechanical_data = value.mechanicalData
-        -- mechanical_data.engineStartEvent = CName.new("v_car_rayfield_aerondight_engine_on")
-        -- mechanical_data.engineStopEvent = CName.new("v_car_rayfield_aerondight_engine_off")
-        -- value.mechanicalData = mechanical_data
-        -- local general_data = audioVehicleGeneralData.new()
-        basilisk_data.generalData = aerondight_data.generalData
+        local transform = WorldTransform.new()
+        local current_pos = Game.GetPlayer():GetWorldPosition()
+        local pos = WorldPosition.new()
+        pos:SetXYZ(current_pos.x, current_pos.y, current_pos.z + 5)
+        transform.Position = pos
+        self.sentity_id = exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
         print("Excute Test Function 2")
     end
     ImGui.SameLine()
     if ImGui.Button("TF3") then
-        local depot = Game.GetResourceDepot()
-        local token = depot:LoadResource("base\\sound\\metadata\\cooked_metadata.audio_metadata")
-        local meta_data = token:GetResource()
-        for _, value in pairs(meta_data.entries) do
-            if value.name.value == "v_heli_q000_border_heli" then
-                local settings = audioCommonEntitySettings.new()
-                settings.onAttachEvent = CName.new("q000_nomad_sc_04_heli")
-                settings.onDetachEvent = CName.new("q000_nomad_sc_04_heli_stop")
-                settings.stopAllSoundsOnDetach = true
-                value.commonSettings = settings
-            end
-        end
+        exEntitySpawner.Despawn(Game.FindEntityByID(self.sentity_id))
         print("Excute Test Function 3")
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        GameObjectEffectHelper.StartEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("landingWarningGlitch"), false)
+        DAV.core_obj.event_obj.hud_obj.is_manually_setting_speed = true
+        DAV.core_obj.event_obj.hud_obj.is_manually_setting_rpm = true
+        inkTextRef.SetText(DAV.core_obj.event_obj.hud_obj.hud_car_controller.SpeedValue, 101)
+        DAV.core_obj.event_obj.hud_obj.hud_car_controller:EvaluateRPMMeterWidget(7)
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
-        local door_event = VehicleDoorOpen.new()
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local vehicle_ps = entity:GetVehiclePS()
-        door_event.slotID = CName.new("seat_front_right")
-        door_event.forceScene = false
-        vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
+        DAV.core_obj.event_obj.hud_obj.is_manually_setting_speed = false
+        DAV.core_obj.event_obj.hud_obj.is_manually_setting_rpm = false
         print("Excute Test Function 5")
-    end
-    if ImGui.Button("TF6") then
-        DAV.core_obj.event_obj.hud_obj.popup_manager:SpawnVehiclesManagerPopup()
-        print("Excute Test Function 6")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF7") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local pos = entity:GetWorldPosition()
-        local angle = entity:GetWorldOrientation():ToEulerAngles()
-        pos.z = pos.z - 0.1
-        Game.GetTeleportationFacility():Teleport(entity, pos, angle)
-        print("Excute Test Function 7")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF8") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local pos = entity:GetWorldPosition()
-        local angle = entity:GetWorldOrientation():ToEulerAngles()
-        pos.z = pos.z + 0.1
-        Game.GetTeleportationFacility():Teleport(entity, pos, angle)
-        print("Excute Test Function 8")
     end
 end
 

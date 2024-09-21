@@ -37,7 +37,10 @@
         "crystal_dome": true,
         "landing_vfx": false,
         "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "310_av_engine_idle"
+        "engine_audio_name": "310_av_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true,
+        "autopilot_prevention_length": 3.5
     },
     {
         "name": "Militech Manticore",
@@ -77,7 +80,10 @@
         "crystal_dome": true,
         "landing_vfx": false,
         "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "310_av_engine_idle"
+        "engine_audio_name": "310_av_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true,
+        "autopilot_prevention_length": 3.5
     },
     {
         "name": "Zetatech Atlus",
@@ -119,7 +125,10 @@
         "crystal_dome": false,
         "landing_vfx": true,
         "projection_offset": {"x": -0.8, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "310_av_engine_idle"
+        "engine_audio_name": "310_av_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true,
+        "autopilot_prevention_length": 3.0
     },
     {
         "name": "Zetatech Surveyor",
@@ -157,7 +166,10 @@
         "crystal_dome": false,
         "landing_vfx": true,
         "projection_offset": {"x": -0.6, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "310_av_engine_idle"
+        "engine_audio_name": "310_av_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true,
+        "autopilot_prevention_length": 5.0
     },
     {
         "name": "Zetatech Valgus",
@@ -195,7 +207,10 @@
         "crystal_dome": false,
         "landing_vfx": false,
         "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "320_heli_engine_idle"
+        "engine_audio_name": "320_heli_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true,
+        "autopilot_prevention_length": 6.0
     },
     {
         "name": "Militech Mayhem",
@@ -232,6 +247,9 @@
         "crystal_dome": false,
         "landing_vfx": false,
         "projection_offset": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "engine_audio_name": "320_heli_engine_idle"
+        "engine_audio_name": "320_heli_engine_idle",
+        "manual_speed_meter": false,
+        "manual_rpm_meter": true,
+        "autopilot_prevention_length": 6.0
     }
 ]

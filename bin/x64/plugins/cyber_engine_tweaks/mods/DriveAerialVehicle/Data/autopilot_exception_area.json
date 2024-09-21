@@ -1,0 +1,47 @@
+[
+    {
+        "tag" : "heywood_north_1",
+        "min_x" : -1800,
+        "max_x" : -1050,
+        "min_y" : -790,
+        "max_y" : -540,
+        "min_z" : 100,
+        "max_z" : 380
+    },
+    {
+        "tag" : "heywood_center_1",
+        "min_x" : -1650,
+        "max_x" : -1580,
+        "min_y" : -1100,
+        "max_y" : -1030,
+        "min_z" : 50,
+        "max_z" : 100 
+    },
+    {
+        "tag" : "japantown_north_1",
+        "min_x" : -800,
+        "max_x" : -275,
+        "min_y" : 940,
+        "max_y" : 1500,
+        "min_z" : 100,
+        "max_z" : 450 
+    },
+    {
+        "tag" : "japantown_north_2",
+        "min_x" : -800,
+        "max_x" : -275,
+        "min_y" : 500,
+        "max_y" : 940,
+        "min_z" : 100,
+        "max_z" : 350 
+    },
+    {
+        "tag" : "japantown_north_3",
+        "min_x" : -610,
+        "max_x" : -300,
+        "min_y" : 250,
+        "max_y" : 500,
+        "min_z" : 100,
+        "max_z" : 280 
+    }
+]

@@ -10,7 +10,7 @@ LogLevel = {
 }
 
 -- Force the log level to be the same for all instances
-MasterLogLevel = LogLevel.Error
+MasterLogLevel = LogLevel.Warning
 -- Print debug messages to the console
 PrintDebugMode = false
 
@@ -19,7 +19,7 @@ Log.__index = Log
 
 function Log:New()
     local obj = {}
-    obj.setting_level = LogLevel.INFO
+    obj.setting_level = LogLevel.Info
     obj.setting_file_name = "No Setting"
     return setmetatable(obj, self)
 end
