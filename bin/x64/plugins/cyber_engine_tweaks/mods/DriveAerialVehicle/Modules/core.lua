@@ -940,6 +940,7 @@ end
 
 function Core:ToggleAutopilot()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
+        self:SetDestinationMappin()
         self.event_obj:ToggleAutoMode()
     end
 end
@@ -993,6 +994,10 @@ function Core:SetMappinController()
         local mappin = this:GetMappin()
         if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
             self.mappin_controller = this
+            local mappin_pos = mappin:GetWorldPosition()
+            if Vector4.Distance(DAV.core_obj.current_custom_mappin_position, mappin_pos) ~= 0 then
+                self:SetCustomMappin(mappin)
+            end
         end
    end)
 
@@ -1007,17 +1012,15 @@ end
 function Core:SetCustomMappin(mappin)
 
     local mappin_position = self.current_custom_mappin_position
-    if self.event_obj:IsInVehicle() then
-        self.log_obj:Record(LogLevel.Info, "Custom Mappin is set")
-        local mappin_pos = mappin:GetWorldPosition()
-        self.current_custom_mappin_position = mappin_pos
-        if Vector4.Distance(mappin_position, mappin_pos) == 0 then
-            self.log_obj:Record(LogLevel.Trace, "Same Mappin is selected")
-            return
-        end
-        self.is_custom_mappin = true
-        self:SetDestinationMappin()
+    self.log_obj:Record(LogLevel.Info, "Custom Mappin is set")
+    local mappin_pos = mappin:GetWorldPosition()
+    self.current_custom_mappin_position = mappin_pos
+    if Vector4.Distance(mappin_position, mappin_pos) == 0 then
+        self.log_obj:Record(LogLevel.Trace, "Same Mappin is selected")
+        return
     end
+    self.is_custom_mappin = true
+    self:SetDestinationMappin()
 
 end
 

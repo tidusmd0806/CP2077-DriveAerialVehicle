@@ -28,6 +28,10 @@ function AV:New(all_models)
 	obj.profile_path = "Data/autopilot_profile.json"
 	obj.destination_range = 3
 	obj.destination_z_offset = 20
+	obj.autopilot_angle_restore_rate = 0.01
+	obj.autopilot_landing_angle_restore_rate = 0.1
+	obj.autopilot_lock_count = 50
+	obj.standard_leaving_height = 30
 	---dynamic---
 	-- door
 	obj.combat_door = nil
@@ -64,6 +68,10 @@ function AV:New(all_models)
 	obj.lock_search_horizontal_angle = 0
 	obj.lock_search_vertical_angle = 0
 	obj.auto_speed_reduce_rate = 1
+	obj.search_range = 1
+	obj.is_search_start_swing_reverse = false
+	obj.initial_destination_length = 1
+	obj.dest_dir_vector_norm = 1
 	-- appearance
 	obj.is_enable_crystal_dome = false
 	obj.is_enable_landing_vfx = false
@@ -444,10 +452,6 @@ function AV:Mount()
 	self.is_landed = false
 	self.camera_obj:SetPerspective(self.seat_index)
 
-	-- For staying current position
-	local current_position = self.position_obj:GetPosition()
-	local current_angle = self.position_obj:GetEulerAngles()
-
 	local seat_number = self.seat_index
 
 	self.log_obj:Record(LogLevel.Debug, "Mount Aerial Vehicle : " .. seat_number)
@@ -483,22 +487,18 @@ function AV:Mount()
 
 	Game.GetMountingFacility():Mount(mounting_request)
 
-	-- Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
-	-- 	timer.tick = timer.tick + 1
-	-- 	if self:IsPlayerMounted() or timer.tick > 5000 then
-	-- 		self.log_obj:Record(LogLevel.Info, "Player Mounted")
-	-- 		Cron.Halt(timer)
-	-- 	end
-	-- 	self.position_obj:SetPosition(current_position, current_angle)
-	-- end)
-	Cron.After(5, function()
+	Cron.Every(1, {tick=1}, function(timer)
+		timer.tick = timer.tick + 1
 		if self.engine_obj.fly_av_system:IsOnGround() then
-			self.log_obj:Record(LogLevel.Warning, "Unexpected Error : AV is on ground when mounting")
-			if self.flight_mode == Def.FlightMode.AV then
-				self:Operate(Def.ActionList.Down)
+			self.log_obj:Record(LogLevel.Warning, "AV is on ground when mounting. So move down")
+			if self.engine_obj.flight_mode == Def.FlightMode.AV then
+				self:Operate({Def.ActionList.Down})
 			else
-				self:Operate(Def.ActionList.HDown)
+				self:Operate({Def.ActionList.HDown})
 			end
+		end
+		if timer.tick > 5 then
+			Cron.Halt(timer)
 		end
 	end)
 
@@ -649,9 +649,12 @@ function AV:AutoPilot()
 	local current_position = self.position_obj:GetPosition()
 
 	local direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
+	self.initial_destination_length = Vector4.Length(direction_vector)
 
 	if self.autopilot_is_only_horizontal then
-		self:AutoLeaving(direction_vector)
+		self:AutoLeaving(direction_vector, nil)
+	else
+		self:AutoLeaving(direction_vector, self.standard_leaving_height)
 	end
 
 	self.autopilot_angle = 0
@@ -674,141 +677,223 @@ function AV:AutoPilot()
 			return
 		end
 
+		-- set destination vector
 		current_position = self.position_obj:GetPosition()
 		local dest_dir_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
 		if self.autopilot_is_only_horizontal then
 			dest_dir_vector.z = 0
 		end
-		local dest_dir_vector_norm = Vector4.Length(dest_dir_vector)
+		self.dest_dir_vector_norm = Vector4.Length(dest_dir_vector)
 
-		if relay_position ~= nil then
-			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, relay_position.z - current_position.z, 1)
-		end
-		local direction_vector_norm = Vector4.Length(direction_vector)
-
-		if dest_dir_vector_norm < self.autopilot_searching_range then
-			relay_position = destination_position
-			relay_position.z = current_position.z
-		elseif relay_position ~= nil and direction_vector_norm < self.destination_range then
-			relay_position = nil
-		end
-
-		if relay_position == nil then
-			local search_vec = Vector4.Zero()
-			local is_wall = true
-			for i = 1, 6 do
-				local search_angle_step = 5
-				local min_search_angle = 30 * (i - 1)
-				local max_search_angle = 30 * (i - 1) + 30 - search_angle_step
-				for _, swing_direction in ipairs({"Horizontal", "Vertical"}) do
-					for sign = -1, 1, 2 do
-						for search_angle = min_search_angle, max_search_angle, search_angle_step do
-							if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign ~= -sign) or (swing_direction == "Vertical" and self.autopilot_vertical_sign ~= -sign) then
-								local res, vec = self.position_obj:IsWall(dest_dir_vector, self.autopilot_searching_range, sign * search_angle, swing_direction)
-								if not res then
-									is_wall = false
-									search_vec = vec
-									self.autopilot_angle = sign * search_angle
-									if swing_direction == "Horizontal" then
-										if search_angle <= 45 then
-											self.lock_search_horizontal_angle = 0
-										elseif search_angle > self.lock_search_horizontal_angle then
-											self.lock_search_horizontal_angle = max_search_angle
-											self.autopilot_horizontal_sign = 0
-										elseif search_angle > 45 then
-											self.autopilot_horizontal_sign = sign
-										end
-									elseif swing_direction == "Vertical" then
-										if search_angle <= 45 then
-											self.lock_search_vertical_angle = 0
-										elseif search_angle > self.lock_search_vertical_angle  then
-											self.lock_search_vertical_angle = max_search_angle
-											self.autopilot_vertical_sign = 0
-										elseif search_angle > 45 then
-											self.autopilot_vertical_sign = sign
-										end
-									end
-									break
-								end
-							end
-						end
-						if not is_wall then
-							break
-						end
-					end
-					if not is_wall then
-						break
-					end
-				end
-				if not is_wall then
-					break
-				end
-			end
-			if not search_vec:IsZero() then
-				relay_position = Vector4.new(current_position.x + self.autopilot_searching_step * search_vec.x, current_position.y + self.autopilot_searching_step * search_vec.y, current_position.z + self.autopilot_searching_step * search_vec.z, 1)
-			else
-				self.log_obj:Record(LogLevel.Error, "AutoPilot Move Error")
-				self:InterruptAutoPilot()
-				Cron.Halt(timer)
-				return
-			end
-		end
-
-		if self.autopilot_angle == 0 then
-			self.autopilot_horizontal_sign = 0
-			self.autopilot_vertical_sign = 0
-			self.lock_search_horizontal_angle = 0
-			self.lock_search_vertical_angle = 0
-			self.auto_speed_reduce_rate = self.auto_speed_reduce_rate + self.autopilot_increase_rate
-		else
-			self.auto_speed_reduce_rate = self.auto_speed_reduce_rate - self.autopilot_decrease_rate
-		end
-
-		if relay_position ~= nil then
-			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, relay_position.z - current_position.z, 1)
-		end
-
-		direction_vector_norm = Vector4.Length(direction_vector)
-
-		if dest_dir_vector_norm < self.destination_range then
+		-- check destination
+		if self.dest_dir_vector_norm < self.destination_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self:AutoLanding()
 			Cron.Halt(timer)
 			return
 		end
 
+		-- set direction vector
+		if relay_position ~= nil then
+			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, relay_position.z - current_position.z, 1)
+		end
+		local direction_vector_norm = Vector4.Length(direction_vector)
+
+		-- check destination
+		if self.autopilot_is_only_horizontal then
+			relay_position = Vector4.new(destination_position.x, destination_position.y, current_position.z, 1)
+		elseif relay_position ~= nil and direction_vector_norm < self.destination_range then
+			relay_position = nil
+		end
+
+		-- decide relay position
+		if relay_position == nil then
+			local dest_dir = Vector4.Zero()
+			local search_vec = Vector4.Zero()
+			local is_wall = true
+			local res, vec
+			for r_2 = 1, 3 do
+				for r_1 = 1, 2 do
+					self.search_range = self.autopilot_searching_range
+					if self.dest_dir_vector_norm < self.autopilot_searching_range then
+						self.search_range = self.dest_dir_vector_norm
+					end
+
+					self.search_range = self.search_range / (2 ^ (r_2 - 1))
+					if self.search_range < self.autopilot_searching_step then
+						self.search_range = self.autopilot_searching_step
+					end
+
+					if r_1 == 1 then
+						dest_dir = dest_dir_vector
+					elseif r_1 == 2 and relay_position ~= nil then
+						dest_dir = Vector4.new(destination_position.x - relay_position.x, destination_position.y - relay_position.y, destination_position.z - relay_position.z, 1)
+					else
+						break
+					end
+					for i = 1, 3 do
+						local search_angle_step = 5
+						local min_search_angle = 45 * (i - 1)
+						local max_search_angle = 45 * (i - 1) + 45 - search_angle_step
+						for _, swing_direction in ipairs({"Horizontal", "Vertical"}) do
+							if self.is_search_start_swing_reverse then
+								if swing_direction == "Horizontal" then
+									swing_direction = "Vertical"
+								else
+									swing_direction = "Horizontal"
+								end
+							end
+							for sign = 1, -1, -2 do
+								for search_angle = min_search_angle, max_search_angle, search_angle_step do
+									-- if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign ~= -sign) or (swing_direction == "Vertical" and self.autopilot_vertical_sign ~= -sign) then
+									if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0) or (swing_direction == "Vertical" and self.autopilot_vertical_sign * sign >= 0) then
+										res, vec = self.position_obj:IsWall(dest_dir, self.search_range, sign * search_angle, swing_direction)
+										if not res then
+											is_wall = false
+											search_vec = vec
+											self.autopilot_angle = sign * search_angle
+											if swing_direction == "Horizontal" then
+												-- if search_angle <= 15 then
+												-- 	self.lock_search_horizontal_angle = 0
+												-- elseif search_angle > self.lock_search_horizontal_angle then
+												-- 	self.lock_search_horizontal_angle = max_search_angle
+												-- 	self.autopilot_horizontal_sign = 0
+												-- elseif search_angle > 15 then
+												-- 	self.autopilot_horizontal_sign = sign
+												-- end
+												if self.autopilot_horizontal_sign * sign <= 0 then 
+													self.autopilot_horizontal_sign = sign * self.autopilot_lock_count
+												end
+											elseif swing_direction == "Vertical" then
+												-- if search_angle <= 15 then
+												-- 	self.lock_search_vertical_angle = 0
+												-- elseif search_angle > self.lock_search_vertical_angle  then
+												-- 	self.lock_search_vertical_angle = max_search_angle
+												-- 	self.autopilot_vertical_sign = 0
+												-- elseif search_angle > 15 then
+												-- 	self.autopilot_vertical_sign = sign
+												-- end
+												if self.autopilot_vertical_sign * sign <= 0 then 
+													self.autopilot_vertical_sign = sign * self.autopilot_lock_count
+												end
+											end
+											if self.autopilot_horizontal_sign > 0 then
+												self.autopilot_horizontal_sign = self.autopilot_horizontal_sign - 1
+											elseif self.autopilot_horizontal_sign < 0 then
+												self.autopilot_horizontal_sign = self.autopilot_horizontal_sign + 1
+											end
+											if self.autopilot_vertical_sign > 0 then
+												self.autopilot_vertical_sign = self.autopilot_vertical_sign - 1
+											elseif self.autopilot_vertical_sign < 0 then
+												self.autopilot_vertical_sign = self.autopilot_vertical_sign + 1
+											end
+											break
+										end
+									end
+								end
+								if not is_wall then
+									break
+								end
+							end
+							if not is_wall then
+								if swing_direction == "Vertical" then
+									self.is_search_start_swing_reverse = true
+								else
+									self.is_search_start_swing_reverse = false
+								end
+								break
+							end
+						end
+						if not is_wall then
+							break
+						end
+					end
+					if not search_vec:IsZero() then
+						local pos = relay_position or current_position
+						relay_position = Vector4.new(pos.x + self.autopilot_searching_step * search_vec.x, pos.y + self.autopilot_searching_step * search_vec.y, pos.z + self.autopilot_searching_step * search_vec.z, 1)
+					elseif r_2 >= 3 then
+						self.log_obj:Record(LogLevel.Error, "AutoPilot Move Error")
+						self:InterruptAutoPilot()
+						Cron.Halt(timer)
+						return
+					end
+					if self.autopilot_angle == 0 then
+						-- reset search angle
+						self.autopilot_horizontal_sign = 0
+						self.autopilot_vertical_sign = 0
+						self.lock_search_horizontal_angle = 0
+						self.lock_search_vertical_angle = 0
+						-- autopilot speed control
+						self.auto_speed_reduce_rate = self.auto_speed_reduce_rate + self.autopilot_increase_rate
+					else
+						self.auto_speed_reduce_rate = self.auto_speed_reduce_rate - self.autopilot_decrease_rate
+					end
+				end
+				if not is_wall then
+					break
+				end
+			end
+		end
+
+		-- recheck relay position
+		if relay_position ~= nil then
+			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, relay_position.z - current_position.z, 1)
+		end
+		direction_vector_norm = Vector4.Length(direction_vector)
+
+		-- speed control
 		if self.auto_speed_reduce_rate < self.autopilot_min_speed_rate then
 			self.auto_speed_reduce_rate = self.autopilot_min_speed_rate
 		elseif self.auto_speed_reduce_rate > 1 then
 			self.auto_speed_reduce_rate = 1
 		end
-
 		local autopilot_speed = self.autopilot_speed * self.auto_speed_reduce_rate
-
 		local fix_direction_vector = Vector4.new(autopilot_speed * direction_vector.x / direction_vector_norm, autopilot_speed * direction_vector.y / direction_vector_norm, autopilot_speed * direction_vector.z / direction_vector_norm, 1)
 
-		local next_positon = {x = fix_direction_vector.x, y = fix_direction_vector.y, z = fix_direction_vector.z}
-
+		-- yaw control
 		local vehicle_angle = self.position_obj:GetForward()
 		local vehicle_angle_norm = Vector4.Length(vehicle_angle)
 		local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
 		local yaw_dist = yaw_vehicle
-		if dest_dir_vector_norm ~= 0 then
-			yaw_dist = math.atan2(dest_dir_vector.y / dest_dir_vector_norm, dest_dir_vector.x / dest_dir_vector_norm) * 180 / Pi()
+		if self.dest_dir_vector_norm ~= 0 then
+			yaw_dist = math.atan2(dest_dir_vector.y / self.dest_dir_vector_norm, dest_dir_vector.x / self.dest_dir_vector_norm) * 180 / Pi()
 		end
 		local yaw_diff = yaw_dist - yaw_vehicle
 		local yaw_diff_half = yaw_diff * 0.1
 		if math.abs(yaw_diff_half) < 0.5 then
 			yaw_diff_half = yaw_diff
 		end
-		self:ForceMove(next_positon.x, next_positon.y, next_positon.z, 0.0, 0.0, yaw_diff_half)
+
+		-- restore angle
+		local current_angle = self.position_obj:GetEulerAngles()
+		local roll_diff = 0
+		local pitch_diff = 0
+		roll_diff = roll_diff - current_angle.roll * self.autopilot_angle_restore_rate
+		pitch_diff = pitch_diff - current_angle.pitch * self.autopilot_angle_restore_rate
+
+		-- helicopter angle
+		if self.engine_obj.flight_mode == Def.FlightMode.Helicopter and math.abs(current_angle.roll) < self.engine_obj.max_roll * 0.5 and math.abs(current_angle.pitch) < self.engine_obj.max_pitch * 0.5 then
+			local forward = vehicle_angle
+			local dir = direction_vector
+			forward.z = 0
+			dir.z = 0
+			local forward_base_vec = Vector4.Normalize(forward)
+			local direction_base_vec = Vector4.Normalize(dir)
+			local between_angle = Vector4.GetAngleDegAroundAxis(forward_base_vec, direction_base_vec, Vector4.new(0, 0, 1, 1))
+			local between_angle_rad = math.rad(between_angle)
+			roll_diff = roll_diff - math.sin(between_angle_rad) * 0.5 * (1 - math.abs(current_angle.roll) / (self.engine_obj.max_roll * 0.5))
+			pitch_diff = pitch_diff - math.cos(between_angle_rad) * 0.5 * (1 - math.abs(current_angle.pitch) / (self.engine_obj.max_pitch * 0.5))
+		end
+
+		self:ForceMove(fix_direction_vector.x, fix_direction_vector.y, fix_direction_vector.z, roll_diff, pitch_diff, yaw_diff_half)
 	end)
 	return true
 
 end
 
 ---@param dist_vector Vector4
-function AV:AutoLeaving(dist_vector)
+---@param height number | nil
+function AV:AutoLeaving(dist_vector, height)
 
 	self.is_leaving = true
 
@@ -822,7 +907,8 @@ function AV:AutoLeaving(dist_vector)
 		end
 		local angle = self.position_obj:GetEulerAngles()
 		local current_position = self.position_obj:GetPosition()
-		self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.autopilot_down_time_count, self.autopilot_land_offset, self.autopilot_leaving_height - current_position.z, timer.tick + self.autopilot_down_time_count + 1), -angle.roll * 0.8, -angle.pitch * 0.8, 0.0)
+		local leaving_height = height or self.autopilot_leaving_height - current_position.z
+		self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.autopilot_down_time_count, self.autopilot_land_offset, leaving_height, timer.tick + self.autopilot_down_time_count + 1), -angle.roll * 0.8, -angle.pitch * 0.8, 0.0)
 		if timer.tick >= self.autopilot_down_time_count then
 			Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 				timer.tick = timer.tick + 1
@@ -851,7 +937,7 @@ function AV:AutoLeaving(dist_vector)
 					Cron.Halt(timer)
 				end
 				local inner_product = current_direction.x * target_direction.x + current_direction.y * target_direction.y
-				if inner_product > 0.99 then
+				if inner_product > 0.99 - 0.002 * timer.tick then
 					local angle_difference = math.acos(current_direction.x * target_direction.x + current_direction.y * target_direction.y + current_direction.z * target_direction.z)
 					self:Move(0.0, 0.0, 0.0, 0.0, 0.0, sign * math.abs(angle_difference * 180 / Pi()))
 					self.is_leaving = false
@@ -880,7 +966,15 @@ function AV:AutoLanding()
 			Cron.Halt(timer)
 			return
 		end
-		if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(down_time_count, self.autopilot_land_offset, height, timer.tick + 1), 0.0, 0.0, 0.0) then
+
+		-- restore angle 
+		local current_angle = self.position_obj:GetEulerAngles()
+		local roll_diff = 0
+		local pitch_diff = 0
+		roll_diff = roll_diff - current_angle.roll * self.autopilot_landing_angle_restore_rate
+		pitch_diff = pitch_diff - current_angle.pitch * self.autopilot_landing_angle_restore_rate
+
+		if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(down_time_count, self.autopilot_land_offset, height, timer.tick + 1), roll_diff, pitch_diff, 0.0) then
 			self.is_landed = true
 			self:SeccessAutoPilot()
 			Cron.Halt(timer)

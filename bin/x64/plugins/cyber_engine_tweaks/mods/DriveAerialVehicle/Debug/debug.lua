@@ -21,6 +21,9 @@ function Debug:New(core_obj)
     obj.is_im_gui_auto_pilot_status = false
     obj.is_im_gui_change_auto_setting = false
     obj.is_im_gui_auto_pilot_info = false
+    obj.is_im_gui_auto_pilot_exception_area = false
+    obj.exception_area_entity_list = {}
+    obj.spawn_lock = false
     obj.is_im_gui_measurement = false
 
     return setmetatable(obj, self)
@@ -46,6 +49,7 @@ function Debug:ImGuiMain()
     self:ImGuiAutoPilotStatus()
     self:ImGuiChangeAutoPilotSetting()
     self:ImGuiAutoPilotInfo()
+    self:ImGuiAutoPilotExceptionArea()
     self:ImGuiMeasurement()
     self:ImGuiExcuteFunction()
 
@@ -56,7 +60,7 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved        
+        -- reserved       
     end
     self.is_set_observer = true
 
@@ -295,7 +299,79 @@ function Debug:ImGuiAutoPilotInfo()
     if self.is_im_gui_auto_pilot_info then
         ImGui.Text("Angle : " .. tostring(DAV.core_obj.av_obj.autopilot_angle) .. ", H Sign : " .. tostring(DAV.core_obj.av_obj.autopilot_horizontal_sign) .. ", V Sign : " .. tostring(DAV.core_obj.av_obj.autopilot_vertical_sign))
         ImGui.Text("H Lock Angle : ".. DAV.core_obj.av_obj.lock_search_horizontal_angle .. ", V Lock Angle : ".. DAV.core_obj.av_obj.lock_search_vertical_angle)
-        ImGui.Text("Current Speed : " .. DAV.core_obj.av_obj.autopilot_speed * DAV.core_obj.av_obj.auto_speed_reduce_rate)
+        ImGui.Text("Current Speed : " .. DAV.core_obj.av_obj.autopilot_speed * DAV.core_obj.av_obj.auto_speed_reduce_rate .. ", Serach Range : " .. DAV.core_obj.av_obj.search_range)
+    end
+end
+
+function Debug:ImGuiAutoPilotExceptionArea()
+    self.is_im_gui_auto_pilot_exception_area = ImGui.Checkbox("[ImGui] Auto Pilot Exception Area", self.is_im_gui_auto_pilot_exception_area)
+    if self.is_im_gui_auto_pilot_exception_area and #self.exception_area_entity_list == 0 and not self.spawn_lock then
+        self.spawn_lock = true
+        local entity_path = "base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent"
+        local entity_id = nil
+        local entity = nil
+        local entity_spawn_lock = false
+        local positions = {}
+        local position_index = 1
+        local position_count = 1
+        for _, value in ipairs(DAV.core_obj.av_obj.position_obj.autopilot_exception_area_list) do
+            local position = {
+                {value.min_x, value.min_y, value.min_z},
+                {value.max_x, value.min_y, value.min_z},
+                {value.min_x, value.max_y, value.min_z},
+                {value.max_x, value.max_y, value.min_z},
+                {value.min_x, value.min_y, value.max_z},
+                {value.max_x, value.min_y, value.max_z},
+                {value.min_x, value.max_y, value.max_z},
+                {value.max_x, value.max_y, value.max_z}
+            }
+            table.insert(positions, position)
+        end
+        Cron.Every(0.01, {tick=1}, function(timer)
+            if position_index > #positions then
+                self.spawn_lock = false
+                Cron.Halt(timer)
+            elseif not entity_spawn_lock then
+                local transform = WorldTransform.new()
+                local pos = WorldPosition.new()
+                entity_spawn_lock = true
+                pos:SetXYZ(table.unpack(positions[position_index][position_count]))
+                transform.Position = pos
+                entity_id = exEntitySpawner.Spawn(entity_path, transform, '')
+            elseif entity_id ~= nil then
+                entity = Game.FindEntityByID(entity_id)
+                if entity ~= nil then
+                    table.insert(self.exception_area_entity_list, entity)
+                    position_count = position_count + 1
+                    if position_count > 8 then
+                        position_index = position_index + 1
+                        position_count = 1
+                    end
+                    entity_spawn_lock = false
+                end
+            end
+        end)
+    elseif not self.is_im_gui_auto_pilot_exception_area and #self.exception_area_entity_list ~= 0 and not self.spawn_lock then
+        self.spawn_lock = true
+        for _, value in ipairs(self.exception_area_entity_list) do
+            exEntitySpawner.Despawn(value)
+        end
+        self.exception_area_entity_list = {}
+        Cron.After(3, function()
+            self.spawn_lock = false
+        end)
+    end
+    if self.is_im_gui_auto_pilot_exception_area then
+        local current_position = Game.GetPlayer():GetWorldPosition()
+        local res, tag = DAV.core_obj.av_obj.position_obj:IsInExceptionArea(current_position)
+        if res then
+            ImGui.Text("In Exception Area : " .. tag)
+        else
+            ImGui.Text("Not In Exception Area")
+        end
+        if ImGui.Button("Reload Area") then
+            DAV.core_obj.av_obj.position_obj.autopilot_exception_area_list = Utils:ReadJson(DAV.core_obj.av_obj.position_obj.exception_area_path)
+        end
     end
 end
 
@@ -323,38 +399,50 @@ end
 
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("TF1") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local comp = entity:FindComponentByName("AnimationController")
-        local feat = AnimFeature_PartData.new()
-        feat.duration = 1
-        feat.state = 1
-        -- AnimationControllerComponent.ApplyFeatureToReplicate(Game.GetPlayer():GetMountedVehicle(), CName.new("seat_front_left"), feat)
-        AnimationControllerComponent.ApplyFeatureToReplicate(entity, CName.new("trunk"), feat)
+        local list = Utils:ReadJson("Data\\autopilot_exception_area.json")
+        for _, value in ipairs(list) do
+            local transform = WorldTransform.new()
+            local pos = WorldPosition.new()
+            pos:SetXYZ(value.min_x, value.min_y, value.min_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.max_x, value.min_y, value.min_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.min_x, value.max_y, value.min_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.max_x, value.max_y, value.min_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.min_x, value.min_y, value.max_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.max_x, value.min_y, value.max_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.min_x, value.max_y, value.max_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+            pos:SetXYZ(value.max_x, value.max_y, value.max_z)
+            transform.Position = pos
+            exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
+        end
         print("Excute Test Function 1")
     end
     ImGui.SameLine()
     if ImGui.Button("TF2") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local comp = entity:FindComponentByName("ThrusterLight_FrontLeft1617")
-        local evt = ToggleLightEvent.new()
-        evt.toggle = false
-        comp:OnToggleLight(evt)
+        local transform = WorldTransform.new()
+        local current_pos = Game.GetPlayer():GetWorldPosition()
+        local pos = WorldPosition.new()
+        pos:SetXYZ(current_pos.x, current_pos.y, current_pos.z + 5)
+        transform.Position = pos
+        self.sentity_id = exEntitySpawner.Spawn("base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent", transform)
         print("Excute Test Function 2")
     end
     ImGui.SameLine()
     if ImGui.Button("TF3") then
-        local depot = Game.GetResourceDepot()
-        local token = depot:LoadResource("base\\sound\\metadata\\cooked_metadata.audio_metadata")
-        local meta_data = token:GetResource()
-        for _, value in pairs(meta_data.entries) do
-            if value.name.value == "v_heli_q000_border_heli" then
-                local settings = audioCommonEntitySettings.new()
-                settings.onAttachEvent = CName.new("q000_nomad_sc_04_heli")
-                settings.onDetachEvent = CName.new("q000_nomad_sc_04_heli_stop")
-                settings.stopAllSoundsOnDetach = true
-                value.commonSettings = settings
-            end
-        end
+        exEntitySpawner.Despawn(Game.FindEntityByID(self.sentity_id))
         print("Excute Test Function 3")
     end
     ImGui.SameLine()

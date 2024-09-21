@@ -179,7 +179,7 @@ function Event:CheckAllEvents()
         self:CheckInAV()
         self:CheckAutoModeChange()
         self:CheckFailAutoPilot()
-        self:CheckCustomMappinPosition()
+        -- self:CheckCustomMappinPosition()
         self:CheckHUD()
         self:CheckDestroyed()
         self:CheckInput()
@@ -299,8 +299,17 @@ function Event:CheckHUD()
     if not success then
     self.log_obj:Record(LogLevel.Critical, result)
     end
-    local rpm_count = self.av_obj.engine_obj:GetRPMCount()
-    self.hud_obj:SetRPMMeterValue(math.abs(rpm_count))
+    if self:IsAutoMode() then
+        self.hud_obj:EnableManualMeter(true, true)
+        local initial_length = math.floor(self.av_obj.initial_destination_length)
+        local current_length = math.floor(self.av_obj.dest_dir_vector_norm)
+        self.hud_obj:SetSpeedMeterValue(current_length)
+        self.hud_obj:SetRPMMeterValue(math.floor(10 * (1 - current_length / initial_length) + 1))
+    else
+        self.hud_obj:EnableManualMeter(false, self.av_obj.is_enable_manual_rpm_meter)
+        local rpm_count = self.av_obj.engine_obj:GetRPMCount()
+        self.hud_obj:SetRPMMeterValue(math.abs(rpm_count))
+    end
 
 end
 

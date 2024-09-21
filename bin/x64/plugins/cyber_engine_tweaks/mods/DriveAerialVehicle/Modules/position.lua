@@ -1,4 +1,3 @@
--- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Position = {}
 Position.__index = Position
@@ -19,6 +18,7 @@ function Position:New(all_models)
     -- obj.collision_filters = {"Static", "Terrain", "Water"}
     obj.collision_filters = {"Static", "Terrain"}
     obj.far_distance = 100
+    obj.exception_area_path = "Data\\autopilot_exception_area.json"
     -- dyanmic --
     obj.entity = nil
     obj.next_position = nil
@@ -74,7 +74,8 @@ function Position:SetModel(index)
     self.entry_area_radius = self.all_models[index].entry_area_radius
     self.exit_point = { x = self.all_models[index].exit_point.x, y = self.all_models[index].exit_point.y, z = self.all_models[index].exit_point.z }
     self.minimum_distance_to_ground = self.all_models[index].minimum_distance_to_ground
-    self.autopilot_prevention_length = self:GetFarCornerDistance() + 1
+    self.autopilot_prevention_length = self.all_models[index].autopilot_prevention_length
+    self.autopilot_exception_area_list = Utils:ReadJson(self.exception_area_path)
 end
 
 function Position:GetGroundPosition()
@@ -115,6 +116,11 @@ function Position:IsWall(dir_vec, distance, angle, swing_direction)
                         return true, search_vec
                     end
                 end
+                -- check exception area
+                local is_exception, _ = self:IsInExceptionArea(Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0))
+                if is_exception then
+                    return true, search_vec
+                end
             end
         end
     end
@@ -126,14 +132,6 @@ function Position:SetEntity(entity)
         self.log_obj:Record(LogLevel.Warning, "Entity is nil for SetEntity")
     end
     self.entity = entity
-end
-
-function Position:SetSensorPairVectorNum(num)
-    self.sensor_pair_vector_num = num
-end
-
-function Position:SetJudgedStackLength(length)
-    self.judged_stack_length = length
 end
 
 function Position:ChangeWorldCordinate(basic_vector ,point_list)
@@ -327,89 +325,20 @@ function Position:IsPlayerInEntryArea()
     end
 end
 
-
 function Position:GetExitPosition()
     local basic_vector = self:GetPosition()
     return self:ChangeWorldCordinate(basic_vector, {self.exit_point})[1]
 end
 
--- function Position:CalculateVectorField(radius_in, radius_out, max_length, sensing_constant)
+function Position:IsInExceptionArea(position)
 
---     local current_position = self:GetPosition()
---     local dividing_vector = Vector4.new(0, 0, 0, 1.0)
---     local spherical_vectors = Utils:GenerateUniformVectorsOnSphere(self.sensor_pair_vector_num, radius_out)
---     local vector_field = {}
-
---     local k = radius_out - radius_in / radius_out
-
---     for _, spherical_vector in ipairs(spherical_vectors) do
---         local world_spherical_vector = Vector4.new(spherical_vector.x + current_position.x, spherical_vector.y + current_position.y, spherical_vector.z + current_position.z, 1.0)
---         dividing_vector.x = (1 - k) * current_position.x + k * world_spherical_vector.x
---         dividing_vector.y = (1 - k) * current_position.y + k * world_spherical_vector.y
---         dividing_vector.z = (1 - k) * current_position.z + k * world_spherical_vector.z
-
---         for _, filter in ipairs(self.collision_filters) do
---             local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(dividing_vector, world_spherical_vector, filter, false, false)
---             if is_success then
---                 spherical_vector.x = trace_result.position.x - dividing_vector.x
---                 spherical_vector.y = trace_result.position.y - dividing_vector.y
---                 spherical_vector.z = trace_result.position.z - dividing_vector.z
---                 break
---             end
---         end
---         table.insert(vector_field, spherical_vector)
-
---     end
-
---     local sum_vector = Vector4.new(0, 0, 0, 1.0)
---     for _, vector in ipairs(vector_field) do
---         sum_vector.x = sum_vector.x + vector.x * sensing_constant
---         sum_vector.y = sum_vector.y + vector.y * sensing_constant
---         sum_vector.z = sum_vector.z + vector.z * sensing_constant
---     end
-
---     local norm = math.sqrt(sum_vector.x * sum_vector.x + sum_vector.y * sum_vector.y + sum_vector.z * sum_vector.z)
---     if norm > max_length then
---         sum_vector.x = sum_vector.x * max_length / norm
---         sum_vector.y = sum_vector.y * max_length / norm
---         sum_vector.z = sum_vector.z * max_length / norm
---     end
-
---     return sum_vector
-
--- end
-
--- function Position:CheckAutoPilotStackCount(distination_position)
---     local current_position = self:GetPosition()
-
---     local distance = math.sqrt((current_position.x - distination_position.x) * (current_position.x - distination_position.x) + (current_position.y - distination_position.y) * (current_position.y - distination_position.y) + (current_position.z - distination_position.z) * (current_position.z - distination_position.z))
-
---     if self.stack_count == 0 then
---         self.stack_distance = distance
---     end
-
---     if math.abs(distance - self.stack_distance) < self.judged_stack_length then
---         self.stack_count = self.stack_count + 1
---     else
---         self.stack_count = 0
---     end
-
---     return self.stack_count
--- end
-
--- function Position:ResetStackCount()
---     self.stack_count = 0
--- end
-
-function Position:GetFarCornerDistance()
-    local max_distance = 0
-    for _, corner in ipairs(self.local_corners) do
-        local curner_distance = math.sqrt(corner.x * corner.x + corner.y * corner.y + corner.z * corner.z)
-        if curner_distance > max_distance then
-            max_distance = curner_distance
+    for _, area in ipairs(self.autopilot_exception_area_list) do
+        if position.x >= area.min_x and position.x <= area.max_x and position.y >= area.min_y and position.y <= area.max_y and position.z >= area.min_z and position.z <= area.max_z then
+            return true, area.tag
         end
     end
-    return max_distance
+    return false, "None"
+
 end
 
 return Position

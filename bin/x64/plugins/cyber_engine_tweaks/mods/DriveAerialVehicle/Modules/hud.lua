@@ -291,6 +291,7 @@ function HUD:EnableManualMeter(is_manual_speed, is_manual_rpm)
     self.is_manually_setting_rpm = is_manual_rpm
 end
 
+---@param speed_value number
 function HUD:SetSpeedMeterValue(speed_value)
     if self.hud_car_controller == nil or not self.is_manually_setting_speed then
         return
@@ -298,6 +299,7 @@ function HUD:SetSpeedMeterValue(speed_value)
     inkTextRef.SetText(self.hud_car_controller.SpeedValue, speed_value)
 end
 
+---@param rpm_value number
 function HUD:SetRPMMeterValue(rpm_value)
     if self.hud_car_controller == nil or not self.is_manually_setting_rpm then
         return
