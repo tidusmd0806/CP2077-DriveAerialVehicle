@@ -137,6 +137,8 @@ function Core:Reset()
     self.av_obj = AV:New(self.all_models)
     self.av_obj:Init()
     self.event_obj:Init(self.av_obj)
+    -- Reset Custom Mappin
+    self.current_custom_mappin_position = Vector4.new(0, 0, 0, 1)
 end
 
 function Core:LoadSetting()
@@ -1019,14 +1021,16 @@ function Core:SetCustomMappin(mappin)
         self.log_obj:Record(LogLevel.Trace, "Same Mappin is selected")
         return
     end
-    self.is_custom_mappin = true
     self:SetDestinationMappin()
 
 end
 
 function Core:SetDestinationMappin()
-    self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
-    self.ft_index_nearest_mappin, self.ft_to_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
+    if self.current_custom_mappin_position:Length() ~= 0 then
+        self.is_custom_mappin = true
+        self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
+        self.ft_index_nearest_mappin, self.ft_to_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
+    end
 end
 
 function Core:SetFavoriteMappin(pos)
