@@ -30,7 +30,7 @@ function AV:New(all_models)
 	obj.destination_z_offset = 20
 	obj.autopilot_angle_restore_rate = 0.01
 	obj.autopilot_landing_angle_restore_rate = 0.1
-	obj.autopilot_lock_count = 50
+	obj.autopilot_lock_count = 1000
 	obj.standard_leaving_height = 30
 	---dynamic---
 	-- door
@@ -713,7 +713,7 @@ function AV:AutoPilot()
 			local is_wall = true
 			local res, vec
 			for r_2 = 1, 3 do
-				for r_1 = 1, 2 do
+				-- for r_1 = 1, 2 do
 					self.search_range = self.autopilot_searching_range
 					if self.dest_dir_vector_norm < self.autopilot_searching_range then
 						self.search_range = self.dest_dir_vector_norm
@@ -724,13 +724,13 @@ function AV:AutoPilot()
 						self.search_range = self.autopilot_searching_step
 					end
 
-					if r_1 == 1 then
-						dest_dir = dest_dir_vector
-					elseif r_1 == 2 and relay_position ~= nil then
-						dest_dir = Vector4.new(destination_position.x - relay_position.x, destination_position.y - relay_position.y, destination_position.z - relay_position.z, 1)
-					else
-						break
-					end
+					-- if r_1 == 1 then
+					-- 	dest_dir = dest_dir_vector
+					-- elseif r_1 == 2 and relay_position ~= nil then
+					-- 	dest_dir = Vector4.new(destination_position.x - relay_position.x, destination_position.y - relay_position.y, destination_position.z - relay_position.z, 1)
+					-- else
+					-- 	break
+					-- end
 					for i = 1, 3 do
 						local search_angle_step = 5
 						local min_search_angle = 45 * (i - 1)
@@ -747,7 +747,7 @@ function AV:AutoPilot()
 								for search_angle = min_search_angle, max_search_angle, search_angle_step do
 									-- if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign ~= -sign) or (swing_direction == "Vertical" and self.autopilot_vertical_sign ~= -sign) then
 									if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0) or (swing_direction == "Vertical" and self.autopilot_vertical_sign * sign >= 0) then
-										res, vec = self.position_obj:IsWall(dest_dir, self.search_range, sign * search_angle, swing_direction)
+										res, vec = self.position_obj:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction)
 										if not res then
 											is_wall = false
 											search_vec = vec
@@ -828,7 +828,7 @@ function AV:AutoPilot()
 					else
 						self.auto_speed_reduce_rate = self.auto_speed_reduce_rate - self.autopilot_decrease_rate
 					end
-				end
+				-- end
 				if not is_wall then
 					break
 				end
