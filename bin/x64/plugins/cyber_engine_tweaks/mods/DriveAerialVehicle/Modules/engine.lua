@@ -4,13 +4,14 @@ Engine = {}
 Engine.__index = Engine
 
 function Engine:New(position_obj, all_models)
+    -- instance --
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Engine")
     obj.position_obj = position_obj
     obj.all_models = all_models
 
-    -- static
+    -- static --
     obj.max_roll = 30
     obj.max_pitch = 30
     obj.force_restore_angle = 70
@@ -20,7 +21,7 @@ function Engine:New(position_obj, all_models)
     obj.rpm_restore_step = 2
     obj.rpm_count_scale = 80
     obj.rpm_max_count = 10 * obj.rpm_count_scale
-    -- Dynamic
+    -- dynamic --
     obj.flight_mode = Def.FlightMode.AV
     obj.fly_av_system = nil
     obj.current_speed = 0

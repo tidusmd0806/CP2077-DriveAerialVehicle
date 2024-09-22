@@ -16,8 +16,5 @@
     "DriverCombatVisionHold",
     "VisionHold",
     "VehicleHorn",
-    "CycleLights",
-    "QuestExit",
-    "QuickExit",
-    "Exit"
+    "CycleLights"
 ]

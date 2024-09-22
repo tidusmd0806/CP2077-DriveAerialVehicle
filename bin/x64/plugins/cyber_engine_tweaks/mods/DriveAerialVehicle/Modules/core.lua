@@ -145,7 +145,7 @@ function Core:LoadSetting()
 
     local setting_data = Utils:ReadJson(DAV.user_setting_path)
     if setting_data == nil then
-        self.log_obj:Record(LogLevel.Error, "Failed to load setting data. Restore default setting")
+        self.log_obj:Record(LogLevel.Info, "Failed to load setting data. Restore default setting")
         Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
         return
     end
@@ -268,6 +268,7 @@ function Core:SetInputListener()
     local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
     local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
+    local exception_in_combat_list = Utils:ReadJson("Data/exception_in_combat_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
 
@@ -280,13 +281,22 @@ function Core:SetInputListener()
         local action_value = action:GetValue(action)
 
         if self.event_obj:IsInVehicle() then
-            for _, exception in pairs(exception_in_veh_list) do
-                if action_name == exception then
-                    consumer:Consume()
-                    break
+            if Game.GetPlayer():PSIsInDriverCombat() then
+                for _, exception in pairs(exception_in_combat_list) do
+                    if action_name == exception then
+                        consumer:Consume()
+                        break
+                    end
+                end
+            else
+                for _, exception in pairs(exception_in_veh_list) do
+                    if action_name == exception then
+                        consumer:Consume()
+                        break
+                    end
                 end
             end
-            if self.event_obj:IsInMenuOrPopupOrPhoto() then
+            if self.event_obj:IsInMenuOrPopupOrPhoto() or self.event_obj:IsAutoMode() then
                 for _, exception in pairs(exception_in_popup_list) do
                     if action_name == exception then
                         consumer:Consume()
@@ -790,8 +800,6 @@ function Core:ConvertHeliPressAction(keybind_name)
                 end
             end)
         end
-    -- elseif keybind_name == "hover" then
-    --     self.queue_obj:Enqueue(Def.ActionList.HHover)
     end
 
 end
