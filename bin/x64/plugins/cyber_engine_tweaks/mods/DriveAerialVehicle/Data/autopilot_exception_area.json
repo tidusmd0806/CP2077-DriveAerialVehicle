@@ -9,6 +9,15 @@
         "max_z" : 380
     },
     {
+        "tag" : "heywood_north_2",
+        "min_x" : -2200,
+        "max_x" : -2020,
+        "min_y" : -740,
+        "max_y" : -90,
+        "min_z" : 110,
+        "max_z" : 380
+    },
+    {
         "tag" : "heywood_center_1",
         "min_x" : -1650,
         "max_x" : -1580,
@@ -43,5 +52,23 @@
         "max_y" : 500,
         "min_z" : 100,
         "max_z" : 280 
+    },
+    {
+        "tag" : "japantown_west_1",
+        "min_x" : -550,
+        "max_x" : -420,
+        "min_y" : 90,
+        "max_y" : 250,
+        "min_z" : 120,
+        "max_z" : 330 
+    },
+    {
+        "tag" : "watson_south_1",
+        "min_x" : -1880,
+        "max_x" : -1520,
+        "min_y" : 1090,
+        "max_y" : 1730,
+        "min_z" : 60,
+        "max_z" : 310 
     }
 ]

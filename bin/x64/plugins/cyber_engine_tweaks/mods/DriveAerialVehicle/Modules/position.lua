@@ -14,10 +14,8 @@ function Position:New(all_models)
     obj.dividing_rate = 0.5
     obj.judged_stack_length = 3
     obj.search_distance = 100
-    -- obj.collision_filters = {"Static", "Destructible", "Terrain", "Debris", "Cloth", "Water"}
-    -- obj.collision_filters = {"Static", "Terrain", "Water"}
-    obj.collision_filters = {"Static", "Terrain"}
-    obj.far_distance = 100
+    obj.collision_filters = {"Static", "Terrain", "Water"}
+    obj.weak_collision_filters = {"Static", "Terrain"}
     obj.exception_area_path = "Data\\autopilot_exception_area.json"
     -- dyanmic --
     obj.entity = nil
@@ -32,9 +30,6 @@ function Position:New(all_models)
     obj.corners = {}
     obj.entry_point = {}
     obj.entry_area_radius = 0
-    obj.stack_distance = 0
-    obj.stack_count = 0
-    obj.sensor_pair_vector_num = 15
     obj.collision_trace_result = nil
     obj.autopilot_prevention_length = 10
     return setmetatable(obj, self)
@@ -110,15 +105,17 @@ function Position:IsWall(dir_vec, distance, angle, swing_direction)
                 current_position.x = current_position.x + dir_base_vec.x * i + right_vec.x * j + up_vec.x * k
                 current_position.y = current_position.y + dir_base_vec.y * i + right_vec.y * j + up_vec.y * k
                 current_position.z = current_position.z + dir_base_vec.z * i + right_vec.z * j + up_vec.z * k
-                for _, filter in ipairs(self.collision_filters) do
+                for _, filter in ipairs(self.weak_collision_filters) do
                     local is_success, _ = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0), filter, false, false)
                     if is_success then
+                        self.log_obj:Record(LogLevel.Trace, "Wall Detected: " .. filter .. " " .. i .. " " .. j .. " " .. k)
                         return true, search_vec
                     end
                 end
                 -- check exception area
-                local is_exception, _ = self:IsInExceptionArea(Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0))
+                local is_exception, tag, _ = self:IsInExceptionArea(Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0))
                 if is_exception then
+                    self.log_obj:Record(LogLevel.Trace, "Exception Area Detected: " .. tag)
                     return true, search_vec
                 end
             end
@@ -204,19 +201,6 @@ end
 
 function Position:GetSpawnOrientation(angle)
     return EulerAngles.ToQuat(Vector4.ToRotation(self:GetPlayerAroundDirection(angle)))
-end
-
-function Position:IsPlayerAround()
-    local player_pos = Game.GetPlayer():GetWorldPosition()
-    if self:GetPosition():IsZero() then
-        return true
-    end
-    local distance = Vector4.Distance(player_pos, self:GetPosition())
-    if distance < self.far_distance then
-        return true
-    else
-        return false
-    end
 end
 
 function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
@@ -334,10 +318,10 @@ function Position:IsInExceptionArea(position)
 
     for _, area in ipairs(self.autopilot_exception_area_list) do
         if position.x >= area.min_x and position.x <= area.max_x and position.y >= area.min_y and position.y <= area.max_y and position.z >= area.min_z and position.z <= area.max_z then
-            return true, area.tag
+            return true, area.tag, area.max_z
         end
     end
-    return false, "None"
+    return false, "None", 0
 
 end
 

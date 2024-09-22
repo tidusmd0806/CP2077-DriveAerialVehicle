@@ -162,7 +162,7 @@ function Utils:ReadJson(fill_path)
       end
    end)
    if not success then
-      self.log_obj:Record(LogLevel.Critical, result)
+      self.log_obj:Record(LogLevel.Warning, result)
       return nil
    end
    return result

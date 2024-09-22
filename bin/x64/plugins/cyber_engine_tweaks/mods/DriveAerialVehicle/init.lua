@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.2.3",
+	version = "2.2.4",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -217,7 +217,7 @@ registerForEvent("onHook", function()
                 elseif DAV.listening_keybind_widget and action == "IACT_Release" then -- Key was bound, by keyboard
                     DAV.listening_keybind_widget = nil
                 end
-                local current_situation = DAV.core_obj.event_obj.current_situation
+                local current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
                 if current_situation == Def.Situation.InVehicle or current_situation == Def.Situation.Waiting or current_situation == Def.Situation.Normal then
                     if action == "IACT_Press" then
                         DAV.core_obj:ConvertPressButtonAction(key)

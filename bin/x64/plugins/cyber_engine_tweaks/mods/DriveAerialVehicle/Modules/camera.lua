@@ -4,12 +4,14 @@ local Camera = {}
 Camera.__index = Camera
 
 function Camera:New(position_obj, all_models)
+    -- instance --
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Camera")
     obj.position_obj = position_obj
     obj.all_models = all_models
 
+    -- static --
     obj.default_high_close_distance = 5.0
     obj.default_high_close_distance_offset = 0.0
     obj.high_close_center_offset = {x = 0.0, y = 0.5, z = 1.5}
@@ -34,7 +36,7 @@ function Camera:New(position_obj, all_models)
     obj.default_low_far_distance_offset = 4.0
     obj.low_far_center_offset = {x = 0.0, y = 0.5, z = 1.5}
     obj.low_driver_combat_far_center_offset = {x = 0.0, y = 0.5, z = 1.8}
-
+    -- dynamic --
     -- set default parameters
     obj.current_camera_mode = Def.CameraDistanceLevel.Fpp
 

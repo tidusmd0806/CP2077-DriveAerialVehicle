@@ -128,7 +128,7 @@
         "engine_audio_name": "310_av_engine_idle",
         "manual_speed_meter": false,
         "manual_rpm_meter": true,
-        "autopilot_prevention_length": 3.0
+        "autopilot_prevention_length": 4.0
     },
     {
         "name": "Zetatech Surveyor",

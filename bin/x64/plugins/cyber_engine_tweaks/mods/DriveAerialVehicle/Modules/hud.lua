@@ -307,6 +307,18 @@ function HUD:SetRPMMeterValue(rpm_value)
     self.hud_car_controller:EvaluateRPMMeterWidget(rpm_value)
 end
 
+function HUD:ToggleOriginalMPHDisplay(on)
+    if self.hud_car_controller == nil then
+        return
+    end
+    local mph_text = self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer"):GetWidget("dynamic"):GetWidget("mph_text")
+    if on then
+        mph_text:SetText(GetLocalizedText("LocKey#78030"))
+    else
+        mph_text:SetText(GetLocalizedText("LocKey#95281"))
+    end
+end
+
 function HUD:GetChoiceTitle()
     local index = DAV.model_index
     return GetLocalizedText("LocKey#" .. tostring(self.av_obj.all_models[index].display_name_lockey))
