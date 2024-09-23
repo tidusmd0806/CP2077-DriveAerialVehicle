@@ -174,12 +174,12 @@ function Event:CheckAllEvents()
         self:CheckDestroyed()
         self:CheckDistance()
         self:CheckHeight()
-        -- self:CheckDoor()
+        self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckInAV()
         self:CheckAutoModeChange()
         self:CheckFailAutoPilot()
-        -- self:CheckCustomMappinPosition()
+        self:CheckCustomMappinPosition()
         self:CheckHUD()
         self:CheckDestroyed()
         self:CheckInput()
@@ -242,7 +242,7 @@ function Event:CheckLanded()
         self.sound_obj:PlaySound("110_arrive_vehicle")
         self.sound_obj:ChangeSoundResource()
         self:SetSituation(Def.Situation.Waiting)
-        self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
+        -- self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
 end
 
@@ -338,11 +338,11 @@ function Event:CheckCombat()
         self.av_obj.is_combat = is_combat
         if is_combat then
             if self.av_obj.combat_door[1] ~= "None" then
-                self.av_obj:ChangeDoorState(Def.DoorOperation.Open, self.av_obj.combat_door, self.av_obj.combat_door_duration)
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Open, self.av_obj.combat_door)
             end
         else
             if self.av_obj.combat_door[1] ~= "None" then
-                self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door, self.av_obj.combat_door_duration)
+                self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door)
             end
         end
     end
@@ -439,14 +439,15 @@ function Event:CheckCustomMappinPosition()
         return
     end
     local success, mappin = pcall(function() return DAV.core_obj.mappin_controller:GetMappin() end)
-    if not success then
+    if not success or mappin == nil then
         DAV.core_obj.is_custom_mappin = false
-        if self.stored_mappin_pos == nil then
-            return
-        end
+        DAV.core_obj.current_custom_mappin_position = Vector4.Zero()
+        self.av_obj:SetMappinDestination(DAV.core_obj.current_custom_mappin_position)
+        return
     else
         DAV.core_obj.is_custom_mappin = true
     end
+
     local mappin_pos = mappin:GetWorldPosition()
     if Vector4.Distance(DAV.core_obj.current_custom_mappin_position, mappin_pos) ~= 0 then
         DAV.core_obj:SetCustomMappin(mappin)

@@ -88,10 +88,8 @@ function AV:Init()
 	self.vehicle_model_type = self.all_models[index].type[type_number]
 	self.active_seat = self.all_models[index].actual_allocated_seat
 	self.active_door = self.all_models[index].actual_allocated_door
-	self.enter_duration = self.all_models[index].enter_duration
 	self.exit_duration = self.all_models[index].exit_duration
 	self.combat_door = self.all_models[index].combat_door
-	self.combat_door_duration = self.all_models[index].combat_door_duration
 	self.is_enable_crystal_dome = self.all_models[index].crystal_dome
 	self.is_enable_landing_vfx = self.all_models[index].landing_vfx
 	self.projection_offset = self.all_models[index].projection_offset
@@ -315,7 +313,7 @@ end
 
 ---@param door_state Def.DoorOperation
 ---@return boolean
-function AV:ChangeDoorState(door_state, door_name_list, duration_list)
+function AV:ChangeDoorState(door_state, door_name_list)
 
 	for _, input_lock in pairs(self.door_input_lock_list) do
 		if input_lock then
@@ -330,16 +328,12 @@ function AV:ChangeDoorState(door_state, door_name_list, duration_list)
 	end
 
 	local vehicle_ps = self.position_obj.entity:GetVehiclePS()
-	local anim_feature = AnimFeature_PartData.new()
 
 	if door_name_list == nil then
 		door_name_list = self.active_door
-	elseif #door_name_list ~= #duration_list then
-		self.log_obj:Record(LogLevel.Error, "Door name list length is not duration list length")
-		return false
 	end
 
-	for index, door_name in ipairs(door_name_list) do
+	for _, door_name in ipairs(door_name_list) do
 		local e_veh_door = EVehicleDoor.seat_front_left
 		if door_name == "seat_front_left" then
 			e_veh_door = EVehicleDoor.seat_front_left
@@ -355,68 +349,26 @@ function AV:ChangeDoorState(door_state, door_name_list, duration_list)
 			e_veh_door = EVehicleDoor.hood
 		end
 
-		local veh_door_state = VehicleDoorState.Detached
-		if door_state == Def.DoorOperation.Open and self:GetDoorState(e_veh_door) == VehicleDoorState.Closed then
-        	anim_feature.state = 1
-			if duration_list == nil then
-				anim_feature.duration =  self.enter_duration
-			else
-				anim_feature.duration =  duration_list[index]
-			end
-			veh_door_state = VehicleDoorState.Open
-		elseif door_state == Def.DoorOperation.Close and self:GetDoorState(e_veh_door) == VehicleDoorState.Open then
-			anim_feature.state = 3
-			if duration_list == nil then
-				anim_feature.duration =  self.exit_duration
-			else
-				anim_feature.duration =  duration_list[index]
-			end
-			veh_door_state = VehicleDoorState.Closed
+		local door_event = nil
+		if door_state == Def.DoorOperation.Open then
+			door_event = VehicleDoorOpen.new()
+		elseif door_state == Def.DoorOperation.Close then
+			door_event = VehicleDoorClose.new()
 		elseif door_state == Def.DoorOperation.Change then
 			if self:GetDoorState(e_veh_door) == VehicleDoorState.Closed then
-				anim_feature.state = 1
-				if duration_list == nil then
-					anim_feature.duration =  self.enter_duration
-				else
-					anim_feature.duration =  duration_list[index]
-				end
-				veh_door_state = VehicleDoorState.Open
+				door_event = VehicleDoorOpen.new()
 			elseif self:GetDoorState(e_veh_door) == VehicleDoorState.Open then
-				anim_feature.state = 3
-				if duration_list == nil then
-					anim_feature.duration =  self.exit_duration
-				else
-					anim_feature.duration =  duration_list[index]
-				end
-				veh_door_state = VehicleDoorState.Closed
+				door_event = VehicleDoorClose.new()
 			end
 		end
-		local door_duration = anim_feature.duration
-		if veh_door_state == VehicleDoorState.Detached then
-			self.log_obj:Record(LogLevel.Trace, "Door state is not valid")
-		elseif anim_feature.duration == 0 then
-			self.position_obj.entity.vehicleComponent:EvaluateDoorReaction(CName.new(door_name), false, veh_door_state)
-			door_duration = self.duration_zero_wait
-			self.door_input_lock_list[door_name] = true
-			vehicle_ps:SetDoorState(e_veh_door, veh_door_state, false)
-		else
-			AnimationControllerComponent.ApplyFeatureToReplicate(self.position_obj.entity, CName.new(door_name), anim_feature)
-			self.door_input_lock_list[door_name] = true
-			vehicle_ps:SetDoorState(e_veh_door, veh_door_state, false)
+		if door_event == nil then
+			self.log_obj:Record(LogLevel.Error, "Door event is not valid")
+			return false
 		end
-		if veh_door_state ~= VehicleDoorState.Detached then
-			Cron.Every(0.01, {tick=1}, function(timer)
-				timer.tick = timer.tick + 1
-				if self:GetDoorState(e_veh_door) ~= veh_door_state then
-					self.door_input_lock_list[door_name] = false
-					Cron.Halt(timer)
-				end
-				if timer.tick > door_duration * 100 + 2 then
-					self.door_input_lock_list[door_name] = false
-					Cron.Halt(timer)
-				end
-			end)
-		end
+
+		door_event.slotID = CName.new(door_name)
+        door_event.forceScene = false
+		vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
 
 	end
 	return true
@@ -484,20 +436,20 @@ function AV:Mount()
 
 	Game.GetMountingFacility():Mount(mounting_request)
 
-	Cron.Every(1, {tick=1}, function(timer)
-		timer.tick = timer.tick + 1
-		if self.engine_obj.fly_av_system:IsOnGround() then
-			self.log_obj:Record(LogLevel.Warning, "AV is on ground when mounting. Recovery to fly")
-			if self.engine_obj.flight_mode == Def.FlightMode.AV then
-				self:Operate({Def.ActionList.Down})
-			else
-				self:Operate({Def.ActionList.HDown})
-			end
-		end
-		if timer.tick > 5 then
-			Cron.Halt(timer)
-		end
-	end)
+	-- Cron.Every(1, {tick=1}, function(timer)
+	-- 	timer.tick = timer.tick + 1
+	-- 	if self.engine_obj.fly_av_system:IsOnGround() then
+	-- 		self.log_obj:Record(LogLevel.Warning, "AV is on ground when mounting. Recovery to fly")
+	-- 		if self.engine_obj.flight_mode == Def.FlightMode.AV then
+	-- 			self:Operate({Def.ActionList.Down})
+	-- 		else
+	-- 			self:Operate({Def.ActionList.HDown})
+	-- 		end
+	-- 	end
+	-- 	if timer.tick > 5 then
+	-- 		Cron.Halt(timer)
+	-- 	end
+	-- end)
 
 	return true
 
@@ -638,6 +590,11 @@ function AV:AutoPilot()
 	local destination_position = Vector4.new(0, 0, 0, 1)
 	local relay_position = nil
 	if DAV.user_setting_table.autopilot_selected_index == 0 then
+		if self.mappin_destination_position:IsZero() then
+			self.log_obj:Record(LogLevel.Warning, "No Mappin Destination")
+			self:InterruptAutoPilot()
+			return false
+		end
 		destination_position = self.mappin_destination_position
 		self.log_obj:Record(LogLevel.Info, "AutoPilot to Mappin Destination")
 	else
@@ -741,7 +698,7 @@ function AV:AutoPilot()
 											self.autopilot_angle = sign * search_angle
 											if swing_direction == "Horizontal" then
 												self.autopilot_vertical_sign = 0
-												if self.autopilot_horizontal_sign * sign <= 0 then 
+												if self.autopilot_horizontal_sign * sign <= 0 then
 													self.autopilot_horizontal_sign = sign
 												end
 											elseif swing_direction == "Vertical" then

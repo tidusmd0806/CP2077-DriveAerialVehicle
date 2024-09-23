@@ -295,7 +295,11 @@ function Position:IsPlayerInEntryArea()
         return false
     end
     local world_entry_point = self:ChangeWorldCordinate(basic_vector, {self.entry_point})
-    local player_pos = Game.GetPlayer():GetWorldPosition()
+    local player = Game.GetPlayer()
+    if player == nil then
+        return false
+    end
+    local player_pos = player:GetWorldPosition()
     if player_pos == nil then
         return false
     end

@@ -427,12 +427,24 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF2") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local door_event = VehicleDoorClose.new()
+        local door_name = "trunk"
+		local vehicle_ps = entity:GetVehiclePS()
+        door_event.slotID = CName.new(door_name)
+        door_event.forceScene = false
+        vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
         print("Excute Test Function 2")
     end
     ImGui.SameLine()
     if ImGui.Button("TF3") then
-        local player = Game.GetPlayer()
-        player:RegisterInputListener(player, "QuestExit")
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local door_event = VehicleDoorOpen.new()
+        local door_name = "trunk"
+		local vehicle_ps = entity:GetVehiclePS()
+        door_event.slotID = CName.new(door_name)
+        door_event.forceScene = false
+        vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
         print("Excute Test Function 3")
     end
     ImGui.SameLine()
@@ -486,9 +498,9 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF6") then
-        local entity = Game.FindEntityByID(self.entity_id)
-        entity.vehicleComponent:EvaluateDoorReaction(CName.new("seat_front_right"), false, VehicleDoorState.Open)
-
+        local vec = Vector4.Zero()
+        print(vec.x, vec.y, vec.z, vec.w)
+        print(vec:IsZero())
         print("Excute Test Function 6")
     end
 end
