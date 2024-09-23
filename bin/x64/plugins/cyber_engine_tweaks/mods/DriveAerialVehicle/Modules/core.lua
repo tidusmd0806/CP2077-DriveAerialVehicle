@@ -81,7 +81,7 @@ function Core:New()
     obj.current_purchased_vehicle_count = 0
     -- obj.is_purchased_vehicle_call = false
     -- custom mappin
-    obj.current_custom_mappin_position = Vector4.new(0, 0, 0, 1)
+    obj.current_custom_mappin_position = Vector4.Zero()
     obj.fast_travel_position_list = {}
     obj.ft_index_nearest_mappin = 1
     obj.ft_to_mappin_distance = obj.huge_distance
@@ -138,7 +138,7 @@ function Core:Reset()
     self.av_obj:Init()
     self.event_obj:Init(self.av_obj)
     -- Reset Custom Mappin
-    self.current_custom_mappin_position = Vector4.new(0, 0, 0, 1)
+    self.current_custom_mappin_position = Vector4.Zero()
 end
 
 function Core:LoadSetting()
@@ -1034,7 +1034,7 @@ function Core:SetCustomMappin(mappin)
 end
 
 function Core:SetDestinationMappin()
-    if self.current_custom_mappin_position:Length() ~= 0 then
+    if not self.current_custom_mappin_position:IsZero() then
         self.is_custom_mappin = true
         self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
         self.ft_index_nearest_mappin, self.ft_to_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
@@ -1043,7 +1043,6 @@ end
 
 function Core:SetFavoriteMappin(pos)
     local position = Vector4.new(pos.x, pos.y, pos.z, 1)
-    -- self.current_custom_mappin_position = position
     if position:IsZero() then
         self.log_obj:Record(LogLevel.Trace, "Invalid Mappin Position")
         return
