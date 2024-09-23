@@ -70,5 +70,14 @@
         "max_y" : 1730,
         "min_z" : 60,
         "max_z" : 310 
+    },
+    {
+        "tag" : "city_center_1",
+        "min_x" : -1290,
+        "max_x" : -1080,
+        "min_y" : -166,
+        "max_y" : 160,
+        "min_z" : 70,
+        "max_z" : 390 
     }
 ]

@@ -27,11 +27,10 @@ function AV:New(all_models)
 	-- autopiolt
 	obj.profile_path = "Data/autopilot_profile.json"
 	obj.destination_range = 3
-	obj.destination_z_offset = 20
+	obj.destination_z_offset = 10
 	obj.autopilot_angle_restore_rate = 0.01
 	obj.autopilot_landing_angle_restore_rate = 0.1
-	-- obj.autopilot_lock_count = 10000
-	obj.standard_leaving_height = 30
+	obj.standard_leaving_height = 20
 	-- dynamic --
 	-- door
 	obj.combat_door = nil
@@ -436,20 +435,20 @@ function AV:Mount()
 
 	Game.GetMountingFacility():Mount(mounting_request)
 
-	-- Cron.Every(1, {tick=1}, function(timer)
-	-- 	timer.tick = timer.tick + 1
-	-- 	if self.engine_obj.fly_av_system:IsOnGround() then
-	-- 		self.log_obj:Record(LogLevel.Warning, "AV is on ground when mounting. Recovery to fly")
-	-- 		if self.engine_obj.flight_mode == Def.FlightMode.AV then
-	-- 			self:Operate({Def.ActionList.Down})
-	-- 		else
-	-- 			self:Operate({Def.ActionList.HDown})
-	-- 		end
-	-- 	end
-	-- 	if timer.tick > 5 then
-	-- 		Cron.Halt(timer)
-	-- 	end
-	-- end)
+	Cron.Every(1, {tick=1}, function(timer)
+		timer.tick = timer.tick + 1
+		if self.engine_obj.fly_av_system:IsOnGround() then
+			self.log_obj:Record(LogLevel.Warning, "AV is on ground when mounting. Recovery to fly")
+			if self.engine_obj.flight_mode == Def.FlightMode.AV then
+				self:Operate({Def.ActionList.Down})
+			else
+				self:Operate({Def.ActionList.HDown})
+			end
+		end
+		if timer.tick > 10 then
+			Cron.Halt(timer)
+		end
+	end)
 
 	return true
 
@@ -521,8 +520,8 @@ function AV:Unmount()
 			end
 		end)
 	end)
-
 	return true
+
 end
 
 function AV:Move(x, y, z, roll, pitch, yaw)
@@ -610,7 +609,7 @@ function AV:AutoPilot()
 	self.initial_destination_length = Vector4.Length(direction_vector)
 
 	if self.autopilot_is_only_horizontal then
-		self:AutoLeaving(direction_vector, nil)
+		self:AutoLeaving(direction_vector, self.autopilot_leaving_height)
 		self.log_obj:Record(LogLevel.Info, "Select Leaving Only Horizontal")
 	else
 		self:AutoLeaving(direction_vector, self.standard_leaving_height)
@@ -668,14 +667,14 @@ function AV:AutoPilot()
 
 		-- decide relay position
 		if relay_position == nil then
-			local dest_dir = Vector4.Zero()
+			local dest_dir_2d = Vector4.new(dest_dir_vector.x, dest_dir_vector.y, 0, 1)
 			local search_vec = Vector4.Zero()
 			local is_wall = true
 			local res, vec
 			for r_2 = 1, 3 do
 				self.search_range = self.autopilot_searching_range
 				if self.dest_dir_vector_norm < self.autopilot_searching_range then
-					self.search_range = self.dest_dir_vector_norm
+					self.search_range = self.dest_dir_vector_norm + 0.1
 				end
 
 				self.search_range = self.search_range / (2 ^ (r_2 - 1))
@@ -683,15 +682,19 @@ function AV:AutoPilot()
 					self.search_range = self.autopilot_searching_step
 				end
 				for i = 1, 2 do
-					local search_angle_step = 3
+					local search_angle_step = 5
 					local min_search_angle = 90 * (i - 1)
 					local max_search_angle = 90 * (i - 1) + 90 - search_angle_step
 					for _, swing_direction in ipairs({"Horizontal", "Vertical"}) do
 						if swing_direction == "Vertical" or i == 1 then
 							for sign = 1, -1, -2 do
 								for search_angle = min_search_angle, max_search_angle, search_angle_step do
-									if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0) or (swing_direction == "Vertical" and search_angle * sign >= 0) then
-										res, vec = self.position_obj:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction)
+									if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0) or (swing_direction == "Vertical" and self.autopilot_horizontal_sign * sign > 0) then
+										if search_angle == 0 then
+											res, vec = self.position_obj:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction)
+										else
+											res, vec = self.position_obj:IsWall(dest_dir_2d, self.search_range, sign * search_angle, swing_direction)
+										end
 										if not res then
 											is_wall = false
 											search_vec = vec
@@ -882,7 +885,7 @@ end
 
 function AV:AutoLanding(height)
 
-	if height < 0 then
+	if height <= 0 then
 		self.log_obj:Record(LogLevel.Info, "AutoPilot Landing : Height is negative")
 		self.is_landed = true
 		self:SeccessAutoPilot()

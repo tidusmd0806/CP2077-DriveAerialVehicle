@@ -32,10 +32,14 @@ function UI:New()
 end
 
 function UI:Init(av_obj)
+
 	self.av_obj = av_obj
 	self:SetObserver()
 	self:SetTweekDB()
-	self:CreateNativeSettingsBasePage()
+	if DAV.is_valid_native_settings then
+		self:CreateNativeSettingsBasePage()
+	end
+
 end
 
 function UI:SetTweekDB()
@@ -191,6 +195,10 @@ function UI:CreateStringHistory()
 end
 
 function UI:CreateNativeSettingsBasePage()
+
+	if not DAV.is_valid_native_settings then
+		return
+	end
 	DAV.NativeSettings.addTab("/DAV", DAV.core_obj:GetTranslationText("native_settings_top_title"))
 	DAV.NativeSettings.registerRestoreDefaultsCallback("/DAV", true, function()
 		print('[DAV][Info] Restore All Settings')
@@ -201,9 +209,14 @@ function UI:CreateNativeSettingsBasePage()
 	end)
 	self:CreateNativeSettingsSubCategory()
 	self:CreateNativeSettingsPage()
+
 end
 
 function UI:CreateNativeSettingsSubCategory()
+
+	if not DAV.is_valid_native_settings then
+		return
+	end
 	DAV.NativeSettings.addSubcategory("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_subtitle"))
 	if self.is_activate_vehicle_switch then
 		DAV.NativeSettings.addSubcategory("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_subtitle"))
@@ -211,10 +224,14 @@ function UI:CreateNativeSettingsSubCategory()
 	DAV.NativeSettings.addSubcategory("/DAV/keybinds", DAV.core_obj:GetTranslationText("native_settings_keybinds_subtitle"))
 	DAV.NativeSettings.addSubcategory("/DAV/controller", DAV.core_obj:GetTranslationText("native_settings_controller_subtitle"))
 	DAV.NativeSettings.addSubcategory("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_subtitle"))
+
 end
 
 function UI:ClearAllNativeSettingsSubCategory()
 
+	if not DAV.is_valid_native_settings then
+		return
+	end
 	DAV.NativeSettings.removeSubcategory("/DAV/general")
 	DAV.NativeSettings.removeSubcategory("/DAV/activation")
 	DAV.NativeSettings.removeSubcategory("/DAV/keybinds")
@@ -678,6 +695,7 @@ function UI:UpdateNativeSettingsPage()
 	self:ClearNativeSettingsPage()
 	self:CreateNativeSettingsSubCategory()
 	self:CreateNativeSettingsPage()
+
 end
 
 function UI:ResetParameters()
