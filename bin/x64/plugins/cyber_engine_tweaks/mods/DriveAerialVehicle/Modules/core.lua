@@ -950,7 +950,7 @@ end
 
 function Core:ToggleAutopilot()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
-        self:SetDestinationMappin()
+        -- self:SetDestinationMappin()
         self.event_obj:ToggleAutoMode()
     end
 end
@@ -1000,16 +1000,19 @@ end
 
 function Core:SetMappinController()
 
-    ObserveAfter("BaseMappinBaseController", "UpdateRootState", function(this)
+    ObserveAfter("BaseMappinBaseController", "IsTracked", function(this)
         local mappin = this:GetMappin()
         if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
-            self.mappin_controller = this
+            self.is_custom_mappin = mappin:IsPlayerTracked()
             local mappin_pos = mappin:GetWorldPosition()
-            if Vector4.Distance(DAV.core_obj.current_custom_mappin_position, mappin_pos) ~= 0 then
-                self:SetCustomMappin(mappin)
+            if self.is_custom_mappin then
+                self.current_custom_mappin_position = mappin_pos
+                self:SetDestinationMappin()
+            else
+                self.current_custom_mappin_position = Vector4.Zero()
             end
         end
-   end)
+    end)
 
 end
 
@@ -1018,24 +1021,8 @@ function Core:IsCustomMappin()
     return self.is_custom_mappin
 end
 
----@param mappin IMappin 
-function Core:SetCustomMappin(mappin)
-
-    local mappin_position = self.current_custom_mappin_position
-    self.log_obj:Record(LogLevel.Info, "Custom Mappin is set")
-    local mappin_pos = mappin:GetWorldPosition()
-    self.current_custom_mappin_position = mappin_pos
-    if Vector4.Distance(mappin_position, mappin_pos) == 0 then
-        self.log_obj:Record(LogLevel.Trace, "Same Mappin is selected")
-        return
-    end
-    self:SetDestinationMappin()
-
-end
-
 function Core:SetDestinationMappin()
     if not self.current_custom_mappin_position:IsZero() then
-        self.is_custom_mappin = true
         self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
         self.ft_index_nearest_mappin, self.ft_to_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
     end
@@ -1049,9 +1036,7 @@ function Core:SetFavoriteMappin(pos)
     end
     self.av_obj:SetFavoriteDestination(position)
     self:CreateFavoriteMappin(position)
-    if not self.is_custom_mappin then
-        self.ft_index_nearest_favorite, self.ft_to_favorite_distance = self:FindNearestFastTravelPosition(position)
-    end
+    self.ft_index_nearest_favorite, self.ft_to_favorite_distance = self:FindNearestFastTravelPosition(position)
 end
 
 ---@param position Vector4

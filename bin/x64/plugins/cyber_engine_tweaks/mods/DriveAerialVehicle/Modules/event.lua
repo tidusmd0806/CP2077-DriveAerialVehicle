@@ -101,6 +101,7 @@ function Event:SetObserve()
         self.log_obj:Record(LogLevel.Info, "Session end detected")
         self.current_situation = Def.Situation.Idle
     end)
+
 end
 
 function Event:SetOverride()
@@ -179,7 +180,6 @@ function Event:CheckAllEvents()
         self:CheckInAV()
         self:CheckAutoModeChange()
         self:CheckFailAutoPilot()
-        self:CheckCustomMappinPosition()
         self:CheckHUD()
         self:CheckDestroyed()
         self:CheckInput()
@@ -279,7 +279,7 @@ function Event:CheckInAV()
             self:SetSituation(Def.Situation.Waiting)
             self.hud_obj:HideCustomHint()
             self.hud_obj:EnableManualMeter(false, false)
-            self:UnsetMappin()
+            -- self:UnsetMappin()
             if self:IsAutoMode() then
                 self.av_obj:InterruptAutoPilot()
             end
@@ -433,28 +433,6 @@ function Event:CheckFailAutoPilot()
     end
 end
 
-function Event:CheckCustomMappinPosition()
-
-    if self.av_obj.is_auto_pilot then
-        return
-    end
-    local success, mappin = pcall(function() return DAV.core_obj.mappin_controller:GetMappin() end)
-    if not success or mappin == nil then
-        DAV.core_obj.is_custom_mappin = false
-        DAV.core_obj.current_custom_mappin_position = Vector4.Zero()
-        self.av_obj:SetMappinDestination(DAV.core_obj.current_custom_mappin_position)
-        return
-    else
-        DAV.core_obj.is_custom_mappin = true
-    end
-
-    local mappin_pos = mappin:GetWorldPosition()
-    if Vector4.Distance(DAV.core_obj.current_custom_mappin_position, mappin_pos) ~= 0 then
-        DAV.core_obj:SetCustomMappin(mappin)
-    end
-
-end
-
 function Event:CheckLockedSave()
     local res, _ = Game.IsSavingLocked()
     if res then
@@ -464,10 +442,10 @@ function Event:CheckLockedSave()
 
 end
 
-function Event:UnsetMappin()
-    DAV.core_obj.is_custom_mappin = false
-    DAV.core_obj:RemoveFavoriteMappin()
-end
+-- function Event:UnsetMappin()
+--     DAV.core_obj.is_custom_mappin = false
+--     DAV.core_obj:RemoveFavoriteMappin()
+-- end
 
 function Event:IsNotSpawned()
     if self.current_situation == Def.Situation.Normal then
