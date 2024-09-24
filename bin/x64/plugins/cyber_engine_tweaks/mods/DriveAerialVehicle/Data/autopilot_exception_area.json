@@ -38,7 +38,7 @@
     {
         "tag" : "japantown_north_2",
         "min_x" : -800,
-        "max_x" : -275,
+        "max_x" : -240,
         "min_y" : 500,
         "max_y" : 940,
         "min_z" : 100,
@@ -75,7 +75,7 @@
         "tag" : "city_center_1",
         "min_x" : -1290,
         "max_x" : -1080,
-        "min_y" : -166,
+        "min_y" : -280,
         "max_y" : 160,
         "min_z" : 70,
         "max_z" : 390 

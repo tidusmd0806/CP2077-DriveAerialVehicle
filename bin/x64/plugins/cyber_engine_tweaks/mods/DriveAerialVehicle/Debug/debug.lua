@@ -60,7 +60,7 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved   
+        -- reserved        
     end
     self.is_set_observer = true
 
