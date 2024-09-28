@@ -67,6 +67,15 @@
         "min_x" : -1880,
         "max_x" : -1520,
         "min_y" : 1090,
+        "max_y" : 1190,
+        "min_z" : 60,
+        "max_z" : 310 
+    },
+    {
+        "tag" : "watson_south_2",
+        "min_x" : -1780,
+        "max_x" : -1520,
+        "min_y" : 1190,
         "max_y" : 1730,
         "min_z" : 60,
         "max_z" : 310 
@@ -79,5 +88,23 @@
         "max_y" : 160,
         "min_z" : 70,
         "max_z" : 390 
+    },
+    {
+        "tag" : "city_center_2",
+        "min_x" : -1010,
+        "max_x" : -940,
+        "min_y" : 50,
+        "max_y" : 160,
+        "min_z" : 90,
+        "max_z" : 220 
+    },
+    {
+        "tag" : "city_center_3",
+        "min_x" : -1570,
+        "max_x" : -1460,
+        "min_y" : 310,
+        "max_y" : 430,
+        "min_z" : 220,
+        "max_z" : 320 
     }
 ]

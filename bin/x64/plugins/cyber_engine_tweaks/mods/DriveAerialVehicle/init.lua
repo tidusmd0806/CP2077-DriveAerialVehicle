@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.2.6",
+	version = "2.2.7",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -70,7 +70,7 @@ DAV = {
         {name = "toggle_door", key = "IK_3", pad = "IK_None", is_hold = false},
         {name = "toggle_crystal_dome", key = "IK_4", pad = "IK_None", is_hold = false},
         {name = "toggle_appearance", key = "IK_5", pad = "IK_None", is_hold = false},
-        {name = "open_vehicle_manager", key = "IK_6", pad = "IK_None", is_hold = false},
+        {name = "open_vehicle_manager", key = "IK_None", pad = "IK_None", is_hold = false},
     }
 }
 

@@ -60,7 +60,7 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved        
+        -- reserved
     end
     self.is_set_observer = true
 
@@ -287,7 +287,7 @@ function Debug:ImGuiChangeAutoPilotSetting()
         end
         ImGui.Text("Level : " .. DAV.user_setting_table.autopilot_speed_level)
         ImGui.Text("Speed : " .. DAV.core_obj.av_obj.autopilot_speed .. ", Search Range : " .. DAV.core_obj.av_obj.autopilot_searching_range .. ", Search Step : " .. DAV.core_obj.av_obj.autopilot_searching_step)
-        ImGui.Text("Increase Speed : " .. DAV.core_obj.av_obj.autopilot_increase_rate .. ", Decrease Speed : " .. DAV.core_obj.av_obj.autopilot_decrease_rate .. ", Min Speed Rate : " .. DAV.core_obj.av_obj.autopilot_min_speed_rate)
+        ImGui.Text(" Min Speed Rate : " .. DAV.core_obj.av_obj.autopilot_min_speed_rate)
         ImGui.Text("Turn Speed : " .. DAV.core_obj.av_obj.autopilot_turn_speed .. ", Land Offset : " .. DAV.core_obj.av_obj.autopilot_land_offset .. ", Down Count : " .. DAV.core_obj.av_obj.autopilot_down_time_count)
         ImGui.Text("Leaving Height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", Only Horizontal : " .. tostring(DAV.core_obj.av_obj.autopilot_is_only_horizontal))
     end
@@ -455,179 +455,18 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        local entity_system = Game.GetDynamicEntitySystem()
-        local entity_spec = DynamicEntitySpec.new()
-        local pos = Game.GetPlayer():GetWorldPosition()
-        pos.x = pos.x + 5
-        local rot = Game.GetPlayer():GetWorldOrientation()
-
-        entity_spec.recordID = "Vehicle.v_mahir_mt28_coach"
-        entity_spec.appearanceName = self.vehicle_model_type
-        entity_spec.position = pos
-        entity_spec.orientation = rot
-        entity_spec.persistState = false
-        entity_spec.persistSpawn = false
-        self.entity_id = entity_system:CreateEntity(entity_spec)
+        local vehicle = Game.GetPlayer():GetMountedVehicle()
+        local veh_comp = vehicle:GetVehicleComponent()
+        local veh_controller = veh_comp:GetVehicleController()
+        local color = Color.new()
+        color.Alpha = 1
+        color.Red = 1
+        color.Green = 1
+        color.Blue = 1
+        -- veh_controller:SetLightColor(vehicleELightType.Interior, color)
+        -- veh_controller:SetLightStrength(vehicleELightType.Interior, 0.02)
+        veh_controller:ToggleLights(true, vehicleELightType.head)
         print("Excute Test Function 4")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF5") then
-        local entity = Game.FindEntityByID(self.entity_id)
-        local player = Game.GetPlayer()
-        local ent_id = entity:GetEntityID()
-        local seat = "seat_front_right"
-
-        local data = NewObject('handle:gameMountEventData')
-        data.isInstant = false
-        data.slotName = seat
-        data.mountParentEntityId = ent_id
-        data.entryAnimName = "forcedTransition"
-
-
-        local slot_id = NewObject('gamemountingMountingSlotId')
-        slot_id.id = seat
-
-        local mounting_info = NewObject('gamemountingMountingInfo')
-        mounting_info.childId = player:GetEntityID()
-        mounting_info.parentId = ent_id
-        mounting_info.slotId = slot_id
-
-        local mounting_request = NewObject('handle:gamemountingMountingRequest')
-        mounting_request.lowLevelMountingInfo = mounting_info
-        mounting_request.mountData = data
-
-        Game.GetMountingFacility():Mount(mounting_request)
-
-        print("Excute Test Function 5")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF6") then
-        local entity = Game.FindEntityByID(self.entity_id)
-        local vehicle_ps = entity:GetVehiclePS()
-        local door_name = "seat_front_right"
-        local event = nil
-        if vehicle_ps:GetDoorState(EVehicleDoor.seat_front_right) == VehicleDoorState.Closed then
-            event = VehicleDoorOpen.new()
-        elseif vehicle_ps:GetDoorState(EVehicleDoor.seat_front_right) == VehicleDoorState.Open then
-            event = VehicleDoorClose.new()
-        end
-        event.slotID = CName.new(door_name)
-        event.forceScene = false
-        vehicle_ps:QueuePSEvent(vehicle_ps, event)
-
-        print("Excute Test Function 6")
-    end
-    if ImGui.Button("TF7") then
-        local player = Game.GetPlayer()
-        local player_pos = player:GetWorldPosition()
-        -- local npcs = player:GetNPCsAroundObject()
-        local moveCmd = AIMoveToCommand.new()
-        local positionSpec = AIPositionSpec.new()
-        local worldPosition = WorldPosition.new()
-	    worldPosition:SetVector4(player_pos)
-        positionSpec:SetWorldPosition(worldPosition)
-        local movementType = moveMovementType.Run
-        local targetDistance = 1.0
-        moveCmd.movementTarget = positionSpec
-        moveCmd.movementType = movementType
-        moveCmd.desiredDistanceFromTarget = targetDistance
-        moveCmd.finishWhenDestinationReached = true
-        moveCmd.ignoreNavigation = true
-        moveCmd.useStart = true
-        moveCmd.useStop = false
-        -- if #npcs > 0 then
-        --     local min_distance = 100
-        --     local min_index = 0
-        --     for index, npc in ipairs(npcs) do
-        --         local npc_pos = npc:GetWorldPosition()
-        --         local distnce = Vector4.Distance(player_pos, npc_pos)
-        --         if distnce < min_distance then
-        --             min_distance = distnce
-        --             min_index = index
-        --         end
-        --     end
-        --     print("Distance : " .. min_distance)
-        --     print("Index : " .. min_index)
-        --     print(npcs[min_index]:GetAIControllerComponent():SendCommand(moveCmd))
-        -- end
-        local npc = Game.FindEntityByID(self.man_id)
-        npc:GetAIControllerComponent():SendCommand(moveCmd)
-
-        print("Excute Test Function 7")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF8") then
-        local entitySystem = Game.GetDynamicEntitySystem()
-        local npcSpec = DynamicEntitySpec.new()
-        local pos = Game.GetPlayer():GetWorldPosition()
-        pos.x = pos.x + 3
-        npcSpec.recordID = "Character.DefaultNCResidentMale"
-        npcSpec.appearanceName = "random"
-        npcSpec.position = pos
-        npcSpec.persistState = true
-        npcSpec.persistSpawn = true
-        npcSpec.alwaysSpawned = true
-        self.man_id = entitySystem:CreateEntity(npcSpec)
-        print("Excute Test Function 8")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF9") then
-        -- local entity = Game.FindEntityByID(self.entity_id)
-        -- local comp = entity:GetVehicleComponent()
-        -- comp:MountEntityToSlot(self.entity_id, self.man_id, "seat_back_right")
-        local entity = Game.FindEntityByID(self.entity_id)
-        local player = Game.FindEntityByID(self.man_id)
-        local ent_id = entity:GetEntityID()
-        local seat = "seat_back_right"
-
-        local data = NewObject('handle:gameMountEventData')
-        data.isInstant = false
-        data.slotName = seat
-        data.mountParentEntityId = ent_id
-        data.entryAnimName = "UpdateWorkspot"
-
-        local slot_id = NewObject('gamemountingMountingSlotId')
-        slot_id.id = seat
-
-        local mounting_info = NewObject('gamemountingMountingInfo')
-        mounting_info.childId = player:GetEntityID()
-        mounting_info.parentId = ent_id
-        mounting_info.slotId = slot_id
-
-        local mounting_request = NewObject('handle:gamemountingMountingRequest')
-        mounting_request.lowLevelMountingInfo = mounting_info
-        mounting_request.mountData = data
-
-        Game.GetMountingFacility():Mount(mounting_request)
-        print("Excute Test Function 9")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF10") then
-        local entity = Game.FindEntityByID(self.entity_id)
-        local player = Game.FindEntityByID(self.man_id)
-        local ent_id = entity:GetEntityID()
-        local seat = "seat_back_right"
-
-        local data = NewObject('handle:gameMountEventData')
-        data.isInstant = true
-        data.slotName = seat
-        data.mountParentEntityId = ent_id
-        data.entryAnimName = "UpdateWorkspot"
-
-        local slotID = NewObject('gamemountingMountingSlotId')
-        slotID.id = seat
-
-        local mounting_info = NewObject('gamemountingMountingInfo')
-        mounting_info.childId = player:GetEntityID()
-        mounting_info.parentId = ent_id
-        mounting_info.slotId = slotID
-
-        local mount_event = NewObject('handle:gamemountingUnmountingRequest')
-        mount_event.lowLevelMountingInfo = mounting_info
-        mount_event.mountData = data
-
-		Game.GetMountingFacility():Unmount(mount_event)
-        print("Excute Test Function 10")
     end
 end
 

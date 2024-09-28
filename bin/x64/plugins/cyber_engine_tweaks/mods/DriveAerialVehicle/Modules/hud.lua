@@ -469,7 +469,7 @@ function HUD:ShowArrivalDisplay()
 end
 
 function HUD:ShowInterruptAutoPilotDisplay()
-    local text = GetLocalizedText("LocKey#52322")
+    local text = GetLocalizedText("LocKey#15321")
     GameHUD.ShowWarning(text, 2)
 end
 
