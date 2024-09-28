@@ -686,45 +686,41 @@ function AV:AutoPilot()
 					local min_search_angle = 90 * (i - 1)
 					local max_search_angle = 90 * (i - 1) + 90 - search_angle_step
 					for _, swing in ipairs({"Down", "Left", "Right", "Up"}) do
-						-- if swing_direction == "Vertical" or i == 1 then
-							-- for sign = -1, 1, 2 do
-								local sign = 1
-								local swing_direction = "Horizontal"
-								if swing == "Down" or swing == "Left" then
-									sign = -1
+						local sign = 1
+						local swing_direction = "Horizontal"
+						if swing == "Down" or swing == "Left" then
+							sign = -1
+						end
+						if swing == "Down" or swing == "Up" then
+							swing_direction = "Vertical"
+						end
+						for search_angle = min_search_angle, max_search_angle, search_angle_step do
+							if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0 and search_angle <= 90) or (swing_direction == "Vertical" and self.autopilot_vertical_sign * sign >= 0 and search_angle * sign >= -90 ) then
+								if search_angle == 0 then
+									res, vec = self.position_obj:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction)
+								else
+									res, vec = self.position_obj:IsWall(dest_dir_2d, self.search_range, sign * search_angle, swing_direction)
 								end
-								if swing == "Down" or swing == "Up" then
-									swing_direction = "Vertical"
-								end
-								for search_angle = min_search_angle, max_search_angle, search_angle_step do
-									if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0 and search_angle <= 90) or (swing_direction == "Vertical" and self.autopilot_vertical_sign * sign >= 0 and search_angle * sign >= -90 ) then
-										if search_angle == 0 then
-											res, vec = self.position_obj:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction)
-										else
-											res, vec = self.position_obj:IsWall(dest_dir_2d, self.search_range, sign * search_angle, swing_direction)
+								if not res then
+									is_wall = false
+									search_vec = vec
+									self.autopilot_angle = sign * search_angle
+									if swing_direction == "Horizontal" then
+										if self.autopilot_horizontal_sign * sign <= 0 then
+											self.autopilot_horizontal_sign = sign
 										end
-										if not res then
-											is_wall = false
-											search_vec = vec
-											self.autopilot_angle = sign * search_angle
-											if swing_direction == "Horizontal" then
-												if self.autopilot_horizontal_sign * sign <= 0 then
-													self.autopilot_horizontal_sign = sign
-												end
-											elseif swing_direction == "Vertical" then
-												if self.autopilot_vertical_sign * sign <= 0 and sign > 0 then
-													self.autopilot_vertical_sign = sign
-												end
-											end
-											break
+									elseif swing_direction == "Vertical" then
+										if self.autopilot_vertical_sign * sign <= 0 and sign > 0 then
+											self.autopilot_vertical_sign = sign
 										end
 									end
-								end
-								if not is_wall then
 									break
 								end
-							-- end
-						-- end
+							end
+						end
+						if not is_wall then
+							break
+						end
 						if not is_wall then
 							break
 						end

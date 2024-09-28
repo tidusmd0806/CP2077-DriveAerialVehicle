@@ -60,7 +60,155 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved        
+        -- reserved
+        Override("AIDriveCommandsDelegate", "DoStartDriveToPointAutonomous;ScriptExecutionContext", function(this, context, wrapped_method)
+            -- method has just been called with:
+            -- context: ScriptExecutionContext
+            -- print("DoStartDriveToPointAutonomous")
+            -- local def = AIbehaviorDriveToPointTreeNodeDefinition.new()
+            -- local res = context:GetMappingValue(def.useTraffic)
+            -- print(FromVariant(res))
+            -- context:SetMappingValue(def.useTraffic, ToVariant(true, "Bool"))
+            -- res = context:GetMappingValue(def.useTraffic)
+            -- print(FromVariant(res))
+            -- print(context:GetArgumentBool(CName.new("useTraffi")))
+            -- context:SetArgumentBool(CName.new("useTraffi"), true)
+            -- print(context:GetArgumentBool(CName.new("useTraffi")))
+            -- local mapping = AIArgumentMapping.new()
+            -- mapping.customTypeName = CName.new("Bool")
+            -- mapping.defaultValue = ToVariant(CName.new("useTraffic"), "CName")
+            -- mapping.parameterizationType = AIParameterizationType.Delegate
+            -- mapping.prefixValue = nil
+            -- mapping.type = AIArgumentType.Bool
+            -- local val = context:GetMappingValue(mapping)
+            -- print(FromVariant(val))
+            -- context:SetMappingValue(mapping, ToVariant(true, "Bool"))
+            -- val = context:GetMappingValue(mapping)
+            -- print(FromVariant(val))
+            -- local mapping_2 = AIArgumentMapping.new()
+            -- mapping_2.customTypeName = CName.new("Float")
+            -- mapping_2.defaultValue = ToVariant(CName.new("speedInTraffic"), "CName")
+            -- mapping_2.parameterizationType = AIParameterizationType.Delegate
+            -- mapping_2.prefixValue = nil
+            -- mapping_2.type = AIArgumentType.Float
+            -- local val_2 = context:GetMappingValue(mapping_2)
+            -- print(FromVariant(val_2))
+            -- context:SetMappingValue(mapping_2, ToVariant(10, "Float"))
+            -- val_2 = context:GetMappingValue(mapping_2)
+            -- print(FromVariant(val_2))
+            -- print(this.useTraffic)
+            -- local mapping_3 = AIArgumentMapping.new()
+            -- mapping_3.customTypeName = CName.new("Bool")
+            -- mapping_3.defaultValue = ToVariant(CName.new("forceGreenLights"), "CName")
+            -- mapping_3.parameterizationType = AIParameterizationType.Delegate
+            -- mapping_3.prefixValue = nil
+            -- mapping_3.type = AIArgumentType.Bool
+            -- local val_3 = context:GetMappingValue(mapping_3)
+            -- print(FromVariant(val_3))
+            -- context:SetMappingValue(mapping_3, ToVariant(false, "Bool"))
+            -- val_3 = context:GetMappingValue(mapping_3)
+            -- print(FromVariant(val_3))
+            -- local mapping_4 = AIArgumentMapping.new()
+            -- mapping_4.customTypeName = CName.new("Float")
+            -- mapping_4.defaultValue = ToVariant(CName.new("secureTimeOut"), "CName")
+            -- mapping_4.parameterizationType = AIParameterizationType.Delegate
+            -- mapping_4.prefixValue = nil
+            -- mapping_4.type = AIArgumentType.Float
+            -- local val_4 = context:GetMappingValue(mapping_4)
+            -- print(FromVariant(val_4))
+            -- context:SetMappingValue(mapping_4, ToVariant(1200, "Float"))
+            -- val_4 = context:GetMappingValue(mapping_4)
+            -- print(FromVariant(val_4))
+            -- this.secureTimeOut = 1200
+            -- this.useTraffic = true
+            -- this.forceGreenLights = false
+            -- this.speedInTraffic = 30
+            -- this.targetPosition = Vector3.new(-59.85, -88.02, 6.97)
+            -- this.portals = vehiclePortalsList
+            -- this.trafficTryNeighborsForStart = false
+            -- this.trafficTryNeighborsForEnd = false
+            -- print(this.useTraffic)
+            -- print(this.forceGreenLights)
+            -- print(this.speedInTraffic)
+            return wrapped_method(context)
+        end)
+
+        Override("AIDriveCommandsDelegate", "DoUpdateDriveToPointAutonomous", function(this, context, wrapped_method)
+            -- rewrite method with:
+            -- this: AIDriveCommandsDelegate
+            -- context: ScriptExecutionContext
+            -- print("DoUpdateDriveToPointAutonomous")
+            -- print(this.useTraffic)
+            -- print(context:GetArgumentBool("useTraffic"))
+            -- print(this.forceGreenLights)
+            -- print(this.speedInTraffic)
+            -- this.secureTimeOut = 1200
+            -- this.useTraffic = true
+            -- this.forceGreenLights = false
+            -- this.speedInTraffic = 30
+            -- this.targetPosition = Vector3.new(-59.85, -88.02, 6.97)
+            -- -- this.portals = vehiclePortalsList
+            -- this.trafficTryNeighborsForStart = false
+            -- this.trafficTryNeighborsForEnd = false
+            -- print(this.useTraffic)
+            -- print(this.forceGreenLights)
+            -- print(this.speedInTraffic)
+            -- local mapping = AIArgumentMapping.new()
+            -- mapping.customTypeName = CName.new("Bool")
+            -- mapping.defaultValue = ToVariant(CName.new("useTraffic"), "CName")
+            -- mapping.parameterizationType = AIParameterizationType.Delegate
+            -- mapping.prefixValue = nil
+            -- mapping.type = AIArgumentType.Bool
+            -- local val = context:GetMappingValue(mapping)
+            -- print(FromVariant(val))
+            -- context:SetMappingValue(mapping, ToVariant(true, "Bool"))
+            -- val = context:GetMappingValue(mapping)
+            -- print(FromVariant(val))
+            -- local def = AIbehaviorDriveToPointTreeNodeDefinition.new()
+            -- local res = context:GetMappingValue(def.useTraffic)
+            -- print(FromVariant(res))
+            -- context:SetMappingValue(def.useTraffic, ToVariant(true, "Bool"))
+            -- res = context:GetMappingValue(def.useTraffic)
+            -- print(FromVariant(res))
+            return wrapped_method(context)
+        end)
+
+        -- Observe("ScriptExecutionContext", "SetArgumentBool", function(context, entry, value)
+        --     -- method has just been called with:
+        --     -- context: ScriptExecutionContext
+        --     -- entry: CName
+        --     -- value: Bool
+        --     print("SetArgumentBool")
+        --     print(entry)
+        --     print(value)
+        -- end)
+
+        -- Override("AIDriveCommandsDelegate", "DoStartDriveToPoint;ScriptExecutionContext", function(this, context, wrapped_method)
+        --     -- method has just been called with:
+        --     -- this: AIDriveCommandsDelegate
+        --     -- context: ScriptExecutionContext
+        --     print("DoStartDriveToPoint")
+        --     return wrapped_method(context)
+        -- end)
+
+        -- Observe("PlayerPuppet", "QueueEvent", function(this, evt)
+        --     -- method has just been called with:
+        --     -- this: Entity
+        --     -- evt: ref<Event>
+        --     if evt:ToString() == "gamemountingUnmountingEvent" then
+        --         print("UnmountingEvent")
+        --         print(evt.request.mountData.entryAnimName)
+        --     end
+        -- end)
+        
+        Observe("ExitFromVehicle", "Activate", function(this, context)
+            -- method has just been called with:
+            -- this: ExitFromVehicle
+            -- context: ScriptExecutionContext
+            print("Activate")
+        end)
+        
+
     end
     self.is_set_observer = true
 
@@ -454,6 +602,11 @@ function Debug:ImGuiExcuteFunction()
         print("Excute Test Function 3")
     end
     ImGui.SameLine()
+    if ImGui.Button("TF4-0") then
+        TweakDB:SetFlat(TweakDBID.new("Vehicle.v_mahir_mt28_coach.entityTemplatePath"), "base\\vehicles\\special\\v_mahir_mt28_coach_basic_02.ent")
+        print("Excute Test Function 4")
+    end
+    ImGui.SameLine()
     if ImGui.Button("TF4") then
         local entity_system = Game.GetDynamicEntitySystem()
         local entity_spec = DynamicEntitySpec.new()
@@ -461,8 +614,9 @@ function Debug:ImGuiExcuteFunction()
         pos.x = pos.x + 5
         local rot = Game.GetPlayer():GetWorldOrientation()
 
-        entity_spec.recordID = "Vehicle.v_mahir_mt28_coach"
-        entity_spec.appearanceName = self.vehicle_model_type
+        -- entity_spec.recordID = "Vehicle.v_mahir_mt28_coach"
+        entity_spec.recordID = "Vehicle.cs_savable_mahir_mt28_coach"
+        entity_spec.appearanceName = "mahir_mt28_basic_coach_01"
         entity_spec.position = pos
         entity_spec.orientation = rot
         entity_spec.persistState = false
@@ -470,6 +624,7 @@ function Debug:ImGuiExcuteFunction()
         self.entity_id = entity_system:CreateEntity(entity_spec)
         print("Excute Test Function 4")
     end
+
     ImGui.SameLine()
     if ImGui.Button("TF5") then
         local entity = Game.FindEntityByID(self.entity_id)
@@ -497,6 +652,64 @@ function Debug:ImGuiExcuteFunction()
         mounting_request.mountData = data
 
         Game.GetMountingFacility():Mount(mounting_request)
+
+        print("Excute Test Function 5")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF5-2") then
+        -- local entity = Game.FindEntityByID(self.entity_id)
+        local player = Game.GetPlayer()
+        local vehicle = player:GetMountedVehicle()
+        local ent_id = vehicle:GetEntityID()
+        -- local ent_id = player:GetMountedVehicle():GetEntityID()
+        local seat = "seat_front_right"
+
+        local data = gameMountEventData.new()
+        data.isInstant = false
+        data.slotName = seat
+        data.mountParentEntityId = ent_id
+        -- data.entryAnimName = "forcedTransition"
+        data.mountEventOptions = NewObject('handle:gameMountEventOptions')
+        data.mountEventOptions.silentUnmount = false
+        data.mountEventOptions.entityID = ent_id
+        data.mountEventOptions.alive = true
+        data.mountEventOptions.occupiedByNeutral = true
+        data.setEntityVisibleWhenMountFinish = true
+        data.removePitchRollRotationOnDismount = false
+        data.ignoreHLS = false
+
+        local slot_id = NewObject('gamemountingMountingSlotId')
+        slot_id.id = seat
+
+        local mounting_info = NewObject('gamemountingMountingInfo')
+        mounting_info.childId = player:GetEntityID()
+        mounting_info.parentId = ent_id
+        mounting_info.slotId = slot_id
+
+        local mounting_request = NewObject('handle:gamemountingUnmountingRequest')
+        mounting_request.lowLevelMountingInfo = mounting_info
+        mounting_request.mountData = data
+
+        Game.GetMountingFacility():Unmount(mounting_request)
+        -- Game.GetWorkspotSystem():UnmountFromVehicle(vehicle, player, false, "default")
+        -- Game.GetWorkspotSystem():SendFastExitSignal(player, true, true)
+        -- local evt = VehicleStartedMountingEvent.new()
+        -- evt.slotID = seat
+        -- evt.isMounting = false
+        -- evt.character = player
+        -- vehicle:QueueEvent(evt)
+        -- local door = VehicleExternalDoorRequestEvent.new()
+        -- door.slotName = vehicle:GetBoneNameFromSlot(seat)
+        -- door.autoClose = true
+        -- vehicle:QueueEvent(door)
+
+        print("Excute Test Function 5")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF5-3") then
+        local entity = Game.FindEntityByID(self.entity_id)
+        local vehicle_ps = entity:GetVehiclePS()
+        vehicle_ps:DisableAllVehInteractions()
 
         print("Excute Test Function 5")
     end
@@ -580,25 +793,48 @@ function Debug:ImGuiExcuteFunction()
         local ent_id = entity:GetEntityID()
         local seat = "seat_back_right"
 
-        local data = NewObject('handle:gameMountEventData')
-        data.isInstant = false
-        data.slotName = seat
-        data.mountParentEntityId = ent_id
-        data.entryAnimName = "UpdateWorkspot"
+        local mountData = MountEventData.new()
+        mountData.mountParentEntityId = self.entity_id
+        mountData.isInstant = false
+        mountData.setEntityVisibleWhenMountFinish = true
+        mountData.removePitchRollRotationOnDismount = false
+        mountData.ignoreHLS = false
+        mountData.mountEventOptions = NewObject('handle:gameMountEventOptions')
+        mountData.mountEventOptions.silentUnmount = false
+        mountData.mountEventOptions.entityID = self.entity_id
+        mountData.mountEventOptions.alive = true
+        mountData.mountEventOptions.occupiedByNeutral = true
+        mountData.slotName = seat
+        local cmd = AIMountCommand.new()
+        cmd.mountData = mountData
+        player:GetAIControllerComponent():SendCommand(cmd)
+        print("Excute Test Function 9")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF9-2") then
+        -- local entity = Game.FindEntityByID(self.entity_id)
+        -- local comp = entity:GetVehicleComponent()
+        -- comp:MountEntityToSlot(self.entity_id, self.man_id, "seat_back_right")
+        local entity = Game.FindEntityByID(self.entity_id)
+        local player = Game.FindEntityByID(self.man_id)
+        local ent_id = entity:GetEntityID()
+        local seat = "seat_back_right"
 
-        local slot_id = NewObject('gamemountingMountingSlotId')
-        slot_id.id = seat
-
-        local mounting_info = NewObject('gamemountingMountingInfo')
-        mounting_info.childId = player:GetEntityID()
-        mounting_info.parentId = ent_id
-        mounting_info.slotId = slot_id
-
-        local mounting_request = NewObject('handle:gamemountingMountingRequest')
-        mounting_request.lowLevelMountingInfo = mounting_info
-        mounting_request.mountData = data
-
-        Game.GetMountingFacility():Mount(mounting_request)
+        local mountData = MountEventData.new()
+        mountData.mountParentEntityId = self.entity_id
+        mountData.isInstant = false
+        mountData.setEntityVisibleWhenMountFinish = true
+        mountData.removePitchRollRotationOnDismount = false
+        mountData.ignoreHLS = false
+        mountData.mountEventOptions = NewObject('handle:gameMountEventOptions')
+        mountData.mountEventOptions.silentUnmount = false
+        mountData.mountEventOptions.entityID = self.entity_id
+        mountData.mountEventOptions.alive = true
+        mountData.mountEventOptions.occupiedByNeutral = true
+        mountData.slotName = seat
+        local cmd = AIUnmountCommand.new()
+        cmd.mountData = mountData
+        player:GetAIControllerComponent():SendCommand(cmd)
         print("Excute Test Function 9")
     end
     ImGui.SameLine()
@@ -628,6 +864,93 @@ function Debug:ImGuiExcuteFunction()
 
 		Game.GetMountingFacility():Unmount(mount_event)
         print("Excute Test Function 10")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF11") then
+        local vehicle = Game.GetPlayer():GetMountedVehicle()
+        local ai = vehicle:GetAIComponent()
+        local evt = AICommandEvent.new()
+        local cmd = AIVehicleDriveToPointAutonomousCommand.new()
+        local player_pos = Game.GetPlayer():GetWorldPosition()
+        cmd.targetPosition = Vector3.new(-59.27, -88.02, 6.97)
+        cmd.driveDownTheRoadIndefinitely = false
+        cmd.clearTrafficOnPath = true
+        cmd.minimumDistanceToTarget = 0
+        cmd.maxSpeed = 10
+        cmd.minSpeed = 5
+        -- local cmd = AIVehicleJoinTrafficCommand.new()
+        evt.command = cmd
+        -- local evt = vehicleDriveToPointEvent.new()
+        -- evt.speedInTraffic = 30
+        -- evt.targetPos = Vector3.new(-59.85, -88.02, 6.97)
+        -- evt.useTraffic = true
+        -- local evt = JoinTrafficVehicleEvent.new()
+        vehicle:QueueEvent(evt)
+        ai:SetInitCmd(cmd)
+        print("Excute Test Function 11")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF12") then
+        local vehicle = Game.GetPlayer():GetMountedVehicle()
+        local ai = vehicle:GetAIComponent()
+        local evt = AICommandEvent.new()
+        -- local cmd = AIVehicleDriveToPointCommand.new()
+        -- local player_pos = Game.GetPlayer():GetWorldPosition()
+        -- cmd.targetPosition = Vector3.new(-59.85, -88.02, 6.97)
+        -- cmd.secureTimeOut = 1200
+        -- cmd.useTraffic = true
+        -- cmd.forceGreenLights = false
+        -- cmd.speedInTraffic = 30
+        -- cmd.trafficTryNeighborsForStart = false
+        -- cmd.trafficTryNeighborsForEnd = false
+        -- evt.command = cmd
+        -- vehicle:QueueEvent(evt)
+        -- ai:SetInitCmd(cmd)
+        local evt_t = vehicleJoinTrafficVehicleEvent.new()
+        local cmd = AIVehicleJoinTrafficCommand.new()
+        evt.command = cmd
+        vehicle:QueueEvent(evt_t)
+        -- ai:SetInitCmd(cmd)
+
+        -- vehicle:ForceBrakesFor(1)
+
+        print("Excute Test Function 12")
+    end
+
+    ImGui.SameLine()
+    if ImGui.Button("TF13") then
+        local vehicle = Game.GetPlayer():GetMountedVehicle()
+        -- local ai = vehicle:GetAIComponent()
+        -- local evt = AICommandEvent.new()
+        -- -- local cmd = AIVehicleDriveToPointCommand.new()
+        -- -- local player_pos = Game.GetPlayer():GetWorldPosition()
+        -- -- cmd.targetPosition = Vector3.new(-59.85, -88.02, 6.97)
+        -- -- cmd.secureTimeOut = 1200
+        -- -- cmd.useTraffic = true
+        -- -- cmd.forceGreenLights = false
+        -- -- cmd.speedInTraffic = 30
+        -- -- cmd.trafficTryNeighborsForStart = false
+        -- -- cmd.trafficTryNeighborsForEnd = false
+        -- -- evt.command = cmd
+        -- -- vehicle:QueueEvent(evt)
+        -- -- ai:SetInitCmd(cmd)
+        -- local cmd = AIVehicleJoinTrafficCommand.new()
+        -- cmd.state = AICommandState.Interrupted
+        -- evt.command = cmd
+        -- -- local evt_t = AIVehicleDisabledEvent.new()
+        -- -- vehicle:QueueEvent(evt_t)
+        -- vehicle:QueueEvent(evt)
+        -- ai:CancelCommand(cmd)
+        -- ai:StopExecutingCommand(cmd,true)
+
+        local horn = VehicleQuestDelayedHornEvent.new()
+        horn.honkTime = 1
+        horn.delayTime = 0
+        vehicle:QueueEvent(horn);
+
+        -- vehicle:ForceBrakesFor(1)
+
+        print("Excute Test Function 13")
     end
 end
 
