@@ -55,6 +55,14 @@ function Utils:GetKeys(table_)
    return keys
 end
 
+function Utils:ScaleListValues(list, rate)
+   local list_ = {}
+   for key, value in pairs(list) do
+       list_[key] = value * rate
+   end
+   return list_
+end
+
 function Utils:Normalize(v)
    local norm = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
    v.x = v.x / norm

@@ -265,6 +265,10 @@ end
 
 function Core:SetInputListener()
 
+    local player = Game.GetPlayer()
+    player:UnregisterInputListener(player, "Exit")
+    player:RegisterInputListener(player, "Exit")
+
     local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
     local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
@@ -1002,17 +1006,28 @@ function Core:SetMappinController()
 
     ObserveAfter("BaseMappinBaseController", "IsTracked", function(this)
         local mappin = this:GetMappin()
-        if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
-            self.is_custom_mappin = mappin:IsPlayerTracked()
-            local mappin_pos = mappin:GetWorldPosition()
-            if self.is_custom_mappin then
-                self.current_custom_mappin_position = mappin_pos
-                self:SetDestinationMappin()
-            else
-                self.current_custom_mappin_position = Vector4.Zero()
-            end
-        end
+        self:SetCustomMappin(mappin)
     end)
+
+    ObserveAfter("BaseMappinBaseController", "UpdateRootState", function(this)
+        local mappin = this:GetMappin()
+        self:SetCustomMappin(mappin)
+    end) 
+
+end
+
+function Core:SetCustomMappin(mappin)
+
+    if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
+        self.is_custom_mappin = mappin:IsPlayerTracked()
+        local mappin_pos = mappin:GetWorldPosition()
+        if self.is_custom_mappin then
+            self.current_custom_mappin_position = mappin_pos
+            self:SetDestinationMappin()
+        else
+            self.current_custom_mappin_position = Vector4.Zero()
+        end
+    end
 
 end
 

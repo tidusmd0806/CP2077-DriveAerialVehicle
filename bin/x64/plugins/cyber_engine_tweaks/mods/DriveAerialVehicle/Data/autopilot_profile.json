@@ -8,9 +8,7 @@
         "leaving_height": 20,
         "searching_range": 96,
         "searching_step": 5,
-        "increase_rate": 0.01,
-        "decrease_rate": 0.01,
-        "min_speed_rate": 0.5,
+        "min_speed_rate": 0.2,
         "is_only_horizontal": false
     },
     {
@@ -22,9 +20,7 @@
         "leaving_height": 20,
         "searching_range": 96,
         "searching_step": 5,
-        "increase_rate": 0.01,
-        "decrease_rate": 0.01,
-        "min_speed_rate": 0.5,
+        "min_speed_rate": 0.2,
         "is_only_horizontal": false
     },
     {
@@ -36,9 +32,7 @@
         "leaving_height": 1000,
         "searching_range": 60,
         "searching_step": 15,
-        "increase_rate": 0.01,
-        "decrease_rate": 0.01,
-        "min_speed_rate": 0.5,
+        "min_speed_rate": 0.2,
         "is_only_horizontal": true
     }
 ]

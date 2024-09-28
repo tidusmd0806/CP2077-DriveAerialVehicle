@@ -17,7 +17,7 @@ DAV = {
     -- system
     is_ready = false,
     time_resolution = 0.01,
-    is_debug_mode = true,
+    is_debug_mode = false,
     -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
@@ -70,7 +70,7 @@ DAV = {
         {name = "toggle_door", key = "IK_3", pad = "IK_None", is_hold = false},
         {name = "toggle_crystal_dome", key = "IK_4", pad = "IK_None", is_hold = false},
         {name = "toggle_appearance", key = "IK_5", pad = "IK_None", is_hold = false},
-        {name = "open_vehicle_manager", key = "IK_6", pad = "IK_None", is_hold = false},
+        {name = "open_vehicle_manager", key = "IK_None", pad = "IK_None", is_hold = false},
     }
 }
 

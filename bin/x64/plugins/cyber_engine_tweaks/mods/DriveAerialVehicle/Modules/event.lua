@@ -423,6 +423,7 @@ function Event:CheckAutoModeChange()
     elseif not self:IsAutoMode() and self.is_locked_operation then
         self.is_locked_operation = false
         self.hud_obj:ShowArrivalDisplay()
+        self.sound_obj:PlaySound("110_arrive_vehicle")
     end
 
 end

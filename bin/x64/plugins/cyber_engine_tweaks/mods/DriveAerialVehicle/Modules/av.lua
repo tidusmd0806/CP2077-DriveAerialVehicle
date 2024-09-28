@@ -69,6 +69,7 @@ function AV:New(all_models)
 	obj.is_search_start_swing_reverse = false
 	obj.initial_destination_length = 1
 	obj.dest_dir_vector_norm = 1
+	obj.pre_speed_list = {x = 0, y = 0, z = 0}
 	-- appearance
 	obj.is_enable_crystal_dome = false
 	obj.is_enable_landing_vfx = false
@@ -107,8 +108,6 @@ function AV:Init()
 	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
 	self.autopilot_searching_range = self.autopilot_profile[speed_level].searching_range
 	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
-	self.autopilot_increase_rate = self.autopilot_profile[speed_level].increase_rate
-	self.autopilot_decrease_rate = self.autopilot_profile[speed_level].decrease_rate
 	self.autopilot_min_speed_rate = self.autopilot_profile[speed_level].min_speed_rate
 	self.autopilot_is_only_horizontal = self.autopilot_profile[speed_level].is_only_horizontal
 
@@ -621,6 +620,8 @@ function AV:AutoPilot()
 	self.autopilot_horizontal_sign = 0
 	self.autopilot_vertical_sign = 0
 	self.auto_speed_reduce_rate = 1
+	self.pre_speed_list = {x = 0, y = 0, z = 0}
+	self.pre_search_angle = 0
 
 	-- autopilot loop
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
@@ -671,7 +672,7 @@ function AV:AutoPilot()
 			local search_vec = Vector4.Zero()
 			local is_wall = true
 			local res, vec
-			for r_2 = 1, 3 do
+			for r_2 = 1, 2 do
 				self.search_range = self.autopilot_searching_range
 				if self.dest_dir_vector_norm < self.autopilot_searching_range then
 					self.search_range = self.dest_dir_vector_norm + 0.1
@@ -714,6 +715,12 @@ function AV:AutoPilot()
 											self.autopilot_vertical_sign = sign
 										end
 									end
+									if self.pre_search_angle < search_angle * sign then
+										self.auto_speed_reduce_rate = 1 - (search_angle * sign - self.pre_search_angle) / 270
+									else
+										self.auto_speed_reduce_rate = 1 - (self.pre_search_angle - search_angle * sign) / 270
+									end
+									self.pre_search_angle = search_angle * sign
 									break
 								end
 							end
@@ -746,7 +753,7 @@ function AV:AutoPilot()
 					end
 					break
 				end
-				if r_2 >= 3 then
+				if r_2 >= 2 then
 					if self.autopilot_vertical_sign <= 0 then
 						self.autopilot_vertical_sign = 1
 						return
@@ -816,7 +823,14 @@ function AV:AutoPilot()
 		end
 
 		self.log_obj:Record(LogLevel.Debug, "AutoPilot Move : " .. fix_direction_vector.x .. ", " .. fix_direction_vector.y .. ", " .. fix_direction_vector.z .. ", " .. roll_diff .. ", " .. pitch_diff .. ", " .. yaw_diff_half)
-		self:ForceMove(fix_direction_vector.x, fix_direction_vector.y, fix_direction_vector.z, roll_diff, pitch_diff, yaw_diff_half)
+		local dummy_inertia = Utils:ScaleListValues(self.pre_speed_list, 1)
+		local x, y, z, roll, pitch, yaw = fix_direction_vector.x, fix_direction_vector.y, fix_direction_vector.z, roll_diff, pitch_diff, yaw_diff_half
+		local new_x, new_y, new_z = x + dummy_inertia.x, y + dummy_inertia.y, z + dummy_inertia.z
+		local new_vector_norm = math.sqrt(new_x * new_x + new_y * new_y + new_z * new_z)
+		local fix_direction_vector_norm = Vector4.Length(Vector4.new(fix_direction_vector.x, fix_direction_vector.y, fix_direction_vector.z, 1))
+		local adjust_x, adjust_y, adjust_z = new_x * fix_direction_vector_norm / new_vector_norm, new_y * fix_direction_vector_norm / new_vector_norm, new_z * fix_direction_vector_norm / new_vector_norm
+		self.pre_speed_list = {x = adjust_x, y = adjust_y, z = adjust_z}
+		self:ForceMove(adjust_x, adjust_y, adjust_z, roll, pitch, yaw)
 	end)
 	return true
 
@@ -877,29 +891,15 @@ function AV:AutoLeaving(dist_vector, height)
 					yaw_diff_half = yaw_diff
 				end
 
-				-- local current_direction = self.position_obj:GetForward()
-				-- current_direction.z = 0
-				-- current_direction = Vector4.Normalize(current_direction)
-				-- local target_direction = Vector4.Normalize(Vector4.new(dist_vector.x, dist_vector.y, 0, 1))
-				-- local sign = 1
-				-- if current_direction.x * target_direction.y - current_direction.y * target_direction.x > 0 then
-				-- 	sign = 1
-				-- else
-				-- 	sign = -1
-				-- end
-
 				if not self:Move(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half) then
 					self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Collision")
 					self.is_leaving = false
 					self:InterruptAutoPilot()
 					Cron.Halt(timer)
 				end
-				-- local inner_product = current_direction.x * target_direction.x + current_direction.y * target_direction.y
+
 				if yaw_diff_half < 0.1 then
-					-- local angle_difference = math.acos(current_direction.x * target_direction.x + current_direction.y * target_direction.y + current_direction.z * target_direction.z)
-					-- self:Move(0.0, 0.0, 0.0, 0.0, 0.0, sign * math.abs(angle_difference * 180 / Pi()))
 					self.is_leaving = false
-					-- self.log_obj:Record(LogLevel.Info, "AutoPilot Leaving Success (inner_product) : " .. tostring(inner_product))
 					Cron.Halt(timer)
 				end
 			end)
@@ -983,8 +983,6 @@ function AV:ReloadAutopilotProfile()
 	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
 	self.autopilot_searching_range = self.autopilot_profile[speed_level].searching_range
 	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
-	self.autopilot_increase_rate = self.autopilot_profile[speed_level].increase_rate
-	self.autopilot_decrease_rate = self.autopilot_profile[speed_level].decrease_rate
 	self.autopilot_min_speed_rate = self.autopilot_profile[speed_level].min_speed_rate
 	self.autopilot_is_only_horizontal = self.autopilot_profile[speed_level].is_only_horizontal
 
