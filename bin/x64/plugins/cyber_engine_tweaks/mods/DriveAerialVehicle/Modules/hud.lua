@@ -28,6 +28,7 @@ function HUD:New()
     -- popups
     obj.popup_manager = nil
     -- HP display
+    obj.is_active_hp_display = false
     obj.vehicle_hp = 0
     obj.ink_horizontal_panel = nil
     obj.ink_hp_title = nil
@@ -185,8 +186,11 @@ function HUD:ShowLeftBottomHUD()
     self:SetVisibleConsumeItemSlot(false)
     -- self:SetVisiblePhoneSlot(false)
     self:CreateHPDisplay()
-    self:SetHPDisplay()
-    self.ink_horizontal_panel:SetVisible(true)
+
+    if self.is_active_hp_display then
+        self:SetHPDisplay()
+        self.ink_horizontal_panel:SetVisible(true)
+    end
 
 end
 
@@ -194,7 +198,10 @@ function HUD:HideLeftBottomHUD()
 
     self:SetVisibleConsumeItemSlot(true)
     -- self:SetVisiblePhoneSlot(true)
-    self.ink_horizontal_panel:SetVisible(false)
+
+    if self.is_active_hp_display then
+        self.ink_horizontal_panel:SetVisible(false)
+    end
 
 end
 
@@ -216,9 +223,20 @@ end
 
 function HUD:CreateHPDisplay()
 
+    if self.hud_car_controller == nil then
+        self.log_obj:Record(LogLevel.Error, "hud_car_controller is nil")
+        self.is_active_hp_display = false
+        return false
+    end
     local parent = self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer")
-    if parent:GetWidget("hp") ~= nil then
-        return
+    if parent == nil then
+        self.log_obj:Record(LogLevel.Error, "maindashcontainer is nil")
+        self.is_active_hp_display = false
+        return false
+    elseif parent:GetWidget("hp") ~= nil then
+        self.log_obj:Record(LogLevel.Trace, "hp widget already exists")
+        self.is_active_hp_display = true
+        return false
     end
 
     self.ink_horizontal_panel = inkHorizontalPanel.new()
@@ -240,12 +258,8 @@ function HUD:CreateHPDisplay()
     self.ink_hp_title:SetJustificationType(textJustificationType.Right)
     self.ink_hp_title:SetHorizontalAlignment(textHorizontalAlignment.Right)
     self.ink_hp_title:SetVerticalAlignment(textVerticalAlignment.Center)
-    local color = HDRColor.new()
-    color.Red = 1.176
-    color.Green = 0.381
-    color.Blue = 0.348
-    color.Alpha = 1.0
-    self.ink_hp_title:SetTintColor(color)
+    self.ink_hp_title:SetStyle(ResRef.FromName("base\\gameplay\\gui\\common\\main_colors.inkstyle"))
+    self.ink_hp_title:BindProperty("tintColor", "MainColors.Red")
     self.ink_hp_title:Reparent(self.ink_horizontal_panel)
 
     self.ink_hp_text = inkText.new()
@@ -257,13 +271,12 @@ function HUD:CreateHPDisplay()
     self.ink_hp_text:SetFitToContent(true)
     self.ink_hp_text:SetJustificationType(textJustificationType.Left)
     self.ink_hp_text:SetHorizontalAlignment(textHorizontalAlignment.Left)
-    local color = HDRColor.new()
-    color.Red = 0.369
-    color.Green = 0.965
-    color.Blue = 1.000
-    color.Alpha = 1.0
-    self.ink_hp_text:SetTintColor(color)
+    self.ink_hp_text:SetStyle(ResRef.FromName("base\\gameplay\\gui\\common\\main_colors.inkstyle"))
+    self.ink_hp_text:BindProperty("tintColor", "MainColors.Blue")
     self.ink_hp_text:Reparent(self.ink_horizontal_panel)
+
+    self.is_active_hp_display = true
+    return true
 
 end
 

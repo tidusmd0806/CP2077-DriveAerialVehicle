@@ -427,6 +427,7 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF2") then
+        print("Auto Down Test")
         Cron.Every(1, {tick=1}, function(timer)
             timer.tick = timer.tick + 1
             if DAV.core_obj.av_obj.engine_obj.fly_av_system:IsOnGround() then
@@ -444,13 +445,8 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF3") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local door_event = VehicleDoorOpen.new()
-        local door_name = "trunk"
-		local vehicle_ps = entity:GetVehiclePS()
-        door_event.slotID = CName.new(door_name)
-        door_event.forceScene = false
-        vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
+        print("Force HP Display On Test")
+        DAV.core_obj.event_obj.hud_obj.is_active_hp_display = true
         print("Excute Test Function 3")
     end
     ImGui.SameLine()
