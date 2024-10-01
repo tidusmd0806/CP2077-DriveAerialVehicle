@@ -10,7 +10,7 @@ LogLevel = {
 }
 
 -- Force the log level to be the same for all instances
-MasterLogLevel = LogLevel.Warning
+MasterLogLevel = LogLevel.Trace
 -- Print debug messages to the console
 PrintDebugMode = false
 

@@ -61,6 +61,95 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
+        -- Override("VehicleObject", "CanUnmount", function(this, isPlayer, mountedObject, checkSpecificDirection, wrapped_method)
+        --     -- method has just been called with:
+        --     -- this: VehicleObject
+        --     -- isPlayer: Bool
+        --     -- mountedObject: wref<GameObject>
+        --     -- checkSpecificDirection: vehicleExitDirection
+        --     print("CanUnmount")
+        --     local veh_unmount_pos = vehicleUnmountPosition.new()
+        --     veh_unmount_pos.direction = vehicleExitDirection.NoDirection
+        --     return veh_unmount_pos
+        -- end)
+
+        -- Override("VehicleObject", "OnUnmountingEvent", function(this, evt, wrappedMethod)
+        --     -- rewrite method with:
+        --     -- this: VehicleObject
+        --     -- evt: ref<UnmountingEvent>
+            
+        --     -- local result = wrappedMethod(evt)
+        --     print("OnUnmountingEvent Vehicle")
+            
+        --     return false
+        -- end)
+        
+        -- Override("PlayerPuppet", "OnUnmountingEvent", function(this, evt, wrappedMethod)
+        --     -- rewrite method with:
+        --     -- this: PlayerPuppet
+        --     -- evt: ref<UnmountingEvent>
+            
+        --     -- local result = wrappedMethod(evt)
+        --     print("OnUnmountingEvent Player")
+            
+        --     return false
+        -- end)
+
+        -- Override("VehicleComponent", "OnVehicleFinishedMountingEvent", function(this, evt, wrappedMethod)
+        --     -- rewrite method with:
+        --     -- this: VehicleComponent
+        --     -- evt: ref<VehicleFinishedMountingEvent>
+            
+        --     -- local result = wrappedMethod(evt)
+        --     print("OnVehicleFinishedMountingEvent Vehicle")
+            
+        --     return false
+        -- end)
+        
+        -- Override("VehicleComponent", "OnUnmountingEvent", function(this, evt, wrappedMethod)
+        --     -- rewrite method with:
+        --     -- this: VehicleComponent
+        --     -- evt: ref<UnmountingEvent>
+            
+        --     -- local result = wrappedMethod(evt)
+        --     print("OnUnmountingEvent VehicleComponent")
+
+        --     return false
+        -- end)
+
+        -- Override("VehicleEventsTransition", "OnForcedExit", function(this, stateContext, scriptInterface, wrappedMethod)
+        --     -- rewrite method with:
+        --     -- this: VehicleEventsTransition
+        --     -- stateContext: ref<StateContext>
+        --     -- scriptInterface: ref<StateGameScriptInterface>
+            
+        --     -- wrappedMethod(stateContext, scriptInterface)
+        --     print("OnForcedExit")
+        -- end)
+        
+        -- Override("IMountingFacility", "Unmount", function(this, unmountEvent, wrappedMethod)
+        --     -- rewrite method with:
+        --     -- this: IMountingFacility
+        --     -- unmountEvent: ref<UnmountingRequest>
+            
+        --     -- wrappedMethod(unmountEvent)
+        --     print("Unmount")
+        -- end)
+        
+        -- Override("Entity", "QueueEvent", function(this, evt, wrappedMethod)
+        --     -- rewrite method with:
+        --     -- this: Entity
+        --     -- evt: ref<Event>
+
+        --     print(evt:ToString())
+        --     if string.find(evt:ToString(), "Mount") then
+        --         print(evt:ToString())
+        --         return
+        --     end
+            
+        --     wrappedMethod(evt)
+        -- end)
+        
     end
     self.is_set_observer = true
 
@@ -451,17 +540,8 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF4") then
-        local vehicle = Game.GetPlayer():GetMountedVehicle()
-        local veh_comp = vehicle:GetVehicleComponent()
-        local veh_controller = veh_comp:GetVehicleController()
-        local color = Color.new()
-        color.Alpha = 1
-        color.Red = 1
-        color.Green = 1
-        color.Blue = 1
-        -- veh_controller:SetLightColor(vehicleELightType.Interior, color)
-        -- veh_controller:SetLightStrength(vehicleELightType.Interior, 0.02)
-        veh_controller:ToggleLights(true, vehicleELightType.head)
+        print("Force Unmount Test")
+        DAV.core_obj.av_obj.is_unmounting = true
         print("Excute Test Function 4")
     end
 end

@@ -114,15 +114,6 @@ function AV:Init()
 end
 
 function AV:IsPlayerIn()
-	-- return self.is_player_in
-	local entity = Game.FindEntityByID(self.entity_id)
-	if entity == nil then
-		return false
-	end
-	return entity:IsPlayerMounted()
-end
-
-function AV:IsPlayerMounted()
 
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
@@ -364,6 +355,8 @@ function AV:ChangeDoorState(door_state, door_name_list)
 			return false
 		end
 
+		self.log_obj:Record(LogLevel.Info, "Change Door State : " .. door_name .. " : " .. door_state)
+
 		door_event.slotID = CName.new(door_name)
         door_event.forceScene = false
 		vehicle_ps:QueuePSEvent(vehicle_ps, door_event)
@@ -455,11 +448,11 @@ end
 
 function AV:Unmount()
 
-	if self.is_ummounting then
+	if self.is_unmounting then
 		return false
 	end
 
-	self.is_ummounting = true
+	self.is_unmounting = true
 
 	self.camera_obj:ResetPerspective()
 
@@ -504,17 +497,23 @@ function AV:Unmount()
 
 	Cron.After(unmount_wait_time, function()
 
+		self.log_obj:Record(LogLevel.Trace, "Unmount Aerial Vehicle : " .. seat_number)
 		Game.GetMountingFacility():Unmount(mount_event)
 
 		-- set entity id to position object
 		Cron.Every(0.01, {tick = 1}, function(timer)
+			timer.tick = timer.tick + 1
 			local entity = Game.FindEntityByID(self.entity_id)
 			if entity ~= nil then
 				local angle = entity:GetWorldOrientation():ToEulerAngles()
 				angle.yaw = angle.yaw + 90
 				local position = self.position_obj:GetExitPosition()
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
-				self.is_ummounting = false
+				self.is_unmounting = false
+				Cron.Halt(timer)
+			elseif timer.tick > 500 then
+				self.log_obj:Record(LogLevel.Error, "Unmount failed")
+				self.is_unmounting = false
 				Cron.Halt(timer)
 			end
 		end)

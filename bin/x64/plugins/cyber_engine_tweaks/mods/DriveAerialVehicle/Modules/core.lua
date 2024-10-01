@@ -79,7 +79,6 @@ function Core:New()
     obj.translation_table_list = {}
     -- summon
     obj.current_purchased_vehicle_count = 0
-    -- obj.is_purchased_vehicle_call = false
     -- custom mappin
     obj.current_custom_mappin_position = Vector4.Zero()
     obj.fast_travel_position_list = {}
@@ -174,7 +173,6 @@ function Core:SetSummonTrigger()
                         break
                     end
                 end
-                -- self.is_purchased_vehicle_call = true
                 if self.event_obj:IsNotSpawned() then
                     self.event_obj:CallVehicle()
                 elseif self.event_obj:IsWaiting() then
@@ -265,9 +263,9 @@ end
 
 function Core:SetInputListener()
 
-    local player = Game.GetPlayer()
-    player:UnregisterInputListener(player, "Exit")
-    player:RegisterInputListener(player, "Exit")
+    -- local player = Game.GetPlayer()
+    -- player:UnregisterInputListener(player, "Exit")
+    -- player:RegisterInputListener(player, "Exit")
 
     local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")

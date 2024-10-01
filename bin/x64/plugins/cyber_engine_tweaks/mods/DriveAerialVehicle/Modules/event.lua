@@ -122,6 +122,16 @@ function Event:SetOverride()
         end
     end)
 
+    -- for preventing player from unmounting
+    Override("VehicleEventsTransition", "HandleExitRequest", function(this, timeDelta, stateContext, scriptInterface, wrapped_method)
+        if self:IsInVehicle() and not self.av_obj.is_unmounting then
+            self.log_obj:Record(LogLevel.Trace, "Prevent unmounting")
+            return false
+        else
+            return wrapped_method(timeDelta, stateContext, scriptInterface)
+        end
+    end)
+
 end
 
 function Event:SetSituation(situation)
@@ -443,11 +453,6 @@ function Event:CheckLockedSave()
 
 end
 
--- function Event:UnsetMappin()
---     DAV.core_obj.is_custom_mappin = false
---     DAV.core_obj:RemoveFavoriteMappin()
--- end
-
 function Event:IsNotSpawned()
     if self.current_situation == Def.Situation.Normal then
         return true
@@ -516,7 +521,7 @@ function Event:ChangeDoor()
 end
 
 function Event:EnterVehicle()
-    if self:IsInEntryArea()then
+    if self:IsInEntryArea() then
         self.av_obj:Mount()
     end
 end
