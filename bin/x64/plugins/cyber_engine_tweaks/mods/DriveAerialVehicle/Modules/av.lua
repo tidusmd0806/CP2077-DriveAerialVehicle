@@ -406,24 +406,22 @@ function AV:Mount()
 	local seat = self.active_seat[seat_number]
 
 
-	local data = NewObject('handle:gameMountEventData')
-	data.isInstant = false
-	data.slotName = seat
-	data.mountParentEntityId = ent_id
-	data.entryAnimName = "forcedTransition"
+	local mount_data = MountEventData.new()
+	mount_data.isInstant = false
+	mount_data.slotName = seat
+	mount_data.mountParentEntityId = ent_id
 
-
-	local slot_id = NewObject('gamemountingMountingSlotId')
+	local slot_id = MountingSlotId.new()
 	slot_id.id = seat
 
-	local mounting_info = NewObject('gamemountingMountingInfo')
+	local mounting_info = MountingInfo.new()
 	mounting_info.childId = player:GetEntityID()
 	mounting_info.parentId = ent_id
 	mounting_info.slotId = slot_id
 
-	local mounting_request = NewObject('handle:gamemountingMountingRequest')
+	local mounting_request = MountingRequest.new()
 	mounting_request.lowLevelMountingInfo = mounting_info
-	mounting_request.mountData = data
+	mounting_request.mountData = mount_data
 
 	Game.GetMountingFacility():Mount(mounting_request)
 
@@ -455,6 +453,7 @@ function AV:Unmount()
 	self.is_unmounting = true
 
 	self.camera_obj:ResetPerspective()
+	self.camera_obj:ChangePosition(Def.CameraDistanceLevel.Fpp)
 
 	local seat_number = self.seat_index
 	if self.entity_id == nil then
@@ -466,23 +465,24 @@ function AV:Unmount()
 	local ent_id = entity:GetEntityID()
 	local seat = self.active_seat[seat_number]
 
-	local data = NewObject('handle:gameMountEventData')
-	data.isInstant = true
-	data.slotName = seat
-	data.mountParentEntityId = ent_id
-	data.entryAnimName = "forcedTransition"
+	local mount_data = MountEventData.new()
+	mount_data.isInstant = false
+	mount_data.slotName = seat
+	mount_data.removePitchRollRotationOnDismount = true
+	mount_data.allowFailsafeTeleport = true
+	mount_data.isCarrying = false
 
-	local slotID = NewObject('gamemountingMountingSlotId')
-	slotID.id = seat
+	local slot_id = MountingSlotId.new()
+	slot_id.id = seat
 
-	local mounting_info = NewObject('gamemountingMountingInfo')
+	local mounting_info = MountingInfo.new()
 	mounting_info.childId = player:GetEntityID()
 	mounting_info.parentId = ent_id
-	mounting_info.slotId = slotID
+	mounting_info.slotId = slot_id
 
-	local mount_event = NewObject('handle:gamemountingUnmountingRequest')
+	local mount_event = UnmountingRequest.new()
 	mount_event.lowLevelMountingInfo = mounting_info
-	mount_event.mountData = data
+	mount_event.mountData = mount_data
 
 	if self.is_crystal_dome then
 		self:ControlCrystalDome()
@@ -503,12 +503,14 @@ function AV:Unmount()
 		-- set entity id to position object
 		Cron.Every(0.01, {tick = 1}, function(timer)
 			timer.tick = timer.tick + 1
-			local entity = Game.FindEntityByID(self.entity_id)
-			if entity ~= nil then
-				local angle = entity:GetWorldOrientation():ToEulerAngles()
-				angle.yaw = angle.yaw + 90
+			-- local entity = Game.FindEntityByID(self.entity_id)
+			-- if entity ~= nil then
+			if not self:IsPlayerIn() then
+				local entity = Game.FindEntityByID(self.entity_id)
+				local vehicle_angle = entity:GetWorldOrientation():ToEulerAngles()
+				local teleport_angle = EulerAngles.new(vehicle_angle.roll, vehicle_angle.pitch, vehicle_angle.yaw + 90)
 				local position = self.position_obj:GetExitPosition()
-				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), angle)
+				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), teleport_angle)
 				self.is_unmounting = false
 				Cron.Halt(timer)
 			elseif timer.tick > 500 then
