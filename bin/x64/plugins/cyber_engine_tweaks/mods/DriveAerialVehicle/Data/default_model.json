@@ -13,7 +13,7 @@
         "flight_mode": 0,
         "actual_allocated_door": ["seat_front_left"],
         "active_seat": ["Front Left Seat", "Front Right Seat", "Back Left Seat", "Back Right Seat"],
-        "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
         "camera_distance_ratio": [1.2, 1.2, 1.2, 1.2],
         "camera_center_offset": [{"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}],
         "shape": {

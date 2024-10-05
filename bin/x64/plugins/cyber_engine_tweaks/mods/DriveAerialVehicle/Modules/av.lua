@@ -189,7 +189,7 @@ function AV:SpawnToSky()
 		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			timer.tick = timer.tick + 1
 			if timer.tick == self.spawn_wait_count then
-				self:LockDoor()
+				self:DisableAllDoorInteractions()
 			elseif timer.tick > self.spawn_wait_count then
 				if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
 					self.is_landed = true
@@ -280,6 +280,19 @@ function AV:LockDoor()
 	local vehicle_ps = entity:GetVehiclePS()
 	vehicle_ps:QuestLockAllVehDoors()
 	return true
+end
+
+function AV:DisableAllDoorInteractions()
+
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
+		return false
+	end
+	local entity = Game.FindEntityByID(self.entity_id)
+	local vehicle_ps = entity:GetVehiclePS()
+	vehicle_ps:DisableAllVehInteractions()
+	return true
+
 end
 
 ---@param e_veh_door EVehicleDoor
@@ -405,7 +418,6 @@ function AV:Mount()
 	local ent_id = entity:GetEntityID()
 	local seat = self.active_seat[seat_number]
 
-
 	local mount_data = MountEventData.new()
 	mount_data.isInstant = false
 	mount_data.slotName = seat
@@ -503,8 +515,6 @@ function AV:Unmount()
 		-- set entity id to position object
 		Cron.Every(0.01, {tick = 1}, function(timer)
 			timer.tick = timer.tick + 1
-			-- local entity = Game.FindEntityByID(self.entity_id)
-			-- if entity ~= nil then
 			if not self:IsPlayerIn() then
 				local entity = Game.FindEntityByID(self.entity_id)
 				local vehicle_angle = entity:GetWorldOrientation():ToEulerAngles()

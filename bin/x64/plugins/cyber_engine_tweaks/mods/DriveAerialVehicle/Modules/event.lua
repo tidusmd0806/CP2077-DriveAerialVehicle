@@ -106,13 +106,13 @@ end
 
 function Event:SetOverride()
 
-    Override("OpenVendorUI", "CreateInteraction", function(this, arg_1, arg_2, arg_3, wrapped_method)
-        if this:GetActionName().value == "vehicle_door_quest_locked" and self:IsInEntryArea() then
-            self.log_obj:Record(LogLevel.Trace, "Disappear vehicle door quest locked")
-            return
-        end
-        wrapped_method(arg_1, arg_2, arg_3)
-    end)
+    -- Override("OpenVendorUI", "CreateInteraction", function(this, arg_1, arg_2, arg_3, wrapped_method)
+    --     if this:GetActionName().value == "vehicle_door_quest_locked" and self:IsInEntryArea() then
+    --         self.log_obj:Record(LogLevel.Trace, "Disappear vehicle door quest locked")
+    --         return
+    --     end
+    --     wrapped_method(arg_1, arg_2, arg_3)
+    -- end)
 
     Override("VehicleComponentPS", "GetHasAnyDoorOpen", function(this, wrapped_method)
         if self:IsInVehicle() then
@@ -130,6 +130,27 @@ function Event:SetOverride()
         else
             return wrapped_method(timeDelta, stateContext, scriptInterface)
         end
+        -- if self:IsInVehicle() then
+        --     Cron.Every(0.01, {tick = 1}, function(timer)
+        --         timer.tick = timer.tick + 1
+        --         -- local entity = Game.FindEntityByID(self.entity_id)
+        --         -- if entity ~= nil then
+        --         if not self.av_obj:IsPlayerIn() then
+        --             local entity = Game.FindEntityByID(self.av_obj.entity_id)
+        --             local vehicle_angle = entity:GetWorldOrientation():ToEulerAngles()
+        --             local teleport_angle = EulerAngles.new(vehicle_angle.roll, vehicle_angle.pitch, vehicle_angle.yaw + 90)
+        --             local position = self.av_obj.position_obj:GetExitPosition()
+        --             Game.GetTeleportationFacility():Teleport(Game.GetPlayer(), Vector4.new(position.x, position.y, position.z, 1.0), teleport_angle)
+        --             self.av_obj.is_unmounting = false
+        --             Cron.Halt(timer)
+        --         elseif timer.tick > 500 then
+        --             self.log_obj:Record(LogLevel.Error, "Unmount failed")
+        --             self.av_obj.is_unmounting = false
+        --             Cron.Halt(timer)
+        --         end
+        --     end)
+        -- end
+        -- return wrapped_method(timeDelta, stateContext, scriptInterface)
     end)
 
 end

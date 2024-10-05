@@ -68,6 +68,8 @@ function Debug:SetObserver()
         --     -- mountedObject: wref<GameObject>
         --     -- checkSpecificDirection: vehicleExitDirection
         --     print("CanUnmount")
+        --     local result = wrapped_method(isPlayer, mountedObject, checkSpecificDirection)
+        --     print(result.veh_unmount_pos.direction)
         --     local veh_unmount_pos = vehicleUnmountPosition.new()
         --     veh_unmount_pos.direction = vehicleExitDirection.NoDirection
         --     return veh_unmount_pos
@@ -488,26 +490,26 @@ end
 function Debug:ImGuiExcuteFunction()
     if ImGui.Button("TF1") then
         print("Force Unmount Test")
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
         local player = Game.GetPlayer()
+        local entity = player:GetMountedVehicle()
         local ent_id = entity:GetEntityID()
         local seat = DAV.core_obj.av_obj.active_seat[1]
 
-        local data = NewObject('handle:gameMountEventData')
-        data.isInstant = true
+        local data = MountEventData.new()
+        data.isInstant = false
         data.slotName = seat
         data.mountParentEntityId = ent_id
         data.entryAnimName = "forcedTransition"
 
-        local slotID = NewObject('gamemountingMountingSlotId')
+        local slotID = MountingSlotId.new()
         slotID.id = seat
 
-        local mounting_info = NewObject('gamemountingMountingInfo')
+        local mounting_info = MountingInfo.new()
         mounting_info.childId = player:GetEntityID()
         mounting_info.parentId = ent_id
         mounting_info.slotId = slotID
 
-        local mount_event = NewObject('handle:gamemountingUnmountingRequest')
+        local mount_event = UnmountingRequest.new()
         mount_event.lowLevelMountingInfo = mounting_info
         mount_event.mountData = data
 
@@ -541,8 +543,24 @@ function Debug:ImGuiExcuteFunction()
     ImGui.SameLine()
     if ImGui.Button("TF4") then
         print("Force Unmount Test")
-        DAV.core_obj.av_obj.is_unmounting = true
+        self.entity = Game.GetPlayer():GetMountedVehicle()
+        local vehicle_ps = self.entity:GetVehiclePS()
+        vehicle_ps:QuestLockAllVehDoors()
         print("Excute Test Function 4")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF5") then
+        print("Force Unmount Test")
+        local vehicle_ps = self.entity:GetVehiclePS()
+        vehicle_ps:UnlockAllVehDoors()
+        print("Excute Test Function 5")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF6") then
+        print("Force Unmount Test")
+        local vehicle_ps = self.entity:GetVehiclePS()
+        vehicle_ps:DisableAllVehInteractions()
+        print("Excute Test Function 5")
     end
 end
 

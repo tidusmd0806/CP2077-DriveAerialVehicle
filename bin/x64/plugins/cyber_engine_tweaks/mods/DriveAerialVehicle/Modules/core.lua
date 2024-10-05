@@ -263,10 +263,6 @@ end
 
 function Core:SetInputListener()
 
-    -- local player = Game.GetPlayer()
-    -- player:UnregisterInputListener(player, "Exit")
-    -- player:RegisterInputListener(player, "Exit")
-
     local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
     local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
