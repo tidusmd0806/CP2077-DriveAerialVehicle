@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.2.8",
+	version = "2.2.9",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -137,6 +137,9 @@ registerForEvent("onTweak",function ()
     TweakDB:CloneRecord(DAV.excalibur_record, "Vehicle.av_rayfield_excalibur")
     TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".entityTemplatePath"), "base\\dav\\excalibur\\av_rayfield_excalibur__basic_01_dav.ent")
     TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:CloneRecord("Vehicle.av_rayfield_excalibur_inline0_dav", "Vehicle.av_rayfield_excalibur_inline0")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_inline0_dav.exitDelay"), 2.3)
+    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".vehDataPackage"), "Vehicle.av_rayfield_excalibur_inline0_dav")
 
     -- Custom manticore record
     TweakDB:CloneRecord(DAV.manticore_record, "Vehicle.av_militech_manticore")
@@ -147,6 +150,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".weapons"), weapon_list)
     TweakDB:CloneRecord("Vehicle.av_militech_manticore_inline0_dav", "Vehicle.av_militech_manticore_inline0")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_inline0_dav.exitDelay"), 1.2)
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".vehDataPackage"), "Vehicle.av_militech_manticore_inline0_dav")
 
     -- Custom atlus record
@@ -157,6 +161,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".weapons"), weapon_list)
     TweakDB:CloneRecord("Vehicle.av_zetatech_atlus_inline0_dav", "Vehicle.av_zetatech_atlus_inline0")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_inline0_dav.exitDelay"), 1.2)
     TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_atlus_inline0_dav")
 
      -- Custom surveyor record
@@ -165,7 +170,10 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".isArmoredVehicle"), true)
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".weapons"), weapon_list)
-    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.av_zetatech_atlus_inline0_dav")
+    TweakDB:CloneRecord("Vehicle.av_zetatech_surveyor_inline0_dav", "Vehicle.av_zetatech_atlus_inline0")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_inline0_dav.exitDelay"), 2.2)
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.av_zetatech_surveyor_inline0_dav")
     
     -- Custom valgus record
     TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
@@ -178,6 +186,9 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tags"), valgus_tag_list)
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".savable"), false)
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".isHackable"), "Vehicle.Never")
+    TweakDB:CloneRecord("Vehicle.av_zetatech_valgus_inline0_dav", "Vehicle.av_zetatech_valgus_inline0")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.exitDelay"), 0.8)
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_valgus_inline0_dav")
 
     -- Custom mayhem record
     TweakDB:CloneRecord(DAV.mayhem_record, "Vehicle.q000_nomad_border_patrol_heli")
@@ -191,9 +202,10 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".isHackable"), "Vehicle.Never")
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".isArmoredVehicle"), true)
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".weapons"), weapon_list)
-    TweakDB:CloneRecord("Vehicle.av_zetatech_valgus_inline0_dav", "Vehicle.av_zetatech_valgus_inline0")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDataPackage"), "Vehicle.av_zetatech_valgus_inline0_dav")
+    TweakDB:CloneRecord("Vehicle.av_zetatech_mayhem_inline0_dav", "Vehicle.av_zetatech_valgus_inline0")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_mayhem_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_mayhem_inline0_dav.exitDelay"), 0.8)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDataPackage"), "Vehicle.av_zetatech_mayhem_inline0_dav")
 
 end)
 
@@ -217,7 +229,10 @@ registerForEvent("onHook", function()
                 elseif DAV.listening_keybind_widget and action == "IACT_Release" then -- Key was bound, by keyboard
                     DAV.listening_keybind_widget = nil
                 end
-                local current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
+                local current_situation = Def.Situation.Idle
+                if DAV.core_obj ~= nil then
+                    current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
+                end
                 if current_situation == Def.Situation.InVehicle or current_situation == Def.Situation.Waiting or current_situation == Def.Situation.Normal then
                     if action == "IACT_Press" then
                         DAV.core_obj:ConvertPressButtonAction(key)

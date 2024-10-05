@@ -2,7 +2,7 @@
 local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
 local Sound = require("Modules/sound.lua")
-local Ui = require("Modules/ui.lua")
+local UI = require("Modules/ui.lua")
 local Event = {}
 Event.__index = Event
 
@@ -13,7 +13,7 @@ function Event:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Event")
     obj.av_obj = nil
     obj.hud_obj = Hud:New()
-    obj.ui_obj = Ui:New()
+    obj.ui_obj = UI:New()
     obj.sound_obj = Sound:New()
 
     -- static --
@@ -106,14 +106,6 @@ end
 
 function Event:SetOverride()
 
-    Override("OpenVendorUI", "CreateInteraction", function(this, arg_1, arg_2, arg_3, wrapped_method)
-        if this:GetActionName().value == "vehicle_door_quest_locked" and self:IsInEntryArea() then
-            self.log_obj:Record(LogLevel.Trace, "Disappear vehicle door quest locked")
-            return
-        end
-        wrapped_method(arg_1, arg_2, arg_3)
-    end)
-
     Override("VehicleComponentPS", "GetHasAnyDoorOpen", function(this, wrapped_method)
         if self:IsInVehicle() then
             return false
@@ -121,6 +113,32 @@ function Event:SetOverride()
             return wrapped_method()
         end
     end)
+
+    Override("VehicleObject", "CanUnmount", function(this, isPlayer, mountedObject, checkSpecificDirection, wrapped_method)
+        if self:IsInVehicle() and not Game.GetPlayer():PSIsInDriverCombat() then
+            self.av_obj:Unmount()
+            local veh_unmount_pos = vehicleUnmountPosition.new()
+            if string.find(self.av_obj.active_seat[self.av_obj.seat_index], "left") then
+                veh_unmount_pos.direction = vehicleExitDirection.Left
+            elseif string.find(self.av_obj.active_seat[self.av_obj.seat_index], "right") then
+                veh_unmount_pos.direction = vehicleExitDirection.Right
+            else
+                veh_unmount_pos.direction = vehicleExitDirection.NoDirection
+            end
+            return veh_unmount_pos
+        else
+            return wrapped_method(isPlayer, mountedObject, checkSpecificDirection)
+        end
+    end)
+
+    Override("VehicleEventsTransition", "HandleExitRequest", function(this, timeDelta, stateContext, scriptInterface, wrappedMethod)
+        if self:IsInVehicle() and Game.GetPlayer():PSIsInDriverCombat() then
+            return false
+        end
+        local result = wrappedMethod(timeDelta, stateContext, scriptInterface)
+        return result
+    end)
+
 
 end
 
@@ -242,7 +260,6 @@ function Event:CheckLanded()
         self.sound_obj:PlaySound("110_arrive_vehicle")
         self.sound_obj:ChangeSoundResource()
         self:SetSituation(Def.Situation.Waiting)
-        -- self.av_obj:ChangeDoorState(Def.DoorOperation.Open)
     end
 end
 
@@ -279,7 +296,6 @@ function Event:CheckInAV()
             self:SetSituation(Def.Situation.Waiting)
             self.hud_obj:HideCustomHint()
             self.hud_obj:EnableManualMeter(false, false)
-            -- self:UnsetMappin()
             if self:IsAutoMode() then
                 self.av_obj:InterruptAutoPilot()
             end
@@ -443,11 +459,6 @@ function Event:CheckLockedSave()
 
 end
 
--- function Event:UnsetMappin()
---     DAV.core_obj.is_custom_mappin = false
---     DAV.core_obj:RemoveFavoriteMappin()
--- end
-
 function Event:IsNotSpawned()
     if self.current_situation == Def.Situation.Normal then
         return true
@@ -516,16 +527,16 @@ function Event:ChangeDoor()
 end
 
 function Event:EnterVehicle()
-    if self:IsInEntryArea()then
+    if self:IsInEntryArea() then
         self.av_obj:Mount()
     end
 end
 
-function Event:ExitVehicle()
-    if self:IsInVehicle() then
-        self.av_obj:Unmount()
-    end
-end
+-- function Event:ExitVehicle()
+--     if self:IsInVehicle() then
+--         self.av_obj:Unmount()
+--     end
+-- end
 
 function Event:ToggleAutoMode()
     if self:IsInVehicle() then

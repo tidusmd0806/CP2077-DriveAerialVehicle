@@ -13,7 +13,7 @@
         "flight_mode": 0,
         "actual_allocated_door": ["seat_front_left"],
         "active_seat": ["Front Left Seat", "Front Right Seat", "Back Left Seat", "Back Right Seat"],
-        "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
         "camera_distance_ratio": [1.2, 1.2, 1.2, 1.2],
         "camera_center_offset": [{"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}],
         "shape": {
@@ -29,7 +29,7 @@
         "entry_point": {"x": -1.0, "y": 0.0, "z": -1.0},
         "entry_area_radius": 2.5,
         "exit_point": {"x": -2.5, "y": 0, "z": 0},
-        "exit_duration": 1.0,
+        "exit_duration": 2.3,
         "minimum_distance_to_ground": 0.8,
         "combat_door": ["None"],
         "crystal_dome": true,
@@ -38,7 +38,8 @@
         "engine_audio_name": "310_av_engine_idle",
         "manual_speed_meter": false,
         "manual_rpm_meter": true,
-        "autopilot_prevention_length": 3.5
+        "autopilot_prevention_length": 3.5,
+        "armed": false
     },
     {
         "name": "Militech Manticore",
@@ -54,7 +55,7 @@
         "flight_mode": 0,
         "actual_allocated_door": ["seat_front_left", "seat_front_right"],
         "active_seat": ["Cockpit(Left)", "Cockpit(Right)", "Left Passenger Seat", "Right Passenger Seat"],
-        "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
         "camera_distance_ratio": [1.5, 1.5, 1.5, 1.5],
         "camera_center_offset": [{"x": 0.0, "y": 0.0, "z": 0.5}, {"x": 0.0, "y": 0.0, "z": 0.5}, {"x": 0.0, "y": 0.0, "z": 0.5}, {"x": 0.0, "y": 0.0, "z": 0.5}],
         "shape": {
@@ -70,7 +71,7 @@
         "entry_point": {"x": 0.0, "y": 0.0, "z": -2.0},
         "entry_area_radius": 4.0,
         "exit_point": {"x": -2.8, "y": 0, "z": -1.5},
-        "exit_duration": 0.8,
+        "exit_duration": 1.2,
         "minimum_distance_to_ground": 2.2,
         "combat_door": ["None"],
         "crystal_dome": true,
@@ -79,7 +80,8 @@
         "engine_audio_name": "310_av_engine_idle",
         "manual_speed_meter": false,
         "manual_rpm_meter": true,
-        "autopilot_prevention_length": 3.5
+        "autopilot_prevention_length": 3.5,
+        "armed": true
     },
     {
         "name": "Zetatech Atlus",
@@ -96,10 +98,10 @@
         ],
         "flight_mode": 0,
         "actual_allocated_door": ["seat_front_left"],
-        "active_seat": ["Passenger Seat A", "Passenger Seat B", "Passenger Seat C", "Passenger Seat D", "Passenger Seat E"],
-        "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4", "seat_front_left_5"],
-        "camera_distance_ratio": [1.0, 1.0, 1.0, 1.0, 1.0],
-        "camera_center_offset": [{"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}],
+        "active_seat": ["Passenger Seat A", "Passenger Seat B", "Passenger Seat C", "Passenger Seat D"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
+        "camera_distance_ratio": [1.0, 1.0, 1.0, 1.0],
+        "camera_center_offset": [{"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}, {"x": 0.0, "y": 0.0, "z": 1.0}],
         "shape": {
             "A": {"x":  2.0, "y":  2.2, "z":  1.7},
             "B": {"x":  2.0, "y":  2.2, "z":  0.0},
@@ -113,7 +115,7 @@
         "entry_point": {"x": -1.5, "y": 0.0, "z": -1.0},
         "entry_area_radius": 3.0,
         "exit_point": {"x": -2.5, "y": 0, "z": 0.0},
-        "exit_duration": 0.8,
+        "exit_duration": 1.2,
         "minimum_distance_to_ground": 1.0,
         "combat_door": ["None"],
         "crystal_dome": false,
@@ -122,7 +124,8 @@
         "engine_audio_name": "310_av_engine_idle",
         "manual_speed_meter": false,
         "manual_rpm_meter": true,
-        "autopilot_prevention_length": 4.0
+        "autopilot_prevention_length": 4.0,
+        "armed": true
     },
     {
         "name": "Zetatech Surveyor",
@@ -136,7 +139,7 @@
         "flight_mode": 0,
         "actual_allocated_door": ["seat_front_left"],
         "active_seat": ["Seat in Front", "Seat in Middle(Left)", "Seat in Middle(Right)", "Seat in Back"],
-        "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
         "camera_distance_ratio": [1.8, 1.8, 1.8, 1.8],
         "camera_center_offset": [{"x": 0.0, "y": 0.0, "z": -1.0}, {"x": 0.0, "y": 0.0, "z": -1.0}, {"x": 0.0, "y": 0.0, "z": -1.0}, {"x": 0.0, "y": 2.0, "z": -1.0}],
         "shape": {
@@ -152,7 +155,7 @@
         "entry_point": {"x": -2.0, "y": 2.0, "z": -2.0},
         "entry_area_radius": 3.0,
         "exit_point": {"x": -3.2, "y": 1.0, "z": -1.0},
-        "exit_duration": 1.5,
+        "exit_duration": 2.2,
         "minimum_distance_to_ground": 3.5,
         "combat_door": ["trunk"],
         "crystal_dome": false,
@@ -161,7 +164,8 @@
         "engine_audio_name": "310_av_engine_idle",
         "manual_speed_meter": false,
         "manual_rpm_meter": true,
-        "autopilot_prevention_length": 5.0
+        "autopilot_prevention_length": 5.0,
+        "armed": true
     },
     {
         "name": "Zetatech Valgus",
@@ -175,7 +179,7 @@
         "flight_mode": 1,
         "actual_allocated_door": ["seat_front_left", "seat_front_right"],
         "active_seat": ["Cockpit(Front)", "Cockpit(Back)", "Left Passenger Seat", "Right Passenger Seat"],
-        "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
         "camera_distance_ratio": [2.1, 2.1, 2.1, 2.1],
         "camera_center_offset": [{"x": 0.0, "y": -5.0, "z": 1.0}, {"x": 0.0, "y": -5.0, "z": 1.0}, {"x": 0.0, "y": -2.0, "z": 1.0}, {"x": 0.0, "y": -2.0, "z": 1.0}],
         "shape": {
@@ -200,7 +204,8 @@
         "engine_audio_name": "320_heli_engine_idle",
         "manual_speed_meter": false,
         "manual_rpm_meter": true,
-        "autopilot_prevention_length": 6.0
+        "autopilot_prevention_length": 6.0,
+        "armed": false
     },
     {
         "name": "Militech Mayhem",
@@ -213,7 +218,7 @@
         "flight_mode": 1,
         "actual_allocated_door": ["seat_front_left", "seat_front_right"],
         "active_seat": ["Cockpit(Front)", "Cockpit(Back)", "Left Passenger Seat", "Right Passenger Seat"],
-        "actual_allocated_seat": ["seat_front_left_1", "seat_front_left_2", "seat_front_left_3", "seat_front_left_4"],
+        "actual_allocated_seat": ["seat_front_left", "seat_front_right", "seat_back_left", "seat_back_right"],
         "camera_distance_ratio": [2.1, 2.1, 2.1, 2.1],
         "camera_center_offset": [{"x": 0.0, "y": -5.0, "z": 1.0}, {"x": 0.0, "y": -5.0, "z": 1.0}, {"x": 0.0, "y": -2.0, "z": 1.0}, {"x": 0.0, "y": -2.0, "z": 1.0}],
         "shape": {
@@ -238,6 +243,7 @@
         "engine_audio_name": "320_heli_engine_idle",
         "manual_speed_meter": false,
         "manual_rpm_meter": true,
-        "autopilot_prevention_length": 6.0
+        "autopilot_prevention_length": 6.0,
+        "armed": true
     }
 ]
