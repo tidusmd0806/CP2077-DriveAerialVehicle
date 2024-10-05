@@ -293,6 +293,15 @@ function Core:SetInputListener()
                         break
                     end
                 end
+                if not self.av_obj:IsMountedCombatSeat() then
+                    -- block combat seat action
+                    for _, exception in pairs(exception_in_popup_list) do
+                        if action_name == exception then
+                            consumer:Consume()
+                            break
+                        end
+                    end
+                end
             end
             if self.event_obj:IsInMenuOrPopupOrPhoto() or self.event_obj:IsAutoMode() then
                 for _, exception in pairs(exception_in_popup_list) do
@@ -910,7 +919,7 @@ function Core:SetEvent(action)
             return
         end
         if action == Def.ActionList.Exit then
-            self:ExitVehicle()
+            -- self:ExitVehicle()
         elseif action == Def.ActionList.ChangeCamera then
             self.is_locked_action_in_vehicle = true
             self:ToggleCamera()
@@ -940,11 +949,11 @@ function Core:SetEvent(action)
 
 end
 
-function Core:ExitVehicle()
-    if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
-        self.event_obj:ExitVehicle()
-    end
-end
+-- function Core:ExitVehicle()
+--     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
+--         self.event_obj:ExitVehicle()
+--     end
+-- end
 
 function Core:ToggleAutopilot()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then

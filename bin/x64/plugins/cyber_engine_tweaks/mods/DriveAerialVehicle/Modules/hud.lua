@@ -346,20 +346,25 @@ function HUD:SetChoiceList()
     hub.title = self:GetChoiceTitle()
     hub.activityState = gameinteractionsvisEVisualizerActivityState.Active
     hub.hubPriority = 1
-    hub.id = 69420 + math.random(99999)
+    hub.id = 77777 + math.random(99999)
 
-    local icon = TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceCaptionParts.CourierIcon")
-    local caption_part = gameinteractionsChoiceCaption.new()
     local choice_type = gameinteractionsChoiceTypeWrapper.new()
-    caption_part:AddPartFromRecord(icon)
     choice_type:SetType(gameinteractionsChoiceType.Selected)
 
-    for index = 1, #self.av_obj.active_seat do
+    for index, seat in pairs(self.av_obj.active_seat) do
+        local caption_part = gameinteractionsChoiceCaption.new()
         local choice = gameinteractionsvisListChoiceData.new()
 
-        local lockey_enter = GetLocalizedText("LocKey#81569") or "Enter"
+        local lockey_enter = GetLocalizedText("LocKey#36505") or "Enter"
         local localized_seat_name = DAV.core_obj:GetTranslationText("hud_interaction_seat_" .. self.av_obj.all_models[model_index].active_seat[index])
-        choice.localizedName = lockey_enter .. "[" .. localized_seat_name .. "]"
+        choice.localizedName = lockey_enter .. " [" .. localized_seat_name .. "]"
+        if self.av_obj.is_armed and seat == "seat_front_left" then
+            local icon_weapon = TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceCaptionParts.GunIcon")
+            caption_part:AddPartFromRecord(icon_weapon)
+        else
+            local icon_normal = TweakDBInterface.GetChoiceCaptionIconPartRecord("ChoiceCaptionParts.SitIcon")
+            caption_part:AddPartFromRecord(icon_normal)
+        end
         choice.inputActionName = CName.new("None")
         choice.captionParts = caption_part
         choice.type = choice_type
@@ -428,6 +433,9 @@ function HUD:SetCustomHint()
                 if hint.usage == "keyboard" then
                     table.remove(hint_table, index)
                 end
+            end
+            if not self.av_obj:IsMountedCombatSeat() and hint.source == "DrawWeapon" then
+                table.remove(hint_table, index)
             end
         end
     end

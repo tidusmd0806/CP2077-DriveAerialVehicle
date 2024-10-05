@@ -543,23 +543,17 @@ function Debug:ImGuiExcuteFunction()
     ImGui.SameLine()
     if ImGui.Button("TF4") then
         print("Force Unmount Test")
-        self.entity = Game.GetPlayer():GetMountedVehicle()
         local vehicle_ps = self.entity:GetVehiclePS()
-        vehicle_ps:QuestLockAllVehDoors()
+        vehicle_ps:DisableAllVehInteractions()
         print("Excute Test Function 4")
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
-        print("Force Unmount Test")
-        local vehicle_ps = self.entity:GetVehiclePS()
-        vehicle_ps:UnlockAllVehDoors()
-        print("Excute Test Function 5")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF6") then
-        print("Force Unmount Test")
-        local vehicle_ps = self.entity:GetVehiclePS()
-        vehicle_ps:DisableAllVehInteractions()
+        local player = Game.GetPlayer()
+        local pos = player:GetWorldPosition()
+        local angle = player:GetWorldOrientation():ToEulerAngles()
+        angle.yaw = angle.yaw + 180
+        Game.GetTeleportationFacility():Teleport(player, pos, angle)
         print("Excute Test Function 5")
     end
 end
