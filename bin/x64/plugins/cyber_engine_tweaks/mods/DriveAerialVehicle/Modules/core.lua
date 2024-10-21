@@ -794,13 +794,16 @@ function Core:ConvertHeliPressAction(keybind_name)
     elseif keybind_name == "acceleration" then
         if not self.is_h_acceleration_button_hold_counter then
             self.is_h_acceleration_button_hold_counter = true
+            self.av_obj:ToggleHeliThruster(true)
             Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
                 timer.tick = timer.tick + 1
                 self.h_acceleration_button_hold_count = timer.tick
                 if timer.tick >= self.max_move_hold_count then
                     self.is_h_acceleration_button_hold_counter = false
+                    self.av_obj:ToggleHeliThruster(false)
                     Cron.Halt(timer)
                 elseif not self.is_h_acceleration_button_hold_counter then
+                    self.av_obj:ToggleHeliThruster(false)
                     Cron.Halt(timer)
                 else
                     self.queue_obj:Enqueue(Def.ActionList.HAccelerate)

@@ -229,10 +229,24 @@ function Engine:CalculateAVMode(action_commands)
             local_pitch = local_pitch + pitch_change_amount
         end
     elseif action_commands == Def.ActionList.LeanReset then
-        if current_angle.pitch > 0 then
+        if current_angle.pitch > pitch_restore_amount then
             local_pitch = local_pitch - pitch_restore_amount
-        elseif current_angle.pitch < 0 then
+        elseif current_angle.pitch < -pitch_restore_amount then
             local_pitch = local_pitch + pitch_restore_amount
+        elseif current_angle.pitch > 0 then
+            local_pitch = local_pitch - current_angle.pitch
+        elseif current_angle.pitch < 0 then
+            local_pitch = local_pitch - current_angle.pitch
+        end
+    elseif action_commands == Def.ActionList.Nothing then
+        if current_angle.pitch > pitch_restore_amount then
+            local_pitch = local_pitch - pitch_restore_amount
+        elseif current_angle.pitch < -pitch_restore_amount then
+            local_pitch = local_pitch + pitch_restore_amount
+        elseif current_angle.pitch > 0 then
+            local_pitch = local_pitch - current_angle.pitch
+        elseif current_angle.pitch < 0 then
+            local_pitch = local_pitch - current_angle.pitch
         end
     end
 

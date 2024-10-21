@@ -60,98 +60,7 @@ end
 function Debug:SetObserver()
 
     if not self.is_set_observer then
-        -- reserved
-        -- Override("VehicleObject", "CanUnmount", function(this, isPlayer, mountedObject, checkSpecificDirection, wrapped_method)
-        --     -- method has just been called with:
-        --     -- this: VehicleObject
-        --     -- isPlayer: Bool
-        --     -- mountedObject: wref<GameObject>
-        --     -- checkSpecificDirection: vehicleExitDirection
-        --     print("CanUnmount")
-        --     local result = wrapped_method(isPlayer, mountedObject, checkSpecificDirection)
-        --     print(result.veh_unmount_pos.direction)
-        --     local veh_unmount_pos = vehicleUnmountPosition.new()
-        --     veh_unmount_pos.direction = vehicleExitDirection.NoDirection
-        --     return veh_unmount_pos
-        -- end)
-
-        -- Override("VehicleObject", "OnUnmountingEvent", function(this, evt, wrappedMethod)
-        --     -- rewrite method with:
-        --     -- this: VehicleObject
-        --     -- evt: ref<UnmountingEvent>
-            
-        --     -- local result = wrappedMethod(evt)
-        --     print("OnUnmountingEvent Vehicle")
-            
-        --     return false
-        -- end)
-        
-        -- Override("PlayerPuppet", "OnUnmountingEvent", function(this, evt, wrappedMethod)
-        --     -- rewrite method with:
-        --     -- this: PlayerPuppet
-        --     -- evt: ref<UnmountingEvent>
-            
-        --     -- local result = wrappedMethod(evt)
-        --     print("OnUnmountingEvent Player")
-            
-        --     return false
-        -- end)
-
-        -- Override("VehicleComponent", "OnVehicleFinishedMountingEvent", function(this, evt, wrappedMethod)
-        --     -- rewrite method with:
-        --     -- this: VehicleComponent
-        --     -- evt: ref<VehicleFinishedMountingEvent>
-            
-        --     -- local result = wrappedMethod(evt)
-        --     print("OnVehicleFinishedMountingEvent Vehicle")
-            
-        --     return false
-        -- end)
-        
-        -- Override("VehicleComponent", "OnUnmountingEvent", function(this, evt, wrappedMethod)
-        --     -- rewrite method with:
-        --     -- this: VehicleComponent
-        --     -- evt: ref<UnmountingEvent>
-            
-        --     -- local result = wrappedMethod(evt)
-        --     print("OnUnmountingEvent VehicleComponent")
-
-        --     return false
-        -- end)
-
-        -- Override("VehicleEventsTransition", "OnForcedExit", function(this, stateContext, scriptInterface, wrappedMethod)
-        --     -- rewrite method with:
-        --     -- this: VehicleEventsTransition
-        --     -- stateContext: ref<StateContext>
-        --     -- scriptInterface: ref<StateGameScriptInterface>
-            
-        --     -- wrappedMethod(stateContext, scriptInterface)
-        --     print("OnForcedExit")
-        -- end)
-        
-        -- Override("IMountingFacility", "Unmount", function(this, unmountEvent, wrappedMethod)
-        --     -- rewrite method with:
-        --     -- this: IMountingFacility
-        --     -- unmountEvent: ref<UnmountingRequest>
-            
-        --     -- wrappedMethod(unmountEvent)
-        --     print("Unmount")
-        -- end)
-        
-        -- Override("Entity", "QueueEvent", function(this, evt, wrappedMethod)
-        --     -- rewrite method with:
-        --     -- this: Entity
-        --     -- evt: ref<Event>
-
-        --     print(evt:ToString())
-        --     if string.find(evt:ToString(), "Mount") then
-        --         print(evt:ToString())
-        --         return
-        --     end
-            
-        --     wrappedMethod(evt)
-        -- end)
-        
+        -- reserved        
     end
     self.is_set_observer = true
 
@@ -549,12 +458,37 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
-        local player = Game.GetPlayer()
-        local pos = player:GetWorldPosition()
-        local angle = player:GetWorldOrientation():ToEulerAngles()
-        angle.yaw = angle.yaw + 180
-        Game.GetTeleportationFacility():Teleport(player, pos, angle)
+        local entity = DAV.core_obj.av_obj.position_obj.entity
+        print(entity:GetEntityID())
+        local comps = entity:GetComponents()
+        for _, comp in pairs(comps) do
+            print(comp:GetClassName())
+            print(comp.name.value)
+            if comp.name.value == "av_zetatech_valgus__ext01_rotor_01" then
+                print("Find Engine")
+                print(comp.parentTransform.enabled)
+                local pt = comp.parentTransform
+                pt.enabled = false
+                comp:RefreshAppearance()
+            end
+        end
         print("Excute Test Function 5")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF6") then
+        GameObjectEffectHelper.StopEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("thrusters"))
+        GameObjectEffectHelper.StopEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("thruster"))
+        -- GameObjectEffectHelper.StopEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("rotor"))
+
+        -- self.light:LoadAppearance()
+        print("Excute Test Function 6")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF7") then
+        GameObjectEffectHelper.StartEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("thrusters"))
+        GameObjectEffectHelper.StartEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("thruster"))
+        -- GameObjectEffectHelper.StartEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("rotor"))
+        print("Excute Test Function 7")
     end
 end
 

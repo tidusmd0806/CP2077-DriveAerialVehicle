@@ -31,6 +31,9 @@ function AV:New(all_models)
 	obj.autopilot_angle_restore_rate = 0.01
 	obj.autopilot_landing_angle_restore_rate = 0.1
 	obj.standard_leaving_height = 20
+	-- thruster
+	obj.thruster_angle_step = 0.6
+	obj.thruster_angle_restore = 0.3
 	-- dynamic --
 	-- door
 	obj.combat_door = nil
@@ -77,6 +80,16 @@ function AV:New(all_models)
 	obj.is_landing_projection = false
 	-- audio
 	obj.engine_audio_name = nil
+	-- truster
+	obj.is_available_thruster = false
+	obj.engine_component_name_list = {}
+	obj.engine_offset_list = {}
+	obj.thruster_fx_name_list = {}
+	obj.thruster_offset_list = {}
+	obj.engine_components = {}
+	obj.thruster_fxs = {}
+	obj.thruster_angle = 0
+	obj.thruster_angle_max = 0
 	return setmetatable(obj, self)
 end
 
@@ -97,6 +110,11 @@ function AV:Init()
 	self.is_enable_manual_speed_meter = self.all_models[index].manual_speed_meter
 	self.is_enable_manual_rpm_meter = self.all_models[index].manual_rpm_meter
 	self.is_armed = self.all_models[index].armed
+	self.engine_component_name_list = self.all_models[index].engine_component_name
+	self.engine_offset_list = self.all_models[index].engine_component_offset
+	self.thruster_fx_name_list = self.all_models[index].thruster_fx_name
+	self.thruster_offset_list = self.all_models[index].thruster_fx_offset
+	self.thruster_angle_max = self.all_models[index].thruster_angle_max
 	self.position_obj:SetModel(index)
 
 	-- read autopilot profile
@@ -189,6 +207,13 @@ function AV:Spawn(position, angle)
 			self.landing_vfx_component = entity:FindComponentByName("LandingVFXSlot")
 			self.position_obj:SetEntity(entity)
 			self.engine_obj:Init(self.entity_id)
+			Cron.After(0.5, function()
+				if self:SetThrusterComponent() then
+					self.is_available_thruster = true
+				else
+					self.is_available_thruster = false
+				end
+			end)
 			Cron.Halt(timer)
 		end
 	end)
@@ -604,6 +629,9 @@ function AV:Operate(action_commands)
 	end
 
 	self.engine_obj:AddLinelyVelocity(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
+	if not self.is_auto_pilot then
+		self:MoveThruster(action_commands)
+	end
 
 	return true
 
@@ -763,9 +791,6 @@ function AV:AutoPilot()
 									break
 								end
 							end
-						end
-						if not is_wall then
-							break
 						end
 						if not is_wall then
 							break
@@ -1038,6 +1063,13 @@ end
 function AV:ChangeAppearance(type)
 	-- self.position_obj.entity:PrefetchAppearanceChange(type)
 	self.position_obj.entity:ScheduleAppearanceChange(type)
+	Cron.After(0.1, function()
+		if self:SetThrusterComponent() then
+			self.is_available_thruster = true
+		else
+			self.is_available_thruster = false
+		end
+	end)
 end
 
 ---@param position Vector4
@@ -1060,6 +1092,121 @@ function AV:ProjectLandingWarning(on)
 			self.is_landing_projection = false
 		end
 	end
+
+end
+
+function AV:SetThrusterComponent()
+
+	if self.engine_obj.flight_mode == Def.FlightMode.Helicopter then
+		return false
+	end 
+
+	self.engine_components = {}
+	self.thruster_fxs = {}
+
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
+		return false
+	end
+
+	for pos, component_name in pairs(self.engine_component_name_list) do
+		self.engine_components[pos] = entity:FindComponentByName(component_name)
+		if self.engine_components[pos] == nil then
+			self.log_obj:Record(LogLevel.Warning, "No thruster component : " .. component_name)
+			return false
+		end
+		self.engine_components[pos]:SetLocalPosition(Vector4.new(self.engine_offset_list[pos].x, self.engine_offset_list[pos].y, self.engine_offset_list[pos].z, 1))
+	end
+
+	for pos, thruster_name in pairs(self.thruster_fx_name_list) do
+		self.thruster_fxs[pos] = entity:FindComponentByName(thruster_name)
+		if self.thruster_fxs[pos] == nil then
+			self.log_obj:Record(LogLevel.Warning, "No thruster fx : " .. thruster_name)
+			return false
+		end
+		self.thruster_fxs[pos]:SetLocalPosition(Vector4.new(self.thruster_offset_list[pos].x, self.thruster_offset_list[pos].y, self.thruster_offset_list[pos].z, 1))
+	end
+
+	return true
+
+end
+
+function AV:MoveThruster(action_commands)
+
+	if self.thruster_angle > self.thruster_angle_restore then
+		self.thruster_angle = self.thruster_angle - self.thruster_angle_restore
+	elseif self.thruster_angle < -self.thruster_angle_restore then
+		self.thruster_angle = self.thruster_angle + self.thruster_angle_restore
+	else
+		self.thruster_angle = 0
+	end
+
+	if not self.is_available_thruster then
+		return false
+	end
+
+	for _, action_command in ipairs(action_commands) do
+		if action_command == Def.ActionList.Forward then
+			self.thruster_angle = self.thruster_angle - self.thruster_angle_step
+		elseif action_command == Def.ActionList.Backward then
+			self.thruster_angle = self.thruster_angle + self.thruster_angle_step
+		end
+	end
+
+	if self.thruster_angle > self.thruster_angle_max then
+		self.thruster_angle = self.thruster_angle_max
+	elseif self.thruster_angle < -self.thruster_angle_max then
+		self.thruster_angle = -self.thruster_angle_max
+	end
+
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
+		return false
+	end
+
+	local angle = EulerAngles.new(0, self.thruster_angle, 0)
+
+	for _, component in pairs(self.engine_components) do
+		component:SetLocalOrientation(angle:ToQuat())
+	end
+
+	for _, thruster in pairs(self.thruster_fxs) do
+		thruster:SetLocalOrientation(angle:ToQuat())
+	end
+
+end
+
+function AV:ToggleThruster(on)
+
+	if not self.is_available_thruster then
+		return false
+	end
+
+	if on then
+		GameObjectEffectHelper.StartEffectEvent(self.position_obj.entity, CName.new("thrusters"))
+	else
+		GameObjectEffectHelper.StopEffectEvent(self.position_obj.entity, CName.new("thrusters"))
+	end
+
+	return true
+
+end
+
+function AV:ToggleHeliThruster(on)
+
+	if self.engine_obj.flight_mode ~= Def.FlightMode.Helicopter then
+		return false
+	end
+
+	if on then
+		GameObjectEffectHelper.StartEffectEvent(self.position_obj.entity, CName.new("thruster"))
+	else
+		GameObjectEffectHelper.StopEffectEvent(self.position_obj.entity, CName.new("thruster"))
+	end
+
+	return true
 
 end
 
