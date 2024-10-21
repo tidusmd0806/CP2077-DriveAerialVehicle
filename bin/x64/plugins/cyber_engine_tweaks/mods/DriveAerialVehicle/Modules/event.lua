@@ -375,6 +375,7 @@ function Event:CheckDestroyed()
         self.sound_obj:ResetSoundResource()
         self.sound_obj:Mute()
         self.av_obj:ProjectLandingWarning(false)
+        self.av_obj:ToggleThruster(false)
         self.hud_obj:HideChoice()
         if self.av_obj.engine_obj.fly_av_system ~= nil then
             self.av_obj.engine_obj.fly_av_system:EnableGravity(true)
