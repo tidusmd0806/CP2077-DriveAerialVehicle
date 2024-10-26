@@ -221,6 +221,19 @@ function HUD:SetVisiblePhoneSlot(is_visible)
     self.hud_phone_controller:GetRootCompoundWidget():SetVisible(is_visible)
 end
 
+function HUD:ForceShowMeter()
+
+    if self.hud_car_controller == nil then
+        self.log_obj:Record(LogLevel.Error, "hud_car_controller is nil")
+        self.is_active_hp_display = false
+        return false
+    end
+
+    self.hud_car_controller:ShowRequest()
+    self.hud_car_controller:OnCameraModeChanged(true)
+
+end
+
 function HUD:CreateHPDisplay()
 
     if self.hud_car_controller == nil then

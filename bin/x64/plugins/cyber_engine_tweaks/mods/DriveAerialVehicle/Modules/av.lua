@@ -24,6 +24,7 @@ function AV:New(all_models)
 	obj.spawn_wait_count = 150
 	obj.down_time_count = 200
 	obj.land_offset = -1.0
+	obj.avoid_stick_on_ground_time = 5
 	-- autopiolt
 	obj.profile_path = "Data/autopilot_profile.json"
 	obj.destination_range = 3
@@ -78,6 +79,7 @@ function AV:New(all_models)
 	obj.is_enable_landing_vfx = false
 	obj.landing_vfx_component = nil
 	obj.is_landing_projection = false
+	obj.destroy_app = nil
 	-- audio
 	obj.engine_audio_name = nil
 	-- truster
@@ -115,6 +117,7 @@ function AV:Init()
 	self.thruster_fx_name_list = self.all_models[index].thruster_fx_name
 	self.thruster_offset_list = self.all_models[index].thruster_fx_offset
 	self.thruster_angle_max = self.all_models[index].thruster_angle_max
+	self.destroy_app = self.all_models[index].destroy_app
 	self.position_obj:SetModel(index)
 
 	-- read autopilot profile
@@ -496,7 +499,8 @@ function AV:Mount()
 				self:Operate({Def.ActionList.HDown})
 			end
 		end
-		if timer.tick > 10 then
+		if timer.tick > self.avoid_stick_on_ground_time then
+			self.log_obj:Record(LogLevel.Info, "End to avoid stick on ground")
 			Cron.Halt(timer)
 		end
 	end)
@@ -514,37 +518,12 @@ function AV:Unmount()
 	self.is_unmounting = true
 
 	self.camera_obj:ResetPerspective()
-	-- self.camera_obj:ChangePosition(Def.CameraDistanceLevel.Fpp)
 
-	-- local seat_number = self.seat_index
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to unmount")
 		self.is_unmounting = false
 		return false
 	end
-	-- local entity = Game.FindEntityByID(self.entity_id)
-	-- local player = Game.GetPlayer()
-	-- local ent_id = entity:GetEntityID()
-	-- local seat = self.active_seat[seat_number]
-
-	-- local mount_data = MountEventData.new()
-	-- mount_data.isInstant = false
-	-- mount_data.slotName = seat
-	-- mount_data.removePitchRollRotationOnDismount = true
-	-- mount_data.allowFailsafeTeleport = true
-	-- mount_data.isCarrying = false
-
-	-- local slot_id = MountingSlotId.new()
-	-- slot_id.id = seat
-
-	-- local mounting_info = MountingInfo.new()
-	-- mounting_info.childId = player:GetEntityID()
-	-- mounting_info.parentId = ent_id
-	-- mounting_info.slotId = slot_id
-
-	-- local mount_event = UnmountingRequest.new()
-	-- mount_event.lowLevelMountingInfo = mounting_info
-	-- mount_event.mountData = mount_data
 
 	if self.is_crystal_dome then
 		self:ControlCrystalDome()
@@ -560,7 +539,6 @@ function AV:Unmount()
 	Cron.After(unmount_wait_time, function()
 
 		self.log_obj:Record(LogLevel.Trace, "Unmount Aerial Vehicle : " .. self.seat_index)
-		-- Game.GetMountingFacility():Unmount(mount_event)
 
 		-- set entity id to position object
 		Cron.Every(0.01, {tick = 1}, function(timer)
@@ -688,7 +666,6 @@ function AV:AutoPilot()
 	self.autopilot_vertical_sign = 0
 	self.auto_speed_reduce_rate = 1
 	self.pre_speed_list = {x = 0, y = 0, z = 0}
-	self.pre_search_angle = 0
 
 	-- autopilot loop
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
@@ -708,6 +685,8 @@ function AV:AutoPilot()
 		current_position = self.position_obj:GetPosition()
 		local dest_dir_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
 		if self.autopilot_is_only_horizontal then
+			dest_dir_vector.z = 0
+		elseif dest_dir_vector.z < 0 then
 			dest_dir_vector.z = 0
 		end
 		self.dest_dir_vector_norm = Vector4.Length2D(dest_dir_vector)
@@ -750,7 +729,7 @@ function AV:AutoPilot()
 					self.search_range = self.autopilot_searching_step
 				end
 				for i = 1, 2 do
-					local search_angle_step = 5
+					local search_angle_step = 6
 					local min_search_angle = 90 * (i - 1)
 					local max_search_angle = 90 * (i - 1) + 90 - search_angle_step
 					for _, swing in ipairs({"Down", "Left", "Right", "Up"}) do
@@ -762,14 +741,20 @@ function AV:AutoPilot()
 						if swing == "Down" or swing == "Up" then
 							swing_direction = "Vertical"
 						end
+						local find_angle = 0
 						for search_angle = min_search_angle, max_search_angle, search_angle_step do
-							if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0 and search_angle <= 90) or (swing_direction == "Vertical" and self.autopilot_vertical_sign * sign >= 0 and search_angle * sign >= -90 ) then
+							if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0 and search_angle < 90) or (swing_direction == "Vertical" and self.autopilot_vertical_sign * sign >= 0 and search_angle * sign > -90 ) then
 								if search_angle == 0 then
-									res, vec = self.position_obj:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction)
+									res, vec = self.position_obj:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction, true)
 								else
-									res, vec = self.position_obj:IsWall(dest_dir_2d, self.search_range, sign * search_angle, swing_direction)
+									local is_check_exception_area = true
+									if swing_direction == "Vertical" and search_angle * sign >= 90 then
+										is_check_exception_area = false
+									end
+									res, vec = self.position_obj:IsWall(dest_dir_2d, self.search_range, sign * search_angle, swing_direction, is_check_exception_area)
 								end
 								if not res then
+									find_angle = search_angle
 									is_wall = false
 									search_vec = vec
 									self.autopilot_angle = sign * search_angle
@@ -782,17 +767,24 @@ function AV:AutoPilot()
 											self.autopilot_vertical_sign = sign
 										end
 									end
-									if self.pre_search_angle < search_angle * sign then
-										self.auto_speed_reduce_rate = 1 - (search_angle * sign - self.pre_search_angle) / 270
-									else
-										self.auto_speed_reduce_rate = 1 - (self.pre_search_angle - search_angle * sign) / 270
-									end
-									self.pre_search_angle = search_angle * sign
 									break
 								end
 							end
 						end
 						if not is_wall then
+							local find_angle_abs = math.abs(find_angle)
+							if find_angle_abs < 30 then
+								self:MoveThruster({Def.ActionList.Forward})
+							else
+								self:MoveThruster({Def.ActionList.Nothing})
+							end
+							self.auto_speed_reduce_rate = (90 - find_angle_abs) / 90
+							if self.auto_speed_reduce_rate < self.autopilot_min_speed_rate then
+								self.auto_speed_reduce_rate = self.autopilot_min_speed_rate
+							end
+							if find_angle_abs == 90 then
+								self.auto_speed_reduce_rate = 1
+							end
 							break
 						end
 					end
@@ -872,18 +864,24 @@ function AV:AutoPilot()
 		roll_diff = roll_diff - current_angle.roll * self.autopilot_angle_restore_rate
 		pitch_diff = pitch_diff - current_angle.pitch * self.autopilot_angle_restore_rate
 
-		-- helicopter angle
-		if self.engine_obj.flight_mode == Def.FlightMode.Helicopter and math.abs(current_angle.roll) < self.engine_obj.max_roll * 0.5 and math.abs(current_angle.pitch) < self.engine_obj.max_pitch * 0.5 then
-			local forward = vehicle_angle
-			local dir = direction_vector
-			forward.z = 0
-			dir.z = 0
-			local forward_base_vec = Vector4.Normalize(forward)
-			local direction_base_vec = Vector4.Normalize(dir)
-			local between_angle = Vector4.GetAngleDegAroundAxis(forward_base_vec, direction_base_vec, Vector4.new(0, 0, 1, 1))
-			local between_angle_rad = math.rad(between_angle)
+		-- roll and pitch control
+		local forward = vehicle_angle
+		local dir = direction_vector
+		forward.z = 0
+		dir.z = 0
+		local forward_base_vec = Vector4.Normalize(forward)
+		local direction_base_vec = Vector4.Normalize(dir)
+		local between_angle = 0
+		if not direction_base_vec:IsXYZZero() then
+			between_angle = Vector4.GetAngleDegAroundAxis(forward_base_vec, direction_base_vec, Vector4.new(0, 0, 1, 1))
+		end
+		local between_angle_rad = math.rad(between_angle)
+		if math.abs(current_angle.roll) < self.engine_obj.max_roll * 0.5 and math.abs(current_angle.pitch) < self.engine_obj.max_pitch * 0.5 then
+			-- helicopter pitch control
+			if self.engine_obj.flight_mode == Def.FlightMode.Helicopter then
+				pitch_diff = pitch_diff - math.cos(between_angle_rad) * 0.5 * (1 - math.abs(current_angle.pitch) / (self.engine_obj.max_pitch * 0.5))
+			end
 			roll_diff = roll_diff - math.sin(between_angle_rad) * 0.5 * (1 - math.abs(current_angle.roll) / (self.engine_obj.max_roll * 0.5))
-			pitch_diff = pitch_diff - math.cos(between_angle_rad) * 0.5 * (1 - math.abs(current_angle.pitch) / (self.engine_obj.max_pitch * 0.5))
 		end
 
 		self.log_obj:Record(LogLevel.Debug, "AutoPilot Move : " .. fix_direction_vector.x .. ", " .. fix_direction_vector.y .. ", " .. fix_direction_vector.z .. ", " .. roll_diff .. ", " .. pitch_diff .. ", " .. yaw_diff_half)
@@ -969,6 +967,9 @@ function AV:AutoLeaving(dist_vector, height)
 			end)
 			Cron.Halt(timer)
 		end
+
+		self:MoveThruster({Def.ActionList.Nothing})
+
 	end)
 end
 
@@ -1014,6 +1015,9 @@ function AV:AutoLanding(height)
 			self:SeccessAutoPilot()
 			Cron.Halt(timer)
 		end
+
+		self:MoveThruster({Def.ActionList.Nothing})
+
 	end)
 
 end
@@ -1053,15 +1057,17 @@ function AV:ReloadAutopilotProfile()
 end
 
 function AV:ToggleRadio()
+
 	if self.position_obj.entity:IsRadioReceiverActive() then
 		self.position_obj.entity:NextRadioReceiverStation()
 	else
 		self.position_obj.entity:ToggleRadioReceiver(true)
 	end
+
 end
 
 function AV:ChangeAppearance(type)
-	-- self.position_obj.entity:PrefetchAppearanceChange(type)
+
 	self.position_obj.entity:ScheduleAppearanceChange(type)
 	Cron.After(0.1, function()
 		if self:SetThrusterComponent() then
@@ -1070,6 +1076,7 @@ function AV:ChangeAppearance(type)
 			self.is_available_thruster = false
 		end
 	end)
+
 end
 
 ---@param position Vector4
@@ -1205,6 +1212,25 @@ function AV:ToggleHeliThruster(on)
 	else
 		GameObjectEffectHelper.StopEffectEvent(self.position_obj.entity, CName.new("thruster"))
 	end
+
+	return true
+
+end
+
+function AV:SetDestroyAppearance()
+
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to set destroy appearance")
+		return false
+	end
+
+	if self.destroy_app == nil then
+		self.log_obj:Record(LogLevel.Warning, "No destroy appearance")
+		return false
+	end
+
+	self:ChangeAppearance(self.destroy_app)
 
 	return true
 

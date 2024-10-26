@@ -127,18 +127,15 @@ function Event:SetOverride()
             end
             return veh_unmount_pos
         else
-            return wrapped_method(isPlayer, mountedObject, checkSpecificDirection)
+            local success, result = pcall(function()
+                local result = wrapped_method(isPlayer, mountedObject, checkSpecificDirection)
+                return result
+            end)
+            if not success then
+                self.log_obj:Record(LogLevel.Debug, result)
+            end
         end
     end)
-
-    Override("VehicleEventsTransition", "HandleExitRequest", function(this, timeDelta, stateContext, scriptInterface, wrappedMethod)
-        if self:IsInVehicle() and Game.GetPlayer():PSIsInDriverCombat() then
-            return false
-        end
-        local result = wrappedMethod(timeDelta, stateContext, scriptInterface)
-        return result
-    end)
-
 
 end
 
@@ -284,6 +281,7 @@ function Event:CheckInAV()
             self.hud_obj:EnableManualMeter(false, self.av_obj.is_enable_manual_rpm_meter)
             self.is_keyboard_input_prev = DAV.is_keyboard_input
             Cron.After(1.5, function()
+                self.hud_obj:ForceShowMeter()
                 self.hud_obj:ShowLeftBottomHUD()
                 self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
             end)
@@ -313,7 +311,7 @@ function Event:CheckHUD()
         self.hud_obj:SetHPDisplay()
     end)
     if not success then
-    self.log_obj:Record(LogLevel.Critical, result)
+        self.log_obj:Record(LogLevel.Critical, result)
     end
     if self:IsAutoMode() then
         self.hud_obj:ToggleOriginalMPHDisplay(true)
@@ -367,11 +365,11 @@ end
 
 function Event:CheckDestroyed()
     if self.av_obj:IsDestroyed() then
+        self.log_obj:Record(LogLevel.Info, "Destroyed detected")
         if self.current_situation == Def.Situation.InVehicle then
             self.hud_obj:HideCustomHint()
             self.av_obj:Unmount()
         end
-        self.log_obj:Record(LogLevel.Trace, "Destroyed detected")
         self.sound_obj:ResetSoundResource()
         self.sound_obj:Mute()
         self.av_obj:ProjectLandingWarning(false)
@@ -380,6 +378,7 @@ function Event:CheckDestroyed()
         if self.av_obj.engine_obj.fly_av_system ~= nil then
             self.av_obj.engine_obj.fly_av_system:EnableGravity(true)
         end
+        self.av_obj:SetDestroyAppearance()
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
     end
@@ -387,7 +386,7 @@ end
 
 function Event:CheckDespawn()
     if self.av_obj:IsDespawned() then
-        self.log_obj:Record(LogLevel.Trace, "Despawn detected")
+        self.log_obj:Record(LogLevel.Info, "Despawn detected")
         self.sound_obj:Mute()
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()

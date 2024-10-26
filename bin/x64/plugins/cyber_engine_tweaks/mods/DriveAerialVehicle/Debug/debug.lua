@@ -458,37 +458,8 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
-        local entity = DAV.core_obj.av_obj.position_obj.entity
-        print(entity:GetEntityID())
-        local comps = entity:GetComponents()
-        for _, comp in pairs(comps) do
-            print(comp:GetClassName())
-            print(comp.name.value)
-            if comp.name.value == "av_zetatech_valgus__ext01_rotor_01" then
-                print("Find Engine")
-                print(comp.parentTransform.enabled)
-                local pt = comp.parentTransform
-                pt.enabled = false
-                comp:RefreshAppearance()
-            end
-        end
+        DAV.core_obj.event_obj.hud_obj:ForceShowMeter()
         print("Excute Test Function 5")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF6") then
-        GameObjectEffectHelper.StopEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("thrusters"))
-        GameObjectEffectHelper.StopEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("thruster"))
-        -- GameObjectEffectHelper.StopEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("rotor"))
-
-        -- self.light:LoadAppearance()
-        print("Excute Test Function 6")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF7") then
-        GameObjectEffectHelper.StartEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("thrusters"))
-        GameObjectEffectHelper.StartEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("thruster"))
-        -- GameObjectEffectHelper.StartEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("rotor"))
-        print("Excute Test Function 7")
     end
 end
 

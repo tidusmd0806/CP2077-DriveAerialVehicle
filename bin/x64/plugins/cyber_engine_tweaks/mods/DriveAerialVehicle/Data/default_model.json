@@ -91,7 +91,8 @@
         "engine_component_offset" : {"fl": {"x": 0, "y": 0, "z": 0}, "fr": {"x": 0, "y": 0, "z": 0}, "bl": {"x": 0, "y": 0, "z": 0}, "br": {"x": 0, "y": 0, "z": 0}},
         "thruster_fx_name" : {"fl": "fx_slot_thrustersFL", "fr": "fx_slot_thrustersFR", "bl": "fx_slot_thrustersBL", "br": "fx_slot_thrustersBR"},
         "thruster_fx_offset" : {"fl": {"x": -2.0, "y": 3.4, "z": 0}, "fr": {"x": 2.1, "y": 3.0, "z": 0}, "bl": {"x": -2.1, "y": -3.0, "z": 0}, "br": {"x": 2.1, "y": -3.0, "z": 0}},
-        "thruster_angle_max" : 30.0
+        "thruster_angle_max" : 30.0,
+        "destroy_app": "burnt"
     },
     {
         "name": "Zetatech Atlus",
@@ -225,7 +226,8 @@
         "manual_speed_meter": false,
         "manual_rpm_meter": true,
         "autopilot_prevention_length": 6.0,
-        "armed": false
+        "armed": false,
+        "destroy_app": "valgus_rusted"
     },
     {
         "name": "Militech Mayhem",
@@ -264,6 +266,7 @@
         "manual_speed_meter": false,
         "manual_rpm_meter": true,
         "autopilot_prevention_length": 6.0,
-        "armed": true
+        "armed": true,
+        "destroy_app": "valgus_rusted"
     }
 ]

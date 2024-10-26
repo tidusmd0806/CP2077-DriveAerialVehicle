@@ -88,7 +88,7 @@ function Position:GetHeight()
     return self:GetPosition().z - self:GetGroundPosition()
 end
 
-function Position:IsWall(dir_vec, distance, angle, swing_direction)
+function Position:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception_area)
     local dir_base_vec = Vector4.Normalize(dir_vec)
     local up_vec = Vector4.new(0, 0, 1, 1)
     local right_vec = Vector4.Cross(dir_base_vec, up_vec)
@@ -113,14 +113,25 @@ function Position:IsWall(dir_vec, distance, angle, swing_direction)
                     end
                 end
                 -- check exception area
-                local is_exception, tag, _ = self:IsInExceptionArea(Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0))
-                if is_exception then
-                    self.log_obj:Record(LogLevel.Trace, "Exception Area Detected: " .. tag)
-                    return true, search_vec
+                if is_check_exception_area then
+                    local is_exception, tag, _ = self:IsInExceptionArea(Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0))
+                    if is_exception then
+                        self.log_obj:Record(LogLevel.Trace, "Exception Area Detected: " .. tag)
+                        return true, search_vec
+                    end
                 end
             end
         end
     end
+    -- check exception area here
+    if is_check_exception_area then
+        local is_exception, tag, _ = self:IsInExceptionArea(self:GetPosition())
+        if is_exception then
+            self.log_obj:Record(LogLevel.Trace, "Here is Exception Area: " .. tag)
+            return true, search_vec
+        end
+    end
+
     return false, search_vec
 end
 
