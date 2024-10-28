@@ -266,7 +266,7 @@ function Core:SetInputListener()
     local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
     local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
-    local exception_in_combat_list = Utils:ReadJson("Data/exception_in_combat_input.json")
+    -- local exception_in_combat_list = Utils:ReadJson("Data/exception_in_combat_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
 
@@ -279,27 +279,18 @@ function Core:SetInputListener()
         local action_value = action:GetValue(action)
 
         if self.event_obj:IsInVehicle() then
-            if Game.GetPlayer():PSIsInDriverCombat() then
-                for _, exception in pairs(exception_in_combat_list) do
+            for _, exception in pairs(exception_in_veh_list) do
+                if action_name == exception then
+                    consumer:Consume()
+                    break
+                end
+            end
+            if not Game.GetPlayer():PSIsInDriverCombat() and not self.av_obj:IsMountedCombatSeat() then
+                -- block combat seat action
+                for _, exception in pairs(exception_in_popup_list) do
                     if action_name == exception then
                         consumer:Consume()
                         break
-                    end
-                end
-            else
-                for _, exception in pairs(exception_in_veh_list) do
-                    if action_name == exception then
-                        consumer:Consume()
-                        break
-                    end
-                end
-                if not self.av_obj:IsMountedCombatSeat() then
-                    -- block combat seat action
-                    for _, exception in pairs(exception_in_popup_list) do
-                        if action_name == exception then
-                            consumer:Consume()
-                            break
-                        end
                     end
                 end
             end
@@ -324,6 +315,15 @@ function Core:SetInputListener()
 
         self:StorePlayerAction(action_name, action_type, action_value)
 
+    end)
+
+    -- Disable Iconic Cyberware
+    Override("PlayerPuppet", "ActivateIconicCyberware", function(this, wrapped_method)
+        if self.event_obj:IsInVehicle() then
+            return
+        else
+            wrapped_method()
+        end
     end)
 
 end
