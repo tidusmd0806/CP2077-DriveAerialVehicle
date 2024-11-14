@@ -114,26 +114,20 @@ function Event:SetOverride()
         end
     end)
 
-    Override("VehicleObject", "CanUnmount", function(this, isPlayer, mountedObject, checkSpecificDirection, wrapped_method)
+    Override("VehicleTransition", "IsUnmountDirectionClosest", function(this, state_context, unmount_direction, wrapped_method)
         if self:IsInVehicle() and not Game.GetPlayer():PSIsInDriverCombat() then
             self.av_obj:Unmount()
-            local veh_unmount_pos = vehicleUnmountPosition.new()
-            if string.find(self.av_obj.active_seat[self.av_obj.seat_index], "left") then
-                veh_unmount_pos.direction = vehicleExitDirection.Left
-            elseif string.find(self.av_obj.active_seat[self.av_obj.seat_index], "right") then
-                veh_unmount_pos.direction = vehicleExitDirection.Right
-            else
-                veh_unmount_pos.direction = vehicleExitDirection.NoDirection
-            end
-            return veh_unmount_pos
+            return true
         else
-            local success, result = pcall(function()
-                local result = wrapped_method(isPlayer, mountedObject, checkSpecificDirection)
-                return result
-            end)
-            if not success then
-                self.log_obj:Record(LogLevel.Debug, result)
-            end
+            return wrapped_method(state_context, unmount_direction)
+        end
+    end)
+
+    Override("VehicleTransition", "IsUnmountDirectionOpposite", function(this, state_context, unmount_direction, wrapped_method)
+        if self:IsInVehicle() and not Game.GetPlayer():PSIsInDriverCombat() then
+            return false
+        else
+            return wrapped_method(state_context, unmount_direction)
         end
     end)
 
