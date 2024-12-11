@@ -461,6 +461,21 @@ function Debug:ImGuiExcuteFunction()
         DAV.core_obj.event_obj.hud_obj:ForceShowMeter()
         print("Excute Test Function 5")
     end
+    ImGui.SameLine()
+    if ImGui.Button("TF6") then
+        GameObjectEffectHelper.StartEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("vapour_spray_interior"))
+        print("Excute Test Function 6")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF7") then
+        GameObjectEffectHelper.StopEffectEvent(DAV.core_obj.av_obj.position_obj.entity, CName.new("vapour_spray_interior"))
+        print("Excute Test Function 7")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF8") then
+        GameObjectEffectHelper.StopEffectEvent(Game.GetPlayer():GetMountedVehicle(), CName.new("explosion"))
+        print("Excute Test Function 8")
+    end
 end
 
 return Debug
