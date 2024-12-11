@@ -373,7 +373,7 @@ RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::PluginInfo* aInfo)
 {
     aInfo->name = L"DAV API";
     aInfo->author = L"tidus";
-    aInfo->version = RED4EXT_SEMVER(2, 2, 2);
+    aInfo->version = RED4EXT_SEMVER(2, 3, 4);
     aInfo->runtime = RED4EXT_RUNTIME_INDEPENDENT;
     aInfo->sdk = RED4EXT_SDK_LATEST;
 }
