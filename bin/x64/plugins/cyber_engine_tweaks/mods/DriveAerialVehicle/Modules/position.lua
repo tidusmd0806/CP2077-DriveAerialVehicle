@@ -14,6 +14,7 @@ function Position:New(all_models)
     obj.dividing_rate = 0.5
     obj.judged_stack_length = 3
     obj.search_distance = 100
+    obj.search_offset = 2
     obj.collision_filters = {"Static", "Terrain", "Water"}
     obj.weak_collision_filters = {"Static", "Terrain"}
     obj.exception_area_path = "Data\\autopilot_exception_area.json"
@@ -75,6 +76,7 @@ end
 
 function Position:GetGroundPosition()
     local current_position = self:GetPosition()
+    current_position.z = current_position.z + self.search_offset
     for _, filter in ipairs(self.collision_filters) do
         local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x, current_position.y, current_position.z - self.search_distance, 1.0), filter, false, false)
         if is_success then

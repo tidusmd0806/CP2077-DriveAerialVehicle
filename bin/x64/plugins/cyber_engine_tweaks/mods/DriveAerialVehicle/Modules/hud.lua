@@ -410,6 +410,10 @@ end
 
 function HUD:HideChoice()
 
+    if self.interaction_hub == nil then
+        return
+    end
+
     self.interaction_hub = nil
 
     local ui_interaction_define = GetAllBlackboardDefs().UIInteractions;

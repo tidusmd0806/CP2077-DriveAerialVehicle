@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.3.4",
+	version = "2.3.5",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -255,10 +255,12 @@ registerForEvent("onHook", function()
             callback = function(event)
                 local key = event:GetKey().value
                 local value = event:GetValue()
-                if key:find("IK_Pad") and math.abs(value) > DAV.axis_dead_zone then
-                    DAV.is_keyboard_input = false
-                else
-                    DAV.is_keyboard_input = true
+                if math.abs(value) > DAV.axis_dead_zone then
+                    if key:find("IK_Pad") then
+                        DAV.is_keyboard_input = false
+                    else
+                        DAV.is_keyboard_input = true
+                    end
                 end
             end
         }
