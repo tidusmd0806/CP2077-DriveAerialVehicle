@@ -319,7 +319,7 @@ end
 
 function AV:LockDoor()
 	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
+		self.log_obj:Record(LogLevel.Warning, "No entity id to change door lock")
 		return false
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
@@ -331,7 +331,7 @@ end
 function AV:DisableAllDoorInteractions()
 
 	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
+		self.log_obj:Record(LogLevel.Warning, "No entity id to change door lock")
 		return false
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
@@ -346,12 +346,12 @@ end
 function AV:GetDoorState(e_veh_door)
 
 	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to get door state")
+		self.log_obj:Record(LogLevel.Trace, "No entity id to get door state")
 		return nil
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to get door state")
+		self.log_obj:Record(LogLevel.Trace, "No entity to get door state")
 		return nil
 	end
 	local vehicle_ps = entity:GetVehiclePS()
@@ -489,22 +489,6 @@ function AV:Mount()
 		self.is_crystal_dome = true
 	end
 
-	Cron.Every(1, {tick=1}, function(timer)
-		timer.tick = timer.tick + 1
-		if self.engine_obj.fly_av_system:IsOnGround() then
-			self.log_obj:Record(LogLevel.Warning, "AV is on ground when mounting. Recovery to fly")
-			if self.engine_obj.flight_mode == Def.FlightMode.AV then
-				self:Operate({Def.ActionList.Down})
-			else
-				self:Operate({Def.ActionList.HDown})
-			end
-		end
-		if timer.tick > self.avoid_stick_on_ground_time then
-			self.log_obj:Record(LogLevel.Info, "End to avoid stick on ground")
-			Cron.Halt(timer)
-		end
-	end)
-
 	return true
 
 end
@@ -591,11 +575,14 @@ end
 function AV:Operate(action_commands)
 
 	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
-	-- self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_commands)
+	self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_commands)
 	for _, action_command in ipairs(action_commands) do
 		if action_command >= Def.ActionList.Enter then
 			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command)
 			return false
+		end
+		if action_command ~= Def.ActionList.Nothing then
+			self.log_obj:Record(LogLevel.Trace, "Operation:" .. action_command)
 		end
 		local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateLinelyVelocity(action_command)
 		x_total = x_total + x
