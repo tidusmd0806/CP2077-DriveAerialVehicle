@@ -5,6 +5,9 @@ local Utils = require("Tools/utils.lua")
 local AV = {}
 AV.__index = AV
 
+--- Constractor.
+---@param all_models table model data
+---@return table instance av instance
 function AV:New(all_models)
 	-- instance --
 	local obj = {}
@@ -95,8 +98,8 @@ function AV:New(all_models)
 	return setmetatable(obj, self)
 end
 
+--- Initialize
 function AV:Init()
-
 	local index = DAV.model_index
 	local type_number = DAV.model_type_index
 	self.vehicle_model_tweakdb_id = self.all_models[index].tweakdb_id
@@ -132,23 +135,26 @@ function AV:Init()
 	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
 	self.autopilot_min_speed_rate = self.autopilot_profile[speed_level].min_speed_rate
 	self.autopilot_is_only_horizontal = self.autopilot_profile[speed_level].is_only_horizontal
-
 end
 
+--- Check if player is mounted.
+---@return boolean
 function AV:IsPlayerIn()
-
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		return false
 	end
 	return entity:IsPlayerMounted()
-
 end
 
+--- Check if AV is spawning.
+---@return boolean
 function AV:IsSpawning()
 	return self.is_spawning
 end
 
+--- Check if AV is destroyed.
+---@return boolean
 function AV:IsDestroyed()
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
@@ -157,6 +163,8 @@ function AV:IsDestroyed()
 	return entity:IsDestroyed()
 end
 
+--- Check if AV is despawned.
+---@return boolean
 function AV:IsDespawned()
 	if Game.FindEntityByID(self.entity_id) == nil then
 		return true
@@ -165,6 +173,8 @@ function AV:IsDespawned()
 	end
 end
 
+--- Check if player is mounted combat seat.
+---@return boolean
 function AV:IsMountedCombatSeat()
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
@@ -182,8 +192,9 @@ function AV:IsMountedCombatSeat()
 	end
 end
 
+--- Spawn AV.
+---@return boolean
 function AV:Spawn(position, angle)
-
 	if self.entity_id ~= nil then
 		self.log_obj:Record(LogLevel.Info, "Entity already spawned")
 		return false
@@ -222,11 +233,10 @@ function AV:Spawn(position, angle)
 	end)
 
 	return true
-
 end
 
+--- Spawn AV at sky.
 function AV:SpawnToSky()
-
 	local position = self.position_obj:GetSpawnPosition(self.spawn_distance, 0.0)
 	position.z = position.z + self.spawn_high
 	local angle = self.position_obj:GetSpawnOrientation(90.0)
@@ -250,11 +260,11 @@ function AV:SpawnToSky()
 			end
 		end
 	end)
-
 end
 
+--- Despawn AV.
+---@return boolean
 function AV:Despawn()
-
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to despawn")
 		return false
@@ -263,11 +273,10 @@ function AV:Despawn()
 	entity_system:DeleteEntity(self.entity_id)
 	self.entity_id = nil
 	return true
-
 end
 
+--- Despawn AV when it is on ground.
 function AV:DespawnFromGround()
-
 	Cron.Every(0.01, { tick = 1 }, function(timer)
 		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			timer.tick = timer.tick + 1
@@ -280,11 +289,11 @@ function AV:DespawnFromGround()
 			end
 		end
 	end)
-
 end
 
+--- Toggle crystal dome ON/OFF.
+---@return boolean
 function AV:ToggleCrystalDome()
-
 	local entity = Game.FindEntityByID(self.entity_id)
 	local effect_name
 	if entity == nil then
@@ -303,9 +312,10 @@ function AV:ToggleCrystalDome()
 	end
 	GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
 	return true
-
 end
 
+--- (Unused) Unlock all doors.
+---@return boolean
 function AV:UnlockDoor()
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
@@ -317,6 +327,8 @@ function AV:UnlockDoor()
 	return true
 end
 
+--- (Unused) Lock all doors.
+---@return boolean
 function AV:LockDoor()
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity id to change door lock")
@@ -328,8 +340,9 @@ function AV:LockDoor()
 	return true
 end
 
+--- Disable all door interactions for preventing unexpected mounting.
+---@return boolean
 function AV:DisableAllDoorInteractions()
-
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity id to change door lock")
 		return false
@@ -338,13 +351,12 @@ function AV:DisableAllDoorInteractions()
 	local vehicle_ps = entity:GetVehiclePS()
 	vehicle_ps:DisableAllVehInteractions()
 	return true
-
 end
 
+--- Get door state.
 ---@param e_veh_door EVehicleDoor
 ---@return VehicleDoorState
 function AV:GetDoorState(e_veh_door)
-
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Trace, "No entity id to get door state")
 		return nil
@@ -356,13 +368,12 @@ function AV:GetDoorState(e_veh_door)
 	end
 	local vehicle_ps = entity:GetVehiclePS()
 	return vehicle_ps:GetDoorState(e_veh_door)
-
 end
 
+--- Change door state.
 ---@param door_state Def.DoorOperation
 ---@return boolean
 function AV:ChangeDoorState(door_state, door_name_list)
-
 	for _, input_lock in pairs(self.door_input_lock_list) do
 		if input_lock then
 			self.log_obj:Record(LogLevel.Info, "Door input is locked")
@@ -422,11 +433,10 @@ function AV:ChangeDoorState(door_state, door_name_list)
 
 	end
 	return true
-
 end
 
+--- Toggle crystal dome ON/OFF.
 function AV:ControlCrystalDome()
-
 	local e_veh_door = EVehicleDoor.seat_front_left
 	if not self.is_crystal_dome then
 		Cron.Every(1, {tick = 1}, function(timer)
@@ -444,11 +454,11 @@ function AV:ControlCrystalDome()
 	elseif self.is_crystal_dome then
 		self:ToggleCrystalDome()
 	end
-
 end
 
+--- Mount AV.
+---@return boolean
 function AV:Mount()
-
 	self.is_landed = false
 	self.camera_obj:SetPerspective(self.seat_index)
 
@@ -489,12 +499,20 @@ function AV:Mount()
 		self.is_crystal_dome = true
 	end
 
-	return true
+	-- for abort infinite drop
+	Cron.After(0.1, function()
+		if self.engine_obj.fly_av_system:IsOnGround() then
+			self.log_obj:Record(LogLevel.Warning, "Abort infinite drop")
+			self.engine_obj:ChangeLinelyVelocity(0, 0, -10, 0, 0, 0, 0)
+		end
+	end)
 
+	return true
 end
 
+--- Unmount AV.
+---@return boolean
 function AV:Unmount()
-
 	if self.is_unmounting then
 		return false
 	end
@@ -546,20 +564,19 @@ function AV:Unmount()
 		end)
 	end)
 	return true
-
 end
 
+--- Teleport to the next position.
+---@return boolean
 function AV:Move(x, y, z, roll, pitch, yaw)
-
 	if self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) == Def.TeleportResult.Collision then
 		return false
 	end
 	return true
-
 end
 
+--- Teleport to the next position. This function is forced to teleport.
 function AV:ForceMove(x, y, z, roll, pitch, yaw)
-
 	local position = self.position_obj:GetPosition()
 	local angle = self.position_obj:GetEulerAngles()
 	position.x = position.x + x
@@ -569,11 +586,11 @@ function AV:ForceMove(x, y, z, roll, pitch, yaw)
 	angle.pitch = angle.pitch + pitch
 	angle.yaw = angle.yaw + yaw
 	Game.GetTeleportationFacility():Teleport(self.position_obj.entity, position, angle)
-
 end
 
+--- Execute action commands.
+--- @param action_commands table
 function AV:Operate(action_commands)
-
 	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
 	self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_commands)
 	for _, action_command in ipairs(action_commands) do
@@ -599,22 +616,23 @@ function AV:Operate(action_commands)
 	end
 
 	return true
-
 end
 
+--- Set destination by mappin.
 ---@param position Vector4
 function AV:SetMappinDestination(position)
 	self.mappin_destination_position = position
 end
 
+--- Set registered favorite destination.
 ---@param position Vector4
 function AV:SetFavoriteDestination(position)
 	self.favorite_destination_position = position
 end
 
+--- Excute Auto Pilot.
 ---@return boolean
 function AV:AutoPilot()
-
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Start")
 	self.is_auto_pilot = true
 	local destination_position = Vector4.new(0, 0, 0, 1)
@@ -882,13 +900,12 @@ function AV:AutoPilot()
 		self:ForceMove(adjust_x, adjust_y, adjust_z, roll, pitch, yaw)
 	end)
 	return true
-
 end
 
----@param dist_vector Vector4
----@param height number | nil
+--- Excute Leaving when auto pilot is on.
+---@param dist_vector Vector4 vector to destination position
+---@param height number | nil height to end leaving
 function AV:AutoLeaving(dist_vector, height)
-
 	self.is_leaving = true
 
 	local res, _, area_height = self.position_obj:IsInExceptionArea(self.position_obj:GetPosition())
@@ -954,14 +971,13 @@ function AV:AutoLeaving(dist_vector, height)
 			end)
 			Cron.Halt(timer)
 		end
-
 		self:MoveThruster({Def.ActionList.Nothing})
-
 	end)
 end
 
+--- Excute Landing when auto pilot is on.
+--- @param height number height to start landing
 function AV:AutoLanding(height)
-
 	if height <= self.standard_leaving_height then
 		self.log_obj:Record(LogLevel.Info, "AutoPilot Landing : Already Arrived")
 		self.is_landed = true
@@ -1002,34 +1018,33 @@ function AV:AutoLanding(height)
 			self:SeccessAutoPilot()
 			Cron.Halt(timer)
 		end
-
 		self:MoveThruster({Def.ActionList.Nothing})
-
 	end)
-
 end
 
+--- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Success.
 function AV:SeccessAutoPilot()
-
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = false
 	DAV.core_obj:SetAutoPilotHistory()
-
 end
 
+--- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Failed.
 function AV:InterruptAutoPilot()
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = true
 end
 
+--- Set AV.is_failture_auto_pilot and get Failture AutoPilot Flag.
+---@return boolean
 function AV:IsFailedAutoPilot()
 	local is_failture_auto_pilot = self.is_failture_auto_pilot
 	self.is_failture_auto_pilot = false
 	return is_failture_auto_pilot
 end
 
+--- Reload Autopilot Profile from settings file.
 function AV:ReloadAutopilotProfile()
-
 	local speed_level = DAV.user_setting_table.autopilot_speed_level
 	self.autopilot_speed = self.autopilot_profile[speed_level].speed
 	self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
@@ -1040,21 +1055,20 @@ function AV:ReloadAutopilotProfile()
 	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
 	self.autopilot_min_speed_rate = self.autopilot_profile[speed_level].min_speed_rate
 	self.autopilot_is_only_horizontal = self.autopilot_profile[speed_level].is_only_horizontal
-
 end
 
+--- Toggle radio ON or next radioStation.
 function AV:ToggleRadio()
-
 	if self.position_obj.entity:IsRadioReceiverActive() then
 		self.position_obj.entity:NextRadioReceiverStation()
 	else
 		self.position_obj.entity:ToggleRadioReceiver(true)
 	end
-
 end
 
+--- Change appearance.
+---@param type string appearance name
 function AV:ChangeAppearance(type)
-
 	self.position_obj.entity:ScheduleAppearanceChange(type)
 	Cron.After(0.1, function()
 		if self:SetThrusterComponent() then
@@ -1063,18 +1077,19 @@ function AV:ChangeAppearance(type)
 			self.is_available_thruster = false
 		end
 	end)
-
 end
 
----@param position Vector4
+--- Set landing vfx position.
+---@param position Vector4 offset center position
 function AV:SetLandingVFXPosition(position)
 	if self.is_enable_landing_vfx and DAV.user_setting_table.is_enable_landing_vfx then
 		self.landing_vfx_component:SetLocalPosition(position)
 	end
 end
 
+--- Toggle landing warning ON/OFF.
+---@param on boolean
 function AV:ProjectLandingWarning(on)
-
 	if self.is_enable_landing_vfx and DAV.user_setting_table.is_enable_landing_vfx then
 		if on and not self.is_landing_projection then
 			GameObjectEffectHelper.StartEffectEvent(self.position_obj.entity, CName.new("landingWarning"), false)
@@ -1086,14 +1101,14 @@ function AV:ProjectLandingWarning(on)
 			self.is_landing_projection = false
 		end
 	end
-
 end
 
+--- Set thruster component to move its angle.
+---@return boolean
 function AV:SetThrusterComponent()
-
 	if self.engine_obj.flight_mode == Def.FlightMode.Helicopter then
 		return false
-	end 
+	end
 
 	self.engine_components = {}
 	self.thruster_fxs = {}
@@ -1121,13 +1136,13 @@ function AV:SetThrusterComponent()
 		end
 		self.thruster_fxs[pos]:SetLocalPosition(Vector4.new(self.thruster_offset_list[pos].x, self.thruster_offset_list[pos].y, self.thruster_offset_list[pos].z, 1))
 	end
-
 	return true
-
 end
 
+--- Change thruster angle by action commands.
+---@param action_commands table
+---@return boolean
 function AV:MoveThruster(action_commands)
-
 	if self.thruster_angle > self.thruster_angle_restore then
 		self.thruster_angle = self.thruster_angle - self.thruster_angle_restore
 	elseif self.thruster_angle < -self.thruster_angle_restore then
@@ -1169,11 +1184,13 @@ function AV:MoveThruster(action_commands)
 	for _, thruster in pairs(self.thruster_fxs) do
 		thruster:SetLocalOrientation(angle:ToQuat())
 	end
-
+	return true
 end
 
+--- Toggle thruster ON/OFF.
+---@param on boolean
+---@return boolean
 function AV:ToggleThruster(on)
-
 	if not self.is_available_thruster then
 		return false
 	end
@@ -1183,13 +1200,13 @@ function AV:ToggleThruster(on)
 	else
 		GameObjectEffectHelper.StopEffectEvent(self.position_obj.entity, CName.new("thrusters"))
 	end
-
 	return true
-
 end
 
+--- Toggle helicopter thruster ON/OFF.
+---@param on boolean
+---@return boolean
 function AV:ToggleHeliThruster(on)
-
 	if self.engine_obj.flight_mode ~= Def.FlightMode.Helicopter then
 		return false
 	end
@@ -1199,13 +1216,12 @@ function AV:ToggleHeliThruster(on)
 	else
 		GameObjectEffectHelper.StopEffectEvent(self.position_obj.entity, CName.new("thruster"))
 	end
-
 	return true
-
 end
 
+--- Set destroy appearance.
+---@return boolean
 function AV:SetDestroyAppearance()
-
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to set destroy appearance")
@@ -1218,9 +1234,7 @@ function AV:SetDestroyAppearance()
 	end
 
 	self:ChangeAppearance(self.destroy_app)
-
 	return true
-
 end
 
 return AV

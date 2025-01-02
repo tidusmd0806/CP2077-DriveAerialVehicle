@@ -17,6 +17,8 @@ PrintDebugMode = false
 local Log = {}
 Log.__index = Log
 
+--- Constractor
+---@return table
 function Log:New()
     local obj = {}
     obj.setting_level = LogLevel.Info
@@ -24,11 +26,11 @@ function Log:New()
     return setmetatable(obj, self)
 end
 
+--- Set the log level
 ---@param level LogLevel
 ---@param file_name string
 ---@return boolean
 function Log:SetLevel(level, file_name)
-
     if level < 0 or level > 5 or MasterLogLevel ~= LogLevel.Nothing then
         self.setting_level = MasterLogLevel
         self.setting_file_name = "[" .. file_name .. "]"
@@ -38,13 +40,12 @@ function Log:SetLevel(level, file_name)
         self.setting_file_name = "[" .. file_name .. "]"
         return true
     end
-
 end
 
+--- Record a message to the log file
 ---@param level LogLevel
 ---@param message string
 function Log:Record(level, message)
-
     local setting_level = self.setting_level
     if MasterLogLevel > setting_level then
         setting_level = MasterLogLevel
@@ -76,7 +77,6 @@ function Log:Record(level, message)
             print(self.setting_file_name .. "[" .. level_name .."]" .. message)
         end
     end
-
 end
 
 return Log

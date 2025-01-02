@@ -2,6 +2,9 @@ local Utils = require("Tools/utils.lua")
 local Position = {}
 Position.__index = Position
 
+--- Constractor
+---@param all_models table all models data
+---@return table instance position instance
 function Position:New(all_models)
     -- instance --
     local obj = {}
@@ -55,6 +58,8 @@ end
             BDHF is the bottom face           
     ]]
 
+--- Set Model
+---@param index number model index
 function Position:SetModel(index)
     self.local_corners = {
         { x = self.all_models[index].shape.A.x, y = self.all_models[index].shape.A.y, z = self.all_models[index].shape.A.z },
@@ -74,6 +79,8 @@ function Position:SetModel(index)
     self.autopilot_exception_area_list = Utils:ReadJson(self.exception_area_path)
 end
 
+--- Get Ground Position
+---@return number z
 function Position:GetGroundPosition()
     local current_position = self:GetPosition()
     current_position.z = current_position.z + self.search_offset
@@ -86,10 +93,19 @@ function Position:GetGroundPosition()
     return current_position.z - self.search_distance - 1
 end
 
+--- Get Height between ground and vehicle
+---@return number height
 function Position:GetHeight()
     return self:GetPosition().z - self:GetGroundPosition()
 end
 
+--- Check Wall
+---@param dir_vec Vector4 direction vector
+---@param distance number distance
+---@param angle number angle
+---@param swing_direction string "Vertical" or "Horizontal"
+---@param is_check_exception_area boolean
+---@return boolean
 function Position:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception_area)
     local dir_base_vec = Vector4.Normalize(dir_vec)
     local up_vec = Vector4.new(0, 0, 1, 1)
@@ -137,6 +153,8 @@ function Position:IsWall(dir_vec, distance, angle, swing_direction, is_check_exc
     return false, search_vec
 end
 
+--- Set Vehicle Entity
+---@param entity Entity
 function Position:SetEntity(entity)
     if entity == nil then
         self.log_obj:Record(LogLevel.Warning, "Entity is nil for SetEntity")
@@ -144,7 +162,11 @@ function Position:SetEntity(entity)
     self.entity = entity
 end
 
-function Position:ChangeWorldCordinate(basic_vector ,point_list)
+--- Change World Cordinate
+---@param basic_vector Vector4
+---@param point_list Vector4[]
+---@return Vector4[]
+function Position:ChangeWorldCordinate(basic_vector, point_list)
     local quaternion = self:GetQuaternion()
     local result_list = {}
     for i, corner in ipairs(point_list) do
@@ -154,6 +176,8 @@ function Position:ChangeWorldCordinate(basic_vector ,point_list)
     return result_list
 end
 
+--- Get Vehicle Position Vector
+---@return Vector4
 function Position:GetPosition()
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Trace, "No vehicle entity for GetPosition")
@@ -162,6 +186,8 @@ function Position:GetPosition()
     return self.entity:GetWorldPosition()
 end
 
+--- Get Vehicle Forward Vector
+---@return Vector4
 function Position:GetForward()
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetForward")
@@ -170,6 +196,8 @@ function Position:GetForward()
     return self.entity:GetWorldForward()
 end
 
+--- Get Vehicle Right Vector
+---@return Vector4
 function Position:GetRight()
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetRight")
@@ -178,6 +206,8 @@ function Position:GetRight()
     return self.entity:GetWorldRight()
 end
 
+--- Get Vehicle Up Vector
+---@return Vector4
 function Position:GetUp()
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetUp")
@@ -186,6 +216,8 @@ function Position:GetUp()
     return self.entity:GetWorldUp()
 end
 
+--- Get Vehicle Quaternion
+---@return Quaternion
 function Position:GetQuaternion()
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetQuaternion")
@@ -194,6 +226,8 @@ function Position:GetQuaternion()
     return self.entity:GetWorldOrientation()
 end
 
+--- Get Vehicle EulerAngles
+---@return EulerAngles
 function Position:GetEulerAngles()
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetEulerAngles")
@@ -202,22 +236,38 @@ function Position:GetEulerAngles()
     return self.entity:GetWorldOrientation():ToEulerAngles()
 end
 
+--- Get Player Around Direction (for spawn position)
+---@param angle number
 function Position:GetPlayerAroundDirection(angle)
     return Vector4.RotateAxis(Game.GetPlayer():GetWorldForward(), Vector4.new(0, 0, 1, 0), angle / 180.0 * Pi())
 end
 
+--- Get Spawn Position Vector
+---@param distance number
+---@param angle number
+---@return Vector4
 function Position:GetSpawnPosition(distance, angle)
     local pos = Game.GetPlayer():GetWorldPosition()
     local heading = self:GetPlayerAroundDirection(angle)
     return Vector4.new(pos.x + (heading.x * distance), pos.y + (heading.y * distance), pos.z + heading.z, pos.w + heading.w)
 end
 
+--- Get Spawn Orientation Quaternion
+---@param angle number
+---@return Quaternion
 function Position:GetSpawnOrientation(angle)
     return EulerAngles.ToQuat(Vector4.ToRotation(self:GetPlayerAroundDirection(angle)))
 end
 
+--- Set Next Position
+---@param x number
+---@param y number
+---@param z number
+---@param roll number
+---@param pitch number
+---@param yaw number
+---@return integer
 function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
-
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Error, "No vehicle entity for SetNextPosition")
         return Def.TeleportResult.Error
@@ -245,8 +295,9 @@ function Position:SetNextPosition(x, y, z, roll, pitch, yaw)
     end
 end
 
+--- Change Position
+--- @return boolean
 function Position:ChangePosition()
-
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Error, "No vehicle entity for ChangePosition")
         return false
@@ -254,11 +305,12 @@ function Position:ChangePosition()
 
     Game.GetTeleportationFacility():Teleport(self.entity, self.next_position, self.next_angle)
     return true
-
 end
 
+--- Set Position
+---@param position Vector4
+---@param angle EulerAngles
 function Position:SetPosition(position, angle)
-
     if self.entity == nil then
         self.log_obj:Record(LogLevel.Error, "No vehicle entity for ChangePosition")
         return false
@@ -268,8 +320,11 @@ function Position:SetPosition(position, angle)
     return true
 end
 
+--- Check Collision
+---@param current_pos Vector4
+---@param next_pos Vector4
+---@return boolean
 function Position:CheckCollision(current_pos, next_pos)
-
     self.corners = self:ChangeWorldCordinate(current_pos, self.local_corners)
 
     -- Conjecture Direction Norm for Detect Collision
@@ -296,12 +351,16 @@ function Position:CheckCollision(current_pos, next_pos)
     return false
 end
 
+--- This function only returns collision status once.
+---@return boolean
 function Position:IsCollision()
     local collision_status = self.is_collision
     self.is_collision = false
     return collision_status
 end
 
+--- Check Player in Entry Area
+---@return boolean
 function Position:IsPlayerInEntryArea()
     local basic_vector = self:GetPosition()
     if basic_vector:IsZero() then
@@ -326,20 +385,25 @@ function Position:IsPlayerInEntryArea()
     end
 end
 
+--- Get Exit Position Vector
+---@return Vector4
 function Position:GetExitPosition()
     local basic_vector = self:GetPosition()
     return self:ChangeWorldCordinate(basic_vector, {self.exit_point})[1]
 end
 
+--- Check Player in Exception Area
+---@param position Vector4
+---@return boolean is_in_area If or not in exception area
+---@return string tag Tag
+---@return number z max height of exception area
 function Position:IsInExceptionArea(position)
-
     for _, area in ipairs(self.autopilot_exception_area_list) do
         if position.x >= area.min_x and position.x <= area.max_x and position.y >= area.min_y and position.y <= area.max_y and position.z >= area.min_z and position.z <= area.max_z then
             return true, area.tag, area.max_z
         end
     end
     return false, "None", 0
-
 end
 
 return Position

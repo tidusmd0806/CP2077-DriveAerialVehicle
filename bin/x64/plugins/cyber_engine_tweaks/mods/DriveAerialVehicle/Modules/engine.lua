@@ -1,8 +1,11 @@
--- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 Engine = {}
 Engine.__index = Engine
 
+--- Constractor
+--- @param position_obj any Position instance
+--- @param all_models table all models data
+--- @return table
 function Engine:New(position_obj, all_models)
     -- instance --
     local obj = {}
@@ -15,8 +18,6 @@ function Engine:New(position_obj, all_models)
     obj.max_roll = 30
     obj.max_pitch = 30
     obj.force_restore_angle = 70
-    obj.max_speed = 95 -- Cannot take values ​​greater than 100
-    obj.idle_height_offset = 0.8
     obj.rpm_count_step = 4
     obj.rpm_restore_step = 2
     obj.rpm_count_scale = 80
@@ -31,18 +32,27 @@ function Engine:New(position_obj, all_models)
     return setmetatable(obj, self)
 end
 
+--- Initialize
+---@param entity_id EntityID
 function Engine:Init(entity_id)
-
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
-
 end
 
+--- Calculate linely velocity.
+---@param action_command number
+---@return number x
+---@return number y
+---@return number z
+---@return number roll
+---@return number pitch
+---@return number yaw
 function Engine:CalculateLinelyVelocity(action_command)
-
     if action_command == Def.ActionList.Idle then
-        if not self.fly_av_system:HasGravity() then
+        if self.fly_av_system:GetPhysicsState() ~= 0 or not DAV.user_setting_table.is_enable_idle_gravity then
+            self.fly_av_system:EnableGravity(false)
+        elseif not self.fly_av_system:HasGravity() then
             self.fly_av_system:EnableGravity(true)
         end
         self.rpm_count = 0
@@ -68,17 +78,20 @@ function Engine:CalculateLinelyVelocity(action_command)
         return self:CalculateAVMode(action_command)
     elseif self.flight_mode == Def.FlightMode.Helicopter then
         return self:CalculateHelicopterMode(action_command)
+    else
+        self.log_obj:Record(LogLevel.Critical, "Unknown flight mode: " .. self.flight_mode)
+        return 0, 0, 0, 0, 0, 0
     end
-
 end
 
+--- Interface for RED4Ext Plugin. Add linely velocity.
+---@param x number
+---@param y number
+---@param z number
+---@param roll number
+---@param pitch number
+---@param yaw number
 function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
-
-    -- local physics_state = self.fly_av_system:GetPhysicsState()
-    -- if physics_state ~= 0 and physics_state ~= 32 then
-    --     self.position_obj.entity:PhysicsWakeUp()
-    -- end
-
     local vel_vec = self.fly_av_system:GetVelocity()
     local ang_vec = self.fly_av_system:GetAngularVelocity()
     local current_angle = self.position_obj:GetEulerAngles()
@@ -136,7 +149,8 @@ function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
     local current_y = y + vel_vec.y
     local current_z = z + vel_vec.z
     self.current_speed = math.sqrt(current_x * current_x + current_y * current_y + current_z * current_z)
-    if self.current_speed > self.max_speed then
+    local max_speed = (DAV.user_setting_table.max_speed * 1000 + 34867) / 4968 -- Approximate formula
+    if self.current_speed > max_speed then
         x = 0
         y = 0
         z = 0
@@ -155,11 +169,29 @@ function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
     yaw = yaw - ang_vec.z
 
     self.fly_av_system:AddLinelyVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw))
-
 end
 
-function Engine:CalculateAVMode(action_commands)
+--- Change linely velocity of AV.
+---@param x number
+---@param y number
+---@param z number
+---@param roll number
+---@param pitch number
+---@param yaw number
+---@param type number 0: velocity, 1: angle, 2: both
+function Engine:ChangeLinelyVelocity(x, y, z, roll, pitch, yaw, type)
+    self.fly_av_system:ChangeLinelyVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw), type)
+end
 
+--- Calculate velocity for AV mode.
+---@param action_commands Def.ActionList
+---@return number x
+---@return number y
+---@return number z
+---@return number roll
+---@return number pitch
+---@return number yaw
+function Engine:CalculateAVMode(action_commands)
     local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
     local current_angle = self.position_obj:GetEulerAngles()
 
@@ -257,11 +289,17 @@ function Engine:CalculateAVMode(action_commands)
     yaw = yaw + d_yaw
 
     return x, y, z, roll, pitch, yaw
-
 end
 
+--- Calculates the velocity of the helicopter
+---@param action_commands Def.ActionList
+---@return number x
+---@return number y
+---@return number z
+---@return number roll
+---@return number pitch
+---@return number yaw
 function Engine:CalculateHelicopterMode(action_commands)
-
     local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
     local current_angle = self.position_obj:GetEulerAngles()
 
@@ -315,13 +353,9 @@ function Engine:CalculateHelicopterMode(action_commands)
         y = y + acceaeration * forward_vec.y
         z = z + acceaeration * forward_vec.z
     elseif action_commands == Def.ActionList.HUp then
-        -- x = x + ascend_acceleration * up_vec.x
-        -- y = y + ascend_acceleration * up_vec.y
         z = z + ascend_acceleration * up_vec.z
         self.heli_lift_acceleration = self.heli_lift_acceleration + ascend_acceleration
     elseif action_commands == Def.ActionList.HDown then
-        -- x = x + descend_acceleration * up_vec.x
-        -- y = y + descend_acceleration * up_vec.y
         z = z - descend_acceleration * up_vec.z
         self.heli_lift_acceleration = self.heli_lift_acceleration - descend_acceleration
     end
@@ -333,26 +367,34 @@ function Engine:CalculateHelicopterMode(action_commands)
     yaw = yaw + d_yaw
 
     return x, y, z, roll, pitch, yaw
-
 end
 
+--- Calculate velocity for idle mode
+---@return number x
+---@return number y
+---@return number z
+---@return number roll
+---@return number pitch
+---@return number yaw
 function Engine:CalculateIdleMode()
-
     local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
 
-    local vel_vec = self.fly_av_system:GetVelocity()
-    local height = self.position_obj:GetHeight()
-    local dest_height = self.position_obj.minimum_distance_to_ground + self.idle_height_offset
-    z = z - vel_vec.z
-    if height < dest_height then
-        local diff = dest_height - height
-        z = z + diff * diff
+    if self.fly_av_system:GetPhysicsState() == 0 and DAV.user_setting_table.is_enable_idle_gravity then
+        local vel_vec = self.fly_av_system:GetVelocity()
+        local height = self.position_obj:GetHeight()
+        local dest_height = self.position_obj.minimum_distance_to_ground
+        z = z - vel_vec.z
+        if height < dest_height then
+            local diff = dest_height - height
+            z = z + diff * diff
+        end
     end
 
     return x, y, z, roll, pitch, yaw
-
 end
 
+--- Get RPM count
+---@return integer
 function Engine:GetRPMCount()
     return math.floor(self.rpm_count / self.rpm_count_scale)
 end

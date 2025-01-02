@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.3.5",
+	version = "2.4.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -32,10 +32,10 @@ DAV = {
     model_index = 1,
 	model_type_index = 1,
     -- version check
-    cet_required_version = 32.1, -- 1.32.1
-    cet_recommended_version = 32.3, -- 1.32.3
-    codeware_required_version = 8.2, -- 1.8.2
-    codeware_recommended_version = 9.2, -- 1.9.2
+    cet_required_version = 34.0, -- 1.34.0
+    cet_recommended_version = 34.1, -- 1.34.1
+    codeware_required_version = 13.0, -- 1.13.0
+    codeware_recommended_version = 13.0, -- 1.13.0
     native_settings_required_version = 1.96,
     cet_version_num = 0,
     codeware_version_num = 0,
@@ -93,13 +93,16 @@ DAV.user_setting_table = {
     is_enable_history = true,
     --- general
     language_index = 1,
+    is_enable_destruction = true,
     is_enable_landing_vfx = true,
+    is_enable_idle_gravity = true,
     --- input
     keybind_table = DAV.default_keybind_table,
     heli_keybind_table = DAV.default_heli_keybind_table,
     common_keybind_table = DAV.default_common_keybind_table,
     --- physics
     -- common
+    max_speed = 450, -- Cannot take values ​​greater than this one.(MPH)
     horizontal_air_resistance_const = 0.01,
     vertical_air_resistance_const = 0.025,
     -- av
@@ -206,6 +209,9 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_mayhem_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_mayhem_inline0_dav.exitDelay"), 0.8)
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDataPackage"), "Vehicle.av_zetatech_mayhem_inline0_dav")
+
+    -- Destruction Dummy Parameters
+    TweakDB:CreateRecord("Vehicle.VehicleDestructionParamsNoDamage", "gamedataVehicleDestruction_Record")
 
 end)
 

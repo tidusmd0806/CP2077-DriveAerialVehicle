@@ -7,6 +7,9 @@ Utils.log_obj:SetLevel(LogLevel.Info, "Utils")
 READ_COUNT = 0
 WRITE_COUNT = 0
 
+--- Deep Copy a table.
+---@param orig table
+---@return table
 function Utils:DeepCopy(orig)
    local orig_type = type(orig)
    local copy
@@ -22,6 +25,10 @@ function Utils:DeepCopy(orig)
    return copy
 end
 
+--- Check if two tables are equal.
+---@param table1 table
+---@param table2 table
+---@return boolean
 function Utils:IsTablesEqual(table1, table2)
     for key, value in pairs(table1) do
        if value ~= table2[key] then
@@ -38,6 +45,10 @@ function Utils:IsTablesEqual(table1, table2)
     return true
 end
 
+--- Get the key of the value in the table.
+---@param table_ table
+---@param target_value any
+---@return any | nil
 function Utils:GetKeyFromValue(table_, target_value)
    for key, value in pairs(table_) do
        if value == target_value then
@@ -47,6 +58,9 @@ function Utils:GetKeyFromValue(table_, target_value)
    return nil
 end
 
+--- Get the keys of the table.
+---@param table_ table
+---@return table
 function Utils:GetKeys(table_)
    local keys = {}
    for key, _ in pairs(table_) do
@@ -55,6 +69,10 @@ function Utils:GetKeys(table_)
    return keys
 end
 
+--- Scale the values in the list.
+---@param list table
+---@param rate number
+---@return table
 function Utils:ScaleListValues(list, rate)
    local list_ = {}
    for key, value in pairs(list) do
@@ -63,48 +81,10 @@ function Utils:ScaleListValues(list, rate)
    return list_
 end
 
-function Utils:Normalize(v)
-   local norm = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
-   v.x = v.x / norm
-   v.y = v.y / norm
-   v.z = v.z / norm
-   return v
-end
-
-function Utils:GenerateUniformVectorsOnSphere(sample_num, radius)
-   local vectors = {}
-   local golden_angle = Pi() * (3 - math.sqrt(5)) -- golden angle
-
-   local n = sample_num * 2 -- even
-
-   if n < 1 then
-      self.log_obj:Record(LogLevel.Error, "sample_num should be larger than 0")
-      return nil
-   end
-
-   for i = 1, n do
-      local y_ = 1 - (i / n) * 2
-      local r = math.sqrt(1 - y_*y_)
-
-      local theta = golden_angle * i
-
-      local x_ = math.cos(theta) * r
-      local z_ = math.sin(theta) * r
-
-      local Normalized_vector = self:Normalize({x = x_, y = y_, z = z_})
-      local x = Normalized_vector.x * radius
-      local y = Normalized_vector.y * radius
-      local z = Normalized_vector.z * radius
-
-      -- add vector and its opposite
-      table.insert(vectors, Vector4.new(x, y, z, 1))
-      table.insert(vectors, Vector4.new(-x, -y, -z, 1))
-   end
-
-   return vectors
-end
-
--- wheather table2 elements are in table1
+--- Wheather table2 elements are in table1.
+---@param big_table table
+---@param small_table table
+---@return boolean
 function Utils:IsTablesNearlyEqual(big_table, small_table)
    for key, value in pairs(small_table) do
       if value ~= big_table[key] then
@@ -114,26 +94,21 @@ function Utils:IsTablesNearlyEqual(big_table, small_table)
    return true
 end
 
--- y = k(x - a)^2 + b and cross point is (0, c). Calculate Slope.
+--- Calculate Slope.
+--- y = k(x - a)^2 + b and cross point is (0, c).
+---@param a number
+---@param b number
+---@param c number
+---@param x number
+---@return number
 function Utils:CalculationQuadraticFuncSlope(a, b, c, x)
    return 2*(c - b)*(x - a)/(a * a)
 end
 
-function Utils:GetSpecificLogarithmFunction(index)
-   local ratio_list = {0.37, 1.0, 2.72, 7.39, 20.1} -- y=exp(x-1)
-   if index < 1 or index > 5 then
-      return nil
-   end
-   return ratio_list[index]
-end
-
-function Utils:ChangePolarCoordinates(x, y, z)
-   local r = math.sqrt(x*x + y*y + z*z)
-   local theta = math.atan2(y, x) * 180 / Pi()
-   local phi = math.acos(z / r) * 180 / Pi()
-   return r, theta, phi
-end
-
+--- Quaternion Multiply
+---@param q1 table
+---@param q2 table
+---@return table
 function Utils:QuaternionMultiply(q1, q2)
    local r = q1.r*q2.r - q1.i*q2.i - q1.j*q2.j - q1.k*q2.k
    local i = q1.r*q2.i + q1.i*q2.r + q1.j*q2.k - q1.k*q2.j
@@ -142,10 +117,17 @@ function Utils:QuaternionMultiply(q1, q2)
    return {r = r, i = i, j = j, k = k}
 end
 
+--- Quaternion Conjugate
+---@param q table
+---@return table
 function Utils:QuaternionConjugate(q)
    return {r = q.r, i = -q.i, j = -q.j, k = -q.k}
 end
 
+--- Rotate Vector By Quaternion
+---@param v table
+---@param q table
+---@return table
 function Utils:RotateVectorByQuaternion(v, q)
    local q_conj = self:QuaternionConjugate(q)
    local temp = self:QuaternionMultiply({r = 0, i = v.x, j = v.y, k = v.z}, q_conj)
@@ -153,6 +135,7 @@ function Utils:RotateVectorByQuaternion(v, q)
    return {x = result.i, y = result.j, z = result.k}
 end
 
+--- Read json file.
 ---@param fill_path string
 ---@return table | nil
 function Utils:ReadJson(fill_path)
@@ -176,6 +159,7 @@ function Utils:ReadJson(fill_path)
    return result
 end
 
+--- Write json file.
 ---@param fill_path string
 ---@param write_data table
 ---@return boolean
@@ -200,8 +184,17 @@ function Utils:WriteJson(fill_path, write_data)
    return result
 end
 
+--- Calculate rotational speed.
+---@param local_roll number
+---@param local_pitch number
+---@param local_yaw number
+---@param current_roll number
+---@param current_pitch number
+---@param current_yaw number
+---@return number roll
+---@return number pitch
+---@return number yaw
 function Utils:CalculateRotationalSpeed(local_roll, local_pitch, local_yaw, current_roll, current_pitch, current_yaw)
-
    local angle = {roll = current_roll, pitch = current_pitch, yaw = current_yaw}
 
    -- Convert Euler angles to radians
@@ -253,8 +246,15 @@ function Utils:CalculateRotationalSpeed(local_roll, local_pitch, local_yaw, curr
    return new_pitch - angle.pitch, new_roll - angle.roll, new_yaw - angle.yaw
 end
 
+--- Calculate rotational roll speed.
+---@param local_roll number
+---@param current_roll number
+---@param current_pitch number
+---@param current_yaw number
+---@return number roll
+---@return number pitch
+---@return number yaw
 function Utils:CalculateRotationalRollSpeed(local_roll, current_roll, current_pitch, current_yaw)
-
    local local_pitch, local_yaw = 0, 0
    local angle = {roll = current_roll, pitch = current_pitch, yaw = current_yaw}
 

@@ -4,6 +4,8 @@ local Utils = require("Tools/utils.lua")
 local HUD = {}
 HUD.__index = HUD
 
+--- Constractor
+---@return table
 function HUD:New()
     -- instance --
     local obj = {}
@@ -37,8 +39,9 @@ function HUD:New()
     return setmetatable(obj, self)
 end
 
+--- Initialize
+---@param av_obj any AV instance
 function HUD:Init(av_obj)
-
     self.av_obj = av_obj
     self.vehicle_hp = 100
 
@@ -47,11 +50,10 @@ function HUD:Init(av_obj)
         self:SetObserve()
         GameHUD.Initialize()
     end
-
 end
 
+--- Set Override Functions
 function HUD:SetOverride()
-
     if not DAV.is_ready then
         -- Overside choice ui (refer to https://www.nexusmods.com/cyberpunk2077/mods/7299)
         Override("InteractionUIBase", "OnDialogsData", function(_, value, wrapped_method)
@@ -104,14 +106,11 @@ function HUD:SetOverride()
             end
             return result
         end)
-
-
     end
-
 end
 
+--- Set Observe Functions
 function HUD:SetObserve()
-
     if not DAV.is_ready then
         Observe("InteractionUIBase", "OnInitialize", function(this)
             self.interaction_ui_base = this
@@ -152,7 +151,11 @@ function HUD:SetObserve()
                 return
             end
             if this:GetEntity():GetEntityID().hash == self.av_obj.entity_id.hash then
-                self.vehicle_hp = destruction
+                if not DAV.user_setting_table.is_enable_destruction then
+                    self.vehicle_hp = 100
+                else
+                    self.vehicle_hp = destruction
+                end
             end
         end)
 
@@ -178,51 +181,55 @@ function HUD:SetObserve()
             end
         end)
     end
-
 end
 
+--- Show Left Bottom HUD
 function HUD:ShowLeftBottomHUD()
-
     self:SetVisibleConsumeItemSlot(false)
-    -- self:SetVisiblePhoneSlot(false)
     self:CreateHPDisplay()
 
     if self.is_active_hp_display then
         self:SetHPDisplay()
         self.ink_horizontal_panel:SetVisible(true)
     end
-
 end
 
+--- Hide Left Bottom HUD
 function HUD:HideLeftBottomHUD()
-
     self:SetVisibleConsumeItemSlot(true)
-    -- self:SetVisiblePhoneSlot(true)
 
     if self.is_active_hp_display then
         self.ink_horizontal_panel:SetVisible(false)
     end
-
 end
 
+--- Check Consume Item Slot HUD
+---@return boolean
 function HUD:IsVisibleConsumeItemSlot()
     return self.hud_consumable_controller:GetRootCompoundWidget().visible
 end
 
+--- (Unused) Check Phone Slot HUD
+---@return boolean
 function HUD:IsVisiblePhoneSlot()
     return self.hud_phone_controller:GetRootCompoundWidget().visible
 end
 
+--- Set Visible Consume Item Slot
+---@param is_visible boolean
 function HUD:SetVisibleConsumeItemSlot(is_visible)
     self.hud_consumable_controller:GetRootCompoundWidget():SetVisible(is_visible)
 end
 
+--- (Unused) Set Visible Phone Slot
+---@param is_visible boolean
 function HUD:SetVisiblePhoneSlot(is_visible)
     self.hud_phone_controller:GetRootCompoundWidget():SetVisible(is_visible)
 end
 
+--- Show Meter HUD
+---@return boolean
 function HUD:ForceShowMeter()
-
     if self.hud_car_controller == nil then
         self.log_obj:Record(LogLevel.Error, "hud_car_controller is nil")
         self.is_active_hp_display = false
@@ -232,10 +239,12 @@ function HUD:ForceShowMeter()
     self.hud_car_controller:ShowRequest()
     self.hud_car_controller:OnCameraModeChanged(true)
 
+    return true
 end
 
+--- Create HP Display
+---@return boolean
 function HUD:CreateHPDisplay()
-
     if self.hud_car_controller == nil then
         self.log_obj:Record(LogLevel.Error, "hud_car_controller is nil")
         self.is_active_hp_display = false
@@ -290,11 +299,10 @@ function HUD:CreateHPDisplay()
 
     self.is_active_hp_display = true
     return true
-
 end
 
+--- Set HP Display
 function HUD:SetHPDisplay()
-
     local hp_value = self.vehicle_hp
     hp_value = math.floor(hp_value)
     local hp_text
@@ -309,14 +317,17 @@ function HUD:SetHPDisplay()
         return
     end
     self.ink_hp_text:SetText(hp_text)
-
 end
 
+--- Enable Manual Meter
+---@param is_manual_speed boolean
+---@param is_manual_rpm boolean
 function HUD:EnableManualMeter(is_manual_speed, is_manual_rpm)
     self.is_manually_setting_speed = is_manual_speed
     self.is_manually_setting_rpm = is_manual_rpm
 end
 
+--- Set Speed Meter Value
 ---@param speed_value number
 function HUD:SetSpeedMeterValue(speed_value)
     if self.hud_car_controller == nil or not self.is_manually_setting_speed then
@@ -325,6 +336,7 @@ function HUD:SetSpeedMeterValue(speed_value)
     inkTextRef.SetText(self.hud_car_controller.SpeedValue, speed_value)
 end
 
+--- Set RPM Meter Value
 ---@param rpm_value number
 function HUD:SetRPMMeterValue(rpm_value)
     if self.hud_car_controller == nil or not self.is_manually_setting_rpm then
@@ -333,6 +345,8 @@ function HUD:SetRPMMeterValue(rpm_value)
     self.hud_car_controller:EvaluateRPMMeterWidget(rpm_value)
 end
 
+--- Toggle Original MPH Display On/Off
+---@param on boolean
 function HUD:ToggleOriginalMPHDisplay(on)
     if self.hud_car_controller == nil then
         return
@@ -345,13 +359,15 @@ function HUD:ToggleOriginalMPHDisplay(on)
     end
 end
 
+--- Get Choice Title
+--- @return string
 function HUD:GetChoiceTitle()
     local index = DAV.model_index
     return GetLocalizedText("LocKey#" .. tostring(self.av_obj.all_models[index].display_name_lockey))
 end
 
+--- Set Choice List
 function HUD:SetChoiceList()
-
     local model_index = DAV.model_index
     local tmp_list = {}
 
@@ -388,8 +404,9 @@ function HUD:SetChoiceList()
     self.interaction_hub = hub
 end
 
+--- Show Choice
+--- @param selected_index number
 function HUD:ShowChoice(selected_index)
-
     self.selected_choice_index = selected_index
 
     self:SetChoiceList()
@@ -405,11 +422,10 @@ function HUD:ShowChoice(selected_index)
     self.interaction_ui_base:OnInteractionsChanged()
     self.interaction_ui_base:UpdateListBlackboard()
     self.interaction_ui_base:OnDialogsActivateHub(self.interaction_hub.id)
-
 end
 
+--- Hide Choice
 function HUD:HideChoice()
-
     if self.interaction_hub == nil then
         return
     end
@@ -424,9 +440,9 @@ function HUD:HideChoice()
         return
     end
     self.interaction_ui_base:OnDialogsData(data)
-
 end
 
+--- Set Custom Hint
 function HUD:SetCustomHint()
     local flight_mode = self.av_obj.engine_obj.flight_mode
     local is_keyboard_input = DAV.is_keyboard_input
@@ -482,41 +498,60 @@ function HUD:SetCustomHint()
     end
 end
 
+--- Show Custom Hint
 function HUD:ShowCustomHint()
+    if not self.av_obj:IsMountedCombatSeat() then
+        self:DeleteInputHint("DrawWeapon")
+    end
     self:SetCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_show_hint_event)
 end
 
+--- Hide Custom Hint
 function HUD:HideCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_hide_hint_event)
 end
 
+--- Delete Custom Hint
+function HUD:DeleteInputHint(name)
+    local delete_hint_event = DeleteInputHintBySourceEvent.new()
+    delete_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
+    delete_hint_event.source = CName.new(name)
+    Game.GetUISystem():QueueEvent(delete_hint_event)
+end
+
+--- Show Message when auto pilot is on.
 function HUD:ShowAutoModeDisplay()
     local text = GetLocalizedText("LocKey#84945")
     GameHUD.ShowMessage(text)
 end
 
+--- Show Message when drive mode is on.
 function HUD:ShowDriveModeDisplay()
     local text = GetLocalizedText("LocKey#84944")
     GameHUD.ShowMessage(text)
 end
 
+--- Show Message when vehicle is arrived.
 function HUD:ShowArrivalDisplay()
     local text = GetLocalizedText("LocKey#77994")
     GameHUD.ShowMessage(text)
 end
 
+--- Show Message when autopilot is interrupted.
 function HUD:ShowInterruptAutoPilotDisplay()
     local text = GetLocalizedText("LocKey#15321")
     GameHUD.ShowWarning(text, 2)
 end
 
+--- Show Radio Popup
 function HUD:ShowRadioPopup()
     if self.popup_manager ~= nil then
         self.popup_manager:SpawnVehicleRadioPopup()
     end
 end
 
+--- Show Vehicle Manager Popup
 function HUD:ShowVehicleManagerPopup()
     if self.popup_manager ~= nil then
         self.popup_manager:SpawnVehiclesManagerPopup()
