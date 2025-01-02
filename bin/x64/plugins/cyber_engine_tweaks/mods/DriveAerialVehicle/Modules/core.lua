@@ -6,6 +6,8 @@ local Utils = require("Tools/utils.lua")
 local Core = {}
 Core.__index = Core
 
+--- Constractor
+---@return table
 function Core:New()
     -- instance --
     local obj = {}
@@ -36,6 +38,7 @@ function Core:New()
     -- lock
     obj.is_locked_action_in_waiting = false
     obj.is_locked_action_in_vehicle = false
+    obj.is_locked_action_in_combat = false
     -- model table
     obj.all_models = nil
     -- input table
@@ -96,8 +99,8 @@ function Core:New()
     return setmetatable(obj, self)
 end
 
+--- Initialize
 function Core:Init()
-
     self.all_models = self:GetAllModel()
     if self.all_models == nil then
         self.log_obj:Record(LogLevel.Error, "Model is nil")
@@ -129,9 +132,9 @@ function Core:Init()
     self:SetInputListener()
     self:SetMappinController()
     self:SetSummonTrigger()
-
 end
 
+--- Reset AV and Event object.
 function Core:Reset()
     self.av_obj = AV:New(self.all_models)
     self.av_obj:Init()
@@ -140,8 +143,8 @@ function Core:Reset()
     self.current_custom_mappin_position = Vector4.Zero()
 end
 
+--- Load Setting from user_setting.json
 function Core:LoadSetting()
-
     local setting_data = Utils:ReadJson(DAV.user_setting_path)
     if setting_data == nil then
         self.log_obj:Record(LogLevel.Info, "Failed to load setting data. Restore default setting")
@@ -151,11 +154,11 @@ function Core:LoadSetting()
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
     end
-
+    self:SetDestructibility(DAV.user_setting_table.is_enable_destruction)
 end
 
+--- Set Summon Trigger.
 function Core:SetSummonTrigger()
-
     Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
         local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
         local prev_model_index = DAV.model_index
@@ -187,11 +190,10 @@ function Core:SetSummonTrigger()
         end
         return wrapped_method(vehicle_type)
     end)
-
 end
 
+--- Set Translation Name List.
 function Core:SetTranslationNameList()
-
     self.language_file_list = {}
     self.language_name_list = {}
 
@@ -225,11 +227,10 @@ function Core:SetTranslationNameList()
             table.insert(self.language_name_list, language_table.language)
         end
     end
-
 end
 
+--- Store Translation Table List.
 function Core:StoreTranslationtableList()
-
     self.translation_table_list = {}
     for _, file in ipairs(self.language_file_list) do
         local language_table = Utils:ReadJson(DAV.language_path .. "/" .. file.name)
@@ -237,11 +238,11 @@ function Core:StoreTranslationtableList()
             table.insert(self.translation_table_list, language_table)
         end
     end
-
 end
 
+--- Get Translation Text.
+---@param text string
 function Core:GetTranslationText(text)
-
     if self.translation_table_list == {} then
         self.log_obj:Record(LogLevel.Critical, "Language File is invalid")
         return nil
@@ -256,17 +257,14 @@ function Core:GetTranslationText(text)
         end
         return translated_text
     end
-
     return translated_text
-
 end
 
+--- Set Input Listener.
 function Core:SetInputListener()
-
     local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
     local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
-    -- local exception_in_combat_list = Utils:ReadJson("Data/exception_in_combat_input.json")
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
 
@@ -285,14 +283,23 @@ function Core:SetInputListener()
                     break
                 end
             end
-            if not Game.GetPlayer():PSIsInDriverCombat() and not self.av_obj:IsMountedCombatSeat() then
-                -- block combat seat action
-                for _, exception in pairs(exception_in_popup_list) do
-                    if action_name == exception then
-                        consumer:Consume()
-                        break
+            if Game.GetPlayer():PSIsInDriverCombat() then
+                    -- block exit vehicle when player is in combat
+                if action_name == "Exit" and not self.is_locked_action_in_combat then
+                    self.is_locked_action_in_combat = true
+                    consumer:Consume()
+                end
+                if not self.av_obj:IsMountedCombatSeat() then
+                    -- block combat seat action
+                    for _, exception in pairs(exception_in_popup_list) do
+                        if action_name == exception then
+                            consumer:Consume()
+                            break
+                        end
                     end
                 end
+            else
+                self.is_locked_action_in_combat = false
             end
             if self.event_obj:IsInMenuOrPopupOrPhoto() or self.event_obj:IsAutoMode() then
                 for _, exception in pairs(exception_in_popup_list) do
@@ -325,22 +332,21 @@ function Core:SetInputListener()
             wrapped_method()
         end
     end)
-
 end
 
+--- Get All AV Models.
+---@return table | nil
 function Core:GetAllModel()
-
     local model = Utils:ReadJson(self.av_model_path)
     if model == nil then
         self.log_obj:Record(LogLevel.Error, "Default Model is nil")
         return nil
     end
     return model
-
 end
 
+--- Initialize Garage Info.
 function Core:InitGarageInfo()
-
     DAV.user_setting_table.garage_info_list = {}
 
     for index, model in ipairs(self.all_models) do
@@ -349,11 +355,10 @@ function Core:InitGarageInfo()
         garage_info.model_index = index
         table.insert(DAV.user_setting_table.garage_info_list, garage_info)
     end
-
 end
 
+--- Update Garage Info.
 function Core:UpdateGarageInfo(is_force_update)
-
     local list = Game.GetVehicleSystem():GetPlayerUnlockedVehicles()
     if (self.current_purchased_vehicle_count == #list or #list == 0) and not is_force_update then
         return
@@ -378,11 +383,12 @@ function Core:UpdateGarageInfo(is_force_update)
     end
 
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-
 end
 
+--- Change Garage AV Type.
+---@param name string tweakdb id
+---@param type_index number type index
 function Core:ChangeGarageAVType(name, type_index)
-
     self:UpdateGarageInfo(false)
 
     for idx, garage_info in ipairs(DAV.user_setting_table.garage_info_list) do
@@ -391,24 +397,26 @@ function Core:ChangeGarageAVType(name, type_index)
             break
         end
     end
-
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-
 end
 
+--- Get Input Table.
+---@param input_path string input_key.json path
+---@return table | nil
 function Core:GetInputTable(input_path)
-
     local input = Utils:ReadJson(input_path)
     if input == nil then
         self.log_obj:Record(LogLevel.Error, "Input is nil")
         return nil
     end
     return input
-
 end
 
+--- Store Player Action to Queue.
+---@param action_name string
+---@param action_type string
+---@param action_value number
 function Core:StorePlayerAction(action_name, action_type, action_value)
-
     local action_value_type = "ZERO"
     if action_type == "RELATIVE_CHANGE" then
         if action_value > self.relative_dead_zone then
@@ -441,22 +449,26 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
     if cmd ~= Def.ActionList.Nothing then
         self.queue_obj:Enqueue(cmd)
     end
-
 end
 
+--- Convert Action List.
+---@param action_name string
+---@param action_type string
+---@param action_value_type string
 function Core:ConvertActionList(action_name, action_type, action_value_type)
-
     local flight_mode = self.av_obj.engine_obj.flight_mode
     if flight_mode == Def.FlightMode.AV then
         return self:GetAVAction(action_name, action_type, action_value_type)
     elseif flight_mode == Def.FlightMode.Helicopter then
         return self:GetHeliAction(action_name, action_type, action_value_type)
     end
-
 end
 
+--- Get AV Action.
+---@param action_name string
+---@param action_type string
+---@param action_value_type string
 function Core:GetAVAction(action_name, action_type, action_value_type)
-
     local action_command = Def.ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
 
@@ -485,13 +497,14 @@ function Core:GetAVAction(action_name, action_type, action_value_type)
             action_command = Def.ActionList.SelectDown
         end
     end
-
     return action_command
-
 end
 
+--- Get Heli Action.
+---@param action_name string
+---@param action_type string
+---@param action_value_type string
 function Core:GetHeliAction(action_name, action_type, action_value_type)
-
     local action_command = Def.ActionList.Nothing
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
 
@@ -520,13 +533,12 @@ function Core:GetHeliAction(action_name, action_type, action_value_type)
             action_command = Def.ActionList.SelectDown
         end
     end
-
     return action_command
-
 end
 
+--- Convert Hold Button Action.
+---@param key string
 function Core:ConvertHoldButtonAction(key)
-
     local keybind_name = ""
     if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
         for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
@@ -552,11 +564,11 @@ function Core:ConvertHoldButtonAction(key)
             return
         end
     end
-
 end
 
+--- Convert Hold Button Action(AV).
+---@param keybind_name string
 function Core:ConvertAVHoldAction(keybind_name)
-
     if keybind_name == "move_up" then
         self.is_move_up_button_hold_counter = false
         self.move_up_button_hold_count = 0
@@ -573,11 +585,11 @@ function Core:ConvertAVHoldAction(keybind_name)
         self.is_lean_reset_button_hold_counter = false
         self.lean_reset_button_hold_count = 0
     end
-
 end
 
+--- Convert Hold Button Action(Helicopter).
+---@param keybind_name string
 function Core:ConvertHeliHoldAction(keybind_name)
-
     if keybind_name == "ascend" then
         self.is_h_ascend_button_hold_counter = false
         self.h_ascend_button_hold_count = 0
@@ -594,11 +606,11 @@ function Core:ConvertHeliHoldAction(keybind_name)
         self.is_h_acceleration_button_hold_counter = false
         self.h_acceleration_button_hold_count = 0
     end
-
 end
 
+--- Convert Hold Button Action(Common).
+---@param keybind_name string
 function Core:ConvertCommonHoldAction(keybind_name)
-
     if keybind_name == "toggle_radio" then
         self.is_radio_button_hold_counter = false
         self.radio_button_hold_count = 0
@@ -606,11 +618,11 @@ function Core:ConvertCommonHoldAction(keybind_name)
         self.is_auto_pilot_button_hold_counter = false
         self.auto_pilot_button_hold_count = 0
     end
-
 end
 
+--- Convert Press Button Action.
+---@param key string
 function Core:ConvertPressButtonAction(key)
-
     local keybind_name = ""
     if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
         for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
@@ -636,11 +648,11 @@ function Core:ConvertPressButtonAction(key)
             return
         end
     end
-
 end
 
+--- Convert Press Button Action(AV).
+---@param keybind_name string
 function Core:ConvertAVPressAction(keybind_name)
-
     if keybind_name == "move_up" then
         if not self.is_move_up_button_hold_counter then
             self.is_move_up_button_hold_counter = true
@@ -722,11 +734,11 @@ function Core:ConvertAVPressAction(keybind_name)
             end)
         end
     end
-
 end
 
+--- Convert Press Button Action(Heli).
+---@param keybind_name string
 function Core:ConvertHeliPressAction(keybind_name)
-
     if keybind_name == "ascend" then
         if not self.is_h_ascend_button_hold_counter then
             self.is_h_ascend_button_hold_counter = true
@@ -811,11 +823,11 @@ function Core:ConvertHeliPressAction(keybind_name)
             end)
         end
     end
-
 end
 
+--- Convert Press Button Action(Common).
+---@param keybind_name string
 function Core:ConvertCommonPressAction(keybind_name)
-
     if keybind_name == "toggle_autopilot" then
         if not self.is_auto_pilot_button_hold_counter then
             self.is_auto_pilot_button_hold_counter = true
@@ -859,11 +871,10 @@ function Core:ConvertCommonPressAction(keybind_name)
     elseif keybind_name == "open_vehicle_manager" then
         self.queue_obj:Enqueue(Def.ActionList.OpenVehicleManager)
     end
-
 end
 
+--- Dequeue and Operate Aerial Vehicle.
 function Core:GetActions()
-
     local move_actions = {}
 
     while not self.queue_obj:IsEmpty() do
@@ -880,11 +891,11 @@ function Core:GetActions()
     end
 
     self:OperateAerialVehicle(move_actions)
-
 end
 
+--- Operate Aerial Vehicle.
+---@param actions table
 function Core:OperateAerialVehicle(actions)
-
     if not self.is_locked_operation then
         if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
             self.av_obj:Operate(actions)
@@ -892,11 +903,11 @@ function Core:OperateAerialVehicle(actions)
             self.av_obj:Operate({Def.ActionList.Idle})
         end
     end
-
 end
 
+--- Operation for event trigger.
+---@param action Def.ActionList
 function Core:SetEvent(action)
-
     if self.event_obj.current_situation == Def.Situation.Waiting and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         if self.is_locked_action_in_waiting then
             return
@@ -949,46 +960,44 @@ function Core:SetEvent(action)
             self:OpenVehicleManager()
         end
     end
-
 end
 
--- function Core:ExitVehicle()
---     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
---         self.event_obj:ExitVehicle()
---     end
--- end
-
+--- Toggle Autopilot.
 function Core:ToggleAutopilot()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
-        -- self:SetDestinationMappin()
         self.event_obj:ToggleAutoMode()
     end
 end
 
+--- Open Autopilot Panel.
 function Core:OpenAutopioltPanel()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.event_obj.ui_obj:OpenAutopilotPopup()
     end
 end
 
+--- Toggle Camera.
 function Core:ToggleCamera()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.av_obj.camera_obj:Toggle()
     end
 end
 
+--- Toggle Doors.
 function Core:ToggleDoors()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.event_obj:ChangeDoor()
     end
 end
 
+--- Toggle Crystal Dome.
 function Core:ToggleCrystalDome()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.av_obj:ToggleCrystalDome()
     end
 end
 
+--- Toggle Appearance.
 function Core:ToggleAppearance()
     local type_list = self.all_models[DAV.model_index].type
     local type_count = #type_list
@@ -1004,12 +1013,13 @@ function Core:ToggleAppearance()
     end
 end
 
+--- Open Vehicle Manager.
 function Core:OpenVehicleManager()
     self.event_obj:ShowVehicleManagerPopup()
 end
 
+--- Set observer about mappin controller.
 function Core:SetMappinController()
-
     ObserveAfter("BaseMappinBaseController", "IsTracked", function(this)
         local mappin = this:GetMappin()
         self:SetCustomMappin(mappin)
@@ -1018,12 +1028,11 @@ function Core:SetMappinController()
     ObserveAfter("BaseMappinBaseController", "UpdateRootState", function(this)
         local mappin = this:GetMappin()
         self:SetCustomMappin(mappin)
-    end) 
-
+    end)
 end
 
+--- Set custom mappin
 function Core:SetCustomMappin(mappin)
-
     if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
         self.is_custom_mappin = mappin:IsPlayerTracked()
         local mappin_pos = mappin:GetWorldPosition()
@@ -1034,14 +1043,15 @@ function Core:SetCustomMappin(mappin)
             self.current_custom_mappin_position = Vector4.Zero()
         end
     end
-
 end
 
+--- If or not is custom mappin.
 ---@return boolean
 function Core:IsCustomMappin()
     return self.is_custom_mappin
 end
 
+--- Set destination mappin.
 function Core:SetDestinationMappin()
     if not self.current_custom_mappin_position:IsZero() then
         self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
@@ -1049,6 +1059,8 @@ function Core:SetDestinationMappin()
     end
 end
 
+--- Set favorite mappin.
+---@param pos table [x, y, z]
 function Core:SetFavoriteMappin(pos)
     local position = Vector4.new(pos.x, pos.y, pos.z, 1)
     if position:IsZero() then
@@ -1060,9 +1072,9 @@ function Core:SetFavoriteMappin(pos)
     self.ft_index_nearest_favorite, self.ft_to_favorite_distance = self:FindNearestFastTravelPosition(position)
 end
 
+--- Create favorite mappin.
 ---@param position Vector4
 function Core:CreateFavoriteMappin(position)
-
     self:RemoveFavoriteMappin()
     if self.event_obj:IsInVehicle() then
         local mappin_data = MappinData.new()
@@ -1071,20 +1083,18 @@ function Core:CreateFavoriteMappin(position)
         mappin_data.visibleThroughWalls = true
         self.dist_mappin_id = Game.GetMappinSystem():RegisterMappin(mappin_data, position)
     end
-
 end
 
+--- Remove favorite mappin.
 function Core:RemoveFavoriteMappin()
-
     if self.dist_mappin_id ~= nil then
         Game.GetMappinSystem():UnregisterMappin(self.dist_mappin_id)
         self.dist_mappin_id = nil
     end
-
 end
 
+--- Set auto pilot history.
 function Core:SetAutoPilotHistory()
-
     repeat
         if #DAV.user_setting_table.mappin_history >= self.max_mappin_history then
             table.remove(DAV.user_setting_table.mappin_history)
@@ -1104,11 +1114,10 @@ function Core:SetAutoPilotHistory()
     table.insert(DAV.user_setting_table.mappin_history, 1, history_info)
 
     Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-
 end
 
+--- Set fast travel position.
 function Core:SetFastTravelPosition()
-
     self.fast_travel_position_list = {}
     local fast_travel_list = Game.GetScriptableSystemsContainer():Get('FastTravelSystem'):GetFastTravelPoints()
 
@@ -1148,23 +1157,24 @@ function Core:SetFastTravelPosition()
             table.insert(self.fast_travel_position_list, position_info)
         end
     end
-
 end
 
+--- Get fast travel mappin index.
 ---@return number
 function Core:GetFTIndexNearbyMappin()
     return self.ft_index_nearest_mappin
 end
 
+--- Get favorite position index.
 ---@return number
 function Core:GetFTIndexNearbyFavorite()
     return self.ft_index_nearest_favorite
 end
 
+--- Find nearest fast travel position.
 ---@param current_pos Vector4
 ---@return number, number
 function Core:FindNearestFastTravelPosition(current_pos)
-
     local ft_index = 1
     local ft_distance = self.huge_distance
     for index, position_info in ipairs(self.fast_travel_position_list) do
@@ -1175,46 +1185,45 @@ function Core:FindNearestFastTravelPosition(current_pos)
         end
     end
     return ft_index, ft_distance
-
 end
 
+--- Get nearby district list.
 ---@param index number
 ---@return table | nil
 function Core:GetNearbyDistrictList(index)
-
     if self.fast_travel_position_list[index] == nil then
         return nil
     else
         return self.fast_travel_position_list[index].district
     end
-
 end
 
+--- Get nearby location name.
 ---@param index number
 ---@return string | nil
 function Core:GetNearbyLocation(index)
-
     if self.fast_travel_position_list[index] == nil then
         return nil
     else
         return self.fast_travel_position_list[index].name
     end
-
 end
 
+--- Get fast travel mappin distance.
 ---@return number
 function Core:GetFT2MappinDistance()
     return self.ft_to_mappin_distance
 end
 
+--- Get favorite point distance.
 ---@return number
 function Core:GetFT2FavoriteDistance()
     return self.ft_to_favorite_distance
 end
 
+--- Get current district.
 ---@return table
 function Core:GetCurrentDistrict()
-
     local current_district_list = {}
     local district_manager = Game.GetScriptableSystemsContainer():Get('PreventionSystem').districtManager
     local district = district_manager:GetCurrentDistrict()
@@ -1229,19 +1238,48 @@ function Core:GetCurrentDistrict()
         until district_record == nil
     end
     return current_district_list
-
 end
 
+--- Toggle Radio Station.
 function Core:ToggleRadio()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.av_obj:ToggleRadio()
     end
 end
 
+--- Open Radio Port.
 function Core:OpenRadioPort()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.event_obj:ShowRadioPopup()
     end
+end
+
+--- Toggle Destructibility ON/OFF.
+---@param enable boolean
+function Core:SetDestructibility(enable)
+    local tweek_db_tag_list = {CName.new("InteractiveTrunk")}
+	if not enable then
+		table.insert(tweek_db_tag_list, CName.new("Immortal"))
+        TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".destruction"), "Vehicle.VehicleDestructionParamsNoDamage")
+        TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".destruction"), "Vehicle.VehicleDestructionParamsNoDamage")
+        TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".destruction"), "Vehicle.VehicleDestructionParamsNoDamage")
+        TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".destruction"), "Vehicle.VehicleDestructionParamsNoDamage")
+        TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".destruction"), "Vehicle.VehicleDestructionParamsNoDamage")
+        TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".destruction"), "Vehicle.VehicleDestructionParamsNoDamage")
+    else
+        TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".destruction"), "Vehicle.VehicleDestructionParamsDefault_4w")
+        TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".destruction"), "Vehicle.VehicleDestructionParamsDefault_4w")
+        TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".destruction"), "Vehicle.VehicleDestructionParamsDefault_4w")
+        TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".destruction"), "Vehicle.VehicleDestructionParamsDefault_4w")
+        TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".destruction"), "Vehicle.VehicleDestructionParamsDefault_4w")
+        TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".destruction"), "Vehicle.VehicleDestructionParamsDefault_4w")
+    end
+    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".tags"), tweek_db_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".tags"), tweek_db_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".tags"), tweek_db_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".tags"), tweek_db_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tags"), tweek_db_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tags"), tweek_db_tag_list)
 end
 
 return Core

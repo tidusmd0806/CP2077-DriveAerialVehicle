@@ -1,8 +1,11 @@
--- local Log = require("Tools/log.lua")
 local Utils = require("Tools/utils.lua")
 local Camera = {}
 Camera.__index = Camera
 
+--- Constractor
+---@param position_obj any Position instance
+---@param all_models table all models data
+---@return table
 function Camera:New(position_obj, all_models)
     -- instance --
     local obj = {}
@@ -41,8 +44,11 @@ function Camera:New(position_obj, all_models)
     obj.current_camera_mode = Def.CameraDistanceLevel.Fpp
 
     return setmetatable(obj, self)
+
 end
 
+--- Set camera parameters
+---@param seat_index number mounted seat index
 function Camera:SetPerspective(seat_index)
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close.baseBoomLength"), self.default_high_close_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close.boomLengthOffset"), self.default_high_close_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
@@ -82,6 +88,7 @@ function Camera:SetPerspective(seat_index)
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
 end
 
+--- Reset camera parameters
 function Camera:ResetPerspective()
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close.baseBoomLength"), self.default_high_close_distance)
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close.boomLengthOffset"), self.default_high_close_distance_offset)
@@ -121,8 +128,9 @@ function Camera:ResetPerspective()
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.lookAtOffset"), Vector3.new(self.low_driver_combat_far_center_offset.x, self.low_driver_combat_far_center_offset.y, self.low_driver_combat_far_center_offset.z))
 end
 
+--- Change camera perspective
+---@param level number camera distance level
 function Camera:ChangePosition(level)
-
     local camera_perspective = vehicleRequestCameraPerspectiveEvent.new()
 
     if level == Def.CameraDistanceLevel.Fpp then
@@ -142,9 +150,10 @@ function Camera:ChangePosition(level)
     self.current_camera_mode = level
 
     Game.GetPlayer():QueueEvent(camera_perspective)
-
 end
 
+--- Toggle camera perspective
+--- @return number current camera distance level
 function Camera:Toggle()
     if self.current_camera_mode ~= Def.CameraDistanceLevel.TppFar then
         self.current_camera_mode = self.current_camera_mode + 1

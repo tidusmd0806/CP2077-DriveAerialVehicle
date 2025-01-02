@@ -1,4 +1,3 @@
--- local Log = require("Tools/log.lua")
 local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
 local Sound = require("Modules/sound.lua")
@@ -6,6 +5,8 @@ local UI = require("Modules/ui.lua")
 local Event = {}
 Event.__index = Event
 
+--- Constractor
+---@return table
 function Event:New()
     -- instance --
     local obj = {}
@@ -39,8 +40,9 @@ function Event:New()
 
 end
 
+--- Initialize
+---@param av_obj any AV instance
 function Event:Init(av_obj)
-
     self.av_obj = av_obj
 
     self.ui_obj:Init(self.av_obj)
@@ -53,11 +55,10 @@ function Event:Init(av_obj)
         self:SetObserve()
         self:SetOverride()
     end
-
 end
 
+--- Set Observe Functions
 function Event:SetObserve()
-
     GameUI.Observe("MenuOpen", function()
         self.is_in_menu = true
     end)
@@ -101,11 +102,10 @@ function Event:SetObserve()
         self.log_obj:Record(LogLevel.Info, "Session end detected")
         self.current_situation = Def.Situation.Idle
     end)
-
 end
 
+--- Set Override Functions
 function Event:SetOverride()
-
     Override("VehicleComponentPS", "GetHasAnyDoorOpen", function(this, wrapped_method)
         if self:IsInVehicle() then
             return false
@@ -130,9 +130,10 @@ function Event:SetOverride()
             return wrapped_method(state_context, unmount_direction)
         end
     end)
-
 end
 
+--- Set new situation if it is possible.
+---@param situation Def.Situation
 function Event:SetSituation(situation)
     if self.current_situation == Def.Situation.Idle then
         return false
@@ -170,8 +171,8 @@ function Event:SetSituation(situation)
     end
 end
 
+--- Check events for current situation.
 function Event:CheckAllEvents()
-
     if self.current_situation == Def.Situation.Normal then
         self:CheckGarage()
     elseif self.current_situation == Def.Situation.Landing then
@@ -199,13 +200,14 @@ function Event:CheckAllEvents()
         self:CheckLockedSave()
         self:CheckHeight()
     end
-
 end
 
+--- Check vehicles user has.
 function Event:CheckGarage()
     DAV.core_obj:UpdateGarageInfo(false)
 end
 
+--- Call vehicle.
 function Event:CallVehicle()
     if self:IsNotSpawned() then
         self:SpawnVehicle()
@@ -219,16 +221,16 @@ function Event:CallVehicle()
     end
 end
 
+--- Spawn vehicle.
 function Event:SpawnVehicle()
-
     self.sound_obj:PlaySound("100_call_vehicle")
     self.sound_obj:PlaySound("210_landing")
     self.sound_obj:PlaySound(self.av_obj.engine_audio_name)
     self:SetSituation(Def.Situation.Landing)
     self.av_obj:SpawnToSky()
-
 end
 
+--- Return vehicle.
 function Event:ReturnVehicle(is_leaving_sound)
     if self:IsWaiting() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected in Waiting situation")
@@ -244,6 +246,7 @@ function Event:ReturnVehicle(is_leaving_sound)
     end
 end
 
+--- Check vehicle has landed.
 function Event:CheckLanded()
     if self.av_obj.position_obj:IsCollision() or self.av_obj.is_landed then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
@@ -254,6 +257,7 @@ function Event:CheckLanded()
     end
 end
 
+--- Check player is in entry area.
 function Event:CheckInEntryArea()
     if self.av_obj.position_obj:IsPlayerInEntryArea() then
         self.log_obj:Record(LogLevel.Trace, "InEntryArea detected")
@@ -263,6 +267,7 @@ function Event:CheckInEntryArea()
     end
 end
 
+--- Check player is in AV.
 function Event:CheckInAV()
     if self.av_obj:IsPlayerIn() then
         -- when player take on AV
@@ -296,8 +301,8 @@ function Event:CheckInAV()
     end
 end
 
+--- Check HUD.
 function Event:CheckHUD()
-
     if self.hud_obj:IsVisibleConsumeItemSlot() then
         self.hud_obj:SetVisibleConsumeItemSlot(false)
     end
@@ -320,11 +325,10 @@ function Event:CheckHUD()
         local rpm_count = self.av_obj.engine_obj:GetRPMCount()
         self.hud_obj:SetRPMMeterValue(math.abs(rpm_count))
     end
-
 end
 
+--- Check door status.
 function Event:CheckDoor()
-
     local veh_door = EVehicleDoor.seat_front_left
 
     if self:IsInEntryArea() then
@@ -336,11 +340,10 @@ function Event:CheckDoor()
             self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
         end
     end
-
 end
 
+--- Check if player is in combat.
 function Event:CheckCombat()
-
     local is_combat = Game.GetPlayer():PSIsInDriverCombat()
     if is_combat ~= self.av_obj.is_combat then
         self.av_obj.is_combat = is_combat
@@ -353,10 +356,11 @@ function Event:CheckCombat()
                 self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door)
             end
         end
+        self.hud_obj:DeleteInputHint("Exit")
     end
-
 end
 
+--- Check if vehicle is destroyed.
 function Event:CheckDestroyed()
     if self.av_obj:IsDestroyed() then
         self.log_obj:Record(LogLevel.Info, "Destroyed detected")
@@ -378,6 +382,7 @@ function Event:CheckDestroyed()
     end
 end
 
+--- Check if vehicle is despawned.
 function Event:CheckDespawn()
     if self.av_obj:IsDespawned() then
         self.log_obj:Record(LogLevel.Info, "Despawn detected")
@@ -387,6 +392,7 @@ function Event:CheckDespawn()
     end
 end
 
+--- Check distance between player and AV.
 function Event:CheckDistance()
     local player_pos = Game.GetPlayer():GetWorldPosition()
     local av_pos = self.av_obj.position_obj:GetPosition()
@@ -404,8 +410,8 @@ function Event:CheckDistance()
     end
 end
 
+--- Check height between AV and ground. if height is too low, show landing warning.
 function Event:CheckHeight()
-
     local height = self.av_obj.position_obj:GetHeight()
     if height < self.projection_max_height_offset + self.av_obj.position_obj.minimum_distance_to_ground then
         local height_offset = - height + self.av_obj.projection_offset.z
@@ -414,19 +420,18 @@ function Event:CheckHeight()
     else
         self.av_obj:ProjectLandingWarning(false)
     end
-
 end
 
+--- Check player input. if or not keyboard input, show/hide custom hint.
 function Event:CheckInput()
-
     if self.is_keyboard_input_prev ~= DAV.is_keyboard_input then
         self.is_keyboard_input_prev = DAV.is_keyboard_input
         self.hud_obj:HideCustomHint()
         self.hud_obj:ShowCustomHint()
     end
-
 end
 
+--- Check if auto mode is changed. if changed, lock operation.
 function Event:CheckAutoModeChange()
     if self:IsAutoMode() and not self.is_locked_operation then
         self.is_locked_operation = true
@@ -435,24 +440,26 @@ function Event:CheckAutoModeChange()
         self.hud_obj:ShowArrivalDisplay()
         self.sound_obj:PlaySound("110_arrive_vehicle")
     end
-
 end
 
+--- Check if auto pilot is failed. if failed, show interrupt auto pilot display.
 function Event:CheckFailAutoPilot()
     if self.av_obj:IsFailedAutoPilot() then
         self.hud_obj:ShowInterruptAutoPilotDisplay()
     end
 end
 
+--- Check if save is locked. if locked, remove lock.
 function Event:CheckLockedSave()
     local res, _ = Game.IsSavingLocked()
     if res then
         self.log_obj:Record(LogLevel.Info, "Locked save detected. Remove lock")
         SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
     end
-
 end
 
+--- Check if AV is spawned.
+---@return boolean
 function Event:IsNotSpawned()
     if self.current_situation == Def.Situation.Normal then
         return true
@@ -461,6 +468,8 @@ function Event:IsNotSpawned()
     end
 end
 
+--- Check if AV is waiting.
+---@return boolean
 function Event:IsWaiting()
     if self.current_situation == Def.Situation.Waiting then
         return true
@@ -469,6 +478,8 @@ function Event:IsWaiting()
     end
 end
 
+--- Check if player is in entry area.
+---@return boolean
 function Event:IsInEntryArea()
     if self.current_situation == Def.Situation.Waiting and self.av_obj.position_obj:IsPlayerInEntryArea() then
         return true
@@ -478,6 +489,8 @@ function Event:IsInEntryArea()
     end
 end
 
+--- Check if player is in vehicle.
+---@return boolean
 function Event:IsInVehicle()
     if self.current_situation == Def.Situation.InVehicle and self.av_obj:IsPlayerIn() then
         return true
@@ -486,6 +499,8 @@ function Event:IsInVehicle()
     end
 end
 
+--- Check if player is taking off.
+---@return boolean
 function Event:IsTakingOff()
     if self.current_situation == Def.Situation.TalkingOff then
         return true
@@ -494,6 +509,8 @@ function Event:IsTakingOff()
     end
 end
 
+--- Check if player is in auto mode.
+---@return boolean
 function Event:IsAutoMode()
     if self.av_obj.is_auto_pilot then
         return true
@@ -502,6 +519,8 @@ function Event:IsAutoMode()
     end
 end
 
+--- Check if player is in menu, popup or photo mode.
+---@return boolean
 function Event:IsInMenuOrPopupOrPhoto()
     if self.is_in_menu or self.is_in_popup or self.is_in_photo then
         return true
@@ -510,28 +529,27 @@ function Event:IsInMenuOrPopupOrPhoto()
     end
 end
 
+--- Check if entry is allowed.
+---@return boolean
 function Event:IsAllowedEntry()
     return self.is_allowed_entry
 end
 
+--- Change door state.
 function Event:ChangeDoor()
     if self.current_situation == Def.Situation.InVehicle then
         self.av_obj:ChangeDoorState(Def.DoorOperation.Change)
     end
 end
 
+--- Enter vehicle.
 function Event:EnterVehicle()
     if self:IsInEntryArea() then
         self.av_obj:Mount()
     end
 end
 
--- function Event:ExitVehicle()
---     if self:IsInVehicle() then
---         self.av_obj:Unmount()
---     end
--- end
-
+--- Toggle auto mode.
 function Event:ToggleAutoMode()
     if self:IsInVehicle() then
         if not self.av_obj.is_auto_pilot then
@@ -546,18 +564,22 @@ function Event:ToggleAutoMode()
     end
 end
 
+--- Show radio popup.
 function Event:ShowRadioPopup()
     if self:IsInVehicle() then
         self.hud_obj:ShowRadioPopup()
     end
 end
 
+--- Show vehicle manager popup.
 function Event:ShowVehicleManagerPopup()
     if self.current_situation == Def.Situation.Normal or self.current_situation == Def.Situation.Waiting then
         self.hud_obj:ShowVehicleManagerPopup()
     end
 end
 
+--- Select choice.
+---@param direction Def.ActionList
 function Event:SelectChoice(direction)
     local max_seat_index = #self.av_obj.all_models[DAV.model_index].actual_allocated_seat
     if self:IsInEntryArea() then
