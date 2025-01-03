@@ -159,6 +159,11 @@ function Debug:ImGuiVehicleInfo()
         else
             ImGui.Text("Vehicle : Alive")
         end
+        if DAV.core_obj.av_obj:IsEngineOn() then
+            ImGui.Text("Engine : On")
+        else
+            ImGui.Text("Engine : Off")
+        end
         local left_door_state = DAV.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_left)
         local right_door_state = DAV.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_right)
         ImGui.Text("Door State : " .. tostring(left_door_state) .. ", ")

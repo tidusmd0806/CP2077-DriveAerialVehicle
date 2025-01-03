@@ -192,6 +192,17 @@ function AV:IsMountedCombatSeat()
 	end
 end
 
+--- Check if engine is on.
+---@return boolean
+function AV:IsEngineOn()
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to check engine")
+		return false
+	end
+	return entity:IsEngineTurnedOn()
+end
+
 --- Spawn AV.
 ---@return boolean
 function AV:Spawn(position, angle)
@@ -1234,6 +1245,19 @@ function AV:SetDestroyAppearance()
 	end
 
 	self:ChangeAppearance(self.destroy_app)
+	return true
+end
+
+--- Change engine status.
+---@param on boolean
+---@return boolean
+function AV:TurnEngineOn(on)
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change engine status")
+		return false
+	end
+	entity:TurnEngineOn(on)
 	return true
 end
 
