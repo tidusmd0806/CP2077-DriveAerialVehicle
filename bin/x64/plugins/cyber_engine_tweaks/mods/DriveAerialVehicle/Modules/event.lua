@@ -191,6 +191,7 @@ function Event:CheckAllEvents()
         self:CheckAutoModeChange()
         self:CheckFailAutoPilot()
         self:CheckHUD()
+        self:CheckEngine()
         self:CheckDestroyed()
         self:CheckInput()
         self:CheckCombat()
@@ -324,6 +325,13 @@ function Event:CheckHUD()
         self.hud_obj:EnableManualMeter(false, self.av_obj.is_enable_manual_rpm_meter)
         local rpm_count = self.av_obj.engine_obj:GetRPMCount()
         self.hud_obj:SetRPMMeterValue(math.abs(rpm_count))
+    end
+end
+
+--- Check engine status. If engine is off, turn it on.
+function Event:CheckEngine()
+    if not self.av_obj:IsEngineOn() then
+        self.av_obj:TurnEngineOn(true)
     end
 end
 
