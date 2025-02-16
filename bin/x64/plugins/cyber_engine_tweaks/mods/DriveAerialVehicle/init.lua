@@ -13,14 +13,15 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.4.1",
+	version = "2.5.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
-    is_debug_mode = false,
+    is_debug_mode = true,
     -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
+    import_path = "Import",
     -- vehicle record
     excalibur_record = "Vehicle.av_rayfield_excalibur_dav",
     manticore_record = "Vehicle.av_militech_manticore_dav",
@@ -177,7 +178,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_inline0_dav.exitDelay"), 2.2)
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.av_zetatech_surveyor_inline0_dav")
-    
+
     -- Custom valgus record
     TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".entityTemplatePath"), "base\\dav\\valgus\\q000_border_patrol_heli_dav.ent")

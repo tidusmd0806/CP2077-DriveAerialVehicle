@@ -337,12 +337,31 @@ end
 --- Get All AV Models.
 ---@return table | nil
 function Core:GetAllModel()
-    local model = Utils:ReadJson(self.av_model_path)
-    if model == nil then
+    local models = Utils:ReadJson(self.av_model_path)
+    if models == nil then
         self.log_obj:Record(LogLevel.Error, "Default Model is nil")
         return nil
     end
-    return model
+
+    local files = dir(DAV.import_path)
+    local file_name_list = {}
+    for _, file in ipairs(files) do
+        if string.match(file.name, '%.json') then
+            table.insert(file_name_list, file.name)
+        end
+    end
+    for _, file_name in ipairs(file_name_list) do
+        local import_models = Utils:ReadJson(DAV.import_path .. "/" .. file_name)
+        if import_models == nil then
+            self.log_obj:Record(LogLevel.Error, "Import Model is nil")
+            return nil
+        end
+        for _, model in ipairs(import_models) do
+            table.insert(models, model)
+        end
+    end
+
+    return models
 end
 
 --- Initialize Garage Info.
