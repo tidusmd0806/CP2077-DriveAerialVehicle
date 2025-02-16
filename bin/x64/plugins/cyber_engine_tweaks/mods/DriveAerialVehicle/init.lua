@@ -17,7 +17,7 @@ DAV = {
     -- system
     is_ready = false,
     time_resolution = 0.01,
-    is_debug_mode = true,
+    is_debug_mode = false,
     -- common
     user_setting_path = "Data/user_setting.json",
     language_path = "Language",
