@@ -17,15 +17,15 @@ function Position:New(all_models)
     obj.dividing_rate = 0.5
     obj.judged_stack_length = 3
     obj.search_distance = 100
-    obj.search_offset = 2
     obj.collision_filters = {"Static", "Terrain", "Water"}
     obj.weak_collision_filters = {"Static", "Terrain"}
     obj.exception_area_path = "Data\\autopilot_exception_area.json"
-    -- dyanmic --
+    -- dynamic --
     obj.entity = nil
     obj.next_position = nil
     obj.next_angle = nil
     obj.model_index = 1
+    obj.search_offset = 2
     obj.collision_count = 0
     obj.is_collision = false
     obj.reflection_vector = {x = 0, y = 0, z = 0}
@@ -77,6 +77,7 @@ function Position:SetModel(index)
     self.minimum_distance_to_ground = self.all_models[index].minimum_distance_to_ground
     self.autopilot_prevention_length = self.all_models[index].autopilot_prevention_length
     self.autopilot_exception_area_list = Utils:ReadJson(self.exception_area_path)
+    self.search_offset = self.all_models[index].ground_search_offset
 end
 
 --- Get Ground Position

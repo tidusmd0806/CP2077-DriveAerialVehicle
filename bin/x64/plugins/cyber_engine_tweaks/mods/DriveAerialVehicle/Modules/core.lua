@@ -107,13 +107,13 @@ function Core:Init()
         return
     end
 
-    self:InitGarageInfo()
-
     -- set initial user setting
     self.initial_user_setting_table = Utils:DeepCopy(DAV.user_setting_table)
     self:LoadSetting()
     self:SetTranslationNameList()
     self:StoreTranslationtableList()
+
+    self:InitGarageInfo()
 
     self.input_key_table = self:GetInputTable(self.input_key_path)
 
@@ -337,22 +337,49 @@ end
 --- Get All AV Models.
 ---@return table | nil
 function Core:GetAllModel()
-    local model = Utils:ReadJson(self.av_model_path)
-    if model == nil then
+    local models = Utils:ReadJson(self.av_model_path)
+    if models == nil then
         self.log_obj:Record(LogLevel.Error, "Default Model is nil")
         return nil
     end
-    return model
+
+    local files = dir(DAV.import_path)
+    local file_name_list = {}
+    for _, file in ipairs(files) do
+        if string.match(file.name, '%.json') then
+            table.insert(file_name_list, file.name)
+        end
+    end
+    for _, file_name in ipairs(file_name_list) do
+        local import_models = Utils:ReadJson(DAV.import_path .. "/" .. file_name)
+        if import_models == nil then
+            self.log_obj:Record(LogLevel.Error, "Import Model is nil")
+            return nil
+        end
+        for _, model in ipairs(import_models) do
+            table.insert(models, model)
+        end
+    end
+
+    return models
 end
 
 --- Initialize Garage Info.
 function Core:InitGarageInfo()
+    local garage_info_list = Utils:DeepCopy(DAV.user_setting_table.garage_info_list)
     DAV.user_setting_table.garage_info_list = {}
 
     for index, model in ipairs(self.all_models) do
         local garage_info = {name = "", model_index = 1, type_index = 1, is_purchased = false}
         garage_info.name = model.tweakdb_id
         garage_info.model_index = index
+        for _, garage_veh in ipairs(garage_info_list) do
+            if garage_veh.name == model.tweakdb_id then
+                garage_info.type_index = garage_veh.type_index
+                garage_info.is_purchased = garage_veh.is_purchased
+                break
+            end
+        end
         table.insert(DAV.user_setting_table.garage_info_list, garage_info)
     end
 end
