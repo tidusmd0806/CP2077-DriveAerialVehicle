@@ -245,6 +245,10 @@ end
 --- Create HP Display
 ---@return boolean
 function HUD:CreateHPDisplay()
+    if DAV.is_valid_vehicle_durability_display then
+        return false
+    end
+
     if self.hud_car_controller == nil then
         self.log_obj:Record(LogLevel.Error, "hud_car_controller is nil")
         self.is_active_hp_display = false
@@ -303,6 +307,9 @@ end
 
 --- Set HP Display
 function HUD:SetHPDisplay()
+    if DAV.is_valid_vehicle_durability_display then
+        return
+    end
     local hp_value = self.vehicle_hp
     hp_value = math.floor(hp_value)
     local hp_text

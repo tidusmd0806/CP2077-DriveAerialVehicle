@@ -122,6 +122,7 @@ function AV:Init()
 	self.thruster_angle_max = self.all_models[index].thruster_angle_max
 	self.destroy_app = self.all_models[index].destroy_app
 	self.position_obj:SetModel(index)
+	self.camera_obj:Init()
 
 	-- read autopilot profile
 	local speed_level = DAV.user_setting_table.autopilot_speed_level
@@ -1130,22 +1131,28 @@ function AV:SetThrusterComponent()
 		return false
 	end
 
-	for pos, component_name in pairs(self.engine_component_name_list) do
-		self.engine_components[pos] = entity:FindComponentByName(component_name)
-		if self.engine_components[pos] == nil then
-			self.log_obj:Record(LogLevel.Warning, "No thruster component : " .. component_name)
-			return false
+	if self.engine_component_name_list ~= nil then
+		for pos, component_name in pairs(self.engine_component_name_list) do
+			self.engine_components[pos] = entity:FindComponentByName(component_name)
+			if self.engine_components[pos] == nil then
+				self.log_obj:Record(LogLevel.Warning, "No thruster component : " .. component_name)
+				return false
+			end
+			self.engine_components[pos]:SetLocalPosition(Vector4.new(self.engine_offset_list[pos].x, self.engine_offset_list[pos].y, self.engine_offset_list[pos].z, 1))
 		end
-		self.engine_components[pos]:SetLocalPosition(Vector4.new(self.engine_offset_list[pos].x, self.engine_offset_list[pos].y, self.engine_offset_list[pos].z, 1))
 	end
 
-	for pos, thruster_name in pairs(self.thruster_fx_name_list) do
-		self.thruster_fxs[pos] = entity:FindComponentByName(thruster_name)
-		if self.thruster_fxs[pos] == nil then
-			self.log_obj:Record(LogLevel.Warning, "No thruster fx : " .. thruster_name)
-			return false
+	if self.thruster_fx_name_list ~= nil then
+		for pos, thruster_name in pairs(self.thruster_fx_name_list) do
+			self.thruster_fxs[pos] = entity:FindComponentByName(thruster_name)
+			if self.thruster_fxs[pos] == nil then
+				self.log_obj:Record(LogLevel.Warning, "No thruster fx : " .. thruster_name)
+				return false
+			end
+			self.thruster_fxs[pos]:SetLocalPosition(Vector4.new(self.thruster_offset_list[pos].x, self.thruster_offset_list[pos].y, self.thruster_offset_list[pos].z, 1))
 		end
-		self.thruster_fxs[pos]:SetLocalPosition(Vector4.new(self.thruster_offset_list[pos].x, self.thruster_offset_list[pos].y, self.thruster_offset_list[pos].z, 1))
+	else
+		return false
 	end
 	return true
 end

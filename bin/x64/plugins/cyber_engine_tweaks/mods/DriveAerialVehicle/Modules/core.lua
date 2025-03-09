@@ -153,6 +153,16 @@ function Core:LoadSetting()
     end
     if setting_data.version == DAV.version then
         DAV.user_setting_table = setting_data
+    else
+        self.log_obj:Record(LogLevel.Info, "Different version detected. Regenerate user_setting.json")
+        for key, _ in pairs(self.initial_user_setting_table) do
+            if setting_data[key] ~= nil and key ~= "version" then
+                DAV.user_setting_table[key] = setting_data[key]
+            else
+                DAV.user_setting_table[key] = self.initial_user_setting_table[key]
+            end
+        end
+        Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
     end
     self:SetDestructibility(DAV.user_setting_table.is_enable_destruction)
 end
