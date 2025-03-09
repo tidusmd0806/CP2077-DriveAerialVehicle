@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.5.0",
+	version = "2.5.1",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -44,6 +44,8 @@ DAV = {
     -- setting
     is_valid_native_settings = false,
     NativeSettings = nil,
+    -- durability display mod
+    is_valid_vehicle_durability_display = false,
     -- input
     axis_dead_zone = 0.1,
     input_key_listener = nil,
@@ -278,12 +280,12 @@ end)
 
 registerForEvent('onInit', function()
 
-    if not DAV:CheckDependencies() then
+    if not CheckDependencies() then
         print('[DAV][Error] Drive an Aerial Vehicle Mod failed to load due to missing dependencies.')
         return
     end
 
-    DAV:CheckNativeSettings()
+    CheckOtherMods()
 
     DAV.core_obj = Core:New()
     DAV.debug_obj = Debug:New(DAV.core_obj)
@@ -311,8 +313,7 @@ registerForEvent('onShutdown', function()
     Game.GetCallbackSystem():UnregisterCallback('Input/Axis', DAV.input_axis_listener:Target(), DAV.input_axis_listener:Function("OnAxisInput"))
 end)
 
-function DAV:CheckDependencies()
-
+function CheckDependencies()
     -- Check Cyber Engine Tweaks Version
     local cet_version_str = GetVersion()
     local cet_version_major, cet_version_minor = cet_version_str:match("1.(%d+)%.*(%d*)")
@@ -332,11 +333,14 @@ function DAV:CheckDependencies()
     end
 
     return true
-
 end
 
-function DAV:CheckNativeSettings()
+function CheckOtherMods()
+    CheckNativeSettings()
+    CheckVehicleDurabilityDisplay()
+end
 
+function CheckNativeSettings()
     DAV.NativeSettings = GetMod("nativeSettings")
     if DAV.NativeSettings == nil then
 		DAV.is_valid_native_settings = false
@@ -349,11 +353,21 @@ function DAV:CheckNativeSettings()
         return
     end
     DAV.is_valid_native_settings = true
+end
 
+function CheckVehicleDurabilityDisplay()
+    local vehicle_durability_display_mod = GetMod("VehicleDurabilityDisplay")
+    if vehicle_durability_display_mod ~= nil then
+        DAV.is_valid_vehicle_durability_display = true
+    end
 end
 
 function DAV:Version()
     return DAV.version
+end
+
+function DAV:ToggleDebugMode()
+    DAV.is_debug_mode = not DAV.is_debug_mode
 end
 
 return DAV

@@ -1,4 +1,3 @@
-local Utils = require("Tools/utils.lua")
 local Camera = {}
 Camera.__index = Camera
 
@@ -42,50 +41,65 @@ function Camera:New(position_obj, all_models)
     -- dynamic --
     -- set default parameters
     obj.current_camera_mode = Def.CameraDistanceLevel.Fpp
+    obj.enable_fpp = true
+    obj.camera_distance_ratio = {}
+    obj.camera_center_offset = {}
 
     return setmetatable(obj, self)
 
 end
 
+--- Initialize
+function Camera:Init()
+	local index = DAV.model_index
+    self.enable_fpp = self.all_models[index].fpp_camera
+    self.camera_distance_ratio = self.all_models[index].camera_distance_ratio
+    self.camera_center_offset = self.all_models[index].camera_center_offset
+    if not self.enable_fpp then
+        self.current_camera_mode = Def.CameraDistanceLevel.TppClose
+    end
+end
+
 --- Set camera parameters
 ---@param seat_index number mounted seat index
 function Camera:SetPerspective(seat_index)
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close.baseBoomLength"), self.default_high_close_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close.boomLengthOffset"), self.default_high_close_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Close.baseBoomLength"), self.default_low_close_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Close.boomLengthOffset"), self.default_low_close_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Close.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Medium.baseBoomLength"), self.default_high_medium_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Medium.boomLengthOffset"), self.default_high_medium_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Medium.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Medium.baseBoomLength"), self.default_low_medium_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Medium.boomLengthOffset"), self.default_low_medium_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Medium.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Far.baseBoomLength"), self.default_high_far_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Far.boomLengthOffset"), self.default_high_far_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Far.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Far.baseBoomLength"), self.default_low_far_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Far.boomLengthOffset"), self.default_low_far_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Far.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatClose.baseBoomLength"), self.default_high_close_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatClose.boomLengthOffset"), self.default_high_close_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatClose.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatClose.baseBoomLength"), self.default_low_close_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatClose.boomLengthOffset"), self.default_low_close_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatClose.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatMedium.baseBoomLength"), self.default_high_medium_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatMedium.boomLengthOffset"), self.default_high_medium_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatMedium.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatMedium.baseBoomLength"), self.default_low_medium_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatMedium.boomLengthOffset"), self.default_low_medium_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatMedium.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatFar.baseBoomLength"), self.default_high_far_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatFar.boomLengthOffset"), self.default_high_far_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatFar.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.baseBoomLength"), self.default_low_far_distance * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.boomLengthOffset"), self.default_low_far_distance_offset * self.all_models[DAV.model_index].camera_distance_ratio[seat_index])
-    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.lookAtOffset"), Vector3.new(self.all_models[DAV.model_index].camera_center_offset[seat_index].x, self.all_models[DAV.model_index].camera_center_offset[seat_index].y, self.all_models[DAV.model_index].camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close.baseBoomLength"), self.default_high_close_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close.boomLengthOffset"), self.default_high_close_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Close.baseBoomLength"), self.default_low_close_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Close.boomLengthOffset"), self.default_low_close_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Close.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Medium.baseBoomLength"), self.default_high_medium_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Medium.boomLengthOffset"), self.default_high_medium_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Medium.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Medium.baseBoomLength"), self.default_low_medium_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Medium.boomLengthOffset"), self.default_low_medium_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Medium.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Far.baseBoomLength"), self.default_high_far_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Far.boomLengthOffset"), self.default_high_far_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Far.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Far.baseBoomLength"), self.default_low_far_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Far.boomLengthOffset"), self.default_low_far_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Far.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatClose.baseBoomLength"), self.default_high_close_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatClose.boomLengthOffset"), self.default_high_close_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatClose.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatClose.baseBoomLength"), self.default_low_close_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatClose.boomLengthOffset"), self.default_low_close_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatClose.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatMedium.baseBoomLength"), self.default_high_medium_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatMedium.boomLengthOffset"), self.default_high_medium_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatMedium.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatMedium.baseBoomLength"), self.default_low_medium_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatMedium.boomLengthOffset"), self.default_low_medium_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatMedium.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatFar.baseBoomLength"), self.default_high_far_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatFar.boomLengthOffset"), self.default_high_far_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatFar.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.baseBoomLength"), self.default_low_far_distance * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.boomLengthOffset"), self.default_low_far_distance_offset * self.camera_distance_ratio[seat_index])
+    TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
+    self:ChangePosition(self.current_camera_mode)
 end
 
 --- Reset camera parameters
@@ -158,7 +172,11 @@ function Camera:Toggle()
     if self.current_camera_mode ~= Def.CameraDistanceLevel.TppFar then
         self.current_camera_mode = self.current_camera_mode + 1
     elseif self.current_camera_mode == Def.CameraDistanceLevel.TppFar then
-        self.current_camera_mode = Def.CameraDistanceLevel.Fpp
+        if self.enable_fpp then
+            self.current_camera_mode = Def.CameraDistanceLevel.Fpp
+        else
+            self.current_camera_mode = Def.CameraDistanceLevel.TppClose
+        end
     end
     self:ChangePosition(self.current_camera_mode)
     return self.current_camera_mode
