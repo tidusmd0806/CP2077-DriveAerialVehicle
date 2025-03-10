@@ -27,7 +27,6 @@ function AV:New(all_models)
 	obj.spawn_wait_count = 150
 	obj.down_time_count = 200
 	obj.land_offset = -1.0
-	obj.avoid_stick_on_ground_time = 5
 	-- autopiolt
 	obj.profile_path = "Data/autopilot_profile.json"
 	obj.destination_range = 3
@@ -512,10 +511,17 @@ function AV:Mount()
 	end
 
 	-- for abort infinite drop
-	Cron.After(0.1, function()
+	local abort_flag = false
+	Cron.Every(0.1, {tick=0}, function(timer)
+		timer.tick = timer.tick + 1
 		if self.engine_obj.fly_av_system:IsOnGround() then
 			self.log_obj:Record(LogLevel.Warning, "Abort infinite drop")
-			self.engine_obj:ChangeLinelyVelocity(0, 0, -10, 0, 0, 0, 0)
+			self:ForceMove(0, 0, 1, 0, 0, 0)
+			abort_flag = true
+		elseif abort_flag then
+			Cron.Halt(timer)
+		elseif timer.tick > 50 then
+			Cron.Halt(timer)
 		end
 	end)
 

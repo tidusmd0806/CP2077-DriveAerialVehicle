@@ -55,9 +55,6 @@ function Camera:Init()
     self.enable_fpp = self.all_models[index].fpp_camera
     self.camera_distance_ratio = self.all_models[index].camera_distance_ratio
     self.camera_center_offset = self.all_models[index].camera_center_offset
-    if not self.enable_fpp then
-        self.current_camera_mode = Def.CameraDistanceLevel.TppClose
-    end
 end
 
 --- Set camera parameters
@@ -99,7 +96,10 @@ function Camera:SetPerspective(seat_index)
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.baseBoomLength"), self.default_low_far_distance * self.camera_distance_ratio[seat_index])
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.boomLengthOffset"), self.default_low_far_distance_offset * self.camera_distance_ratio[seat_index])
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
-    self:ChangePosition(self.current_camera_mode)
+    if not self.enable_fpp and self.current_camera_mode == Def.CameraDistanceLevel.Fpp then
+        self.current_camera_mode = Def.CameraDistanceLevel.TppClose
+        self:ChangePosition(self.current_camera_mode)
+    end
 end
 
 --- Reset camera parameters
@@ -169,9 +169,14 @@ end
 --- Toggle camera perspective
 --- @return number current camera distance level
 function Camera:Toggle()
-    if self.current_camera_mode ~= Def.CameraDistanceLevel.TppFar then
-        self.current_camera_mode = self.current_camera_mode + 1
-    elseif self.current_camera_mode == Def.CameraDistanceLevel.TppFar then
+    local veh_camera_perspective = Game.GetPlayer():FindVehicleCameraManager():GetActivePerspective()
+    if veh_camera_perspective == vehicleCameraPerspective.FPP then
+        self.current_camera_mode = Def.CameraDistanceLevel.TppClose
+    elseif veh_camera_perspective == vehicleCameraPerspective.TPPClose or veh_camera_perspective == vehicleCameraPerspective.DriverCombatClose then
+        self.current_camera_mode = Def.CameraDistanceLevel.TppMedium
+    elseif veh_camera_perspective == vehicleCameraPerspective.TPPMedium or veh_camera_perspective == vehicleCameraPerspective.DriverCombatMedium then
+        self.current_camera_mode = Def.CameraDistanceLevel.TppFar
+    elseif veh_camera_perspective == vehicleCameraPerspective.TPPFar or veh_camera_perspective == vehicleCameraPerspective.DriverCombatFar then
         if self.enable_fpp then
             self.current_camera_mode = Def.CameraDistanceLevel.Fpp
         else
