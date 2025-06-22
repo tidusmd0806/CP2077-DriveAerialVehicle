@@ -90,7 +90,7 @@ end
 --- Play Sound
 ---@param sound_name string
 function Sound:PlaySound(sound_name)
-    Game.GetPlayer():PlaySoundEvent(self.sound_data[sound_name])
+    -- Game.GetPlayer():PlaySoundEvent(self.sound_data[sound_name])
 end
 
 --- Stop Sound

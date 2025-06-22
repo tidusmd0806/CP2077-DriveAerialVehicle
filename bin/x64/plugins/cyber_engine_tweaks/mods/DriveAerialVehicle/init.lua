@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.5.2",
+	version = "3.0.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -142,7 +142,7 @@ registerForEvent("onTweak",function ()
     -- Custom excalibur record
     TweakDB:CloneRecord(DAV.excalibur_record, "Vehicle.av_rayfield_excalibur")
     TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".entityTemplatePath"), "base\\dav\\excalibur\\av_rayfield_excalibur__basic_01_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    -- TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:CloneRecord("Vehicle.av_rayfield_excalibur_inline0_dav", "Vehicle.av_rayfield_excalibur_inline0")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_inline0_dav.exitDelay"), 2.3)
     TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".vehDataPackage"), "Vehicle.av_rayfield_excalibur_inline0_dav")

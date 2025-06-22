@@ -457,7 +457,7 @@ function Debug:ImGuiExcuteFunction()
     ImGui.SameLine()
     if ImGui.Button("TF4") then
         print("Force Unmount Test")
-        local vehicle_ps = self.entity:GetVehiclePS()
+        local vehicle_ps = DAV.core_obj.av_obj.position_obj.entity:GetVehiclePS()
         vehicle_ps:DisableAllVehInteractions()
         print("Excute Test Function 4")
     end
@@ -468,8 +468,27 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF6") then
-        DAV.core_obj.queue_obj:Enqueue(Def.ActionList.Down)
+        local evt = ActionEvent.new()
+        evt.eventAction = CName.new("dav_av_idle_start")
+        local player = Game.GetPlayer()
+        player:QueueEvent(evt)
         print("Excute Test Function 6")
+    end
+    if ImGui.Button("TF7") then
+        local evt = ActionEvent.new()
+        evt.eventAction = CName.new("dav_av_accel_start")
+        local player = Game.GetPlayer()
+        player:QueueEvent(evt)
+        print("Excute Test Function 7")
+    end
+    if ImGui.Button("TF8") then
+        local mesh = DAV.core_obj.av_obj.position_obj.entity:FindComponentByName("ThrusterFL")
+        if mesh ~= nil then
+            -- mesh.visualScale = Vector3.new(0, 0, 0)
+            mesh:Toggle(false)
+            fs().playerComponent.configuration.thrusters[1]:Stop()
+        end
+        print("Excute Test Function 8")
     end
 end
 
