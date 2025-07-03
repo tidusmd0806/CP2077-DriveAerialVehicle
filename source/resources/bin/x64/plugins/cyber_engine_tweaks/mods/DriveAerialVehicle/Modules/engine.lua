@@ -7,14 +7,14 @@ Engine.__index = Engine
 --- @param all_models table all models data
 --- @return table
 function Engine:New(position_obj, all_models)
-    -- instance --
+    ---instance---
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Engine")
     obj.position_obj = position_obj
     obj.all_models = all_models
 
-    -- static --
+    ---static---
     obj.max_roll = 30
     obj.max_pitch = 30
     obj.force_restore_angle = 70
@@ -22,12 +22,21 @@ function Engine:New(position_obj, all_models)
     obj.rpm_restore_step = 2
     obj.rpm_count_scale = 80
     obj.rpm_max_count = 10 * obj.rpm_count_scale
-    -- dynamic --
+    obj.gravitational_acceleration = 9.8
+    ---dynamic---
     obj.flight_mode = Def.FlightMode.AV
     obj.fly_av_system = nil
     obj.current_speed = 0
     obj.heli_lift_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
     obj.rpm_count = 0
+    obj.force = Vector3.new(0, 0, 0)
+    obj.torque = Vector3.new(0, 0, 0)
+    obj.direction_velocity = Vector3.new(0, 0, 0)
+    obj.angular_velocity = Vector3.new(0, 0, 0)
+    obj.acceleration = Vector3.new(0, 0, 0)
+    obj.prev_velocity = Vector3.new(0, 0, 0)
+    obj.engine_control_type = Def.EngineControlType.None
+    obj.is_finished_init = false
 
     return setmetatable(obj, self)
 end
@@ -38,10 +47,100 @@ function Engine:Init(entity_id)
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
+    self.is_finished_init = true
 end
 
+--- Set control type
+---@param engine_control_type integer
+function Engine:SetControlType(engine_control_type)
+    self.engine_control_type = engine_control_type
+end
+
+--- Update
+---@param delta number
+function Engine:Update(delta)
+    if not self.is_finished_init then
+        return
+    end
+    self:UnsetPhysicsState()
+    self:SetAcceleration(delta)
+    if self.engine_control_type == Def.EngineControlType.ChangeVelocity then
+        self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.velocity, self.angular_velocity)
+    elseif self.engine_control_type == Def.EngineControlType.AddForce then
+        self:AddForce(delta, self.force, self.torque)
+    else
+        self.log_obj:Record(LogLevel.Error, "Unknown control type")
+    end
+end
+
+--- Unset physics state
 function Engine:UnsetPhysicsState()
     self.fly_av_system:UnsetPhysicsState()
+end
+
+--- Get gravitational force
+---@return number
+function Engine:GetGravitationalForce()
+    local mass = self.fly_av_system:GetMass()
+    return -self.gravitational_acceleration * mass
+end
+
+--- Add force
+---@param delta number
+---@param force Vector3
+---@param torque Vector3
+function Engine:AddForce(delta, force, torque)
+    local delta_force = Vector3.new(force.x * delta, force.y * delta, (-self:GetGravitationalForce() + force.z) * delta)
+    local delta_torque = Vector3.new(torque.x * delta, torque.y * delta, torque.z * delta)
+    self.fly_av_system:AddForce(delta_force, delta_torque)
+end
+
+--- Change velocity
+---@param type integer
+---@param direction_velocity Vector3
+---@param angular_velocity Vector3
+function Engine:ChangeVelocity(type, direction_velocity, angular_velocity)
+    self.fly_av_system:ChangeVelocity(direction_velocity, angular_velocity, type)
+end
+
+--- Set force
+---@param force Vector3
+function Engine:SetForce(force)
+    self.force = force
+end
+
+--- Set torque
+---@param torque Vector3
+function Engine:SetTorque(torque)
+    self.torque = torque
+end
+
+--- Set direction velocity
+---@param direction_velocity Vector3
+function Engine:SetVelocity(direction_velocity)
+    self.direction_velocity = direction_velocity
+end
+
+--- Set angular velocity
+---@param angular_velocity Vector3
+function Engine:SetAngularVelocity(angular_velocity)
+    self.angular_velocity = angular_velocity
+end
+
+--- Get acceleration
+---@return Vector3
+function Engine:GetAcceleration()
+    return self.acceleration
+end
+
+--- Set acceleration
+---@param delta number
+function Engine:SetAcceleration(delta)
+    local current_velocity = self.fly_av_system:GetVelocity()
+    self.acceleration.x = (current_velocity.x - self.prev_velocity.x) / delta
+    self.acceleration.y = (current_velocity.y - self.prev_velocity.y) / delta
+    self.acceleration.z = (current_velocity.z - self.prev_velocity.z) / delta
+    self.prev_velocity = current_velocity
 end
 
 --- Calculate linely velocity.
@@ -176,16 +275,16 @@ function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
 end
 
 --- Change linely velocity of AV.
----@param x number
----@param y number
----@param z number
----@param roll number
----@param pitch number
----@param yaw number
----@param type number 0: velocity, 1: angle, 2: both
-function Engine:ChangeVelocity(x, y, z, roll, pitch, yaw, type)
-    self.fly_av_system:ChangeVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw), type)
-end
+-- ---@param x number
+-- ---@param y number
+-- ---@param z number
+-- ---@param roll number
+-- ---@param pitch number
+-- ---@param yaw number
+-- ---@param type number 0: velocity, 1: angle, 2: both
+-- function Engine:ChangeVelocity(x, y, z, roll, pitch, yaw, type)
+--     self.fly_av_system:ChangeVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw), type)
+-- end
 
 --- Calculate velocity for AV mode.
 ---@param action_commands Def.ActionList

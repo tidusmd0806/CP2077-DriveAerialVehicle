@@ -91,4 +91,16 @@ Def.FlightMode = {
     Helicopter = 1,
 }
 
+Def.ChangeVelocityType = {
+    Both = 0,
+    Direction = 1,
+    Angular = 2,
+}
+
+Def.EngineControlType = {
+    None = -1,
+    ChangeVelocity = 0,
+    AddForce = 1,
+}
+
 return Def

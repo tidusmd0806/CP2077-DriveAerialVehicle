@@ -243,6 +243,43 @@ registerForEvent("onTweak",function ()
         TweakDB:CreateRecord("Vehicle.VehicleDestructionParamsNoDamage", "gamedataVehicleDestruction_Record")
     end
 
+    -- TPP Camera Parameters
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_High_Close_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_High_Close_DAV", "Camera.VehicleTPP_4w_Preset_High_Close")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_Low_Close_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_Low_Close_DAV", "Camera.VehicleTPP_4w_Preset_Low_Close")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_High_Medium_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_High_Medium_DAV", "Camera.VehicleTPP_4w_Preset_High_Medium")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_Low_Medium_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_Low_Medium_DAV", "Camera.VehicleTPP_4w_Preset_Low_Medium")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_High_Far_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_High_Far_DAV", "Camera.VehicleTPP_4w_Preset_High_Far")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_Low_Far_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_Low_Far_DAV", "Camera.VehicleTPP_4w_Preset_Low_Far")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_High_DriverCombatClose_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_High_DriverCombatClose_DAV", "Camera.VehicleTPP_4w_Preset_High_DriverCombatClose")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_Low_DriverCombatClose_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_Low_DriverCombatClose_DAV", "Camera.VehicleTPP_4w_Preset_Low_DriverCombatClose")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_High_DriverCombatMedium_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_High_DriverCombatMedium_DAV", "Camera.VehicleTPP_4w_Preset_High_DriverCombatMedium")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_Low_DriverCombatMedium_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_Low_DriverCombatMedium_DAV", "Camera.VehicleTPP_4w_Preset_Low_DriverCombatMedium")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_High_DriverCombatFar_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_High_DriverCombatFar_DAV", "Camera.VehicleTPP_4w_Preset_High_DriverCombatFar")
+    end
+    if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar_DAV") == nil then
+        TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar_DAV", "Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar")
+    end
 end)
 
 registerForEvent("onHook", function()
@@ -333,6 +370,9 @@ end)
 
 registerForEvent('onUpdate', function(delta)
     Cron.Update(delta)
+    if DAV.core_obj.av_obj.engine_obj ~= nil then
+        DAV.core_obj.av_obj.engine_obj:Update(delta)
+    end
 end)
 
 registerForEvent('onShutdown', function()

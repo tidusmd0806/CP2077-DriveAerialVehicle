@@ -9,14 +9,14 @@ AV.__index = AV
 ---@param all_models table model data
 ---@return table instance av instance
 function AV:New(all_models)
-	-- instance --
+	---instance---
 	local obj = {}
 	obj.position_obj = Position:New(all_models)
 	obj.engine_obj = Engine:New(obj.position_obj, all_models)
 	obj.camera_obj = Camera:New(obj.position_obj, all_models)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
-	-- static --
+	---static---
 	-- model
 	obj.all_models = all_models
 	-- door
@@ -37,12 +37,13 @@ function AV:New(all_models)
 	-- thruster
 	obj.thruster_angle_step = 0.6
 	obj.thruster_angle_restore = 0.3
-	-- dynamic --
+	---dynamic---
+	-- common
+	obj.entity_id = nil
 	-- door
 	obj.combat_door = nil
 	obj.door_input_lock_list = {seat_front_left = false, seat_front_right = false, seat_back_left = false, seat_back_right = false, trunk = false, hood = false}
 	-- summon
-	obj.entity_id = nil
 	obj.vehicle_model_tweakdb_id = nil
 	obj.vehicle_model_type = nil
 	obj.active_seat = nil
@@ -232,6 +233,7 @@ function AV:Spawn(position, angle)
 			self.landing_vfx_component = entity:FindComponentByName("LandingVFXSlot")
 			self.position_obj:SetEntity(entity)
 			self.engine_obj:Init(self.entity_id)
+			self.engine_obj:SetControlType(Def.EngineControlType.AddForce)
 			Cron.After(0.5, function()
 				if self:SetThrusterComponent() then
 					self.is_available_thruster = true
@@ -252,25 +254,25 @@ function AV:SpawnToSky()
 	position.z = position.z + self.spawn_high
 	local angle = self.position_obj:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
-	Cron.Every(0.01, { tick = 1 }, function(timer)
-		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
-			timer.tick = timer.tick + 1
-			if timer.tick == self.spawn_wait_count then
-				self:DisableAllDoorInteractions()
-			elseif timer.tick > self.spawn_wait_count then
-				if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
-					self.is_landed = true
-					Cron.Halt(timer)
-				elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
-					self.is_landed = true
-					Cron.Halt(timer)
-				elseif self.position_obj:GetHeight() < self.position_obj.minimum_distance_to_ground then
-					self.is_landed = true
-					Cron.Halt(timer)
-				end
-			end
-		end
-	end)
+	-- Cron.Every(0.01, { tick = 1 }, function(timer)
+	-- 	if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+	-- 		timer.tick = timer.tick + 1
+	-- 		if timer.tick == self.spawn_wait_count then
+	-- 			self:DisableAllDoorInteractions()
+	-- 		elseif timer.tick > self.spawn_wait_count then
+	-- 			if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
+	-- 				self.is_landed = true
+	-- 				Cron.Halt(timer)
+	-- 			elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
+	-- 				self.is_landed = true
+	-- 				Cron.Halt(timer)
+	-- 			elseif self.position_obj:GetHeight() < self.position_obj.minimum_distance_to_ground then
+	-- 				self.is_landed = true
+	-- 				Cron.Halt(timer)
+	-- 			end
+	-- 		end
+	-- 	end
+	-- end)
 end
 
 --- Despawn AV.
@@ -536,8 +538,6 @@ function AV:Unmount()
 	end
 
 	self.is_unmounting = true
-
-	self.camera_obj:ResetPerspective()
 
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to unmount")
