@@ -1,0 +1,11 @@
+version: 1.0.0
+sfx:
+  dav_q306_sc_11_altus_02_idle: 
+    file: av_q306_sc_11_altus_02_idle.wav
+    settings:
+      volume: 3
+      loop: true
+  dav_av_accel: 
+    file: av_accel.wav
+    settings:
+      volume: 3
