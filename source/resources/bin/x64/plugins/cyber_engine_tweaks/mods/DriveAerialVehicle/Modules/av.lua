@@ -25,7 +25,7 @@ function AV:New(all_models)
 	obj.spawn_distance = 5.5
 	obj.spawn_high = 20
 	obj.spawn_wait_count = 150
-	obj.down_time_count = 200
+	obj.down_time_count = 350
 	obj.land_offset = -1.0
 	-- autopiolt
 	obj.profile_path = "Data/autopilot_profile.json"
@@ -50,6 +50,10 @@ function AV:New(all_models)
 	obj.active_door = nil
 	obj.seat_index = 1
 	obj.is_crystal_dome = false
+	obj.search_ground_offset = 2
+	obj.search_ground_distance = 100
+	obj.collision_filters =  {"Static", "Terrain", "Water"}
+	obj.minimum_distance_to_ground = 1.5
 	-- av status
 	obj.is_landed = false
 	obj.is_leaving = false
@@ -174,6 +178,43 @@ function AV:IsDespawned()
 	end
 end
 
+--- Get AV position.
+---@return Vector4
+function AV:GetPosition()
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		return Vector4.Zero()
+	end
+	return entity:GetWorldPosition()
+end
+
+function AV:GetHeightFromGround()
+	local current_position = self:GetPosition()
+	if current_position == nil then
+		self.log_obj:Record(LogLevel.Warning, "No position to get height from ground")
+		return 0
+	end
+	return current_position.z - self:GetGroundPosition()
+end
+
+--- Get Ground Position
+---@return number z
+function AV:GetGroundPosition()
+    local current_position = self:GetPosition()
+	if current_position == nil then
+		self.log_obj:Record(LogLevel.Warning, "No position to get ground position")
+		return 0
+	end
+    current_position.z = current_position.z + self.search_ground_offset
+    for _, filter in ipairs(self.collision_filters) do
+        local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x, current_position.y, current_position.z - self.search_ground_distance, 1.0), filter, false, false)
+        if is_success then
+            return trace_result.position.z
+        end
+    end
+    return current_position.z - self.search_ground_distance - 1
+end
+
 --- Check if player is mounted combat seat.
 ---@return boolean
 function AV:IsMountedCombatSeat()
@@ -233,7 +274,8 @@ function AV:Spawn(position, angle)
 			self.landing_vfx_component = entity:FindComponentByName("LandingVFXSlot")
 			self.position_obj:SetEntity(entity)
 			self.engine_obj:Init(self.entity_id)
-			self.engine_obj:SetControlType(Def.EngineControlType.AddForce)
+			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.engine_obj:EnableGravity(false)
 			Cron.After(0.5, function()
 				if self:SetThrusterComponent() then
 					self.is_available_thruster = true
@@ -250,29 +292,30 @@ end
 
 --- Spawn AV at sky.
 function AV:SpawnToSky()
-	local position = self.position_obj:GetSpawnPosition(self.spawn_distance, 0.0)
+	local position = self:GetSpawnPosition(self.spawn_distance, 0.0)
+	local dist_position = Vector4.new(position.x, position.y, position.z, 1)
 	position.z = position.z + self.spawn_high
-	local angle = self.position_obj:GetSpawnOrientation(90.0)
+	local angle = self:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
-	-- Cron.Every(0.01, { tick = 1 }, function(timer)
-	-- 	if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
-	-- 		timer.tick = timer.tick + 1
-	-- 		if timer.tick == self.spawn_wait_count then
-	-- 			self:DisableAllDoorInteractions()
-	-- 		elseif timer.tick > self.spawn_wait_count then
-	-- 			if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1), 0.0, 0.0, 0.0) then
-	-- 				self.is_landed = true
-	-- 				Cron.Halt(timer)
-	-- 			elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
-	-- 				self.is_landed = true
-	-- 				Cron.Halt(timer)
-	-- 			elseif self.position_obj:GetHeight() < self.position_obj.minimum_distance_to_ground then
-	-- 				self.is_landed = true
-	-- 				Cron.Halt(timer)
-	-- 			end
-	-- 		end
-	-- 	end
-	-- end)
+	Cron.Every(0.01, { tick = 1 }, function(timer)
+		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
+			if timer.tick == 1 then
+				self:DisableAllDoorInteractions()
+				self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 0.5, 2, 2, 7, true)
+			elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
+				self.engine_obj:SetDirectionVelocity(Vector3.new(0.0, 0.0, 0.0))
+				self.is_landed = true
+				self.log_obj:Record(LogLevel.Info, "Spawn to sky timeout")
+				Cron.Halt(timer)
+			elseif self:GetHeightFromGround() < self.minimum_distance_to_ground then
+				self.engine_obj:SetDirectionVelocity(Vector3.new(0.0, 0.0, 0.0))
+				self.is_landed = true
+				self.log_obj:Record(LogLevel.Info, "Spawn to sky success")
+				Cron.Halt(timer)
+			end
+			timer.tick = timer.tick + 1
+		end
+	end)
 end
 
 --- Despawn AV.
@@ -293,12 +336,11 @@ function AV:DespawnFromGround()
 	Cron.Every(0.01, { tick = 1 }, function(timer)
 		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			timer.tick = timer.tick + 1
-			if timer.tick > self.spawn_wait_count then
-				self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(self.down_time_count, self.land_offset ,self.spawn_high , timer.tick - self.spawn_wait_count + 1 + self.down_time_count), 0.0, 0.0, 0.0)
-				if timer.tick >= self.spawn_wait_count + self.down_time_count then
-					self:Despawn()
-					Cron.Halt(timer)
-				end
+			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.engine_obj:SetDirectionVelocity(Vector3.new(0.0, 0.0, 2.0))
+			if timer.tick >= self.down_time_count then
+				self:Despawn()
+				Cron.Halt(timer)
 			end
 		end
 	end)
@@ -619,16 +661,16 @@ function AV:Operate(action_commands)
 		if action_command ~= Def.ActionList.Nothing then
 			self.log_obj:Record(LogLevel.Trace, "Operation:" .. action_command)
 		end
-		local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateLinelyVelocity(action_command)
-		x_total = x_total + x
-		y_total = y_total + y
-		z_total = z_total + z
-		roll_total = roll_total + roll
-		pitch_total = pitch_total + pitch
-		yaw_total = yaw_total + yaw
+		-- local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateLinelyVelocity(action_command)
+		-- x_total = x_total + x
+		-- y_total = y_total + y
+		-- z_total = z_total + z
+		-- roll_total = roll_total + roll
+		-- pitch_total = pitch_total + pitch
+		-- yaw_total = yaw_total + yaw
 	end
 
-	self.engine_obj:AddLinelyVelocity(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
+	-- self.engine_obj:AddLinelyVelocity(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 	if not self.is_auto_pilot then
 		self:MoveThruster(action_commands)
 	end
@@ -1272,6 +1314,29 @@ function AV:TurnEngineOn(on)
 	end
 	entity:TurnEngineOn(on)
 	return true
+end
+
+--- Get Player Around Direction (for spawn position)
+---@param angle number
+function AV:GetPlayerAroundDirection(angle)
+    return Vector4.RotateAxis(Game.GetPlayer():GetWorldForward(), Vector4.new(0, 0, 1, 0), angle / 180.0 * Pi())
+end
+
+--- Get Spawn Position Vector
+---@param distance number
+---@param angle number
+---@return Vector4
+function AV:GetSpawnPosition(distance, angle)
+    local pos = Game.GetPlayer():GetWorldPosition()
+    local heading = self:GetPlayerAroundDirection(angle)
+    return Vector4.new(pos.x + (heading.x * distance), pos.y + (heading.y * distance), pos.z + heading.z, pos.w + heading.w)
+end
+
+--- Get Spawn Orientation Quaternion
+---@param angle number
+---@return Quaternion
+function AV:GetSpawnOrientation(angle)
+    return EulerAngles.ToQuat(Vector4.ToRotation(self:GetPlayerAroundDirection(angle)))
 end
 
 return AV

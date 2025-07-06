@@ -25,6 +25,7 @@ function Debug:New(core_obj)
     obj.exception_area_entity_list = {}
     obj.spawn_lock = false
     obj.is_im_gui_measurement = false
+    obj.is_im_gui_engine_info = false
 
     return setmetatable(obj, self)
 end
@@ -43,6 +44,7 @@ function Debug:ImGuiMain()
     self:ImGuiPlayerPosition()
     self:ImGuiAVPosition()
     self:ImGuiVehicleInfo()
+    self:ImGuiEngineInfo()
     self:ImGuiSoundCheck()
     self:ImGuiModelTypeStatus()
     self:ImGuiMappinPosition()
@@ -190,6 +192,29 @@ function Debug:ImGuiVehicleInfo()
         local speed_z = string.format("%.2f", speed.z)
         ImGui.Text("Speed : X:" .. speed_x .. ", Y:" .. speed_y .. ", Z:" .. speed_z)
 
+    end
+end
+
+function Debug:ImGuiEngineInfo()
+    self.is_im_gui_engine_info = ImGui.Checkbox("[ImGui] Engine Info", self.is_im_gui_engine_info)
+    if self.is_im_gui_engine_info then
+        if DAV.core_obj.av_obj == nil then
+            return
+        end
+        local engine_obj = self.core_obj.av_obj.engine_obj
+        if engine_obj.fly_av_system == nil then
+            return
+        end
+        local force = engine_obj.force
+        local torque = engine_obj.torque
+        local direction_velocity = engine_obj.direction_velocity
+        local angular_velocity = engine_obj.angular_velocity
+        local autopilot_time = engine_obj.autopilot_time
+        ImGui.Text("Force : X:" .. force.x .. ", Y:" .. force.y .. ", Z:" .. force.z)
+        ImGui.Text("torque : X:" .. torque.x .. ", Y:" .. torque.y .. ", Z:" .. torque.z)
+        ImGui.Text("Direction Velocity : X:" .. direction_velocity.x .. ", Y:" .. direction_velocity.y .. ", Z:" .. direction_velocity.z)
+        ImGui.Text("Angular Velocity : X:" .. angular_velocity.x .. ", Y:" .. angular_velocity.y .. ", Z:" .. angular_velocity.z)
+        ImGui.Text("Autopilot Time : " .. autopilot_time)
     end
 end
 

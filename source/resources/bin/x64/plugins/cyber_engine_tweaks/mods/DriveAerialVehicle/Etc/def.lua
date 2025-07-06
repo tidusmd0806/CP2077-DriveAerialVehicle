@@ -101,6 +101,7 @@ Def.EngineControlType = {
     None = -1,
     ChangeVelocity = 0,
     AddForce = 1,
+    LinearlyAutopilot = 2,
 }
 
 return Def

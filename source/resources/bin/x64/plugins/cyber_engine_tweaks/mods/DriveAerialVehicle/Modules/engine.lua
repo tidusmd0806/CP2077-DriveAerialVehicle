@@ -23,7 +23,9 @@ function Engine:New(position_obj, all_models)
     obj.rpm_count_scale = 80
     obj.rpm_max_count = 10 * obj.rpm_count_scale
     obj.gravitational_acceleration = 9.8
+    -- obj.restore_force_multiplier = 10
     ---dynamic---
+    obj.entity_id = nil
     obj.flight_mode = Def.FlightMode.AV
     obj.fly_av_system = nil
     obj.current_speed = 0
@@ -37,6 +39,16 @@ function Engine:New(position_obj, all_models)
     obj.prev_velocity = Vector3.new(0, 0, 0)
     obj.engine_control_type = Def.EngineControlType.None
     obj.is_finished_init = false
+    -- obj.hover_height = 0
+    obj.end_point_for_linearly_autopilot = Vector4.new(0, 0, 0, 1)
+    obj.end_decreased_distance_for_linearly_autopilot = 0
+    obj.start_increased_time_for_linearly_autopilot = 0
+    obj.end_decreased_time_for_linearly_autopilot = 0
+    obj.min_speed_for_linearly_autopilot = 0
+    obj.max_speed_for_linearly_autopilot = 0
+    obj.is_rocked_angle_for_linearly_autopilot = false
+    obj.is_enable_limearly_autopilot = false
+    obj.autopilot_time = 0
 
     return setmetatable(obj, self)
 end
@@ -44,6 +56,7 @@ end
 --- Initialize
 ---@param entity_id EntityID
 function Engine:Init(entity_id)
+    self.entity_id = entity_id
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
@@ -65,9 +78,11 @@ function Engine:Update(delta)
     self:UnsetPhysicsState()
     self:SetAcceleration(delta)
     if self.engine_control_type == Def.EngineControlType.ChangeVelocity then
-        self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.velocity, self.angular_velocity)
+        self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.direction_velocity, self.angular_velocity)
     elseif self.engine_control_type == Def.EngineControlType.AddForce then
         self:AddForce(delta, self.force, self.torque)
+    elseif self.engine_control_type == Def.EngineControlType.LinearlyAutopilot then
+        self:OperateLinelyAutopilot(delta)
     else
         self.log_obj:Record(LogLevel.Error, "Unknown control type")
     end
@@ -76,6 +91,18 @@ end
 --- Unset physics state
 function Engine:UnsetPhysicsState()
     self.fly_av_system:UnsetPhysicsState()
+end
+
+--- Check if has gravity
+---@return boolean
+function Engine:HasGravity()
+    return self.fly_av_system:HasGravity()
+end
+
+--- Set gravity
+---@param on boolean
+function Engine:EnableGravity(on)
+    self.fly_av_system:EnableGravity(on)
 end
 
 --- Get gravitational force
@@ -90,7 +117,7 @@ end
 ---@param force Vector3
 ---@param torque Vector3
 function Engine:AddForce(delta, force, torque)
-    local delta_force = Vector3.new(force.x * delta, force.y * delta, (-self:GetGravitationalForce() + force.z) * delta)
+    local delta_force = Vector3.new(force.x * delta, force.y * delta, force.z * delta)
     local delta_torque = Vector3.new(torque.x * delta, torque.y * delta, torque.z * delta)
     self.fly_av_system:AddForce(delta_force, delta_torque)
 end
@@ -102,6 +129,23 @@ end
 function Engine:ChangeVelocity(type, direction_velocity, angular_velocity)
     self.fly_av_system:ChangeVelocity(direction_velocity, angular_velocity, type)
 end
+
+--- Hover for keeping height
+-- ---@param delta number
+-- function Engine:Hover(delta)
+--     local height = self:GetCurrentHeight()
+--     if height == nil then
+--         self.log_obj:Record(LogLevel.Error, "Height is nil")
+--         return
+--     end
+--     local acceleration = self:GetAcceleration()
+--     local mass = self.fly_av_system:GetMass()
+--     local anti_force = mass * -acceleration.z
+--     print(anti_force)
+--     local h_delta = height - self.hover_height
+--     local hover_force = Vector3.new(0, 0, anti_force)
+--     self:AddForce(delta, hover_force, Vector3.new(0, 0, 0))
+-- end
 
 --- Set force
 ---@param force Vector3
@@ -115,10 +159,22 @@ function Engine:SetTorque(torque)
     self.torque = torque
 end
 
+--- Get direction velocity
+---@return Vector3
+function Engine:GetDirectionVelocity()
+    return self.direction_velocity
+end
+
 --- Set direction velocity
 ---@param direction_velocity Vector3
-function Engine:SetVelocity(direction_velocity)
+function Engine:SetDirectionVelocity(direction_velocity)
     self.direction_velocity = direction_velocity
+end
+
+--- Get angular velocity
+---@return Vector3
+function Engine:GetAngularVelocity()
+    return self.angular_velocity
 end
 
 --- Set angular velocity
@@ -126,6 +182,12 @@ end
 function Engine:SetAngularVelocity(angular_velocity)
     self.angular_velocity = angular_velocity
 end
+
+--- Set hover height
+-- ---@param height number
+-- function Engine:SetHoverHeight(height)
+--     self.hover_height = height
+-- end
 
 --- Get acceleration
 ---@return Vector3
@@ -143,7 +205,18 @@ function Engine:SetAcceleration(delta)
     self.prev_velocity = current_velocity
 end
 
---- Calculate linely velocity.
+--- Get current height
+-- ---@return number | nil
+-- function Engine:GetCurrentHeight()
+--     if not self.is_finished_init then
+--         return nil
+--     end
+--     local entity = Game.FindEntityByID(self.entity_id)
+--     local position = entity:GetWorldPosition()
+--     return position.z
+-- end
+
+--- Calculate linearly velocity.
 ---@param action_command number
 ---@return number x
 ---@return number y
@@ -187,7 +260,7 @@ function Engine:CalculateLinelyVelocity(action_command)
     end
 end
 
---- Interface for RED4Ext Plugin. Add linely velocity.
+--- Interface for RED4Ext Plugin. Add linearly velocity.
 ---@param x number
 ---@param y number
 ---@param z number
@@ -274,7 +347,7 @@ function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
     self.fly_av_system:AddVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw))
 end
 
---- Change linely velocity of AV.
+--- Change linearly velocity of AV.
 -- ---@param x number
 -- ---@param y number
 -- ---@param z number
@@ -500,6 +573,79 @@ end
 ---@return integer
 function Engine:GetRPMCount()
     return math.floor(self.rpm_count / self.rpm_count_scale)
+end
+
+--- Set linearly autopilot mode
+---@param enable boolean
+---@param end_point Vector4
+---@param end_decreased_distance number
+---@param first_increased_time number
+---@param end_decreased_time number
+---@param min_speed number
+---@param max_speed number
+---@param is_rocked_angle boolean
+function Engine:SetlinearlyAutopilotMode(enable, end_point, end_decreased_distance, first_increased_time, end_decreased_time, min_speed, max_speed, is_rocked_angle)
+    if enable then
+        self:SetControlType(Def.EngineControlType.LinearlyAutopilot)
+        self.end_point_for_linearly_autopilot = end_point
+        self.end_decreased_distance_for_linearly_autopilot = end_decreased_distance
+        self.first_increased_time_for_linearly_autopilot = first_increased_time
+        self.end_decreased_time_for_linearly_autopilot = end_decreased_time
+        self.min_speed_for_linearly_autopilot = min_speed
+        self.max_speed_for_linearly_autopilot = max_speed
+        self.is_rocked_angle_for_linearly_autopilot = is_rocked_angle
+        self.is_enable_limearly_autopilot = true
+        self.autopilot_time = 0
+    else
+        self:SetControlType(Def.EngineControlType.ChangeVelocity)
+        self:SetDirectionVelocity(Vector3.new(0, 0, 0))
+        self:SetAngularVelocity(Vector3.new(0, 0, 0))
+        self.autopilot_time = 0
+        self.is_enable_limearly_autopilot = false
+    end
+end
+
+--- Operate linely autopilot
+---@param delta number
+function Engine:OperateLinelyAutopilot(delta)
+    if not self.is_enable_limearly_autopilot then
+        self.log_obj:Record(LogLevel.Critical, "Don't operate because linely autopilot is not enabled")
+        return
+    end
+    local av_position = Game.FindEntityByID(self.entity_id):GetWorldPosition()
+    local direction_vector = Vector4.new(self.end_point_for_linearly_autopilot.x - av_position.x,
+                                            self.end_point_for_linearly_autopilot.y - av_position.y,
+                                            self.end_point_for_linearly_autopilot.z - av_position.z, 1)
+    local direcrtion_vector_normalized = Vector4.Normalize(direction_vector)
+    local gradient_start = (self.max_speed_for_linearly_autopilot - self.min_speed_for_linearly_autopilot) / self.first_increased_time_for_linearly_autopilot
+    local gradient_end = (self.min_speed_for_linearly_autopilot - self.max_speed_for_linearly_autopilot) / self.end_decreased_time_for_linearly_autopilot
+    local remaining_distance = Vector4.Distance(av_position, self.end_point_for_linearly_autopilot)
+    local current_velocity = self:GetDirectionVelocity()
+    if self.autopilot_time < self.first_increased_time_for_linearly_autopilot then
+        local direction_velocity = Vector3.new(current_velocity.x + direcrtion_vector_normalized.x * gradient_start * delta, current_velocity.y + direcrtion_vector_normalized.y * gradient_start * delta, current_velocity.z + direcrtion_vector_normalized.z * gradient_start * delta) 
+        local direction_velocity_norm = math.sqrt(direction_velocity.x * direction_velocity.x + direction_velocity.y * direction_velocity.y + direction_velocity.z * direction_velocity.z)
+        if direction_velocity_norm > self.max_speed_for_linearly_autopilot then
+            direction_velocity.x = direction_velocity.x / direction_velocity_norm * self.max_speed_for_linearly_autopilot
+            direction_velocity.y = direction_velocity.y / direction_velocity_norm * self.max_speed_for_linearly_autopilot
+            direction_velocity.z = direction_velocity.z / direction_velocity_norm * self.max_speed_for_linearly_autopilot
+        end
+        self:SetDirectionVelocity(direction_velocity)
+    elseif remaining_distance < 5 then
+        print("Linearly Autopilot End")
+        self:SetlinearlyAutopilotMode(false, Vector4.new(0, 0, 0, 1), 0, 0, 0, 0, 0, false)
+        return
+    elseif remaining_distance < self.end_decreased_distance_for_linearly_autopilot then
+        local direction_velocity = Vector3.new(current_velocity.x + direcrtion_vector_normalized.x * gradient_end * delta, current_velocity.y + direcrtion_vector_normalized.y * gradient_end * delta, current_velocity.z + direcrtion_vector_normalized.z * gradient_end * delta)
+        local direction_velocity_norm = math.sqrt(direction_velocity.x * direction_velocity.x + direction_velocity.y * direction_velocity.y + direction_velocity.z * direction_velocity.z)
+        if direction_velocity_norm < self.min_speed_for_linearly_autopilot then
+            direction_velocity.x = direction_velocity.x / direction_velocity_norm * self.min_speed_for_linearly_autopilot
+            direction_velocity.y = direction_velocity.y / direction_velocity_norm * self.min_speed_for_linearly_autopilot
+            direction_velocity.z = direction_velocity.z / direction_velocity_norm * self.min_speed_for_linearly_autopilot
+        end
+        self:SetDirectionVelocity(direction_velocity)
+    end
+    self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.direction_velocity, self.angular_velocity)
+    self.autopilot_time = self.autopilot_time + delta
 end
 
 return Engine
