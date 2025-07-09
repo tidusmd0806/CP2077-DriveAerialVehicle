@@ -333,11 +333,12 @@ end
 
 --- Despawn AV when it is on ground.
 function AV:DespawnFromGround()
+	local position = self:GetPosition()
+	local dist_position = Vector4.new(position.x, position.y, position.z + self.spawn_high, 1)
+	self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 5, 0, 1, 7, true)
 	Cron.Every(0.01, { tick = 1 }, function(timer)
 		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			timer.tick = timer.tick + 1
-			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
-			self.engine_obj:SetDirectionVelocity(Vector3.new(0.0, 0.0, 2.0))
 			if timer.tick >= self.down_time_count then
 				self:Despawn()
 				Cron.Halt(timer)

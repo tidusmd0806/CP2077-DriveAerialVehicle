@@ -617,12 +617,23 @@ function Engine:OperateLinelyAutopilot(delta)
                                             self.end_point_for_linearly_autopilot.y - av_position.y,
                                             self.end_point_for_linearly_autopilot.z - av_position.z, 1)
     local direcrtion_vector_normalized = Vector4.Normalize(direction_vector)
-    local gradient_start = (self.max_speed_for_linearly_autopilot - self.min_speed_for_linearly_autopilot) / self.first_increased_time_for_linearly_autopilot
-    local gradient_end = (self.min_speed_for_linearly_autopilot - self.max_speed_for_linearly_autopilot) / self.end_decreased_time_for_linearly_autopilot
+    local gradient_start
+    if self.first_increased_time_for_linearly_autopilot == 0 then
+         gradient_start = 0
+    else
+        gradient_start = (self.max_speed_for_linearly_autopilot - self.min_speed_for_linearly_autopilot) / self.first_increased_time_for_linearly_autopilot
+    end
+    local gradient_end
+    if self.end_decreased_time_for_linearly_autopilot == 0 then
+        gradient_end = 0
+    else
+        gradient_end = (self.min_speed_for_linearly_autopilot - self.max_speed_for_linearly_autopilot) / self.end_decreased_time_for_linearly_autopilot
+    end
     local remaining_distance = Vector4.Distance(av_position, self.end_point_for_linearly_autopilot)
     local current_velocity = self:GetDirectionVelocity()
+    local current_velocity_norm = math.sqrt(current_velocity.x * current_velocity.x + current_velocity.y * current_velocity.y + current_velocity.z * current_velocity.z)
     if self.autopilot_time < self.first_increased_time_for_linearly_autopilot then
-        local direction_velocity = Vector3.new(current_velocity.x + direcrtion_vector_normalized.x * gradient_start * delta, current_velocity.y + direcrtion_vector_normalized.y * gradient_start * delta, current_velocity.z + direcrtion_vector_normalized.z * gradient_start * delta) 
+        local direction_velocity = Vector3.new(current_velocity.x + direcrtion_vector_normalized.x * gradient_start * delta, current_velocity.y + direcrtion_vector_normalized.y * gradient_start * delta, current_velocity.z + direcrtion_vector_normalized.z * gradient_start * delta)
         local direction_velocity_norm = math.sqrt(direction_velocity.x * direction_velocity.x + direction_velocity.y * direction_velocity.y + direction_velocity.z * direction_velocity.z)
         if direction_velocity_norm > self.max_speed_for_linearly_autopilot then
             direction_velocity.x = direction_velocity.x / direction_velocity_norm * self.max_speed_for_linearly_autopilot
@@ -630,8 +641,7 @@ function Engine:OperateLinelyAutopilot(delta)
             direction_velocity.z = direction_velocity.z / direction_velocity_norm * self.max_speed_for_linearly_autopilot
         end
         self:SetDirectionVelocity(direction_velocity)
-    elseif remaining_distance < 5 then
-        print("Linearly Autopilot End")
+    elseif remaining_distance < 1 or current_velocity_norm == 0 then
         self:SetlinearlyAutopilotMode(false, Vector4.new(0, 0, 0, 1), 0, 0, 0, 0, 0, false)
         return
     elseif remaining_distance < self.end_decreased_distance_for_linearly_autopilot then
