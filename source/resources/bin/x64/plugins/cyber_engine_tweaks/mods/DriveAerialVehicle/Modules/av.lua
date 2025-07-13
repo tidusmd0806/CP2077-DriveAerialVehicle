@@ -650,18 +650,20 @@ function AV:ForceMove(x, y, z, roll, pitch, yaw)
 end
 
 --- Execute action commands.
---- @param action_commands table
-function AV:Operate(action_commands)
-	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
-	self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_commands)
-	for _, action_command in ipairs(action_commands) do
-		if action_command >= Def.ActionList.Enter then
-			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command)
+--- @param action_command_lists table
+function AV:Operate(action_command_lists)
+	-- local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
+	self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_command_lists)
+	for _, action_command_list in ipairs(action_command_lists) do
+		if action_command_list[1] >= Def.ActionList.Enter then
+			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
 			return false
 		end
-		if action_command ~= Def.ActionList.Nothing then
-			self.log_obj:Record(LogLevel.Trace, "Operation:" .. action_command)
+		if action_command_list[1] ~= Def.ActionList.Nothing then
+			self.log_obj:Record(LogLevel.Trace, "Operation:" .. action_command_list[1])
 		end
+		self.engine_obj:CalculateForceAndTorque(action_command_list)
+
 		-- local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateLinelyVelocity(action_command)
 		-- x_total = x_total + x
 		-- y_total = y_total + y
@@ -673,7 +675,7 @@ function AV:Operate(action_commands)
 
 	-- self.engine_obj:AddLinelyVelocity(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 	if not self.is_auto_pilot then
-		self:MoveThruster(action_commands)
+		self:MoveThruster(action_command_lists)
 	end
 
 	return true
@@ -1207,9 +1209,9 @@ function AV:SetThrusterComponent()
 end
 
 --- Change thruster angle by action commands.
----@param action_commands table
+---@param action_command_lists table
 ---@return boolean
-function AV:MoveThruster(action_commands)
+function AV:MoveThruster(action_command_lists)
 	if self.thruster_angle > self.thruster_angle_restore then
 		self.thruster_angle = self.thruster_angle - self.thruster_angle_restore
 	elseif self.thruster_angle < -self.thruster_angle_restore then
@@ -1222,10 +1224,10 @@ function AV:MoveThruster(action_commands)
 		return false
 	end
 
-	for _, action_command in ipairs(action_commands) do
-		if action_command == Def.ActionList.Forward then
+	for _, action_command_list in ipairs(action_command_lists) do
+		if action_command_list[1] == Def.ActionList.Forward then
 			self.thruster_angle = self.thruster_angle - self.thruster_angle_step
-		elseif action_command == Def.ActionList.Backward then
+		elseif action_command_list[1] == Def.ActionList.Backward then
 			self.thruster_angle = self.thruster_angle + self.thruster_angle_step
 		end
 	end

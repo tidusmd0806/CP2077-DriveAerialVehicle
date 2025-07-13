@@ -51,6 +51,8 @@ function Core:New()
     -- AV
     obj.move_up_button_hold_count = 0
     obj.max_move_hold_count = 50000
+    obj.is_move_forward_button_hold_counter = false
+    obj.move_forward_button_hold_count = 0
     obj.is_move_up_button_hold_counter = false
     obj.move_down_button_hold_count = 0
     obj.is_move_down_button_hold_counter = false
@@ -276,7 +278,7 @@ function Core:SetInputListener()
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
     local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
 
-    Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
+    ObserveBefore("PlayerPuppet", "OnAction", function(this, action, consumer)
 
         if self.event_obj.current_situation ~= Def.Situation.Waiting and self.event_obj.current_situation ~= Def.Situation.InVehicle then
             return
@@ -289,6 +291,7 @@ function Core:SetInputListener()
         if self.event_obj:IsInVehicle() then
             for _, exception in pairs(exception_in_veh_list) do
                 if action_name == exception then
+                    print("Blocked Action: " .. action_name)
                     consumer:Consume()
                     break
                 end
@@ -454,77 +457,79 @@ end
 ---@param action_type string
 ---@param action_value number
 function Core:StorePlayerAction(action_name, action_type, action_value)
-    local action_value_type = "ZERO"
     if action_type == "RELATIVE_CHANGE" then
-        if action_value > self.relative_dead_zone then
-            action_value_type = "POSITIVE"
-        elseif action_value < -self.relative_dead_zone then
-            action_value_type = "NEGATIVE"
-        else
-            action_value_type = "ZERO"
+        if action_value < self.relative_dead_zone and action_value > -self.relative_dead_zone then
+            action_value = 0
         end
     elseif action_type == "BUTTON_HOLD_PROGRESS" then
         if action_value > self.hold_progress then
-            action_value_type = "POSITIVE"
+            action_value = 1
         else
-            action_value_type = "ZERO"
+            action_value = 0
         end
     else
-        if action_value > self.axis_dead_zone then
-            action_value_type = "POSITIVE"
-        elseif action_value < -self.axis_dead_zone then
-            action_value_type = "NEGATIVE"
-        else
-            action_value_type = "ZERO"
+        if action_value < self.axis_dead_zone and action_value > -self.axis_dead_zone then
+            action_value = 0
         end
     end
 
-    local cmd = 0
+    local cmd_list = {}
 
-    cmd = self:ConvertActionList(action_name, action_type, action_value_type)
+    cmd_list = self:ConvertActionList(action_name, action_type, action_value)
 
-    if cmd ~= Def.ActionList.Nothing then
-        self.queue_obj:Enqueue(cmd)
+    if cmd_list[1] ~= Def.ActionList.Nothing then
+        self.queue_obj:Enqueue(cmd_list)
     end
 end
 
 --- Convert Action List.
 ---@param action_name string
 ---@param action_type string
----@param action_value_type string
-function Core:ConvertActionList(action_name, action_type, action_value_type)
+---@param action_value number
+---@return table
+function Core:ConvertActionList(action_name, action_type, action_value)
     local flight_mode = self.av_obj.engine_obj.flight_mode
     if flight_mode == Def.FlightMode.AV then
-        return self:GetAVAction(action_name, action_type, action_value_type)
+        return self:GetAVAction(action_name, action_type, action_value)
     elseif flight_mode == Def.FlightMode.Helicopter then
-        return self:GetHeliAction(action_name, action_type, action_value_type)
+        return self:GetHeliAction(action_name, action_type, action_value)
+    else
+        self.log_obj:Record(LogLevel.Critical, "Flight Mode is invalid")
+        return {Def.ActionList.Nothing, 0}
     end
 end
 
 --- Get AV Action.
 ---@param action_name string
 ---@param action_type string
----@param action_value_type string
-function Core:GetAVAction(action_name, action_type, action_value_type)
+---@param action_value number
+---@return table
+function Core:GetAVAction(action_name, action_type, action_value)
     local action_command = Def.ActionList.Nothing
+    local action_value_type = "ZERO"
+    if action_value > 0 then
+        action_value_type = "POSITIVE"
+    elseif action_value < 0 then
+        action_value_type = "NEGATIVE"
+    end
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
 
     if self.event_obj.current_situation == Def.Situation.InVehicle then
-        if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_FORWARD_MOVE) then
-            action_command = Def.ActionList.Forward
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_BACK_MOVE) then
-            action_command = Def.ActionList.Backward
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_RIGHT_ROTATE) then
-            action_command = Def.ActionList.RightRotate
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEFT_ROTATE) then
-            action_command = Def.ActionList.LeftRotate
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEAN_FORWARD) then
-            action_command = Def.ActionList.LeanForward
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEAN_BACKWARD) then
-            action_command = Def.ActionList.LeanBackward
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_EXIT_AV) then
-            action_command = Def.ActionList.Exit
-        end
+        -- if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_FORWARD_MOVE) then
+        --     action_command = Def.ActionList.Forward
+        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_BACK_MOVE) then
+        --     action_command = Def.ActionList.Backward
+        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_RIGHT_ROTATE) then
+        --     action_command = Def.ActionList.RightRotate
+        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEFT_ROTATE) then
+        --     action_command = Def.ActionList.LeftRotate
+        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEAN_FORWARD) then
+        --     action_command = Def.ActionList.LeanForward
+        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEAN_BACKWARD) then
+        --     action_command = Def.ActionList.LeanBackward
+        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_EXIT_AV) then
+        --     action_command = Def.ActionList.Exit
+        -- end
     elseif self.event_obj.current_situation == Def.Situation.Waiting then
         if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_WORLD_ENTER_AV) then
             action_command = Def.ActionList.Enter
@@ -534,15 +539,22 @@ function Core:GetAVAction(action_name, action_type, action_value_type)
             action_command = Def.ActionList.SelectDown
         end
     end
-    return action_command
+    return {action_command, action_value}
 end
 
 --- Get Heli Action.
 ---@param action_name string
 ---@param action_type string
----@param action_value_type string
-function Core:GetHeliAction(action_name, action_type, action_value_type)
+---@param action_value number
+---@return table
+function Core:GetHeliAction(action_name, action_type, action_value)
     local action_command = Def.ActionList.Nothing
+    local action_value_type = "ZERO"
+    if action_value > 0 then
+        action_value_type = "POSITIVE"
+    elseif action_value < 0 then
+        action_value_type = "NEGATIVE"
+    end
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
 
     if self.event_obj.current_situation == Def.Situation.InVehicle then
@@ -570,7 +582,7 @@ function Core:GetHeliAction(action_name, action_type, action_value_type)
             action_command = Def.ActionList.SelectDown
         end
     end
-    return action_command
+    return {action_command, action_value}
 end
 
 --- Convert Hold Button Action.
@@ -606,7 +618,10 @@ end
 --- Convert Hold Button Action(AV).
 ---@param keybind_name string
 function Core:ConvertAVHoldAction(keybind_name)
-    if keybind_name == "move_up" then
+    if keybind_name == "move_forward" then
+        self.is_move_forward_button_hold_counter = false
+        self.move_forward_button_hold_count = 0
+    elseif keybind_name == "move_up" then
         self.is_move_up_button_hold_counter = false
         self.move_up_button_hold_count = 0
     elseif keybind_name == "move_down" then
@@ -690,7 +705,23 @@ end
 --- Convert Press Button Action(AV).
 ---@param keybind_name string
 function Core:ConvertAVPressAction(keybind_name)
-    if keybind_name == "move_up" then
+    if keybind_name == "move_forward" then
+        if not self.is_move_forward_button_hold_counter then
+            self.is_move_forward_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.move_forward_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_move_forward_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_move_forward_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.Forward)
+                end
+            end)
+        end
+    elseif keybind_name == "move_up" then
         if not self.is_move_up_button_hold_counter then
             self.is_move_up_button_hold_counter = true
             Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
@@ -910,21 +941,46 @@ function Core:ConvertCommonPressAction(keybind_name)
     end
 end
 
+--- Convert Axis Action.
+---@param key string
+---@param value number
+function Core:ConvertAxisAction(key, value)
+    local keybind_name = ""
+    if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
+        for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
+            if key == keybind.key or key == keybind.pad then
+                keybind_name = keybind.name
+                self:ConvertAVAxisAction(keybind_name, value)
+                return
+            end
+        end
+    elseif self.av_obj.engine_obj.flight_mode == Def.FlightMode.Helicopter then
+        for _, keybind in ipairs(DAV.user_setting_table.heli_keybind_table) do
+            if key == keybind.key or key == keybind.pad then
+                keybind_name = keybind.name
+                self:ConvertHeliAxisAction(keybind_name, value)
+                return
+            end
+        end
+    end
+end
+
 --- Dequeue and Operate Aerial Vehicle.
 function Core:GetActions()
     local move_actions = {}
 
     while not self.queue_obj:IsEmpty() do
         local action = self.queue_obj:Dequeue()
-        if action >= Def.ActionList.Enter then
-            self:SetEvent(action)
+        local action_list = type(action) == "table" and action or {action, 1}
+        if action_list[1] >= Def.ActionList.Enter then
+            self:SetEvent(action_list[1])
         else
-            table.insert(move_actions, action)
+            table.insert(move_actions, action_list)
         end
     end
 
     if #move_actions == 0 then
-        table.insert(move_actions, Def.ActionList.Nothing)
+        table.insert(move_actions, {Def.ActionList.Nothing, 0})
     end
 
     self:OperateAerialVehicle(move_actions)
@@ -937,7 +993,7 @@ function Core:OperateAerialVehicle(actions)
         if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
             self.av_obj:Operate(actions)
         elseif self.event_obj:IsWaiting() or self.event_obj:IsTakingOff() then
-            self.av_obj:Operate({Def.ActionList.Idle})
+            self.av_obj:Operate({{Def.ActionList.Idle, 0}})
         end
     end
 end

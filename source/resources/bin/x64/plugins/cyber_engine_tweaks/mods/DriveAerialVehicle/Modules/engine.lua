@@ -23,7 +23,6 @@ function Engine:New(position_obj, all_models)
     obj.rpm_count_scale = 80
     obj.rpm_max_count = 10 * obj.rpm_count_scale
     obj.gravitational_acceleration = 9.8
-    -- obj.restore_force_multiplier = 10
     ---dynamic---
     obj.entity_id = nil
     obj.flight_mode = Def.FlightMode.AV
@@ -130,23 +129,6 @@ function Engine:ChangeVelocity(type, direction_velocity, angular_velocity)
     self.fly_av_system:ChangeVelocity(direction_velocity, angular_velocity, type)
 end
 
---- Hover for keeping height
--- ---@param delta number
--- function Engine:Hover(delta)
---     local height = self:GetCurrentHeight()
---     if height == nil then
---         self.log_obj:Record(LogLevel.Error, "Height is nil")
---         return
---     end
---     local acceleration = self:GetAcceleration()
---     local mass = self.fly_av_system:GetMass()
---     local anti_force = mass * -acceleration.z
---     print(anti_force)
---     local h_delta = height - self.hover_height
---     local hover_force = Vector3.new(0, 0, anti_force)
---     self:AddForce(delta, hover_force, Vector3.new(0, 0, 0))
--- end
-
 --- Set force
 ---@param force Vector3
 function Engine:SetForce(force)
@@ -183,11 +165,6 @@ function Engine:SetAngularVelocity(angular_velocity)
     self.angular_velocity = angular_velocity
 end
 
---- Set hover height
--- ---@param height number
--- function Engine:SetHoverHeight(height)
---     self.hover_height = height
--- end
 
 --- Get acceleration
 ---@return Vector3
@@ -205,16 +182,133 @@ function Engine:SetAcceleration(delta)
     self.prev_velocity = current_velocity
 end
 
---- Get current height
--- ---@return number | nil
--- function Engine:GetCurrentHeight()
---     if not self.is_finished_init then
---         return nil
---     end
---     local entity = Game.FindEntityByID(self.entity_id)
---     local position = entity:GetWorldPosition()
---     return position.z
--- end
+--- Calculate linearly velocity.
+---@param action_command_list table
+function Engine:CalculateForceAndTorque(action_command_list)
+    if self.flight_mode == Def.FlightMode.AV then
+        self:CalculateAVForceAndTorque(action_command_list)
+    elseif self.flight_mode == Def.FlightMode.Helicopter then
+        -- self:CalculateHelicopterMode(action_command)
+    else
+        self.log_obj:Record(LogLevel.Critical, "Unknown flight mode: " .. self.flight_mode)
+    end
+end
+
+--- Calculate velocity for AV mode.
+---@param action_command_list table
+function Engine:CalculateAVForceAndTorque(action_command_list)
+    -- local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
+    local entity = Game.FindEntityByID(self.entity_id)
+    local current_angle = entity:GetWorldOrientation():ToEulerAngles()
+
+    -- local acceleration = DAV.user_setting_table.acceleration
+    local vertical_acceleration = DAV.user_setting_table.vertical_acceleration
+    local left_right_acceleration = DAV.user_setting_table.left_right_acceleration
+    local roll_change_amount = DAV.user_setting_table.roll_change_amount
+    local pitch_change_amount = DAV.user_setting_table.pitch_change_amount
+    local pitch_restore_amount = DAV.user_setting_table.pitch_restore_amount
+    local yaw_change_amount = DAV.user_setting_table.yaw_change_amount
+    local rotate_roll_change_amount = DAV.user_setting_table.rotate_roll_change_amount
+
+    local forward_vec = entity:GetWorldForward()
+    local right_vec = entity:GetWorldRight()
+
+    local force_vec4 = Vector4.new(0, 0, 0, 1)
+    local acceleration = 1000
+    if action_command_list[1] == Def.ActionList.Forward then
+        force_vec4.x = acceleration * forward_vec.x
+        force_vec4.y = acceleration * forward_vec.y
+        force_vec4.z = acceleration * forward_vec.z
+    elseif action_command_list[1] == Def.ActionList.Idle then
+        force_vec4.x = 0
+        force_vec4.y = 0
+        force_vec4.z = 0
+    end
+    self:SetForce(Vector4.Vector4To3(force_vec4))
+
+    -- local local_roll = 0
+    -- local local_pitch = 0
+
+    -- if action_commands == Def.ActionList.Up then
+    --     z = z + vertical_acceleration
+    -- elseif action_commands == Def.ActionList.Down then
+    --     z = z - vertical_acceleration
+    -- elseif action_commands == Def.ActionList.Forward then
+    --     x = x + acceleration * forward_vec.x
+    --     y = y + acceleration * forward_vec.y
+    --     z = z + acceleration * forward_vec.z
+    -- elseif action_commands == Def.ActionList.Backward then
+    --     x = x - acceleration * forward_vec.x
+    --     y = y - acceleration * forward_vec.y
+    --     z = z - acceleration * forward_vec.z
+    -- elseif action_commands == Def.ActionList.RightRotate then
+    --     yaw = yaw + yaw_change_amount
+    --     if current_angle.roll > -self.max_roll then
+    --         local_roll = local_roll - rotate_roll_change_amount
+    --     end
+    -- elseif action_commands == Def.ActionList.LeftRotate then
+    --     yaw = yaw - yaw_change_amount
+    --     if current_angle.roll < self.max_roll then
+    --         local_roll = local_roll + rotate_roll_change_amount
+    --     end
+    -- elseif action_commands == Def.ActionList.Right then
+    --     x = x + left_right_acceleration * right_vec.x
+    --     y = y + left_right_acceleration * right_vec.y
+    --     if current_angle.roll < self.max_roll then
+    --         local_roll = local_roll + roll_change_amount
+    --     end
+    -- elseif action_commands == Def.ActionList.Left then
+    --     x = x - left_right_acceleration * right_vec.x
+    --     y = y - left_right_acceleration * right_vec.y
+    --     if current_angle.roll > -self.max_roll then
+    --         local_roll = local_roll - roll_change_amount
+    --     end
+    -- elseif action_commands == Def.ActionList.LeanForward then
+    --     if current_angle.pitch < -self.max_pitch then
+    --         local_pitch = 0
+    --     elseif current_angle.pitch < 0 then
+    --         local_pitch = local_pitch - pitch_change_amount * ((self.max_pitch + current_angle.pitch) / self.max_pitch)
+    --     else
+    --         local_pitch = local_pitch - pitch_change_amount
+    --     end
+    -- elseif action_commands == Def.ActionList.LeanBackward then
+    --     if current_angle.pitch > self.max_pitch then
+    --         local_pitch = 0
+    --     elseif current_angle.pitch > 0 then
+    --         local_pitch = local_pitch + pitch_change_amount * ((self.max_pitch - current_angle.pitch) / self.max_pitch)
+    --     else
+    --         local_pitch = local_pitch + pitch_change_amount
+    --     end
+    -- elseif action_commands == Def.ActionList.LeanReset then
+    --     if current_angle.pitch > pitch_restore_amount then
+    --         local_pitch = local_pitch - pitch_restore_amount
+    --     elseif current_angle.pitch < -pitch_restore_amount then
+    --         local_pitch = local_pitch + pitch_restore_amount
+    --     elseif current_angle.pitch > 0 then
+    --         local_pitch = local_pitch - current_angle.pitch
+    --     elseif current_angle.pitch < 0 then
+    --         local_pitch = local_pitch - current_angle.pitch
+    --     end
+    -- elseif action_commands == Def.ActionList.Nothing then
+    --     if current_angle.pitch > pitch_restore_amount then
+    --         local_pitch = local_pitch - pitch_restore_amount
+    --     elseif current_angle.pitch < -pitch_restore_amount then
+    --         local_pitch = local_pitch + pitch_restore_amount
+    --     elseif current_angle.pitch > 0 then
+    --         local_pitch = local_pitch - current_angle.pitch
+    --     elseif current_angle.pitch < 0 then
+    --         local_pitch = local_pitch - current_angle.pitch
+    --     end
+    -- end
+
+    -- local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
+
+    -- roll = roll+ d_roll
+    -- pitch = pitch + d_pitch
+    -- yaw = yaw + d_yaw
+
+    -- return x, y, z, roll, pitch, yaw
+end
 
 --- Calculate linearly velocity.
 ---@param action_command number

@@ -19,7 +19,7 @@ DAV = {
     time_resolution = 0.01,
     is_debug_mode = false,
     -- common
-    user_setting_path = "Data/user_setting.json",
+    user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
     import_path = "Import",
     -- vehicle record
@@ -58,6 +58,12 @@ DAV = {
         {name = "move_left", key = "IK_Q", pad = "IK_Pad_DigitLeft", is_hold = true},
         {name = "move_right", key = "IK_E", pad = "IK_Pad_DigitRight", is_hold = true},
         {name = "lean_reset", key = "IK_B", pad = "IK_Pad_LeftShoulder", is_hold = true},
+        {name = "move_forward", key = "IK_W", pad = "IK_Pad_RightTrigger", is_hold = true},
+        {name = "move_backward", key = "IK_S", pad = "IK_Pad_LeftTrigger", is_hold = true},
+        {name = "turn_left", key = "IK_A", pad = "IK_Pad_LeftAxisX", is_hold = true},
+        {name = "turn_right", key = "IK_D", pad = "IK_Pad_LeftAxisX", is_hold = true},
+        {name = "lean_forward", key = "IK_Shift", pad = "IK_Pad_LeftAxisY", is_hold = true},
+        {name = "lean_backward", key = "IK_Ctrl", pad = "IK_Pad_LeftAxisY", is_hold = true},
     },
     default_heli_keybind_table = {
         {name = "ascend", key = "IK_G", pad = "IK_Pad_X_SQUARE", is_hold = true},
@@ -331,6 +337,7 @@ registerForEvent("onHook", function()
                 if math.abs(value) > DAV.axis_dead_zone then
                     if key:find("IK_Pad") then
                         DAV.is_keyboard_input = false
+                        DAV.core_obj:ConvertAxisAction(key, value)
                     else
                         DAV.is_keyboard_input = true
                     end
