@@ -278,7 +278,7 @@ function Core:SetInputListener()
     local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
     local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
 
-    ObserveBefore("PlayerPuppet", "OnAction", function(this, action, consumer)
+    Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
 
         if self.event_obj.current_situation ~= Def.Situation.Waiting and self.event_obj.current_situation ~= Def.Situation.InVehicle then
             return
@@ -291,7 +291,6 @@ function Core:SetInputListener()
         if self.event_obj:IsInVehicle() then
             for _, exception in pairs(exception_in_veh_list) do
                 if action_name == exception then
-                    print("Blocked Action: " .. action_name)
                     consumer:Consume()
                     break
                 end

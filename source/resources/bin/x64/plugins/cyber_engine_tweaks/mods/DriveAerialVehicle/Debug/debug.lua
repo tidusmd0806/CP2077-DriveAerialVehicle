@@ -191,7 +191,6 @@ function Debug:ImGuiVehicleInfo()
         local speed_y = string.format("%.2f", speed.y)
         local speed_z = string.format("%.2f", speed.z)
         ImGui.Text("Speed : X:" .. speed_x .. ", Y:" .. speed_y .. ", Z:" .. speed_z)
-
     end
 end
 
@@ -506,6 +505,7 @@ function Debug:ImGuiExcuteFunction()
         player:QueueEvent(evt)
         print("Excute Test Function 7")
     end
+    ImGui.SameLine()
     if ImGui.Button("TF8") then
         local mesh = DAV.core_obj.av_obj.position_obj.entity:FindComponentByName("ThrusterFL")
         if mesh ~= nil then
@@ -514,6 +514,27 @@ function Debug:ImGuiExcuteFunction()
             fs().playerComponent.configuration.thrusters[1]:Stop()
         end
         print("Excute Test Function 8")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF9") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        print(entity:IsEngineTurnedOn())
+        entity:TurnEngineOn(false)
+        print(entity:IsEngineTurnedOn())
+        print("Excute Test Function 9")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF10") then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        print(entity:IsEngineTurnedOn())
+        entity:TurnEngineOn(true)
+        print(entity:IsEngineTurnedOn())
+        print("Excute Test Function 10")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF11") then
+        DAV.core_obj.av_obj.engine_obj.fly_av_system:EnableOriginalPhysics(false)
+        print("Excute Test Function 11")
     end
 end
 

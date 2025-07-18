@@ -214,7 +214,7 @@ function Engine:CalculateAVForceAndTorque(action_command_list)
     local right_vec = entity:GetWorldRight()
 
     local force_vec4 = Vector4.new(0, 0, 0, 1)
-    local acceleration = 1000
+    local acceleration = 10000
     if action_command_list[1] == Def.ActionList.Forward then
         force_vec4.x = acceleration * forward_vec.x
         force_vec4.y = acceleration * forward_vec.y
