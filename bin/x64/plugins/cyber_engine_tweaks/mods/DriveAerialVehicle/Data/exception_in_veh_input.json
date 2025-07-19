@@ -14,5 +14,6 @@
     "DriverCombatVisionHold",
     "VisionHold",
     "VehicleHorn",
-    "CycleLights"
+    "CycleLights",
+    "HoldAutodrive"
 ]

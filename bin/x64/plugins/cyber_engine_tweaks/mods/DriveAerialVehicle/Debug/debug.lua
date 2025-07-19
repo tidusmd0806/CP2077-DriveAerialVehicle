@@ -471,6 +471,11 @@ function Debug:ImGuiExcuteFunction()
         DAV.core_obj.queue_obj:Enqueue(Def.ActionList.Down)
         print("Excute Test Function 6")
     end
+    ImGui.SameLine()
+    if ImGui.Button("TF7") then
+        print(Game.GetVehicleSystem():GetActivePlayerVehicle(gamedataVehicleType.Car).recordID.value)
+        print("Excute Test Function 7")
+    end
 end
 
 return Debug
