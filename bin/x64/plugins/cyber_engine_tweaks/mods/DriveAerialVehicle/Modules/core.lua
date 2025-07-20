@@ -82,7 +82,6 @@ function Core:New()
     obj.translation_table_list = {}
     -- summon
     obj.current_purchased_vehicle_count = 0
-    obj.selected_vehicle_id_in_popup = nil
     -- custom mappin
     obj.current_custom_mappin_position = Vector4.Zero()
     obj.fast_travel_position_list = {}
@@ -170,76 +169,37 @@ end
 
 --- Set Summon Trigger.
 function Core:SetSummonTrigger()
-    Observe("VehiclesManagerPopupGameController", "Select", function(this, previous, next)
-        self.selected_vehicle_id_in_popup = this.dataView:GetItem(next:GetIndex()).data.recordID
-    end)
+    Override("VehicleSystem", "SpawnActivePlayerVehicle", function(this, vehicle_type, wrapped_method)
+        local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
+        local prev_model_index = DAV.model_index
 
-    Override("VehiclesManagerPopupGameController", "OnAction", function(this, action, consumer, wrapped_method)
-        local action_name = action:GetName(action).value
-        local action_type = action:GetType(action).value
-        if action_name == "proceed" and action_type == "BUTTON_PRESSED" then
-            local prev_model_index = DAV.model_index
-            local av_record_name = string.gsub(self.selected_vehicle_id_in_popup.value, "_dummy", "")
-            local new_record_id = TweakDBID.new(av_record_name)
-            for _, record in ipairs(self.event_obj.ui_obj.av_record_list) do
-                if record.hash == new_record_id.hash then
-                    self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
-                    for key, value in ipairs(self.av_obj.all_models) do
-                        if value.tweakdb_id == record.value then
-                            DAV.model_index = key
-                            DAV.model_type_index = DAV.user_setting_table.garage_info_list[key].type_index
-                            self.av_obj:Init()
-                            break
-                        end
+        local av_record_name = string.gsub(record_id.value, "_dummy", "")
+        local new_record_id = TweakDBID.new(av_record_name)
+        for index, record in ipairs(self.event_obj.ui_obj.av_record_list) do
+            if record.hash == new_record_id.hash then
+                self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
+                for key, value in ipairs(self.av_obj.all_models) do
+                    if value.tweakdb_id == record.value then
+                        DAV.model_index = key
+                        DAV.model_type_index = DAV.user_setting_table.garage_info_list[key].type_index
+                        self.av_obj:Init()
+                        break
                     end
-                    if self.event_obj:IsNotSpawned() then
-                        self.event_obj:CallVehicle()
-                    elseif self.event_obj:IsWaiting() then
-                        if prev_model_index ~= DAV.model_index then
-                            self.event_obj:CallVehicle()
-                        else
-                            self.event_obj:ReturnVehicle(true)
-                        end
-                    end
-                    self.event_obj.hud_obj.popup_manager:OnVehiclesManagerCloseRequest(self.event_obj.hud_obj.popup_manager.vehicleColorSelectorData)
-                    return true
                 end
+                if self.event_obj:IsNotSpawned() then
+                    self.event_obj:CallVehicle()
+                elseif self.event_obj:IsWaiting() then
+                    if prev_model_index ~= DAV.model_index then
+                        self.event_obj:CallVehicle()
+                    else
+                        self.event_obj:ReturnVehicle(true)
+                    end
+                end
+                return false
             end
         end
-        return wrapped_method(action, consumer)
+        return wrapped_method(vehicle_type)
     end)
-
-    -- Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
-    --     local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
-    --     local prev_model_index = DAV.model_index
-
-    --     local av_record_name = string.gsub(record_id.value, "_dummy", "")
-    --     local new_record_id = TweakDBID.new(av_record_name)
-    --     for index, record in ipairs(self.event_obj.ui_obj.av_record_list) do
-    --         if record.hash == new_record_id.hash then
-    --             self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
-    --             for key, value in ipairs(self.av_obj.all_models) do
-    --                 if value.tweakdb_id == record.value then
-    --                     DAV.model_index = key
-    --                     DAV.model_type_index = DAV.user_setting_table.garage_info_list[key].type_index
-    --                     self.av_obj:Init()
-    --                     break
-    --                 end
-    --             end
-    --             if self.event_obj:IsNotSpawned() then
-    --                 self.event_obj:CallVehicle()
-    --             elseif self.event_obj:IsWaiting() then
-    --                 if prev_model_index ~= DAV.model_index then
-    --                     self.event_obj:CallVehicle()
-    --                 else
-    --                     self.event_obj:ReturnVehicle(true)
-    --                 end
-    --             end
-    --             return false
-    --         end
-    --     end
-    --     return wrapped_method(vehicle_type)
-    -- end)
 end
 
 --- Set Translation Name List.
@@ -1199,7 +1159,8 @@ function Core:SetFastTravelPosition()
     local fast_travel_list = Game.GetScriptableSystemsContainer():Get('FastTravelSystem'):GetFastTravelPoints()
 
     local mappin_type = gamemappinsMappinTargetType.Map
-    local mappin_list = Game.GetMappinSystem():GetMappins(mappin_type)
+    local mappin_list = Game.GetMappinSystem():GetMappinEntries(mappin_type)
+    local mappin_list_copy = Utils:DeepCopy(mappin_list)
 
     for _, fast_travel in ipairs(fast_travel_list) do
         local position_name = GetLocalizedText(fast_travel:GetPointDisplayName())
@@ -1222,14 +1183,10 @@ function Core:SetFastTravelPosition()
         end
 
         local position = nil
-        for index, mappin in ipairs(mappin_list) do
-            if mappin.id == nil then
-                self.log_obj:Record(LogLevel.Trace, "Mappin ID is nil")
-                break
-            end
+        for index, mappin in ipairs(mappin_list_copy) do
             if mappin.id.value == fast_travel.mappinID.value then
                 position = mappin.worldPosition -- Vector4
-                table.remove(mappin_list, index)
+                table.remove(mappin_list_copy, index)
                 break
             end
         end

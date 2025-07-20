@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "2.5.3",
+	version = "2.5.4",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -33,10 +33,10 @@ DAV = {
     model_index = 1,
 	model_type_index = 1,
     -- version check
-    cet_required_version = 34.0, -- 1.34.0
-    cet_recommended_version = 34.1, -- 1.34.1
-    codeware_required_version = 13.0, -- 1.13.0
-    codeware_recommended_version = 13.0, -- 1.13.0
+    cet_required_version = 36.0, -- 1.36.0
+    cet_recommended_version = 36.0, -- 1.36.0
+    codeware_required_version = 17.0, -- 1.17.0
+    codeware_recommended_version = 17.0, -- 1.17.0
     native_settings_required_version = 1.96,
     cet_version_num = 0,
     codeware_version_num = 0,
