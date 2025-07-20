@@ -1071,6 +1071,7 @@ end
 --- Set custom mappin
 function Core:SetCustomMappin(mappin)
     if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
+        self.log_obj:Record(LogLevel.Info, "SetCustomMappin")
         self.is_custom_mappin = mappin:IsPlayerTracked()
         local mappin_pos = mappin:GetWorldPosition()
         if self.is_custom_mappin then
