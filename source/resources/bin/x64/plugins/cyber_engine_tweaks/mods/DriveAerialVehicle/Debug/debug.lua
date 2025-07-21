@@ -498,6 +498,7 @@ function Debug:ImGuiExcuteFunction()
         player:QueueEvent(evt)
         print("Excute Test Function 6")
     end
+<<<<<<< HEAD
     if ImGui.Button("TF7") then
         local evt = ActionEvent.new()
         evt.eventAction = CName.new("dav_av_accel_start")
@@ -536,6 +537,13 @@ function Debug:ImGuiExcuteFunction()
         DAV.core_obj.av_obj.engine_obj.fly_av_system:EnableOriginalPhysics(false)
         print("Excute Test Function 11")
     end
+=======
+    ImGui.SameLine()
+    if ImGui.Button("TF7") then
+        print(Game.GetVehicleSystem():GetActivePlayerVehicle(gamedataVehicleType.Car).recordID.value)
+        print("Excute Test Function 7")
+    end
+>>>>>>> develop-v2-3
 end
 
 return Debug

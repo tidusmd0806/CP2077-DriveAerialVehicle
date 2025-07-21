@@ -22,6 +22,9 @@ function UI:New()
 	obj.selected_auto_pilot_history_index = 1
 	obj.selected_auto_pilot_history_name = ""
 	obj.history_list = {}
+	obj.favorite_name_list = {}
+	obj.mappin_location = ""
+	obj.current_position_name = ""
 	-- autopilot setting popup
 	obj.ui_game_menu_controller = nil
 	obj.autopilot_popup_obj = nil
@@ -75,7 +78,7 @@ function UI:OpenAutopilotPopup()
 		self.autopilot_popup_obj:Create()
 		self:SetPopupTranslation()
 		self.autopilot_popup_obj:Show(self.ui_game_menu_controller)
-		Cron.After(0.1, function()
+		Cron.After(0.5, function()
 			-- Set Destination
 			local mappin_location = ""
 			if DAV.core_obj:IsCustomMappin() then
@@ -103,10 +106,11 @@ function UI:OpenAutopilotPopup()
 			-- Set Favorite List
 			local favorite_name_list = {}
 			for _, favorite_info in ipairs(DAV.user_setting_table.favorite_location_list) do
-				if favorite_info.name == "Not Registered" then
-					favorite_info.name = DAV.core_obj:GetTranslationText("ui_popup_not_registered")
+				local favorite_name = favorite_info.name
+				if favorite_name == "Not Registered" then
+					favorite_name = DAV.core_obj:GetTranslationText("ui_popup_not_registered")
 				end
-				table.insert(favorite_name_list, favorite_info.name)
+				table.insert(favorite_name_list, favorite_name)
 			end
 			-- Set Current Position
 			local current_position_name = ""
@@ -130,7 +134,10 @@ function UI:OpenAutopilotPopup()
 			else
 				current_position_name = ""
 			end
-			self.autopilot_popup_obj:Initialize(favorite_name_list, mappin_location, current_position_name, DAV.user_setting_table.autopilot_selected_index)
+			self.favorite_name_list = Utils:DeepCopy(favorite_name_list)
+			self.mappin_location = mappin_location
+			self.current_position_name = current_position_name
+			self.autopilot_popup_obj:Initialize(self.favorite_name_list, self.mappin_location, self.current_position_name, DAV.user_setting_table.autopilot_selected_index)
 			Cron.Every(0.1, {tick = 1}, function(timer)
 				if self.autopilot_popup_obj:IsClosed() then
 					DAV.user_setting_table.autopilot_selected_index = self.autopilot_popup_obj:GetSelectedNumber()
@@ -164,7 +171,8 @@ end
 
 --- Update Favorite Location List in Popup.
 function UI:UpdateFavoriteLocationList(favorite_list, selected_index)
-	for index, favorite_info in ipairs(DAV.user_setting_table.favorite_location_list) do
+	local favorite_location_list = Utils:DeepCopy(DAV.user_setting_table.favorite_location_list)
+	for index, favorite_info in ipairs(favorite_location_list) do
 		if favorite_info.name ~= favorite_list[index] then
 			favorite_info.name = favorite_list[index]
 			local current_pos = self.av_obj.position_obj:GetPosition()
@@ -177,6 +185,7 @@ function UI:UpdateFavoriteLocationList(favorite_list, selected_index)
 			favorite_info.is_selected = false
 		end
 	end
+	DAV.user_setting_table.favorite_location_list = favorite_location_list
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 end
 
@@ -307,6 +316,12 @@ function UI:CreateNativeSettingsPage()
 		Cron.After(self.delay_updating_native_settings, function()
 			self:UpdateNativeSettingsPage()
 		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+
+	option_table = DAV.NativeSettings.addButton("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_reset_favorite_location"), DAV.core_obj:GetTranslationText("native_settings_general_reset_favorite_location_description"), DAV.core_obj:GetTranslationText("native_settings_general_reset_favorite_location_button_description"), 45, function()
+		DAV.user_setting_table.favorite_location_list = DAV.default_favorite_location_table
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 	end)
 	table.insert(self.option_table_list, option_table)
 

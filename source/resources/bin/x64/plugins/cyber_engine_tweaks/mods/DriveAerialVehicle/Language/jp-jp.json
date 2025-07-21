@@ -1,6 +1,6 @@
 {
     "language": "日本語",
-    "version": "2.4.0",
+    "version": "2.5.4",
 
     "native_settings_top_title": "ドライブAV",
     "native_settings_general_subtitle": "一般設定",
@@ -17,6 +17,9 @@
     "native_settings_general_landing_vfx_description": "地面へのプロジェクションマッピングを有効にします。(AtlusとSurveyor限定)",
     "native_settings_general_idle_gravity": "待機中の車両の降下を有効にする",
     "native_settings_general_idle_gravity_description": "有効にすると待機中にゆっくりと地面に近づきます。",
+    "native_settings_general_reset_favorite_location": "お気に入り地点をリセットする",
+    "native_settings_general_reset_favorite_location_description": "自動運転のお気に入り地点をリセットします。",
+    "native_settings_general_reset_favorite_location_button_description": "リセット",
     "native_settings_general_activation": "飛行車両を手動でアンロックする",
     "native_settings_general_activation_description": "バーチャルカーディーラーなしで飛行車両を有効および無効にする項目を追加します。",
     "native_settings_activation_subtitle": "飛行車両のロック解除",

@@ -171,7 +171,7 @@ end
 
 --- Set Summon Trigger.
 function Core:SetSummonTrigger()
-    Override("VehicleSystem", "SpawnPlayerVehicle", function(this, vehicle_type, wrapped_method)
+    Override("VehicleSystem", "SpawnActivePlayerVehicle", function(this, vehicle_type, wrapped_method)
         local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
         local prev_model_index = DAV.model_index
 
@@ -1126,6 +1126,7 @@ end
 --- Set custom mappin
 function Core:SetCustomMappin(mappin)
     if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
+        self.log_obj:Record(LogLevel.Info, "SetCustomMappin")
         self.is_custom_mappin = mappin:IsPlayerTracked()
         local mappin_pos = mappin:GetWorldPosition()
         if self.is_custom_mappin then
@@ -1214,7 +1215,8 @@ function Core:SetFastTravelPosition()
     local fast_travel_list = Game.GetScriptableSystemsContainer():Get('FastTravelSystem'):GetFastTravelPoints()
 
     local mappin_type = gamemappinsMappinTargetType.Map
-    local mappin_list = Game.GetMappinSystem():GetMappins(mappin_type)
+    local mappin_list = Game.GetMappinSystem():GetMappinEntries(mappin_type)
+    local mappin_list_copy = Utils:DeepCopy(mappin_list)
 
     for _, fast_travel in ipairs(fast_travel_list) do
         local position_name = GetLocalizedText(fast_travel:GetPointDisplayName())
@@ -1237,10 +1239,10 @@ function Core:SetFastTravelPosition()
         end
 
         local position = nil
-        for index, mappin in ipairs(mappin_list) do
+        for index, mappin in ipairs(mappin_list_copy) do
             if mappin.id.value == fast_travel.mappinID.value then
                 position = mappin.worldPosition -- Vector4
-                table.remove(mappin_list, index)
+                table.remove(mappin_list_copy, index)
                 break
             end
         end

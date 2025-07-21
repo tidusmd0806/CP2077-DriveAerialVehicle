@@ -33,10 +33,10 @@ DAV = {
     model_index = 1,
 	model_type_index = 1,
     -- version check
-    cet_required_version = 34.0, -- 1.34.0
-    cet_recommended_version = 34.1, -- 1.34.1
-    codeware_required_version = 13.0, -- 1.13.0
-    codeware_recommended_version = 13.0, -- 1.13.0
+    cet_required_version = 36.0, -- 1.36.0
+    cet_recommended_version = 36.0, -- 1.36.0
+    codeware_required_version = 17.0, -- 1.17.0
+    codeware_recommended_version = 17.0, -- 1.17.0
     native_settings_required_version = 1.96,
     cet_version_num = 0,
     codeware_version_num = 0,
@@ -80,7 +80,14 @@ DAV = {
         {name = "toggle_crystal_dome", key = "IK_4", pad = "IK_None", is_hold = false},
         {name = "toggle_appearance", key = "IK_5", pad = "IK_None", is_hold = false},
         {name = "open_vehicle_manager", key = "IK_None", pad = "IK_None", is_hold = false},
-    }
+    },
+    default_favorite_location_table = {
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
+    },
 }
 
 -- initial settings
@@ -91,13 +98,7 @@ DAV.user_setting_table = {
     --- autopilot
     mappin_history = {},
     autopilot_selected_index = 0,
-    favorite_location_list = {
-        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
-        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
-        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
-        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
-        {name = "Not Registered", pos = {x=0,y=0,z=0}, is_selected = false},
-    },
+    favorite_location_list = DAV.default_favorite_location_table,
     autopilot_speed_level = Def.AutopilotSpeedLevel.Normal,
     is_enable_history = true,
     --- general

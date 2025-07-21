@@ -1,6 +1,6 @@
 {
     "language": "English",
-    "version": "2.4.0",
+    "version": "2.5.4",
 
     "native_settings_top_title": "Drive AV",
     "native_settings_general_subtitle": "General Settings",
@@ -17,6 +17,9 @@
     "native_settings_general_landing_vfx_description": "Enable projection mapping on the ground. (Atlus and Surveyor only)",
     "native_settings_general_idle_gravity": "Enable Descent of Waiting Vehicle",
     "native_settings_general_idle_gravity_description": "When enabled, it slowly approaches the ground while waiting.",
+    "native_settings_general_reset_favorite_location": "Reset Favorite Location",
+    "native_settings_general_reset_favorite_location_description": "Reset the favorite locations for autopilot.",
+    "native_settings_general_reset_favorite_location_button_description": "Reset",
     "native_settings_general_activation": "Manually Unlock Aerial Vehicles",
     "native_settings_general_activation_description": "Add an item to enable and disable Aerial Vehicles without Virtual Car Dealer.",
     "native_settings_activation_subtitle": "Unlock Aerial Vehicles",
