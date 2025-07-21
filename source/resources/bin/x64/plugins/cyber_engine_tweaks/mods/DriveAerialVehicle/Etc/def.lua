@@ -100,8 +100,15 @@ Def.ChangeVelocityType = {
 Def.EngineControlType = {
     None = -1,
     ChangeVelocity = 0,
-    AddForce = 1,
-    LinearlyAutopilot = 2,
+    AddVelocity = 1,
+    AddForce = 2,
+    LinearlyAutopilot = 3,
+}
+
+Def.AVControlMode = {
+    None = -1,
+    V2 = 0,
+    V3 = 1,
 }
 
 return Def

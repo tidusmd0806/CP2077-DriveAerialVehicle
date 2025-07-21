@@ -3,17 +3,16 @@ Engine = {}
 Engine.__index = Engine
 
 --- Constractor
---- @param position_obj any Position instance
+--- @param av_obj any AV instance
 --- @param all_models table all models data
 --- @return table
-function Engine:New(position_obj, all_models)
+function Engine:New(av_obj, all_models)
     ---instance---
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Engine")
-    obj.position_obj = position_obj
+    obj.av_obj = av_obj
     obj.all_models = all_models
-
     ---static---
     obj.max_roll = 30
     obj.max_pitch = 30
@@ -78,6 +77,10 @@ function Engine:Update(delta)
     self:SetAcceleration(delta)
     if self.engine_control_type == Def.EngineControlType.ChangeVelocity then
         self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.direction_velocity, self.angular_velocity)
+    elseif self.engine_control_type == Def.EngineControlType.AddVelocity then
+        self:AddVelocity(delta, self.direction_velocity, self.angular_velocity)
+        self.direction_velocity = Vector3.new(0, 0, 0)
+        self.angular_velocity = Vector3.new(0, 0, 0)
     elseif self.engine_control_type == Def.EngineControlType.AddForce then
         self:AddForce(delta, self.force, self.torque)
     elseif self.engine_control_type == Def.EngineControlType.LinearlyAutopilot then
@@ -90,6 +93,12 @@ end
 --- Unset physics state
 function Engine:UnsetPhysicsState()
     self.fly_av_system:UnsetPhysicsState()
+end
+
+--- Enable original physics
+---@param on boolean
+function Engine:EnableOriginalPhysics(on)
+    self.fly_av_system:EnableOriginalPhysics(on)
 end
 
 --- Check if has gravity
@@ -111,6 +120,13 @@ function Engine:GetGravitationalForce()
     return -self.gravitational_acceleration * mass
 end
 
+--- Get Velocity
+---@return Vector3
+---@return Vector3
+function Engine:GetVelocityValues()
+    return self.fly_av_system:GetVelocity(), self.fly_av_system:GetAngularVelocity()
+end
+
 --- Add force
 ---@param delta number
 ---@param force Vector3
@@ -119,6 +135,16 @@ function Engine:AddForce(delta, force, torque)
     local delta_force = Vector3.new(force.x * delta, force.y * delta, force.z * delta)
     local delta_torque = Vector3.new(torque.x * delta, torque.y * delta, torque.z * delta)
     self.fly_av_system:AddForce(delta_force, delta_torque)
+end
+
+--- Add velocity
+---@param delta number
+---@param direction_velocity Vector3
+---@param angular_velocity Vector3
+function Engine:AddVelocity(delta, direction_velocity, angular_velocity)
+    local delta_direction_velocity = Vector3.new(direction_velocity.x * delta, direction_velocity.y * delta, direction_velocity.z * delta)
+    local delta_angular_velocity = Vector3.new(angular_velocity.x * delta, angular_velocity.y * delta, angular_velocity.z * delta)
+    self.fly_av_system:AddVelocity(delta_direction_velocity, delta_angular_velocity)
 end
 
 --- Change velocity
@@ -311,31 +337,16 @@ function Engine:CalculateAVForceAndTorque(action_command_list)
 end
 
 --- Calculate linearly velocity.
----@param action_command number
----@return number x
----@return number y
----@return number z
----@return number roll
----@return number pitch
----@return number yaw
-function Engine:CalculateLinelyVelocity(action_command)
-    if action_command == Def.ActionList.Idle then
-        if self.fly_av_system:GetPhysicsState() ~= 0 or not DAV.user_setting_table.is_enable_idle_gravity then
-            self.fly_av_system:EnableGravity(false)
-        elseif not self.fly_av_system:HasGravity() then
-            self.fly_av_system:EnableGravity(true)
-        end
-        self.rpm_count = 0
-        return self:CalculateIdleMode()
-    else
-        if self.fly_av_system:HasGravity() then
-            self.fly_av_system:EnableGravity(false)
-        end
+---@param action_command_list table
+function Engine:CalculateAddVelocity(action_command_list)
+    if action_command_list[1] == Def.ActionList.Idle then
+        self:ControlVelocityForIdle()
+        return
     end
 
-    if (action_command == Def.ActionList.Forward or action_command == Def.ActionList.Up or action_command == Def.ActionList.HAccelerate or action_command == Def.ActionList.HUp) and self.rpm_count <= self.rpm_max_count then
+    if (action_command_list[1] == Def.ActionList.Forward or action_command_list[1] == Def.ActionList.Up or action_command_list[1] == Def.ActionList.HAccelerate or action_command_list[1] == Def.ActionList.HUp) and self.rpm_count <= self.rpm_max_count then
         self.rpm_count = self.rpm_count + self.rpm_count_step
-    elseif (action_command == Def.ActionList.Backward or action_command == Def.ActionList.Down or action_command == Def.ActionList.HDown) and self.rpm_count >= -self.rpm_max_count then
+    elseif (action_command_list[1] == Def.ActionList.Backward or action_command_list[1] == Def.ActionList.Down or action_command_list[1] == Def.ActionList.HDown) and self.rpm_count >= -self.rpm_max_count then
         self.rpm_count = self.rpm_count - self.rpm_count_step
     end
     if self.rpm_count > 0 then
@@ -345,12 +356,11 @@ function Engine:CalculateLinelyVelocity(action_command)
     end
 
     if self.flight_mode == Def.FlightMode.AV then
-        return self:CalculateAVMode(action_command)
+        self:ControlAVMode(action_command_list)
     elseif self.flight_mode == Def.FlightMode.Helicopter then
-        return self:CalculateHelicopterMode(action_command)
+        self:CalculateHelicopterMode(action_command_list)
     else
         self.log_obj:Record(LogLevel.Critical, "Unknown flight mode: " .. self.flight_mode)
-        return 0, 0, 0, 0, 0, 0
     end
 end
 
@@ -362,9 +372,8 @@ end
 ---@param pitch number
 ---@param yaw number
 function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
-    local vel_vec = self.fly_av_system:GetVelocity()
-    local ang_vec = self.fly_av_system:GetAngularVelocity()
-    local current_angle = self.position_obj:GetEulerAngles()
+    local vel_vec, ang_vec = self:GetVelocityValues()
+    local current_angle = self.av_obj:GetEulerAngles()
     local roll_restore_amount
     local pitch_restore_amount
 
@@ -438,7 +447,9 @@ function Engine:AddLinelyVelocity(x, y, z, roll, pitch, yaw)
     pitch = pitch - ang_vec.y
     yaw = yaw - ang_vec.z
 
-    self.fly_av_system:AddVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw))
+    -- self.fly_av_system:AddVelocity(Vector3.new(x, y, z), Vector3.new(roll, pitch, yaw))
+    self:SetDirectionVelocity(Vector3.new(x, y, z))
+    self:SetAngularVelocity(Vector3.new(roll, pitch, yaw))
 end
 
 --- Change linearly velocity of AV.
@@ -454,16 +465,10 @@ end
 -- end
 
 --- Calculate velocity for AV mode.
----@param action_commands Def.ActionList
----@return number x
----@return number y
----@return number z
----@return number roll
----@return number pitch
----@return number yaw
-function Engine:CalculateAVMode(action_commands)
+---@param action_command_list table
+function Engine:ControlAVMode(action_command_list)
     local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
-    local current_angle = self.position_obj:GetEulerAngles()
+    local current_angle = self.av_obj:GetEulerAngles()
 
     local acceleration = DAV.user_setting_table.acceleration
     local vertical_acceleration = DAV.user_setting_table.vertical_acceleration
@@ -474,47 +479,47 @@ function Engine:CalculateAVMode(action_commands)
     local yaw_change_amount = DAV.user_setting_table.yaw_change_amount
     local rotate_roll_change_amount = DAV.user_setting_table.rotate_roll_change_amount
 
-    local forward_vec = self.position_obj:GetForward()
-    local right_vec = self.position_obj:GetRight()
+    local forward_vec = self.av_obj:GetForward()
+    local right_vec = self.av_obj:GetRight()
 
     local local_roll = 0
     local local_pitch = 0
 
-    if action_commands == Def.ActionList.Up then
+    if action_command_list[1] == Def.ActionList.Up then
         z = z + vertical_acceleration
-    elseif action_commands == Def.ActionList.Down then
+    elseif action_command_list[1] == Def.ActionList.Down then
         z = z - vertical_acceleration
-    elseif action_commands == Def.ActionList.Forward then
+    elseif action_command_list[1] == Def.ActionList.Forward then
         x = x + acceleration * forward_vec.x
         y = y + acceleration * forward_vec.y
         z = z + acceleration * forward_vec.z
-    elseif action_commands == Def.ActionList.Backward then
+    elseif action_command_list[1] == Def.ActionList.Backward then
         x = x - acceleration * forward_vec.x
         y = y - acceleration * forward_vec.y
         z = z - acceleration * forward_vec.z
-    elseif action_commands == Def.ActionList.RightRotate then
+    elseif action_command_list[1] == Def.ActionList.RightRotate then
         yaw = yaw + yaw_change_amount
         if current_angle.roll > -self.max_roll then
             local_roll = local_roll - rotate_roll_change_amount
         end
-    elseif action_commands == Def.ActionList.LeftRotate then
+    elseif action_command_list[1] == Def.ActionList.LeftRotate then
         yaw = yaw - yaw_change_amount
         if current_angle.roll < self.max_roll then
             local_roll = local_roll + rotate_roll_change_amount
         end
-    elseif action_commands == Def.ActionList.Right then
+    elseif action_command_list[1] == Def.ActionList.Right then
         x = x + left_right_acceleration * right_vec.x
         y = y + left_right_acceleration * right_vec.y
         if current_angle.roll < self.max_roll then
             local_roll = local_roll + roll_change_amount
         end
-    elseif action_commands == Def.ActionList.Left then
+    elseif action_command_list[1] == Def.ActionList.Left then
         x = x - left_right_acceleration * right_vec.x
         y = y - left_right_acceleration * right_vec.y
         if current_angle.roll > -self.max_roll then
             local_roll = local_roll - roll_change_amount
         end
-    elseif action_commands == Def.ActionList.LeanForward then
+    elseif action_command_list[1] == Def.ActionList.LeanForward then
         if current_angle.pitch < -self.max_pitch then
             local_pitch = 0
         elseif current_angle.pitch < 0 then
@@ -522,7 +527,7 @@ function Engine:CalculateAVMode(action_commands)
         else
             local_pitch = local_pitch - pitch_change_amount
         end
-    elseif action_commands == Def.ActionList.LeanBackward then
+    elseif action_command_list[1] == Def.ActionList.LeanBackward then
         if current_angle.pitch > self.max_pitch then
             local_pitch = 0
         elseif current_angle.pitch > 0 then
@@ -530,7 +535,7 @@ function Engine:CalculateAVMode(action_commands)
         else
             local_pitch = local_pitch + pitch_change_amount
         end
-    elseif action_commands == Def.ActionList.LeanReset then
+    elseif action_command_list[1] == Def.ActionList.LeanReset then
         if current_angle.pitch > pitch_restore_amount then
             local_pitch = local_pitch - pitch_restore_amount
         elseif current_angle.pitch < -pitch_restore_amount then
@@ -540,7 +545,7 @@ function Engine:CalculateAVMode(action_commands)
         elseif current_angle.pitch < 0 then
             local_pitch = local_pitch - current_angle.pitch
         end
-    elseif action_commands == Def.ActionList.Nothing then
+    elseif action_command_list[1] == Def.ActionList.Nothing then
         if current_angle.pitch > pitch_restore_amount then
             local_pitch = local_pitch - pitch_restore_amount
         elseif current_angle.pitch < -pitch_restore_amount then
@@ -558,7 +563,7 @@ function Engine:CalculateAVMode(action_commands)
     pitch = pitch + d_pitch
     yaw = yaw + d_yaw
 
-    return x, y, z, roll, pitch, yaw
+    self:AddLinelyVelocity(x,y,z,roll,pitch,yaw)
 end
 
 --- Calculates the velocity of the helicopter
@@ -661,6 +666,12 @@ function Engine:CalculateIdleMode()
     end
 
     return x, y, z, roll, pitch, yaw
+end
+
+--- Calculate idle mode
+function Engine:ControlVelocityForIdle()
+    -- self:SetDirectionVelocity(Vector3.new(0, 0, 0))
+    -- self:SetAngularVelocity(Vector3.new(0, 0, 0))
 end
 
 --- Get RPM count

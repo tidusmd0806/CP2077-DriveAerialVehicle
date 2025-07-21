@@ -62,8 +62,8 @@ DAV = {
         {name = "move_backward", key = "IK_S", pad = "IK_Pad_LeftTrigger", is_hold = true},
         {name = "turn_left", key = "IK_A", pad = "IK_Pad_LeftAxisX", is_hold = true},
         {name = "turn_right", key = "IK_D", pad = "IK_Pad_LeftAxisX", is_hold = true},
-        {name = "lean_forward", key = "IK_Shift", pad = "IK_Pad_LeftAxisY", is_hold = true},
-        {name = "lean_backward", key = "IK_Ctrl", pad = "IK_Pad_LeftAxisY", is_hold = true},
+        {name = "lean_forward", key = "IK_LShift", pad = "IK_Pad_LeftAxisY", is_hold = true},
+        {name = "lean_backward", key = "IK_LControl", pad = "IK_Pad_LeftAxisY", is_hold = true},
     },
     default_heli_keybind_table = {
         {name = "ascend", key = "IK_G", pad = "IK_Pad_X_SQUARE", is_hold = true},

@@ -53,6 +53,16 @@ function Core:New()
     obj.max_move_hold_count = 50000
     obj.is_move_forward_button_hold_counter = false
     obj.move_forward_button_hold_count = 0
+    obj.is_move_backward_button_hold_counter = false
+    obj.move_backward_button_hold_count = 0
+    obj.is_turn_left_button_hold_counter = false
+    obj.turn_left_button_hold_count = 0
+    obj.is_turn_right_button_hold_counter = false
+    obj.turn_right_button_hold_count = 0
+    obj.is_lean_forward_button_hold_counter = false
+    obj.lean_forward_button_hold_count = 0
+    obj.is_lean_backward_button_hold_counter = false
+    obj.lean_backward_button_hold_count = 0
     obj.is_move_up_button_hold_counter = false
     obj.move_down_button_hold_count = 0
     obj.is_move_down_button_hold_counter = false
@@ -620,6 +630,21 @@ function Core:ConvertAVHoldAction(keybind_name)
     if keybind_name == "move_forward" then
         self.is_move_forward_button_hold_counter = false
         self.move_forward_button_hold_count = 0
+    elseif keybind_name == "move_backward" then
+        self.is_move_backward_button_hold_counter = false
+        self.move_backward_button_hold_count = 0
+    elseif keybind_name == "turn_left" then
+        self.is_turn_left_button_hold_counter = false
+        self.turn_left_button_hold_count = 0
+    elseif keybind_name == "turn_right" then
+        self.is_turn_right_button_hold_counter = false
+        self.turn_right_button_hold_count = 0
+    elseif keybind_name == "lean_forward" then
+        self.is_lean_forward_button_hold_counter = false
+        self.lean_forward_button_hold_count = 0
+    elseif keybind_name == "lean_backward" then
+        self.is_lean_backward_button_hold_counter = false
+        self.lean_backward_button_hold_count = 0
     elseif keybind_name == "move_up" then
         self.is_move_up_button_hold_counter = false
         self.move_up_button_hold_count = 0
@@ -717,6 +742,86 @@ function Core:ConvertAVPressAction(keybind_name)
                     Cron.Halt(timer)
                 else
                     self.queue_obj:Enqueue(Def.ActionList.Forward)
+                end
+            end)
+        end
+    elseif keybind_name == "move_backward" then
+        if not self.is_move_backward_button_hold_counter then
+            self.is_move_backward_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.move_backward_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_move_backward_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_move_backward_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.Backward)
+                end
+            end)
+        end
+    elseif keybind_name == "turn_left" then
+        if not self.is_turn_left_button_hold_counter then
+            self.is_turn_left_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.turn_left_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_turn_left_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_turn_left_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.LeftRotate)
+                end
+            end)
+        end
+    elseif keybind_name == "turn_right" then
+        if not self.is_turn_right_button_hold_counter then
+            self.is_turn_right_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.turn_right_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_turn_right_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_turn_right_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.RightRotate)
+                end
+            end)
+        end
+    elseif keybind_name == "lean_forward" then
+        if not self.is_lean_forward_button_hold_counter then
+            self.is_lean_forward_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.lean_forward_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_lean_forward_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_lean_forward_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.LeanForward)
+                end
+            end)
+        end
+    elseif keybind_name == "lean_backward" then
+        if not self.is_lean_backward_button_hold_counter then
+            self.is_lean_backward_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.lean_backward_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_lean_backward_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_lean_backward_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.LeanBackward)
                 end
             end)
         end

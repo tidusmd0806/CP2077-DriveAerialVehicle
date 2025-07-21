@@ -254,7 +254,6 @@ function Event:CheckLanded()
         self.sound_obj:StopSound("210_landing")
         self.sound_obj:PlaySound("110_arrive_vehicle")
         -- self.sound_obj:ChangeSoundResource()
-        self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
         self.av_obj.engine_obj:SetForce(Vector3.new(0, 0, 0))
         self.av_obj.engine_obj:SetTorque(Vector3.new(0, 0, 0))
         self:SetSituation(Def.Situation.Waiting)
@@ -283,6 +282,12 @@ function Event:CheckInAV()
             self.hud_obj:ShowCustomHint()
             self.hud_obj:EnableManualMeter(false, self.av_obj.is_enable_manual_rpm_meter)
             self.is_keyboard_input_prev = DAV.is_keyboard_input
+            self.av_obj.engine_obj:EnableOriginalPhysics(false)
+            if self.av_obj.control_mode == Def.AVControlMode.V2 then
+                self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddVelocity)
+            elseif self.av_obj.control_mode == Def.AVControlMode.V3 then
+                self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
+            end
             Cron.After(1.5, function()
                 self.hud_obj:ForceShowMeter()
                 self.hud_obj:ShowLeftBottomHUD()
@@ -297,6 +302,7 @@ function Event:CheckInAV()
             self:SetSituation(Def.Situation.Waiting)
             self.hud_obj:HideCustomHint()
             self.hud_obj:EnableManualMeter(false, false)
+            self.av_obj.engine_obj:EnableOriginalPhysics(true)
             if self:IsAutoMode() then
                 self.av_obj:InterruptAutoPilot()
             end
@@ -385,7 +391,7 @@ function Event:CheckDestroyed()
         self.av_obj:ToggleThruster(false)
         self.hud_obj:HideChoice()
         if self.av_obj.engine_obj.fly_av_system ~= nil then
-            self.av_obj.engine_obj.fly_av_system:EnableGravity(true)
+            self.av_obj.engine_obj:EnableGravity(true)
         end
         self.av_obj:SetDestroyAppearance()
         self:SetSituation(Def.Situation.Normal)

@@ -12,7 +12,7 @@ function AV:New(all_models)
 	---instance---
 	local obj = {}
 	obj.position_obj = Position:New(all_models)
-	obj.engine_obj = Engine:New(obj.position_obj, all_models)
+	obj.engine_obj = Engine:New(obj, all_models)
 	obj.camera_obj = Camera:New(obj.position_obj, all_models)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
@@ -23,7 +23,7 @@ function AV:New(all_models)
 	obj.duration_zero_wait = 0.5
 	-- summon
 	obj.spawn_distance = 5.5
-	obj.spawn_high = 20
+	obj.spawn_height = 20
 	obj.spawn_wait_count = 150
 	obj.down_time_count = 350
 	obj.land_offset = -1.0
@@ -40,6 +40,7 @@ function AV:New(all_models)
 	---dynamic---
 	-- common
 	obj.entity_id = nil
+	obj.control_mode = Def.AVControlMode.V2
 	-- door
 	obj.combat_door = nil
 	obj.door_input_lock_list = {seat_front_left = false, seat_front_right = false, seat_back_left = false, seat_back_right = false, trunk = false, hood = false}
@@ -53,7 +54,7 @@ function AV:New(all_models)
 	obj.search_ground_offset = 2
 	obj.search_ground_distance = 100
 	obj.collision_filters =  {"Static", "Terrain", "Water"}
-	obj.minimum_distance_to_ground = 1.5
+	obj.minimum_distance_to_ground = 1.2
 	-- av status
 	obj.is_landed = false
 	obj.is_leaving = false
@@ -188,6 +189,39 @@ function AV:GetPosition()
 	return entity:GetWorldPosition()
 end
 
+--- Get Vehicle Forward Vector
+---@return Vector4
+function AV:GetForward()
+	local entity = Game.FindEntityByID(self.entity_id)
+    if entity == nil then
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetForward")
+        return Vector4.new(0, 0, 0, 1.0)
+    end
+    return entity:GetWorldForward()
+end
+
+--- Get Vehicle Right Vector
+---@return Vector4
+function AV:GetRight()
+	local entity = Game.FindEntityByID(self.entity_id)
+    if entity == nil then
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetRight")
+        return Vector4.new(0, 0, 0, 1.0)
+    end
+    return entity:GetWorldRight()
+end
+
+--- Get Vehicle EulerAngles
+---@return EulerAngles
+function AV:GetEulerAngles()
+	local entity = Game.FindEntityByID(self.entity_id)
+    if entity == nil then
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetEulerAngles")
+        return EulerAngles.new(0, 0, 0)
+    end
+    return entity:GetWorldOrientation():ToEulerAngles()
+end
+
 function AV:GetHeightFromGround()
 	local current_position = self:GetPosition()
 	if current_position == nil then
@@ -294,14 +328,14 @@ end
 function AV:SpawnToSky()
 	local position = self:GetSpawnPosition(self.spawn_distance, 0.0)
 	local dist_position = Vector4.new(position.x, position.y, position.z, 1)
-	position.z = position.z + self.spawn_high
+	position.z = position.z + self.spawn_height
 	local angle = self:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
 	Cron.Every(0.01, { tick = 1 }, function(timer)
 		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
 			if timer.tick == 1 then
 				self:DisableAllDoorInteractions()
-				self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 0.5, 2, 2, 7, true)
+				self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 0.5, 2, 1, 6, true)
 			elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0.0, 0.0, 0.0))
 				self.is_landed = true
@@ -334,8 +368,8 @@ end
 --- Despawn AV when it is on ground.
 function AV:DespawnFromGround()
 	local position = self:GetPosition()
-	local dist_position = Vector4.new(position.x, position.y, position.z + self.spawn_high, 1)
-	self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 5, 0, 1, 7, true)
+	local dist_position = Vector4.new(position.x, position.y, position.z + self.spawn_height, 1)
+	self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 5, 0, 1, 6, true)
 	Cron.Every(0.01, { tick = 1 }, function(timer)
 		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			timer.tick = timer.tick + 1
@@ -662,7 +696,11 @@ function AV:Operate(action_command_lists)
 		if action_command_list[1] ~= Def.ActionList.Nothing then
 			self.log_obj:Record(LogLevel.Trace, "Operation:" .. action_command_list[1])
 		end
-		self.engine_obj:CalculateForceAndTorque(action_command_list)
+		if self.engine_obj.engine_control_type == Def.EngineControlType.AddForce then
+			self.engine_obj:CalculateForceAndTorque(action_command_list)
+		elseif self.engine_obj.engine_control_type == Def.EngineControlType.AddVelocity then
+		self.engine_obj:CalculateAddVelocity(action_command_list)
+		end
 
 		-- local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateLinelyVelocity(action_command)
 		-- x_total = x_total + x
