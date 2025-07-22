@@ -283,11 +283,7 @@ function Event:CheckInAV()
             self.hud_obj:EnableManualMeter(false, self.av_obj.is_enable_manual_rpm_meter)
             self.is_keyboard_input_prev = DAV.is_keyboard_input
             self.av_obj.engine_obj:EnableOriginalPhysics(false)
-            if self.av_obj.control_mode == Def.AVControlMode.V2 then
-                self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddVelocity)
-            elseif self.av_obj.control_mode == Def.AVControlMode.V3 then
-                self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
-            end
+            self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
             Cron.After(1.5, function()
                 self.hud_obj:ForceShowMeter()
                 self.hud_obj:ShowLeftBottomHUD()

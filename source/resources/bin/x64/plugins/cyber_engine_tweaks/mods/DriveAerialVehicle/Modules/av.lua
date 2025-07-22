@@ -40,7 +40,6 @@ function AV:New(all_models)
 	---dynamic---
 	-- common
 	obj.entity_id = nil
-	obj.control_mode = Def.AVControlMode.V2
 	-- door
 	obj.combat_door = nil
 	obj.door_input_lock_list = {seat_front_left = false, seat_front_right = false, seat_back_left = false, seat_back_right = false, trunk = false, hood = false}
@@ -686,7 +685,7 @@ end
 --- Execute action commands.
 --- @param action_command_lists table
 function AV:Operate(action_command_lists)
-	-- local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
+	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
 	self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_command_lists)
 	for _, action_command_list in ipairs(action_command_lists) do
 		if action_command_list[1] >= Def.ActionList.Enter then
@@ -696,22 +695,16 @@ function AV:Operate(action_command_lists)
 		if action_command_list[1] ~= Def.ActionList.Nothing then
 			self.log_obj:Record(LogLevel.Trace, "Operation:" .. action_command_list[1])
 		end
-		if self.engine_obj.engine_control_type == Def.EngineControlType.AddForce then
-			self.engine_obj:CalculateForceAndTorque(action_command_list)
-		elseif self.engine_obj.engine_control_type == Def.EngineControlType.AddVelocity then
-		self.engine_obj:CalculateAddVelocity(action_command_list)
-		end
-
-		-- local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateLinelyVelocity(action_command)
-		-- x_total = x_total + x
-		-- y_total = y_total + y
-		-- z_total = z_total + z
-		-- roll_total = roll_total + roll
-		-- pitch_total = pitch_total + pitch
-		-- yaw_total = yaw_total + yaw
+		local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateAddVelocity(action_command_list)
+		x_total = x_total + x
+		y_total = y_total + y
+		z_total = z_total + z
+		roll_total = roll_total + roll
+		pitch_total = pitch_total + pitch
+		yaw_total = yaw_total + yaw
 	end
+	self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 
-	-- self.engine_obj:AddLinelyVelocity(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 	if not self.is_auto_pilot then
 		self:MoveThruster(action_command_lists)
 	end

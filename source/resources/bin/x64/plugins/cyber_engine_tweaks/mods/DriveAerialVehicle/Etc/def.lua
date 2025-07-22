@@ -105,10 +105,4 @@ Def.EngineControlType = {
     LinearlyAutopilot = 3,
 }
 
-Def.AVControlMode = {
-    None = -1,
-    V2 = 0,
-    V3 = 1,
-}
-
 return Def
