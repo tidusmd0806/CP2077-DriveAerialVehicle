@@ -209,11 +209,13 @@ function Debug:ImGuiEngineInfo()
         local direction_velocity = engine_obj.direction_velocity
         local angular_velocity = engine_obj.angular_velocity
         local autopilot_time = engine_obj.autopilot_time
+        local control_type = engine_obj.engine_control_type
         ImGui.Text("Force : X:" .. force.x .. ", Y:" .. force.y .. ", Z:" .. force.z)
         ImGui.Text("torque : X:" .. torque.x .. ", Y:" .. torque.y .. ", Z:" .. torque.z)
         ImGui.Text("Direction Velocity : X:" .. direction_velocity.x .. ", Y:" .. direction_velocity.y .. ", Z:" .. direction_velocity.z)
         ImGui.Text("Angular Velocity : X:" .. angular_velocity.x .. ", Y:" .. angular_velocity.y .. ", Z:" .. angular_velocity.z)
         ImGui.Text("Autopilot Time : " .. autopilot_time)
+        ImGui.Text("Control Type : " .. control_type)
     end
 end
 

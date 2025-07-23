@@ -44,7 +44,7 @@ function Engine:New(av_obj, all_models)
     obj.min_speed_for_linearly_autopilot = 0
     obj.max_speed_for_linearly_autopilot = 0
     obj.is_rocked_angle_for_linearly_autopilot = false
-    obj.is_enable_limearly_autopilot = false
+    obj.is_enable_linearly_autopilot = false
     obj.autopilot_time = 0
 
     return setmetatable(obj, self)
@@ -80,13 +80,7 @@ function Engine:Update(delta)
         local direction_velocity = self:GetDirectionVelocity()
         local angular_velocity = self:GetAngularVelocity()
         local mass = self:GetMass()
-        print("--------------------")
-        print(mass)
-        print(delta)
-        print(direction_velocity.x, direction_velocity.y, direction_velocity.z)
         self:SetForce(Vector3.new(direction_velocity.x / delta * mass, direction_velocity.y / delta * mass, direction_velocity.z / delta * mass))
-        print(self.force.x, self.force.y, self.force.z)
-        print("----------------s")
         self:SetTorque(Vector3.new(angular_velocity.x / delta * mass, angular_velocity.y / delta * mass, angular_velocity.z / delta * mass))
         self:AddForce(delta, self.force, self.torque)
     elseif self.engine_control_type == Def.EngineControlType.LinearlyAutopilot then
@@ -211,134 +205,6 @@ function Engine:SetAcceleration(delta)
     self.acceleration.y = (current_velocity.y - self.prev_velocity.y) / delta
     self.acceleration.z = (current_velocity.z - self.prev_velocity.z) / delta
     self.prev_velocity = current_velocity
-end
-
---- Calculate linearly velocity.
----@param action_command_list table
-function Engine:CalculateForceAndTorque(action_command_list)
-    if self.flight_mode == Def.FlightMode.AV then
-        self:CalculateAVForceAndTorque(action_command_list)
-    elseif self.flight_mode == Def.FlightMode.Helicopter then
-        -- self:CalculateHelicopterMode(action_command)
-    else
-        self.log_obj:Record(LogLevel.Critical, "Unknown flight mode: " .. self.flight_mode)
-    end
-end
-
---- Calculate velocity for AV mode.
----@param action_command_list table
-function Engine:CalculateAVForceAndTorque(action_command_list)
-    -- local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
-    local entity = Game.FindEntityByID(self.entity_id)
-    local current_angle = entity:GetWorldOrientation():ToEulerAngles()
-
-    -- local acceleration = DAV.user_setting_table.acceleration
-    local vertical_acceleration = DAV.user_setting_table.vertical_acceleration
-    local left_right_acceleration = DAV.user_setting_table.left_right_acceleration
-    local roll_change_amount = DAV.user_setting_table.roll_change_amount
-    local pitch_change_amount = DAV.user_setting_table.pitch_change_amount
-    local pitch_restore_amount = DAV.user_setting_table.pitch_restore_amount
-    local yaw_change_amount = DAV.user_setting_table.yaw_change_amount
-    local rotate_roll_change_amount = DAV.user_setting_table.rotate_roll_change_amount
-
-    local forward_vec = entity:GetWorldForward()
-    local right_vec = entity:GetWorldRight()
-
-    local force_vec4 = Vector4.new(0, 0, 0, 1)
-    local acceleration = 10000
-    if action_command_list[1] == Def.ActionList.Forward then
-        force_vec4.x = acceleration * forward_vec.x
-        force_vec4.y = acceleration * forward_vec.y
-        force_vec4.z = acceleration * forward_vec.z
-    elseif action_command_list[1] == Def.ActionList.Idle then
-        force_vec4.x = 0
-        force_vec4.y = 0
-        force_vec4.z = 0
-    end
-    self:SetForce(Vector4.Vector4To3(force_vec4))
-
-    -- local local_roll = 0
-    -- local local_pitch = 0
-
-    -- if action_commands == Def.ActionList.Up then
-    --     z = z + vertical_acceleration
-    -- elseif action_commands == Def.ActionList.Down then
-    --     z = z - vertical_acceleration
-    -- elseif action_commands == Def.ActionList.Forward then
-    --     x = x + acceleration * forward_vec.x
-    --     y = y + acceleration * forward_vec.y
-    --     z = z + acceleration * forward_vec.z
-    -- elseif action_commands == Def.ActionList.Backward then
-    --     x = x - acceleration * forward_vec.x
-    --     y = y - acceleration * forward_vec.y
-    --     z = z - acceleration * forward_vec.z
-    -- elseif action_commands == Def.ActionList.RightRotate then
-    --     yaw = yaw + yaw_change_amount
-    --     if current_angle.roll > -self.max_roll then
-    --         local_roll = local_roll - rotate_roll_change_amount
-    --     end
-    -- elseif action_commands == Def.ActionList.LeftRotate then
-    --     yaw = yaw - yaw_change_amount
-    --     if current_angle.roll < self.max_roll then
-    --         local_roll = local_roll + rotate_roll_change_amount
-    --     end
-    -- elseif action_commands == Def.ActionList.Right then
-    --     x = x + left_right_acceleration * right_vec.x
-    --     y = y + left_right_acceleration * right_vec.y
-    --     if current_angle.roll < self.max_roll then
-    --         local_roll = local_roll + roll_change_amount
-    --     end
-    -- elseif action_commands == Def.ActionList.Left then
-    --     x = x - left_right_acceleration * right_vec.x
-    --     y = y - left_right_acceleration * right_vec.y
-    --     if current_angle.roll > -self.max_roll then
-    --         local_roll = local_roll - roll_change_amount
-    --     end
-    -- elseif action_commands == Def.ActionList.LeanForward then
-    --     if current_angle.pitch < -self.max_pitch then
-    --         local_pitch = 0
-    --     elseif current_angle.pitch < 0 then
-    --         local_pitch = local_pitch - pitch_change_amount * ((self.max_pitch + current_angle.pitch) / self.max_pitch)
-    --     else
-    --         local_pitch = local_pitch - pitch_change_amount
-    --     end
-    -- elseif action_commands == Def.ActionList.LeanBackward then
-    --     if current_angle.pitch > self.max_pitch then
-    --         local_pitch = 0
-    --     elseif current_angle.pitch > 0 then
-    --         local_pitch = local_pitch + pitch_change_amount * ((self.max_pitch - current_angle.pitch) / self.max_pitch)
-    --     else
-    --         local_pitch = local_pitch + pitch_change_amount
-    --     end
-    -- elseif action_commands == Def.ActionList.LeanReset then
-    --     if current_angle.pitch > pitch_restore_amount then
-    --         local_pitch = local_pitch - pitch_restore_amount
-    --     elseif current_angle.pitch < -pitch_restore_amount then
-    --         local_pitch = local_pitch + pitch_restore_amount
-    --     elseif current_angle.pitch > 0 then
-    --         local_pitch = local_pitch - current_angle.pitch
-    --     elseif current_angle.pitch < 0 then
-    --         local_pitch = local_pitch - current_angle.pitch
-    --     end
-    -- elseif action_commands == Def.ActionList.Nothing then
-    --     if current_angle.pitch > pitch_restore_amount then
-    --         local_pitch = local_pitch - pitch_restore_amount
-    --     elseif current_angle.pitch < -pitch_restore_amount then
-    --         local_pitch = local_pitch + pitch_restore_amount
-    --     elseif current_angle.pitch > 0 then
-    --         local_pitch = local_pitch - current_angle.pitch
-    --     elseif current_angle.pitch < 0 then
-    --         local_pitch = local_pitch - current_angle.pitch
-    --     end
-    -- end
-
-    -- local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
-
-    -- roll = roll+ d_roll
-    -- pitch = pitch + d_pitch
-    -- yaw = yaw + d_yaw
-
-    -- return x, y, z, roll, pitch, yaw
 end
 
 --- Calculate linearly velocity.
@@ -710,21 +576,21 @@ function Engine:SetlinearlyAutopilotMode(enable, end_point, end_decreased_distan
         self.min_speed_for_linearly_autopilot = min_speed
         self.max_speed_for_linearly_autopilot = max_speed
         self.is_rocked_angle_for_linearly_autopilot = is_rocked_angle
-        self.is_enable_limearly_autopilot = true
+        self.is_enable_linearly_autopilot = true
         self.autopilot_time = 0
     else
         self:SetControlType(Def.EngineControlType.ChangeVelocity)
         self:SetDirectionVelocity(Vector3.new(0, 0, 0))
         self:SetAngularVelocity(Vector3.new(0, 0, 0))
         self.autopilot_time = 0
-        self.is_enable_limearly_autopilot = false
+        self.is_enable_linearly_autopilot = false
     end
 end
 
 --- Operate linely autopilot
 ---@param delta number
 function Engine:OperateLinelyAutopilot(delta)
-    if not self.is_enable_limearly_autopilot then
+    if not self.is_enable_linearly_autopilot then
         self.log_obj:Record(LogLevel.Critical, "Don't operate because linely autopilot is not enabled")
         return
     end

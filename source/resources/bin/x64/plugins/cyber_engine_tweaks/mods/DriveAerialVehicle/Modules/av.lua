@@ -34,6 +34,7 @@ function AV:New(all_models)
 	obj.autopilot_angle_restore_rate = 0.01
 	obj.autopilot_landing_angle_restore_rate = 0.1
 	obj.standard_leaving_height = 20
+	obj.exception_area_path = "Data/autopilot_exception_area.json"
 	-- thruster
 	obj.thruster_angle_step = 0.6
 	obj.thruster_angle_restore = 0.3
@@ -81,6 +82,7 @@ function AV:New(all_models)
 	obj.initial_destination_length = 1
 	obj.dest_dir_vector_norm = 1
 	obj.pre_speed_list = {x = 0, y = 0, z = 0}
+	obj.autopilot_exception_area_list = {}
 	-- appearance
 	obj.is_enable_crystal_dome = false
 	obj.is_enable_landing_vfx = false
@@ -140,6 +142,8 @@ function AV:Init()
 	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
 	self.autopilot_min_speed_rate = self.autopilot_profile[speed_level].min_speed_rate
 	self.autopilot_is_only_horizontal = self.autopilot_profile[speed_level].is_only_horizontal
+
+	self.autopilot_exception_area_list = Utils:ReadJson(self.exception_area_path)
 end
 
 --- Check if player is mounted.
@@ -1002,11 +1006,17 @@ end
 function AV:AutoLeaving(dist_vector, height)
 	self.is_leaving = true
 
-	local res, _, area_height = self.position_obj:IsInExceptionArea(self.position_obj:GetPosition())
+	local res, _, area_height = self:IsInExceptionArea(self:GetPosition())
 	if res then
 		height = area_height + 10
 	end
 
+	local current_position = self:GetPosition()
+	print(current_position.x .. ", " .. current_position.y .. ", " .. current_position.z)
+	local leaving_height = height or self.autopilot_leaving_height - current_position.z
+	local dist_position = Vector4.new(current_position.x, current_position.y, current_position.z + leaving_height, 1)
+	print(dist_position.x .. ", " .. dist_position.y .. ", " .. dist_position.z)
+	self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 5, 0, 1, 6, true)
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
@@ -1015,12 +1025,14 @@ function AV:AutoLeaving(dist_vector, height)
 			Cron.Halt(timer)
 			return
 		end
-		local angle = self.position_obj:GetEulerAngles()
-		local current_position = self.position_obj:GetPosition()
-		local leaving_height = height or self.autopilot_leaving_height - current_position.z
-		local leaving_time_count = math.floor(leaving_height / self.autopilot_speed)
-		self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(leaving_time_count, self.autopilot_land_offset, leaving_height, timer.tick + leaving_time_count + 1), -angle.roll * 0.8, -angle.pitch * 0.8, 0.0)
-		if timer.tick >= leaving_time_count then
+		-- local angle = self:GetEulerAngles()
+		-- local current_position = self:GetPosition()
+		-- local leaving_height = height or self.autopilot_leaving_height - current_position.z
+		-- local leaving_time_count = math.floor(leaving_height / self.autopilot_speed)
+		-- self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(leaving_time_count, self.autopilot_land_offset, leaving_height, timer.tick + leaving_time_count + 1), -angle.roll * 0.8, -angle.pitch * 0.8, 0.0)
+		-- local dist_position = Vector4.new(current_position.x, current_position.y, current_position.z + leaving_height, 1)
+		-- self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 0.5, 0, 1, 6, true)
+		if not self.engine_obj.is_enable_linearly_autopilot then
 			Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 				timer.tick = timer.tick + 1
 				if not self.is_auto_pilot then
@@ -1065,7 +1077,7 @@ function AV:AutoLeaving(dist_vector, height)
 			end)
 			Cron.Halt(timer)
 		end
-		self:MoveThruster({Def.ActionList.Nothing})
+		self:MoveThruster({{Def.ActionList.Nothing, 0}})
 	end)
 end
 
@@ -1371,6 +1383,20 @@ end
 ---@return Quaternion
 function AV:GetSpawnOrientation(angle)
     return EulerAngles.ToQuat(Vector4.ToRotation(self:GetPlayerAroundDirection(angle)))
+end
+
+--- Check Player in Exception Area
+---@param position Vector4
+---@return boolean is_in_area If or not in exception area
+---@return string tag Tag
+---@return number z max height of exception area
+function AV:IsInExceptionArea(position)
+    for _, area in ipairs(self.autopilot_exception_area_list) do
+        if position.x >= area.min_x and position.x <= area.max_x and position.y >= area.min_y and position.y <= area.max_y and position.z >= area.min_z and position.z <= area.max_z then
+            return true, area.tag, area.max_z
+        end
+    end
+    return false, "None", 0
 end
 
 return AV

@@ -100,9 +100,8 @@ Def.ChangeVelocityType = {
 Def.EngineControlType = {
     None = -1,
     ChangeVelocity = 0,
-    AddVelocity = 1,
-    AddForce = 2,
-    LinearlyAutopilot = 3,
+    AddForce = 1,
+    LinearlyAutopilot = 2,
 }
 
 return Def
