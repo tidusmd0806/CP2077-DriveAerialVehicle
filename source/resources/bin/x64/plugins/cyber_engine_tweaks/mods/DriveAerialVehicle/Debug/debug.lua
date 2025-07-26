@@ -115,6 +115,12 @@ function Debug:ImGuiSituation()
     self.is_im_gui_situation = ImGui.Checkbox("[ImGui] Current Situation", self.is_im_gui_situation)
     if self.is_im_gui_situation then
         ImGui.Text("Current Situation : " .. self.core_obj.event_obj.current_situation)
+        local is_in_menu_or_popup_photo = self.core_obj.event_obj:IsInMenuOrPopupOrPhoto()
+        if is_in_menu_or_popup_photo then
+            ImGui.Text("In Menu or Popup or Photo : On")
+        else
+            ImGui.Text("In Menu or Popup or Photo : Off")
+        end
     end
 end
 
@@ -135,18 +141,19 @@ end
 function Debug:ImGuiAVPosition()
     self.is_im_gui_av_position = ImGui.Checkbox("[ImGui] AV Position Angle", self.is_im_gui_av_position)
     if self.is_im_gui_av_position then
-        if self.core_obj.av_obj.position_obj.entity == nil then
+        local entity = Game.FindEntityByID(self.core_obj.av_obj.entity_id)
+        if entity == nil then
             return
         end
-        local x = string.format("%.2f", self.core_obj.av_obj.position_obj:GetPosition().x)
-        local y = string.format("%.2f", self.core_obj.av_obj.position_obj:GetPosition().y)
-        local z = string.format("%.2f", self.core_obj.av_obj.position_obj:GetPosition().z)
-        local roll = string.format("%.2f", self.core_obj.av_obj.position_obj:GetEulerAngles().roll)
-        local pitch = string.format("%.2f", self.core_obj.av_obj.position_obj:GetEulerAngles().pitch)
-        local yaw = string.format("%.2f", self.core_obj.av_obj.position_obj:GetEulerAngles().yaw)
+        local x = string.format("%.2f", self.core_obj.av_obj:GetPosition().x)
+        local y = string.format("%.2f", self.core_obj.av_obj:GetPosition().y)
+        local z = string.format("%.2f", self.core_obj.av_obj:GetPosition().z)
+        local roll = string.format("%.2f", self.core_obj.av_obj:GetEulerAngles().roll)
+        local pitch = string.format("%.2f", self.core_obj.av_obj:GetEulerAngles().pitch)
+        local yaw = string.format("%.2f", self.core_obj.av_obj:GetEulerAngles().yaw)
         ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
         ImGui.Text("Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
-        ImGui.Text("Height : " .. tostring(DAV.core_obj.av_obj.position_obj:GetHeight()))
+        ImGui.Text("Height : " .. tostring(DAV.core_obj.av_obj:GetHeight()))
     end
 end
 
@@ -175,7 +182,7 @@ function Debug:ImGuiVehicleInfo()
         if DAV.core_obj.av_obj.engine_obj.fly_av_system == nil then
             return
         end
-        if DAV.core_obj.av_obj.engine_obj.fly_av_system:IsOnGround() then
+        if DAV.core_obj.av_obj.engine_obj:IsOnGround() then
             ImGui.Text("On Ground")
         else
             ImGui.Text("In Air")
@@ -191,6 +198,11 @@ function Debug:ImGuiVehicleInfo()
         local speed_y = string.format("%.2f", speed.y)
         local speed_z = string.format("%.2f", speed.z)
         ImGui.Text("Speed : X:" .. speed_x .. ", Y:" .. speed_y .. ", Z:" .. speed_z)
+        local angular_velocity = DAV.core_obj.av_obj.engine_obj.fly_av_system:GetAngularVelocity()
+        local angular_velocity_x = string.format("%.2f", angular_velocity.x)
+        local angular_velocity_y = string.format("%.2f", angular_velocity.y)
+        local angular_velocity_z = string.format("%.2f", angular_velocity.z)
+        ImGui.Text("Angular Velocity : X:" .. angular_velocity_x .. ", Y:" .. angular_velocity_y .. ", Z:" .. angular_velocity_z)
     end
 end
 
@@ -208,13 +220,11 @@ function Debug:ImGuiEngineInfo()
         local torque = engine_obj.torque
         local direction_velocity = engine_obj.direction_velocity
         local angular_velocity = engine_obj.angular_velocity
-        local autopilot_time = engine_obj.autopilot_time
         local control_type = engine_obj.engine_control_type
         ImGui.Text("Force : X:" .. force.x .. ", Y:" .. force.y .. ", Z:" .. force.z)
-        ImGui.Text("torque : X:" .. torque.x .. ", Y:" .. torque.y .. ", Z:" .. torque.z)
+        ImGui.Text("Torque : X:" .. torque.x .. ", Y:" .. torque.y .. ", Z:" .. torque.z)
         ImGui.Text("Direction Velocity : X:" .. direction_velocity.x .. ", Y:" .. direction_velocity.y .. ", Z:" .. direction_velocity.z)
         ImGui.Text("Angular Velocity : X:" .. angular_velocity.x .. ", Y:" .. angular_velocity.y .. ", Z:" .. angular_velocity.z)
-        ImGui.Text("Autopilot Time : " .. autopilot_time)
         ImGui.Text("Control Type : " .. control_type)
     end
 end
@@ -344,7 +354,7 @@ function Debug:ImGuiAutoPilotExceptionArea()
         local positions = {}
         local position_index = 1
         local position_count = 1
-        for _, value in ipairs(DAV.core_obj.av_obj.position_obj.autopilot_exception_area_list) do
+        for _, value in ipairs(DAV.core_obj.av_obj.autopilot_exception_area_list) do
             local position = {
                 {value.min_x, value.min_y, value.min_z},
                 {value.max_x, value.min_y, value.min_z},
@@ -393,14 +403,14 @@ function Debug:ImGuiAutoPilotExceptionArea()
     end
     if self.is_im_gui_auto_pilot_exception_area then
         local current_position = Game.GetPlayer():GetWorldPosition()
-        local res, tag, z = DAV.core_obj.av_obj.position_obj:IsInExceptionArea(current_position)
+        local res, tag, z = DAV.core_obj.av_obj:IsInExceptionArea(current_position)
         if res then
             ImGui.Text("In Exception Area : " .. tag .. ", Z : " .. z)
         else
             ImGui.Text("Not In Exception Area")
         end
         if ImGui.Button("Reload Area") then
-            DAV.core_obj.av_obj.position_obj.autopilot_exception_area_list = Utils:ReadJson(DAV.core_obj.av_obj.position_obj.exception_area_path)
+            DAV.core_obj.av_obj.autopilot_exception_area_list = Utils:ReadJson(DAV.core_obj.av_obj.exception_area_path)
         end
     end
 end
@@ -409,13 +419,14 @@ function Debug:ImGuiMeasurement()
     self.is_im_gui_measurement = ImGui.Checkbox("[ImGui] Measurement", self.is_im_gui_measurement)
     if self.is_im_gui_measurement then
         local look_at_pos = Game.GetTargetingSystem():GetLookAtPosition(Game.GetPlayer())
-        if self.core_obj.av_obj.position_obj.entity == nil then
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        if entity == nil then
             return
         end
-        local origin = self.core_obj.av_obj.position_obj:GetPosition()
-        local right = self.core_obj.av_obj.position_obj.entity:GetWorldRight()
-        local forward = self.core_obj.av_obj.position_obj.entity:GetWorldForward()
-        local up = self.core_obj.av_obj.position_obj.entity:GetWorldUp()
+        local origin = self.core_obj.av_obj:GetPosition()
+        local right = self.core_obj.av_obj:GetWorldRight()
+        local forward = self.core_obj.av_obj:GetWorldForward()
+        local up = self.core_obj.av_obj:GetWorldUp()
         local relative = Vector4.new(look_at_pos.x - origin.x, look_at_pos.y - origin.y, look_at_pos.z - origin.z, 1)
         local x = Vector4.Dot(relative, right)
         local y = Vector4.Dot(relative, forward)
@@ -461,11 +472,11 @@ function Debug:ImGuiExcuteFunction()
         print("Auto Down Test")
         Cron.Every(1, {tick=1}, function(timer)
             timer.tick = timer.tick + 1
-            if DAV.core_obj.av_obj.engine_obj.fly_av_system:IsOnGround() then
-                if DAV.core_obj.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
-                    DAV.core_obj.av_obj:Operate({Def.ActionList.Down})
+            if self.core_obj.av_obj.engine_obj:IsOnGround() then
+                if self.core_obj.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
+                    self.core_obj.av_obj:Operate({Def.ActionList.Down})
                 else
-                    DAV.core_obj.av_obj:Operate({Def.ActionList.HDown})
+                    self.core_obj.av_obj:Operate({Def.ActionList.HDown})
                 end
             end
             if timer.tick > 10 then
@@ -483,7 +494,8 @@ function Debug:ImGuiExcuteFunction()
     ImGui.SameLine()
     if ImGui.Button("TF4") then
         print("Force Unmount Test")
-        local vehicle_ps = DAV.core_obj.av_obj.position_obj.entity:GetVehiclePS()
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local vehicle_ps = entity:GetVehiclePS()
         vehicle_ps:DisableAllVehInteractions()
         print("Excute Test Function 4")
     end
@@ -509,7 +521,8 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF8") then
-        local mesh = DAV.core_obj.av_obj.position_obj.entity:FindComponentByName("ThrusterFL")
+        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
+        local mesh = entity:FindComponentByName("ThrusterFL")
         if mesh ~= nil then
             -- mesh.visualScale = Vector3.new(0, 0, 0)
             mesh:Toggle(false)

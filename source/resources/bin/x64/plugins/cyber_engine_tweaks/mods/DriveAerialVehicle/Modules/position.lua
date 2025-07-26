@@ -107,6 +107,7 @@ end
 ---@param swing_direction string "Vertical" or "Horizontal"
 ---@param is_check_exception_area boolean
 ---@return boolean
+---@return Vector4
 function Position:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception_area)
     local dir_base_vec = Vector4.Normalize(dir_vec)
     local up_vec = Vector4.new(0, 0, 1, 1)

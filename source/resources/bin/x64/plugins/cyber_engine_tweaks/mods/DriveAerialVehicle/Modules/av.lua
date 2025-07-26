@@ -6,19 +6,19 @@ local AV = {}
 AV.__index = AV
 
 --- Constractor.
----@param all_models table model data
+---@param core_obj any Core instance
 ---@return table instance av instance
-function AV:New(all_models)
+function AV:New(core_obj)
 	---instance---
 	local obj = {}
-	obj.position_obj = Position:New(all_models)
-	obj.engine_obj = Engine:New(obj, all_models)
-	obj.camera_obj = Camera:New(obj.position_obj, all_models)
+	obj.core_obj = core_obj
+	obj.all_models = core_obj.all_models
+	-- obj.position_obj = Position:New(core_obj.all_models)
+	obj.engine_obj = Engine:New(obj)
+	obj.camera_obj = Camera:New(core_obj.all_models)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
 	---static---
-	-- model
-	obj.all_models = all_models
 	-- door
 	obj.duration_zero_wait = 0.5
 	-- summon
@@ -54,6 +54,7 @@ function AV:New(all_models)
 	obj.search_ground_offset = 2
 	obj.search_ground_distance = 100
 	obj.collision_filters =  {"Static", "Terrain", "Water"}
+	obj.weak_collision_filters = {"Static", "Terrain"}
 	obj.minimum_distance_to_ground = 1.2
 	-- av status
 	obj.is_landed = false
@@ -83,6 +84,7 @@ function AV:New(all_models)
 	obj.dest_dir_vector_norm = 1
 	obj.pre_speed_list = {x = 0, y = 0, z = 0}
 	obj.autopilot_exception_area_list = {}
+	obj.autopilot_prevention_length = 10
 	-- appearance
 	obj.is_enable_crystal_dome = false
 	obj.is_enable_landing_vfx = false
@@ -101,6 +103,12 @@ function AV:New(all_models)
 	obj.thruster_fxs = {}
 	obj.thruster_angle = 0
 	obj.thruster_angle_max = 0
+	-- enter and exit
+	obj.enter_point = {}
+	obj.entry_area_radius = 0
+	obj.exit_point = {}
+	-- landing
+	obj.minimum_distance_to_ground = 1.2
 	return setmetatable(obj, self)
 end
 
@@ -127,8 +135,13 @@ function AV:Init()
 	self.thruster_offset_list = self.all_models[index].thruster_fx_offset
 	self.thruster_angle_max = self.all_models[index].thruster_angle_max
 	self.destroy_app = self.all_models[index].destroy_app
-	self.position_obj:SetModel(index)
+	-- self.position_obj:SetModel(index)
 	self.camera_obj:Init()
+	self.entry_point = { x = self.all_models[index].entry_point.x, y = self.all_models[index].entry_point.y, z = self.all_models[index].entry_point.z }
+    self.entry_area_radius = self.all_models[index].entry_area_radius
+	self.exit_point = {x = self.all_models[index].exit_point.x, y = self.all_models[index].exit_point.y, z = self.all_models[index].exit_point.z}
+	self.minimum_distance_to_ground = self.all_models[index].minimum_distance_to_ground
+	self.autopilot_prevention_length = self.all_models[index].autopilot_prevention_length
 
 	-- read autopilot profile
 	local speed_level = DAV.user_setting_table.autopilot_speed_level
@@ -214,6 +227,28 @@ function AV:GetRight()
     return entity:GetWorldRight()
 end
 
+--- Get Vehicle Up Vector
+---@return Vector4
+function AV:GetUp()
+	local entity = Game.FindEntityByID(self.entity_id)
+    if entity == nil then
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetUp")
+        return Vector4.new(0, 0, 0, 1.0)
+    end
+    return entity:GetWorldUp()
+end
+
+--- Get Vehicle Quaternion
+---@return Quaternion
+function AV:GetQuaternion()
+	local entity = Game.FindEntityByID(self.entity_id)
+    if entity == nil then
+        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetQuaternion")
+        return Quaternion.new(0, 0, 0, 1.0)
+    end
+    return entity:GetWorldOrientation()
+end
+
 --- Get Vehicle EulerAngles
 ---@return EulerAngles
 function AV:GetEulerAngles()
@@ -250,6 +285,12 @@ function AV:GetGroundPosition()
         end
     end
     return current_position.z - self.search_ground_distance - 1
+end
+
+--- Get Height between ground and vehicle
+---@return number height
+function AV:GetHeight()
+    return self:GetPosition().z - self:GetGroundPosition()
 end
 
 --- Check if player is mounted combat seat.
@@ -309,7 +350,7 @@ function AV:Spawn(position, angle)
 		if entity ~= nil then
 			self.is_spawning = false
 			self.landing_vfx_component = entity:FindComponentByName("LandingVFXSlot")
-			self.position_obj:SetEntity(entity)
+			-- self.position_obj:SetEntity(entity)
 			self.engine_obj:Init(self.entity_id)
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.engine_obj:EnableGravity(false)
@@ -330,22 +371,21 @@ end
 --- Spawn AV at sky.
 function AV:SpawnToSky()
 	local position = self:GetSpawnPosition(self.spawn_distance, 0.0)
-	local dist_position = Vector4.new(position.x, position.y, position.z, 1)
 	position.z = position.z + self.spawn_height
 	local angle = self:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
 	Cron.Every(0.01, { tick = 1 }, function(timer)
-		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
+		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
 			if timer.tick == 1 then
 				self:DisableAllDoorInteractions()
-				self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 0.5, 2, 1, 6, true)
-			elseif timer.tick >= self.spawn_wait_count + self.down_time_count then
-				self.engine_obj:SetDirectionVelocity(Vector3.new(0.0, 0.0, 0.0))
-				self.is_landed = true
-				self.log_obj:Record(LogLevel.Info, "Spawn to sky timeout")
-				Cron.Halt(timer)
-			elseif self:GetHeightFromGround() < self.minimum_distance_to_ground then
-				self.engine_obj:SetDirectionVelocity(Vector3.new(0.0, 0.0, 0.0))
+				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -5))
+				self.log_obj:Record(LogLevel.Info, "Initial Spawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
+			elseif self:GetHeightFromGround() < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
+				self.engine_obj:SetFluctuationVelocityParams(-1, 1)
+				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
+			elseif self:GetHeightFromGround() < 1.5 or timer.tick > 500 then
+				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 				self.is_landed = true
 				self.log_obj:Record(LogLevel.Info, "Spawn to sky success")
 				Cron.Halt(timer)
@@ -370,16 +410,21 @@ end
 
 --- Despawn AV when it is on ground.
 function AV:DespawnFromGround()
-	local position = self:GetPosition()
-	local dist_position = Vector4.new(position.x, position.y, position.z + self.spawn_height, 1)
-	self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 5, 0, 1, 6, true)
 	Cron.Every(0.01, { tick = 1 }, function(timer)
-		if not DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
-			timer.tick = timer.tick + 1
-			if timer.tick >= self.down_time_count then
+		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+			if timer.tick == 1 then
+				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 1))
+				self.log_obj:Record(LogLevel.Info, "Initial Despawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
+			elseif timer.tick == 2 then
+				self.engine_obj:SetFluctuationVelocityParams(1, 5)
+				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
+			elseif timer.tick >= self.down_time_count then
+				self.log_obj:Record(LogLevel.Info, "Despawn Timeout")
 				self:Despawn()
 				Cron.Halt(timer)
 			end
+			timer.tick = timer.tick + 1
 		end
 	end)
 end
@@ -448,7 +493,7 @@ end
 
 --- Get door state.
 ---@param e_veh_door EVehicleDoor
----@return VehicleDoorState
+---@return VehicleDoorState | nil
 function AV:GetDoorState(e_veh_door)
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Trace, "No entity id to get door state")
@@ -479,7 +524,8 @@ function AV:ChangeDoorState(door_state, door_name_list)
 		return false
 	end
 
-	local vehicle_ps = self.position_obj.entity:GetVehiclePS()
+	-- local vehicle_ps = self.position_obj.entity:GetVehiclePS()
+	local vehicle_ps = Game.FindEntityByID(self.entity_id):GetVehiclePS()
 
 	if door_name_list == nil then
 		door_name_list = self.active_door
@@ -593,19 +639,19 @@ function AV:Mount()
 	end
 
 	-- for abort infinite drop
-	local abort_flag = false
-	Cron.Every(0.1, {tick=0}, function(timer)
-		timer.tick = timer.tick + 1
-		if self.engine_obj.fly_av_system:IsOnGround() then
-			self.log_obj:Record(LogLevel.Warning, "Abort infinite drop")
-			self:ForceMove(0, 0, 1, 0, 0, 0)
-			abort_flag = true
-		elseif abort_flag then
-			Cron.Halt(timer)
-		elseif timer.tick > 50 then
-			Cron.Halt(timer)
-		end
-	end)
+	-- local abort_flag = false
+	-- Cron.Every(0.1, {tick=0}, function(timer)
+	-- 	timer.tick = timer.tick + 1
+	-- 	if self.engine_obj.fly_av_system:IsOnGround() then
+	-- 		self.log_obj:Record(LogLevel.Warning, "Abort infinite drop")
+	-- 		self:ForceMove(0, 0, 1, 0, 0, 0)
+	-- 		abort_flag = true
+	-- 	elseif abort_flag then
+	-- 		Cron.Halt(timer)
+	-- 	elseif timer.tick > 50 then
+	-- 		Cron.Halt(timer)
+	-- 	end
+	-- end)
 
 	return true
 end
@@ -649,7 +695,7 @@ function AV:Unmount()
 				local entity = Game.FindEntityByID(self.entity_id)
 				local vehicle_angle = entity:GetWorldOrientation():ToEulerAngles()
 				local teleport_angle = EulerAngles.new(vehicle_angle.roll, vehicle_angle.pitch, vehicle_angle.yaw + 90)
-				local position = self.position_obj:GetExitPosition()
+				local position = self:GetExitPosition()
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), teleport_angle)
 				self.is_unmounting = false
 				Cron.Halt(timer)
@@ -664,27 +710,27 @@ function AV:Unmount()
 	return true
 end
 
---- Teleport to the next position.
----@return boolean
-function AV:Move(x, y, z, roll, pitch, yaw)
-	if self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) == Def.TeleportResult.Collision then
-		return false
-	end
-	return true
-end
+-- --- Teleport to the next position.
+-- ---@return boolean
+-- function AV:Move(x, y, z, roll, pitch, yaw)
+-- 	if self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) == Def.TeleportResult.Collision then
+-- 		return false
+-- 	end
+-- 	return true
+-- end
 
---- Teleport to the next position. This function is forced to teleport.
-function AV:ForceMove(x, y, z, roll, pitch, yaw)
-	local position = self.position_obj:GetPosition()
-	local angle = self.position_obj:GetEulerAngles()
-	position.x = position.x + x
-	position.y = position.y + y
-	position.z = position.z + z
-	angle.roll = angle.roll + roll
-	angle.pitch = angle.pitch + pitch
-	angle.yaw = angle.yaw + yaw
-	Game.GetTeleportationFacility():Teleport(self.position_obj.entity, position, angle)
-end
+-- --- Teleport to the next position. This function is forced to teleport.
+-- function AV:ForceMove(x, y, z, roll, pitch, yaw)
+-- 	local position = self.position_obj:GetPosition()
+-- 	local angle = self.position_obj:GetEulerAngles()
+-- 	position.x = position.x + x
+-- 	position.y = position.y + y
+-- 	position.z = position.z + z
+-- 	angle.roll = angle.roll + roll
+-- 	angle.pitch = angle.pitch + pitch
+-- 	angle.yaw = angle.yaw + yaw
+-- 	Game.GetTeleportationFacility():Teleport(self.position_obj.entity, position, angle)
+-- end
 
 --- Execute action commands.
 --- @param action_command_lists table
@@ -707,9 +753,10 @@ function AV:Operate(action_command_lists)
 		pitch_total = pitch_total + pitch
 		yaw_total = yaw_total + yaw
 	end
-	self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
+	-- self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 
 	if not self.is_auto_pilot then
+		self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 		self:MoveThruster(action_command_lists)
 	end
 
@@ -750,7 +797,7 @@ function AV:AutoPilot()
 
 	destination_position.z = destination_position.z + self.destination_z_offset
 
-	local current_position = self.position_obj:GetPosition()
+	local current_position = self:GetPosition()
 
 	local direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
 	self.initial_destination_length = Vector4.Length(direction_vector)
@@ -774,7 +821,7 @@ function AV:AutoPilot()
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 
-		if self.is_leaving or DAV.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+		if self.is_leaving or self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			return
 		end
 
@@ -785,7 +832,7 @@ function AV:AutoPilot()
 		end
 
 		-- set destination vector
-		current_position = self.position_obj:GetPosition()
+		current_position = self:GetPosition()
 		local dest_dir_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
 		if self.autopilot_is_only_horizontal then
 			dest_dir_vector.z = 0
@@ -797,6 +844,7 @@ function AV:AutoPilot()
 		-- check destination
 		if self.dest_dir_vector_norm < self.destination_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
+			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:AutoLanding(current_position.z - destination_position.z)
 			Cron.Halt(timer)
 			return
@@ -848,13 +896,13 @@ function AV:AutoPilot()
 						for search_angle = min_search_angle, max_search_angle, search_angle_step do
 							if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0 and search_angle < 90) or (swing_direction == "Vertical" and self.autopilot_vertical_sign * sign >= 0 and search_angle * sign > -90 ) then
 								if search_angle == 0 then
-									res, vec = self.position_obj:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction, true)
+									res, vec = self:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction, true)
 								else
 									local is_check_exception_area = true
 									if swing_direction == "Vertical" and search_angle * sign >= 90 then
 										is_check_exception_area = false
 									end
-									res, vec = self.position_obj:IsWall(dest_dir_2d, self.search_range, sign * search_angle, swing_direction, is_check_exception_area)
+									res, vec = self:IsWall(dest_dir_2d, self.search_range, sign * search_angle, swing_direction, is_check_exception_area)
 								end
 								if not res then
 									find_angle = search_angle
@@ -877,9 +925,9 @@ function AV:AutoPilot()
 						if not is_wall then
 							local find_angle_abs = math.abs(find_angle)
 							if find_angle_abs < 30 then
-								self:MoveThruster({Def.ActionList.Forward})
+								self:MoveThruster({{Def.ActionList.Forward, 1}})
 							else
-								self:MoveThruster({Def.ActionList.Nothing})
+								self:MoveThruster({{Def.ActionList.Nothing, 0}})
 							end
 							self.auto_speed_reduce_rate = (90 - find_angle_abs) / 90
 							if self.auto_speed_reduce_rate < self.autopilot_min_speed_rate then
@@ -938,11 +986,12 @@ function AV:AutoPilot()
 		elseif self.auto_speed_reduce_rate > 1 then
 			self.auto_speed_reduce_rate = 1
 		end
-		local autopilot_speed = self.autopilot_speed * self.auto_speed_reduce_rate
+		-- local autopilot_speed = self.autopilot_speed * self.auto_speed_reduce_rate
+		local autopilot_speed = 10 * self.auto_speed_reduce_rate
 		local fix_direction_vector = Vector4.new(autopilot_speed * direction_vector.x / direction_vector_norm, autopilot_speed * direction_vector.y / direction_vector_norm, autopilot_speed * direction_vector.z / direction_vector_norm, 1)
 
 		-- yaw control
-		local vehicle_angle = self.position_obj:GetForward()
+		local vehicle_angle = self:GetForward()
 		local vehicle_angle_norm = Vector4.Length(vehicle_angle)
 		local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
 		local yaw_dist = yaw_vehicle
@@ -961,7 +1010,7 @@ function AV:AutoPilot()
 		end
 
 		-- restore angle
-		local current_angle = self.position_obj:GetEulerAngles()
+		local current_angle = self:GetEulerAngles()
 		local roll_diff = 0
 		local pitch_diff = 0
 		roll_diff = roll_diff - current_angle.roll * self.autopilot_angle_restore_rate
@@ -995,7 +1044,7 @@ function AV:AutoPilot()
 		local fix_direction_vector_norm = Vector4.Length(Vector4.new(fix_direction_vector.x, fix_direction_vector.y, fix_direction_vector.z, 1))
 		local adjust_x, adjust_y, adjust_z = new_x * fix_direction_vector_norm / new_vector_norm, new_y * fix_direction_vector_norm / new_vector_norm, new_z * fix_direction_vector_norm / new_vector_norm
 		self.pre_speed_list = {x = adjust_x, y = adjust_y, z = adjust_z}
-		self:ForceMove(adjust_x, adjust_y, adjust_z, roll, pitch, yaw)
+		self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw)
 	end)
 	return true
 end
@@ -1012,11 +1061,10 @@ function AV:AutoLeaving(dist_vector, height)
 	end
 
 	local current_position = self:GetPosition()
-	print(current_position.x .. ", " .. current_position.y .. ", " .. current_position.z)
 	local leaving_height = height or self.autopilot_leaving_height - current_position.z
-	local dist_position = Vector4.new(current_position.x, current_position.y, current_position.z + leaving_height, 1)
-	print(dist_position.x .. ", " .. dist_position.y .. ", " .. dist_position.z)
-	self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 5, 0, 1, 6, true)
+	local leaving_position = Vector4.new(current_position.x, current_position.y, current_position.z + leaving_height, 1)
+	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0.5))
+	self.engine_obj:SetFluctuationVelocityParams(1, 5)
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
@@ -1025,14 +1073,10 @@ function AV:AutoLeaving(dist_vector, height)
 			Cron.Halt(timer)
 			return
 		end
-		-- local angle = self:GetEulerAngles()
-		-- local current_position = self:GetPosition()
-		-- local leaving_height = height or self.autopilot_leaving_height - current_position.z
-		-- local leaving_time_count = math.floor(leaving_height / self.autopilot_speed)
-		-- self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(leaving_time_count, self.autopilot_land_offset, leaving_height, timer.tick + leaving_time_count + 1), -angle.roll * 0.8, -angle.pitch * 0.8, 0.0)
-		-- local dist_position = Vector4.new(current_position.x, current_position.y, current_position.z + leaving_height, 1)
-		-- self.engine_obj:SetlinearlyAutopilotMode(true, dist_position, 10, 0.5, 0, 1, 6, true)
-		if not self.engine_obj.is_enable_linearly_autopilot then
+		local current_position_in_leaving = self:GetPosition()
+		if current_position_in_leaving.z > leaving_position.z then
+			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 				timer.tick = timer.tick + 1
 				if not self.is_auto_pilot then
@@ -1044,7 +1088,7 @@ function AV:AutoLeaving(dist_vector, height)
 				end
 
 				-- yaw control
-				local vehicle_angle = self.position_obj:GetForward()
+				local vehicle_angle = self:GetForward()
 				local vehicle_angle_norm = Vector4.Length(vehicle_angle)
 				local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
 				local yaw_dist = yaw_vehicle
@@ -1063,14 +1107,16 @@ function AV:AutoLeaving(dist_vector, height)
 					yaw_diff_half = yaw_diff
 				end
 
-				if not self:Move(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half) then
-					self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Collision")
-					self.is_leaving = false
-					self:InterruptAutoPilot()
-					Cron.Halt(timer)
-				end
+				self.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half)
+				-- if not self:Move(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half) then
+				-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Collision")
+				-- 	self.is_leaving = false
+				-- 	self:InterruptAutoPilot()
+				-- 	Cron.Halt(timer)
+				-- end
 
-				if yaw_diff_half < 0.1 then
+				if math.abs(yaw_diff_half) < 0.1 then
+					self.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 					self.is_leaving = false
 					Cron.Halt(timer)
 				end
@@ -1092,6 +1138,8 @@ function AV:AutoLanding(height)
 	end
 	local down_time_count = height / self.autopilot_speed
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing Start :" .. tostring(down_time_count) .. "s, " .. tostring(height) .. "m")
+	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -5.0))
+	self.engine_obj:SetFluctuationVelocityParams(-0.5, 1.0)
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
@@ -1100,31 +1148,47 @@ function AV:AutoLanding(height)
 			Cron.Halt(timer)
 			return
 		end
-
+   
 		-- restore angle 
-		local current_angle = self.position_obj:GetEulerAngles()
+		local current_angle = self:GetEulerAngles()
 		local roll_diff = 0
 		local pitch_diff = 0
 		roll_diff = roll_diff - current_angle.roll * self.autopilot_landing_angle_restore_rate
 		pitch_diff = pitch_diff - current_angle.pitch * self.autopilot_landing_angle_restore_rate
 
-		if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(down_time_count, self.autopilot_land_offset, height, timer.tick), roll_diff, pitch_diff, 0.0) then
-			self.log_obj:Record(LogLevel.Info, "AutoPilot Success. But Not move down ground")
-			self.is_landed = true
-			self:SeccessAutoPilot()
-			Cron.Halt(timer)
-		elseif timer.tick >= down_time_count then
-			self.log_obj:Record(LogLevel.Info, "AutoPilot Success. But Timeout")
-			self.is_landed = true
-			self:SeccessAutoPilot()
-			Cron.Halt(timer)
-		elseif self.position_obj:GetHeight() < self.position_obj.minimum_distance_to_ground then
+		-- local current_velocity = self.engine_obj:GetDirectionVelocity()
+		-- self.engine_obj:Run(current_velocity.x, current_velocity.y, current_velocity.z,0,0,0)
+		-- if not self:Move(0.0, 0.0, 0.0, roll_diff, pitch_diff, 0.0) then
+		-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Collision")
+		-- 	self:InterruptAutoPilot()
+		-- 	Cron.Halt(timer)
+		-- end
+
+		-- if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(down_time_count, self.autopilot_land_offset, height, timer.tick), roll_diff, pitch_diff, 0.0) then
+		-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Success. But Not move down ground")
+		-- 	self.is_landed = true
+		-- 	self:SeccessAutoPilot()
+		-- 	Cron.Halt(timer)
+		-- elseif timer.tick >= down_time_count then
+		-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Success. But Timeout")
+		-- 	self.is_landed = true
+		-- 	self:SeccessAutoPilot()
+		-- 	Cron.Halt(timer)
+		-- elseif self.position_obj:GetHeight() < self.position_obj.minimum_distance_to_ground then
+		-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Success.")
+		-- 	self.is_landed = true
+		-- 	self:SeccessAutoPilot()
+		-- 	Cron.Halt(timer)
+		-- end
+
+		if timer.tick > 500 or self:GetHeight() < 1.5 then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Success.")
 			self.is_landed = true
 			self:SeccessAutoPilot()
 			Cron.Halt(timer)
 		end
-		self:MoveThruster({Def.ActionList.Nothing})
+
+		self:MoveThruster({{Def.ActionList.Nothing, 0}})
 	end)
 end
 
@@ -1132,7 +1196,7 @@ end
 function AV:SeccessAutoPilot()
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = false
-	DAV.core_obj:SetAutoPilotHistory()
+	self.core_obj:SetAutoPilotHistory()
 end
 
 --- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Failed.
@@ -1165,17 +1229,27 @@ end
 
 --- Toggle radio ON or next radioStation.
 function AV:ToggleRadio()
-	if self.position_obj.entity:IsRadioReceiverActive() then
-		self.position_obj.entity:NextRadioReceiverStation()
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change radio")
+		return
+	end
+	if entity:IsRadioReceiverActive() then
+		entity:NextRadioReceiverStation()
 	else
-		self.position_obj.entity:ToggleRadioReceiver(true)
+		entity:ToggleRadioReceiver(true)
 	end
 end
 
 --- Change appearance.
 ---@param type string appearance name
 function AV:ChangeAppearance(type)
-	self.position_obj.entity:ScheduleAppearanceChange(type)
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change appearance")
+		return
+	end
+	entity:ScheduleAppearanceChange(type)
 	Cron.After(0.1, function()
 		if self:SetThrusterComponent() then
 			self.is_available_thruster = true
@@ -1196,14 +1270,19 @@ end
 --- Toggle landing warning ON/OFF.
 ---@param on boolean
 function AV:ProjectLandingWarning(on)
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to project landing warning")
+		return
+	end
 	if self.is_enable_landing_vfx and DAV.user_setting_table.is_enable_landing_vfx then
 		if on and not self.is_landing_projection then
-			GameObjectEffectHelper.StartEffectEvent(self.position_obj.entity, CName.new("landingWarning"), false)
-			GameObjectEffectHelper.StartEffectEvent(self.position_obj.entity, CName.new("projectorVFX"), false)
+			GameObjectEffectHelper.StartEffectEvent(entity, CName.new("landingWarning"), false)
+			GameObjectEffectHelper.StartEffectEvent(entity, CName.new("projectorVFX"), false)
 			self.is_landing_projection = true
 		elseif not on and self.is_landing_projection then
-			GameObjectEffectHelper.StopEffectEvent(self.position_obj.entity, CName.new("landingWarning"))
-			GameObjectEffectHelper.StopEffectEvent(self.position_obj.entity, CName.new("projectorVFX"))
+			GameObjectEffectHelper.StopEffectEvent(entity, CName.new("landingWarning"))
+			GameObjectEffectHelper.StopEffectEvent(entity, CName.new("projectorVFX"))
 			self.is_landing_projection = false
 		end
 	end
@@ -1303,14 +1382,19 @@ end
 ---@param on boolean
 ---@return boolean
 function AV:ToggleThruster(on)
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
+		return false
+	end
 	if not self.is_available_thruster then
 		return false
 	end
 
 	if on then
-		GameObjectEffectHelper.StartEffectEvent(self.position_obj.entity, CName.new("thrusters"))
+		GameObjectEffectHelper.StartEffectEvent(entity, CName.new("thrusters"))
 	else
-		GameObjectEffectHelper.StopEffectEvent(self.position_obj.entity, CName.new("thrusters"))
+		GameObjectEffectHelper.StopEffectEvent(entity, CName.new("thrusters"))
 	end
 	return true
 end
@@ -1319,14 +1403,19 @@ end
 ---@param on boolean
 ---@return boolean
 function AV:ToggleHeliThruster(on)
+	local entity = Game.FindEntityByID(self.entity_id)
+	if entity == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
+		return false
+	end
 	if self.engine_obj.flight_mode ~= Def.FlightMode.Helicopter then
 		return false
 	end
 
 	if on then
-		GameObjectEffectHelper.StartEffectEvent(self.position_obj.entity, CName.new("thruster"))
+		GameObjectEffectHelper.StartEffectEvent(entity, CName.new("thruster"))
 	else
-		GameObjectEffectHelper.StopEffectEvent(self.position_obj.entity, CName.new("thruster"))
+		GameObjectEffectHelper.StopEffectEvent(entity, CName.new("thruster"))
 	end
 	return true
 end
@@ -1397,6 +1486,114 @@ function AV:IsInExceptionArea(position)
         end
     end
     return false, "None", 0
+end
+
+--- Get Exit Position Vector
+---@return Vector4
+function AV:GetExitPosition()
+    local basic_vector = self:GetPosition()
+    return self:ChangeWorldCordinate(basic_vector, {self.exit_point})[1]
+end
+
+--- Check Player in Entry Area
+---@return boolean
+function AV:IsPlayerInEntryArea()
+    local basic_vector = self:GetPosition()
+    if basic_vector:IsZero() then
+        return false
+    end
+    local world_entry_point = self:ChangeWorldCordinate(basic_vector, {self.entry_point})
+    local player = Game.GetPlayer()
+    if player == nil then
+        return false
+    end
+    local player_pos = player:GetWorldPosition()
+    if player_pos == nil then
+        return false
+    end
+    local player_vector = {x = player_pos.x, y = player_pos.y, z = player_pos.z}
+
+    local norm = math.sqrt((player_vector.x - world_entry_point[1].x) * (player_vector.x - world_entry_point[1].x) + (player_vector.y - world_entry_point[1].y) * (player_vector.y - world_entry_point[1].y) + (player_vector.z - world_entry_point[1].z) * (player_vector.z - world_entry_point[1].z))
+    if norm <= self.entry_area_radius then
+        return true
+    else
+        return false
+    end
+end
+
+--- Change World Cordinate
+---@param basic_vector Vector4
+---@param point_list Vector4[]
+---@return Vector4[]
+function AV:ChangeWorldCordinate(basic_vector, point_list)
+    local quaternion = self:GetQuaternion()
+    local result_list = {}
+    for i, corner in ipairs(point_list) do
+        local rotated = Utils:RotateVectorByQuaternion(corner, quaternion)
+        result_list[i] = {x = rotated.x + basic_vector.x, y = rotated.y + basic_vector.y, z = rotated.z + basic_vector.z}
+    end
+    return result_list
+end
+
+--- This function returns collision status.
+---@return boolean
+function AV:IsCollision()
+    return self.engine_obj:IsOnGround()
+end
+
+--- Check Wall
+---@param dir_vec Vector4 direction vector
+---@param distance number distance
+---@param angle number angle
+---@param swing_direction string "Vertical" or "Horizontal"
+---@param is_check_exception_area boolean
+---@return boolean
+---@return Vector4
+function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception_area)
+    local dir_base_vec = Vector4.Normalize(dir_vec)
+    local up_vec = Vector4.new(0, 0, 1, 1)
+    local right_vec = Vector4.Cross(dir_base_vec, up_vec)
+    local search_vec
+    if swing_direction == "Vertical" then
+        search_vec = Vector4.RotateAxis(dir_base_vec, right_vec, angle / 180 * Pi())
+    else
+        search_vec = Vector4.RotateAxis(dir_base_vec, up_vec, angle / 180 * Pi())
+    end
+    for _, i in ipairs({0, self.autopilot_prevention_length, -self.autopilot_prevention_length}) do
+        for _, j in ipairs({0, self.autopilot_prevention_length, -self.autopilot_prevention_length}) do
+            for _, k in ipairs({0, self.autopilot_prevention_length, -self.autopilot_prevention_length}) do
+                local current_position = self:GetPosition()
+                current_position.x = current_position.x + dir_base_vec.x * i + right_vec.x * j + up_vec.x * k
+                current_position.y = current_position.y + dir_base_vec.y * i + right_vec.y * j + up_vec.y * k
+                current_position.z = current_position.z + dir_base_vec.z * i + right_vec.z * j + up_vec.z * k
+                for _, filter in ipairs(self.weak_collision_filters) do
+                    local is_success, _ = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0), filter, false, false)
+                    if is_success then
+                        self.log_obj:Record(LogLevel.Trace, "Wall Detected: " .. filter .. " " .. i .. " " .. j .. " " .. k)
+                        return true, search_vec
+                    end
+                end
+                -- check exception area
+                if is_check_exception_area then
+                    local is_exception, tag, _ = self:IsInExceptionArea(Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0))
+                    if is_exception then
+                        self.log_obj:Record(LogLevel.Trace, "Exception Area Detected: " .. tag)
+                        return true, search_vec
+                    end
+                end
+            end
+        end
+    end
+    -- check exception area here
+    if is_check_exception_area then
+        local is_exception, tag, _ = self:IsInExceptionArea(self:GetPosition())
+        if is_exception then
+            self.log_obj:Record(LogLevel.Trace, "Here is Exception Area: " .. tag)
+            return true, search_vec
+        end
+    end
+
+    return false, search_vec
 end
 
 return AV

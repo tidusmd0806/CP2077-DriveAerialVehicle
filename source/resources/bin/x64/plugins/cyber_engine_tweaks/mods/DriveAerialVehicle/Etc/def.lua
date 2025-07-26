@@ -97,11 +97,12 @@ Def.ChangeVelocityType = {
     Angular = 2,
 }
 
+---@enum Def.EngineControlType
 Def.EngineControlType = {
     None = -1,
     ChangeVelocity = 0,
     AddForce = 1,
-    LinearlyAutopilot = 2,
+    FluctuationVelocity = 2
 }
 
 return Def

@@ -249,7 +249,7 @@ end
 
 --- Check vehicle has landed.
 function Event:CheckLanded()
-    if self.av_obj.position_obj:IsCollision() or self.av_obj.is_landed then
+    if self.av_obj:IsCollision() or self.av_obj.is_landed then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
         self.sound_obj:StopSound("210_landing")
         self.sound_obj:PlaySound("110_arrive_vehicle")
@@ -262,7 +262,7 @@ end
 
 --- Check player is in entry area.
 function Event:CheckInEntryArea()
-    if self.av_obj.position_obj:IsPlayerInEntryArea() then
+    if self.av_obj:IsPlayerInEntryArea() then
         self.log_obj:Record(LogLevel.Trace, "InEntryArea detected")
         self.hud_obj:ShowChoice(self.selected_seat_index)
     else
@@ -408,7 +408,7 @@ end
 --- Check distance between player and AV.
 function Event:CheckDistance()
     local player_pos = Game.GetPlayer():GetWorldPosition()
-    local av_pos = self.av_obj.position_obj:GetPosition()
+    local av_pos = self.av_obj:GetPosition()
     local distance = Vector4.Distance(player_pos, av_pos)
     if distance > self.distance_limit then
         self:ReturnVehicle(false)
@@ -425,8 +425,8 @@ end
 
 --- Check height between AV and ground. if height is too low, show landing warning.
 function Event:CheckHeight()
-    local height = self.av_obj.position_obj:GetHeight()
-    if height < self.projection_max_height_offset + self.av_obj.position_obj.minimum_distance_to_ground then
+    local height = self.av_obj:GetHeight()
+    if height < self.projection_max_height_offset + self.av_obj.minimum_distance_to_ground then
         local height_offset = - height + self.av_obj.projection_offset.z
         self.av_obj:SetLandingVFXPosition(Vector4.new(self.av_obj.projection_offset.x, self.av_obj.projection_offset.y, height_offset, 1))
         self.av_obj:ProjectLandingWarning(true)
@@ -451,6 +451,7 @@ function Event:CheckAutoModeChange()
     elseif not self:IsAutoMode() and self.is_locked_operation then
         self.is_locked_operation = false
         self.hud_obj:ShowArrivalDisplay()
+        self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
         self.sound_obj:PlaySound("110_arrive_vehicle")
     end
 end
@@ -459,6 +460,7 @@ end
 function Event:CheckFailAutoPilot()
     if self.av_obj:IsFailedAutoPilot() then
         self.hud_obj:ShowInterruptAutoPilotDisplay()
+        self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
     end
 end
 
@@ -494,7 +496,7 @@ end
 --- Check if player is in entry area.
 ---@return boolean
 function Event:IsInEntryArea()
-    if self.current_situation == Def.Situation.Waiting and self.av_obj.position_obj:IsPlayerInEntryArea() then
+    if self.current_situation == Def.Situation.Waiting and self.av_obj:IsPlayerInEntryArea() then
         return true
     else
         return false

@@ -140,116 +140,6 @@ DAV.user_setting_table = {
 -- set custom vehicle record
 registerForEvent("onTweak",function ()
 
-    -- Vehicle weapons list
-    local weapon_list = {TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_A"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_A"),
-                        TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_B"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_B"),
-                        TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_C"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_C"),
-                        TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_A"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_B"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_C")}
-
-    -- Custom excalibur record
-    if TweakDB:GetRecord(DAV.excalibur_record) == nil then
-        TweakDB:CloneRecord(DAV.excalibur_record, "Vehicle.av_rayfield_excalibur")
-    end
-    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".entityTemplatePath"), "base\\dav\\excalibur\\av_rayfield_excalibur__basic_01_dav.ent")
-    -- TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".player_audio_resource"), "v_av_basilisk_tank")
-    if TweakDB:GetRecord("Vehicle.av_rayfield_excalibur_inline0_dav") == nil then
-        TweakDB:CloneRecord("Vehicle.av_rayfield_excalibur_inline0_dav", "Vehicle.av_rayfield_excalibur_inline0")
-    end
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_inline0_dav.exitDelay"), 2.3)
-    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".vehDataPackage"), "Vehicle.av_rayfield_excalibur_inline0_dav")
-
-    -- Custom manticore record
-    if TweakDB:GetRecord(DAV.manticore_record) == nil then
-        TweakDB:CloneRecord(DAV.manticore_record, "Vehicle.av_militech_manticore")
-    end
-    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".entityTemplatePath"), "base\\dav\\manticore\\av_militech_manticore_basic_01_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".player_audio_resource"), "v_av_basilisk_tank")
-    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".destroyedAppearance"), "burnt")
-    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".isArmoredVehicle"), true)
-    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".weapons"), weapon_list)
-    if TweakDB:GetRecord("Vehicle.av_militech_manticore_inline0_dav") == nil then
-        TweakDB:CloneRecord("Vehicle.av_militech_manticore_inline0_dav", "Vehicle.av_militech_manticore_inline0")
-    end
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_inline0_dav.exitDelay"), 1.2)
-    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".vehDataPackage"), "Vehicle.av_militech_manticore_inline0_dav")
-
-    -- Custom atlus record
-    if TweakDB:GetRecord(DAV.atlus_record) == nil then
-        TweakDB:CloneRecord(DAV.atlus_record, "Vehicle.av_zetatech_atlus")
-    end
-    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".entityTemplatePath"), "base\\dav\\atlus\\av_zetatech_atlus_basic_02_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".player_audio_resource"), "v_av_basilisk_tank")
-    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".isArmoredVehicle"), true)
-    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".weapons"), weapon_list)
-    if TweakDB:GetRecord("Vehicle.av_zetatech_atlus_inline0_dav") == nil then
-        TweakDB:CloneRecord("Vehicle.av_zetatech_atlus_inline0_dav", "Vehicle.av_zetatech_atlus_inline0")
-    end
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_inline0_dav.exitDelay"), 1.2)
-    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_atlus_inline0_dav")
-
-     -- Custom surveyor record
-    if TweakDB:GetRecord(DAV.surveyor_record) == nil then
-        TweakDB:CloneRecord(DAV.surveyor_record, "Vehicle.av_zetatech_surveyor")
-    end
-    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".entityTemplatePath"), "base\\dav\\surveyor\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".player_audio_resource"), "v_av_basilisk_tank")
-    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".isArmoredVehicle"), true)
-    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".weapons"), weapon_list)
-    if TweakDB:GetRecord("Vehicle.av_zetatech_surveyor_inline0_dav") == nil then
-        TweakDB:CloneRecord("Vehicle.av_zetatech_surveyor_inline0_dav", "Vehicle.av_zetatech_atlus_inline0")
-    end
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_inline0_dav.exitDelay"), 2.2)
-    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.av_zetatech_surveyor_inline0_dav")
-
-    -- Custom valgus record
-    if TweakDB:GetRecord(DAV.valgus_record) == nil then
-        TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
-    end
-    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".entityTemplatePath"), "base\\dav\\valgus\\q000_border_patrol_heli_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".displayName"), LocKey(77966))
-    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".manufacturer"), "Vehicle.Zetatech")
-    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".player_audio_resource"), "v_av_basilisk_tank")
-    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".destroyedAppearance"), "valgus_rusted")
-    local valgus_tag_list = {CName.new("InteractiveTrunk")}
-    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tags"), valgus_tag_list)
-    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".savable"), false)
-    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".isHackable"), "Vehicle.Never")
-    if TweakDB:GetRecord("Vehicle.av_zetatech_valgus_inline0_dav") == nil then
-        TweakDB:CloneRecord("Vehicle.av_zetatech_valgus_inline0_dav", "Vehicle.av_zetatech_valgus_inline0")
-    end
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.exitDelay"), 0.8)
-    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_valgus_inline0_dav")
-
-    -- Custom mayhem record
-    if TweakDB:GetRecord(DAV.mayhem_record) == nil then
-        TweakDB:CloneRecord(DAV.mayhem_record, "Vehicle.q000_nomad_border_patrol_heli")
-    end
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".entityTemplatePath"), "base\\dav\\mayhem\\q000_border_patrol_heli_mayhem_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".displayName"), LocKey(88814))
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".manufacturer"), "Vehicle.Militech")
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".player_audio_resource"), "v_av_basilisk_tank")
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".destroyedAppearance"), "valgus_rusted")
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tags"), valgus_tag_list)
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".savable"), false)
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".isHackable"), "Vehicle.Never")
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".isArmoredVehicle"), true)
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".weapons"), weapon_list)
-    if TweakDB:GetRecord("Vehicle.av_zetatech_mayhem_inline0_dav") == nil then
-        TweakDB:CloneRecord("Vehicle.av_zetatech_mayhem_inline0_dav", "Vehicle.av_zetatech_valgus_inline0")
-    end
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_mayhem_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_mayhem_inline0_dav.exitDelay"), 0.8)
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDataPackage"), "Vehicle.av_zetatech_mayhem_inline0_dav")
-
-    -- Destruction Dummy Parameters
-    if TweakDB:GetRecord("Vehicle.VehicleDestructionParamsNoDamage") == nil then
-        TweakDB:CreateRecord("Vehicle.VehicleDestructionParamsNoDamage", "gamedataVehicleDestruction_Record")
-    end
-
     -- TPP Camera Parameters
     if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_High_Close_DAV") == nil then
         TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_High_Close_DAV", "Camera.VehicleTPP_4w_Preset_High_Close")
@@ -286,6 +176,129 @@ registerForEvent("onTweak",function ()
     end
     if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar_DAV") == nil then
         TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar_DAV", "Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar")
+    end
+
+    local camera_presets_list = {TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close_DAV"), TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Close_DAV"),
+                                TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Medium_DAV"), TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Medium_DAV"),
+                                TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Far_DAV"), TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_Far_DAV"),
+                                TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatClose_DAV"), TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatClose_DAV"),
+                                TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatMedium_DAV"), TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatMedium_DAV"),
+                                TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_DriverCombatFar_DAV"), TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar_DAV")}
+
+    -- Vehicle weapons list
+    local weapon_list = {TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_A"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_A"),
+                        TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_B"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_B"),
+                        TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Left_C"), TweakDBID.new("Vehicle.Vehicle_Power_Weapon_Right_C"),
+                        TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_A"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_B"), TweakDBID.new("Vehicle.Vehicle_Missile_Launcher_C")}
+
+    -- Custom excalibur record
+    if TweakDB:GetRecord(DAV.excalibur_record) == nil then
+        TweakDB:CloneRecord(DAV.excalibur_record, "Vehicle.av_rayfield_excalibur")
+    end
+    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".entityTemplatePath"), "base\\dav\\excalibur\\av_rayfield_excalibur__basic_01_dav.ent")
+    -- TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    if TweakDB:GetRecord("Vehicle.av_rayfield_excalibur_inline0_dav") == nil then
+        TweakDB:CloneRecord("Vehicle.av_rayfield_excalibur_inline0_dav", "Vehicle.av_rayfield_excalibur_inline0")
+    end
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_inline0_dav.exitDelay"), 2.3)
+    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".vehDataPackage"), "Vehicle.av_rayfield_excalibur_inline0_dav")
+    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".tppCameraPresets"), camera_presets_list)
+
+    -- Custom manticore record
+    if TweakDB:GetRecord(DAV.manticore_record) == nil then
+        TweakDB:CloneRecord(DAV.manticore_record, "Vehicle.av_militech_manticore")
+    end
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".entityTemplatePath"), "base\\dav\\manticore\\av_militech_manticore_basic_01_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".destroyedAppearance"), "burnt")
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".isArmoredVehicle"), true)
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".weapons"), weapon_list)
+    if TweakDB:GetRecord("Vehicle.av_militech_manticore_inline0_dav") == nil then
+        TweakDB:CloneRecord("Vehicle.av_militech_manticore_inline0_dav", "Vehicle.av_militech_manticore_inline0")
+    end
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_inline0_dav.exitDelay"), 1.2)
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".vehDataPackage"), "Vehicle.av_militech_manticore_inline0_dav")
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".tppCameraPresets"), camera_presets_list)
+
+    -- Custom atlus record
+    if TweakDB:GetRecord(DAV.atlus_record) == nil then
+        TweakDB:CloneRecord(DAV.atlus_record, "Vehicle.av_zetatech_atlus")
+    end
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".entityTemplatePath"), "base\\dav\\atlus\\av_zetatech_atlus_basic_02_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".isArmoredVehicle"), true)
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".weapons"), weapon_list)
+    if TweakDB:GetRecord("Vehicle.av_zetatech_atlus_inline0_dav") == nil then
+        TweakDB:CloneRecord("Vehicle.av_zetatech_atlus_inline0_dav", "Vehicle.av_zetatech_atlus_inline0")
+    end
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_inline0_dav.exitDelay"), 1.2)
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_atlus_inline0_dav")
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".tppCameraPresets"), camera_presets_list)
+
+     -- Custom surveyor record
+    if TweakDB:GetRecord(DAV.surveyor_record) == nil then
+        TweakDB:CloneRecord(DAV.surveyor_record, "Vehicle.av_zetatech_surveyor")
+    end
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".entityTemplatePath"), "base\\dav\\surveyor\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".isArmoredVehicle"), true)
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".weapons"), weapon_list)
+    if TweakDB:GetRecord("Vehicle.av_zetatech_surveyor_inline0_dav") == nil then
+        TweakDB:CloneRecord("Vehicle.av_zetatech_surveyor_inline0_dav", "Vehicle.av_zetatech_atlus_inline0")
+    end
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_inline0_dav.exitDelay"), 2.2)
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.av_zetatech_surveyor_inline0_dav")
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".tppCameraPresets"), camera_presets_list)
+
+    -- Custom valgus record
+    if TweakDB:GetRecord(DAV.valgus_record) == nil then
+        TweakDB:CloneRecord(DAV.valgus_record, "Vehicle.q000_nomad_border_patrol_heli")
+    end
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".entityTemplatePath"), "base\\dav\\valgus\\q000_border_patrol_heli_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".displayName"), LocKey(77966))
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".manufacturer"), "Vehicle.Zetatech")
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".destroyedAppearance"), "valgus_rusted")
+    local valgus_tag_list = {CName.new("InteractiveTrunk")}
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tags"), valgus_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".savable"), false)
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".isHackable"), "Vehicle.Never")
+    if TweakDB:GetRecord("Vehicle.av_zetatech_valgus_inline0_dav") == nil then
+        TweakDB:CloneRecord("Vehicle.av_zetatech_valgus_inline0_dav", "Vehicle.av_zetatech_valgus_inline0")
+    end
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.exitDelay"), 0.8)
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_valgus_inline0_dav")
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tppCameraPresets"), camera_presets_list)
+
+    -- Custom mayhem record
+    if TweakDB:GetRecord(DAV.mayhem_record) == nil then
+        TweakDB:CloneRecord(DAV.mayhem_record, "Vehicle.q000_nomad_border_patrol_heli")
+    end
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".entityTemplatePath"), "base\\dav\\mayhem\\q000_border_patrol_heli_mayhem_dav.ent")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".displayName"), LocKey(88814))
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".manufacturer"), "Vehicle.Militech")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".destroyedAppearance"), "valgus_rusted")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tags"), valgus_tag_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".savable"), false)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".isHackable"), "Vehicle.Never")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".isArmoredVehicle"), true)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".weapons"), weapon_list)
+    if TweakDB:GetRecord("Vehicle.av_zetatech_mayhem_inline0_dav") == nil then
+        TweakDB:CloneRecord("Vehicle.av_zetatech_mayhem_inline0_dav", "Vehicle.av_zetatech_valgus_inline0")
+    end
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_mayhem_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_mayhem_inline0_dav.exitDelay"), 0.8)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDataPackage"), "Vehicle.av_zetatech_mayhem_inline0_dav")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tppCameraPresets"), camera_presets_list)
+
+    -- Destruction Dummy Parameters
+    if TweakDB:GetRecord("Vehicle.VehicleDestructionParamsNoDamage") == nil then
+        TweakDB:CreateRecord("Vehicle.VehicleDestructionParamsNoDamage", "gamedataVehicleDestruction_Record")
     end
 end)
 

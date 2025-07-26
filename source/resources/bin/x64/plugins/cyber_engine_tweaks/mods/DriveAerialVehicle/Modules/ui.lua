@@ -175,7 +175,7 @@ function UI:UpdateFavoriteLocationList(favorite_list, selected_index)
 	for index, favorite_info in ipairs(favorite_location_list) do
 		if favorite_info.name ~= favorite_list[index] then
 			favorite_info.name = favorite_list[index]
-			local current_pos = self.av_obj.position_obj:GetPosition()
+			local current_pos = self.av_obj:GetPosition()
 			favorite_info.pos = {x=current_pos.x, y=current_pos.y, z=current_pos.z}
 		end
 		if index == selected_index then

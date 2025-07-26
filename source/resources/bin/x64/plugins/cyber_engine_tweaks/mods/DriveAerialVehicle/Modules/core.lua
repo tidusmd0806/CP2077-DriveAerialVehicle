@@ -129,7 +129,7 @@ function Core:Init()
 
     self.input_key_table = self:GetInputTable(self.input_key_path)
 
-    self.av_obj = AV:New(self.all_models)
+    self.av_obj = AV:New(self)
     self.av_obj:Init()
 
     self.event_obj = Event:New()
@@ -148,7 +148,7 @@ end
 
 --- Reset AV and Event object.
 function Core:Reset()
-    self.av_obj = AV:New(self.all_models)
+    self.av_obj = AV:New(self)
     self.av_obj:Init()
     self.event_obj:Init(self.av_obj)
     -- Reset Custom Mappin
@@ -1096,7 +1096,7 @@ function Core:OperateAerialVehicle(actions)
     if not self.is_locked_operation then
         if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
             self.av_obj:Operate(actions)
-        elseif self.event_obj:IsWaiting() or self.event_obj:IsTakingOff() then
+        elseif self.event_obj:IsWaiting() then
             self.av_obj:Operate({{Def.ActionList.Idle, 0}})
         end
     end

@@ -2,15 +2,13 @@ local Camera = {}
 Camera.__index = Camera
 
 --- Constractor
----@param position_obj any Position instance
 ---@param all_models table all models data
 ---@return table
-function Camera:New(position_obj, all_models)
+function Camera:New(all_models)
     -- instance --
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Camera")
-    obj.position_obj = position_obj
     obj.all_models = all_models
 
     -- static --

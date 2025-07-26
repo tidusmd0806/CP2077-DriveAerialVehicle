@@ -57,7 +57,7 @@ function HUD:SetOverride()
     if not DAV.is_ready then
         -- Overside choice ui (refer to https://www.nexusmods.com/cyberpunk2077/mods/7299)
         Override("InteractionUIBase", "OnDialogsData", function(_, value, wrapped_method)
-            if self.av_obj.position_obj:IsPlayerInEntryArea() then
+            if self.av_obj:IsPlayerInEntryArea() then
                 local data = FromVariant(value)
                 local hubs = data.choiceHubs
                 table.insert(hubs, self.interaction_hub)
@@ -69,7 +69,7 @@ function HUD:SetOverride()
         end)
 
         Override("InteractionUIBase", "OnDialogsSelectIndex", function(_, index, wrapped_method)
-            if self.av_obj.position_obj:IsPlayerInEntryArea() then
+            if self.av_obj:IsPlayerInEntryArea() then
                 wrapped_method(self.selected_choice_index - 1)
             else
                 self.selected_choice_index = index + 1
@@ -78,7 +78,7 @@ function HUD:SetOverride()
         end)
 
         Override("dialogWidgetGameController", "OnDialogsActivateHub", function(_, id, wrapped_metthod) -- Avoid interaction getting overriden by game
-            if self.av_obj.position_obj:IsPlayerInEntryArea() then
+            if self.av_obj:IsPlayerInEntryArea() then
                 local id_
                 if self.interaction_hub == nil then
                     id_ = id
