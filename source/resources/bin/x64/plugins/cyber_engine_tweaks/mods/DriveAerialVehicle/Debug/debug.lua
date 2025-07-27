@@ -242,11 +242,11 @@ function Debug:ImGuiSoundCheck()
         end
 
         if ImGui.Button("Play", 150, 60) then
-            self.core_obj.event_obj.sound_obj:PlaySound(self.selected_sound)
+            self.core_obj.event_obj.sound_obj:PlayGameSound(self.selected_sound)
         end
 
         if ImGui.Button("Stop", 150, 60) then
-            self.core_obj.event_obj.sound_obj:StopSound(self.selected_sound)
+            self.core_obj.event_obj.sound_obj:StopGameSound(self.selected_sound)
         end
     end
 end

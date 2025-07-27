@@ -71,6 +71,10 @@ DAV = {
         {name = "turn_left", key = "IK_Q", pad = "IK_Pad_LeftTrigger", is_hold = true},
         {name = "turn_right", key = "IK_E", pad = "IK_Pad_RightTrigger", is_hold = true},
         {name = "acceleration", key = "IK_RightMouse", pad = "IK_Pad_LeftShoulder", is_hold = true},
+        {name = "lean_forward", key = "IK_W", pad = "IK_Pad_LeftAxisY", is_hold = true},
+        {name = "lean_backward", key = "IK_S", pad = "IK_Pad_LeftAxisY", is_hold = true},
+        {name = "lean_left", key = "IK_A", pad = "IK_Pad_LeftAxisX", is_hold = true},
+        {name = "lean_right", key = "IK_D", pad = "IK_Pad_LeftAxisX", is_hold = true},
     },
     default_common_keybind_table = {
         {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_LeftThumb", is_hold = true},
@@ -351,7 +355,13 @@ registerForEvent("onHook", function()
                 if math.abs(value) > DAV.axis_dead_zone then
                     if key:find("IK_Pad") then
                         DAV.is_keyboard_input = false
-                        DAV.core_obj:ConvertAxisAction(key, value)
+                        local current_situation = Def.Situation.Idle
+                        if DAV.core_obj ~= nil then
+                            current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
+                        end
+                        if current_situation == Def.Situation.InVehicle or current_situation == Def.Situation.Waiting or current_situation == Def.Situation.Normal then
+                            DAV.core_obj:ConvertAxisAction(key, value)
+                        end
                     else
                         DAV.is_keyboard_input = true
                     end

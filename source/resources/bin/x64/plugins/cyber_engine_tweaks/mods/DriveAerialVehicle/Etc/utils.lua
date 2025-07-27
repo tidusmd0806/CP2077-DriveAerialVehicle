@@ -94,17 +94,6 @@ function Utils:IsTablesNearlyEqual(big_table, small_table)
    return true
 end
 
---- Calculate Slope.
---- y = k(x - a)^2 + b and cross point is (0, c).
----@param a number
----@param b number
----@param c number
----@param x number
----@return number
-function Utils:CalculationQuadraticFuncSlope(a, b, c, x)
-   return 2*(c - b)*(x - a)/(a * a)
-end
-
 --- Quaternion Multiply
 ---@param q1 table
 ---@param q2 table

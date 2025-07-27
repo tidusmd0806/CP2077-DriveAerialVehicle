@@ -504,7 +504,7 @@ function Core:ConvertActionList(action_name, action_type, action_value)
         return self:GetHeliAction(action_name, action_type, action_value)
     else
         self.log_obj:Record(LogLevel.Critical, "Flight Mode is invalid")
-        return {Def.ActionList.Nothing, 0}
+        return {Def.ActionList.Nothing, 1}
     end
 end
 
@@ -536,9 +536,9 @@ function Core:GetAVAction(action_name, action_type, action_value)
         --     action_command = Def.ActionList.LeanForward
         -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEAN_BACKWARD) then
         --     action_command = Def.ActionList.LeanBackward
-        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_EXIT_AV) then
-        --     action_command = Def.ActionList.Exit
-        -- end
+        if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_EXIT_AV) then
+            action_command = Def.ActionList.Exit
+        end
     elseif self.event_obj.current_situation == Def.Situation.Waiting then
         if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_WORLD_ENTER_AV) then
             action_command = Def.ActionList.Enter
@@ -567,19 +567,19 @@ function Core:GetHeliAction(action_name, action_type, action_value)
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
 
     if self.event_obj.current_situation == Def.Situation.InVehicle then
-        if DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_FORWARD) then
-            action_command = Def.ActionList.HLeanForward
-        elseif not DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.PAD_HELI_LEAN_FORWARD) then
-            action_command = Def.ActionList.HLeanForward
-        elseif DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_BACKWARD) then
-            action_command = Def.ActionList.HLeanBackward
-        elseif not DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.PAD_HELI_LEAN_BACKWARD) then
-            action_command = Def.ActionList.HLeanBackward
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_RIGHT) then
-            action_command = Def.ActionList.HLeanRight
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_LEFT) then
-            action_command = Def.ActionList.HLeanLeft
-        elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_EXIT_AV) then
+        -- if DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_FORWARD) then
+        --     action_command = Def.ActionList.HLeanForward
+        -- elseif not DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.PAD_HELI_LEAN_FORWARD) then
+        --     action_command = Def.ActionList.HLeanForward
+        -- elseif DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_BACKWARD) then
+        --     action_command = Def.ActionList.HLeanBackward
+        -- elseif not DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.PAD_HELI_LEAN_BACKWARD) then
+        --     action_command = Def.ActionList.HLeanBackward
+        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_RIGHT) then
+        --     action_command = Def.ActionList.HLeanRight
+        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_LEFT) then
+        --     action_command = Def.ActionList.HLeanLeft
+        if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_EXIT_AV) then
             action_command = Def.ActionList.Exit
         end
     elseif self.event_obj.current_situation == Def.Situation.Waiting then
@@ -681,6 +681,18 @@ function Core:ConvertHeliHoldAction(keybind_name)
     elseif keybind_name == "acceleration" then
         self.is_h_acceleration_button_hold_counter = false
         self.h_acceleration_button_hold_count = 0
+    elseif keybind_name == "lean_forward" then
+        self.is_h_lean_forward_button_hold_counter = false
+        self.h_lean_forward_button_hold_count = 0
+    elseif keybind_name == "lean_backward" then
+        self.is_h_lean_backward_button_hold_counter = false
+        self.h_lean_backward_button_hold_count = 0
+    elseif keybind_name == "lean_left" then
+        self.is_h_lean_left_button_hold_counter = false
+        self.h_lean_left_button_hold_count = 0
+    elseif keybind_name == "lean_right" then
+        self.is_h_lean_right_button_hold_counter = false
+        self.h_lean_right_button_hold_count = 0
     end
 end
 
@@ -994,6 +1006,70 @@ function Core:ConvertHeliPressAction(keybind_name)
                 end
             end)
         end
+    elseif keybind_name == "lean_forward" then
+        if not self.is_h_lean_forward_button_hold_counter then
+            self.is_h_lean_forward_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.h_lean_forward_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_h_lean_forward_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_h_lean_forward_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.HLeanForward)
+                end
+            end)
+        end
+    elseif keybind_name == "lean_backward" then
+        if not self.is_h_lean_backward_button_hold_counter then
+            self.is_h_lean_backward_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.h_lean_backward_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_h_lean_backward_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_h_lean_backward_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.HLeanBackward)
+                end
+            end)
+        end
+    elseif keybind_name == "lean_left" then
+        if not self.is_h_lean_left_button_hold_counter then
+            self.is_h_lean_left_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.h_lean_left_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_h_lean_left_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_h_lean_left_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.HLeanLeft)
+                end
+            end)
+        end
+    elseif keybind_name == "lean_right" then
+        if not self.is_h_lean_right_button_hold_counter then
+            self.is_h_lean_right_button_hold_counter = true
+            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.h_lean_right_button_hold_count = timer.tick
+                if timer.tick >= self.max_move_hold_count then
+                    self.is_h_lean_right_button_hold_counter = false
+                    Cron.Halt(timer)
+                elseif not self.is_h_lean_right_button_hold_counter then
+                    Cron.Halt(timer)
+                else
+                    self.queue_obj:Enqueue(Def.ActionList.HLeanRight)
+                end
+            end)
+        end
     end
 end
 
@@ -1050,24 +1126,63 @@ end
 ---@param value number
 function Core:ConvertAxisAction(key, value)
     local keybind_name = ""
+    local axis_key_list = {"IK_Pad_LeftAxisX", "IK_Pad_LeftAxisY"}
     if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
-        for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
-            if key == keybind.key or key == keybind.pad then
-                keybind_name = keybind.name
+        for _, keybind in ipairs(axis_key_list) do
+            if key == keybind then
+                keybind_name = keybind
                 self:ConvertAVAxisAction(keybind_name, value)
                 return
             end
         end
     elseif self.av_obj.engine_obj.flight_mode == Def.FlightMode.Helicopter then
-        for _, keybind in ipairs(DAV.user_setting_table.heli_keybind_table) do
-            if key == keybind.key or key == keybind.pad then
-                keybind_name = keybind.name
+        for _, keybind in ipairs(axis_key_list) do
+            if key == keybind then
+                keybind_name = keybind
                 self:ConvertHeliAxisAction(keybind_name, value)
                 return
             end
         end
     end
 end
+
+--- Convert Axis Action(AV).
+---@param keybind_name string
+---@param value number
+function Core:ConvertAVAxisAction(keybind_name, value)
+    if keybind_name == "IK_Pad_LeftAxisX" then
+        if value > 0 then
+            self.queue_obj:Enqueue({Def.ActionList.RightRotate, value})
+        elseif value < 0 then
+            self.queue_obj:Enqueue({Def.ActionList.LeftRotate, -value})
+        end
+    elseif keybind_name == "IK_Pad_LeftAxisY" then
+        if value > 0 then
+            self.queue_obj:Enqueue({Def.ActionList.LeanForward, value})
+        elseif value < 0 then
+            self.queue_obj:Enqueue({Def.ActionList.LeanBackward, -value})
+        end
+    end
+end
+
+--- Convert Axis Action(Helicopter).
+---@param keybind_name string
+---@param value number
+function Core:ConvertHeliAxisAction(keybind_name, value)
+    if keybind_name == "IK_Pad_LeftAxisX" then
+        if value > 0 then
+            self.queue_obj:Enqueue({Def.ActionList.HLeanRight, value})
+        elseif value < 0 then
+            self.queue_obj:Enqueue({Def.ActionList.HLeanLeft, -value})
+        end
+    elseif keybind_name == "IK_Pad_LeftAxisY" then
+        if value > 0 then
+            self.queue_obj:Enqueue({Def.ActionList.HLeanForward, value})
+        elseif value < 0 then
+            self.queue_obj:Enqueue({Def.ActionList.HLeanBackward, -value})
+        end
+    end
+end 
 
 --- Dequeue and Operate Aerial Vehicle.
 function Core:GetActions()
@@ -1084,7 +1199,7 @@ function Core:GetActions()
     end
 
     if #move_actions == 0 then
-        table.insert(move_actions, {Def.ActionList.Nothing, 0})
+        table.insert(move_actions, {Def.ActionList.Nothing, 1})
     end
 
     self:OperateAerialVehicle(move_actions)

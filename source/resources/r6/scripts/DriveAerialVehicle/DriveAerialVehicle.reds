@@ -201,13 +201,14 @@ let m_av_emitter_id: EntityID;
 @addField(PlayerPuppet)
 let m_av_tag_name: CName;
 
-public class SoundSystem extends ScriptableSystem {
+public class AVSoundSystem extends ScriptableSystem {
     private func OnAttach() {
         GameInstance.GetCallbackSystem().RegisterCallback(n"Entity/AfterAttach", this, n"OnExcaliburSpawn")
         .AddTarget(EntityTarget.RecordID(t"Vehicle.av_rayfield_excalibur_dav"));
     }
     private cb func OnExcaliburSpawn(event: ref<EntityLifecycleEvent>) {
 		let target = event.GetEntity();
+		LogChannel(n"DEBUG", "OnExcaliburSpawn");
         if !IsDefined(target) { return; }
         this.RegisterEmitter(target.GetEntityID(), n"RayfieldExcaliburDAV");
     }
@@ -228,9 +229,11 @@ private cb func OnDAVSoundEvent(event: ref<ActionEvent>) {
     let event_name : CName = event.eventAction;
     if !GameInstance.GetAudioSystemExt(game).IsRegisteredEmitter(this.m_av_emitter_id, this.m_av_tag_name) {return;}
     if Equals(event_name, n"dav_av_idle_start") {
+		LogChannel(n"DEBUG", NameToString(this.m_av_tag_name));
         GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_q306_sc_11_altus_02_idle", this.m_av_emitter_id, this.m_av_tag_name);
-        // GameInstance.GetDelaySystem(GetGameInstance()).DelayCallback(CustomCallback.Create(1, game), 10.0, false);
-    } else if Equals(event_name, n"dav_av_accel_start") {
+	} else if Equals(event_name, n"dav_av_idle_stop") {
+		GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_q306_sc_11_altus_02_idle", this.m_av_emitter_id, this.m_av_tag_name);
+	} else if Equals(event_name, n"dav_av_accel_start") {
         // GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_move", this.m_av_emitter_id, this.m_av_tag_name);
         GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_av_accel", this.m_av_emitter_id, this.m_av_tag_name);
     } else if Equals(event_name, n"private_yacht_cancel") {
@@ -240,19 +243,34 @@ private cb func OnDAVSoundEvent(event: ref<ActionEvent>) {
     }
 }
 
-// public class CustomCallback extends DelayCallback {
-//     private let func_num: Int32;
-//     private let game: GameInstance;
-//     public func Call() {
-//         if this.func_num == 1 {
-//             let player = GetPlayer(this.game);
-//             GameInstance.GetAudioSystemExt(this.game).PlayOnEmitter(n"private_yacht_move", player.m_av_emitter_id, player.m_av_tag_name);
-//         }
-//     }
-//     public static func Create(input_num: Int32, game: GameInstance) -> ref<CustomCallback> {
-//         let self = new CustomCallback();
-//         self.game = game;
-//         self.func_num = input_num;
-//         return self;
-//     }
-// }
+public class AutoEmittersSystem extends ScriptableSystem {
+    private func OnAttach() {
+        GameInstance.GetCallbackSystem().RegisterCallback(n"Input/Key", this, n"OnKeyInput")
+        // listen to F1 being pressed or released
+        .AddTarget(InputTarget.Key(EInputKey.IK_F1));
+    }
+    private cb func OnKeyInput(evt: ref<KeyInputEvent>) {
+        // when F1 is released
+        if NotEquals(evt.GetAction(), EInputAction.IACT_Release) { return; }
+        // some songs defined in manifest
+        let sounds = [ 
+            n"dav_q306_sc_11_altus_02_idle"
+        ];
+        // get a random sound above
+        let eventName = sounds[RandRange(0, ArraySize(sounds) -1)];
+        let emitterID: EntityID;
+        let tagName: CName = n"MyMod";
+		let settings = new EmitterSettings();
+		settings.affectedByReverbMix = false;
+		settings.affectedByEnvironmentalPreset = false;
+        let game = this.GetGameInstance();
+        // get entity V currently looks at (crosshair)
+        let target = GameInstance.GetTargetingSystem(game).GetLookAtObject(GetPlayer(game));
+        if !IsDefined(target) { return; }
+        emitterID = target.GetEntityID();
+        if !GameInstance.GetAudioSystemExt(game).IsRegisteredEmitter(emitterID, tagName) {
+            GameInstance.GetAudioSystemExt(game).RegisterEmitter(emitterID, tagName);
+        }
+        GameInstance.GetAudioSystemExt(game).PlayOnEmitter(eventName, emitterID, tagName, settings);
+    }
+}

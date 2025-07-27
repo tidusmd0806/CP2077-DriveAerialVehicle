@@ -224,9 +224,9 @@ end
 
 --- Spawn vehicle.
 function Event:SpawnVehicle()
-    self.sound_obj:PlaySound("100_call_vehicle")
-    self.sound_obj:PlaySound("210_landing")
-    self.sound_obj:PlaySound(self.av_obj.engine_audio_name)
+    self.sound_obj:PlayGameSound("100_call_vehicle")
+    -- self.sound_obj:PlayGameSound("210_landing")
+    self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
     self:SetSituation(Def.Situation.Landing)
     self.av_obj:SpawnToSky()
 end
@@ -236,10 +236,10 @@ function Event:ReturnVehicle(is_leaving_sound)
     if self:IsWaiting() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected in Waiting situation")
         if is_leaving_sound then
-            self.sound_obj:PlaySound("240_leaving")
+            -- self.sound_obj:PlayGameSound("240_leaving")
         end
-        self.sound_obj:PlaySound("104_call_vehicle")
-        -- self.sound_obj:ResetSoundResource()
+        self.sound_obj:PlayGameSound("100_call_vehicle")
+        self.sound_obj:ResetSoundResource()
         self:SetSituation(Def.Situation.TalkingOff)
         self.hud_obj:HideChoice()
         self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
@@ -251,9 +251,9 @@ end
 function Event:CheckLanded()
     if self.av_obj:IsCollision() or self.av_obj.is_landed then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
-        self.sound_obj:StopSound("210_landing")
-        self.sound_obj:PlaySound("110_arrive_vehicle")
-        -- self.sound_obj:ChangeSoundResource()
+        -- self.sound_obj:StopGameSound("210_landing")
+        self.sound_obj:PlayGameSound("110_arrive_vehicle")
+        self.sound_obj:ChangeSoundResource()
         self.av_obj.engine_obj:SetForce(Vector3.new(0, 0, 0))
         self.av_obj.engine_obj:SetTorque(Vector3.new(0, 0, 0))
         self:SetSituation(Def.Situation.Waiting)
@@ -381,7 +381,7 @@ function Event:CheckDestroyed()
             self.hud_obj:HideCustomHint()
             self.av_obj:Unmount()
         end
-        -- self.sound_obj:ResetSoundResource()
+        self.sound_obj:ResetSoundResource()
         self.sound_obj:Mute()
         self.av_obj:ProjectLandingWarning(false)
         self.av_obj:ToggleThruster(false)
@@ -413,11 +413,10 @@ function Event:CheckDistance()
     if distance > self.distance_limit then
         self:ReturnVehicle(false)
     elseif distance > self.engine_audio_limit then
-        self.sound_obj:PartialMute(200, 400)
         self.is_enable_audio = false
     else
         if not self.is_enable_audio then
-            self.sound_obj:PlaySound(self.av_obj.engine_audio_name)
+            self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
         end
         self.is_enable_audio = true
     end
@@ -452,7 +451,7 @@ function Event:CheckAutoModeChange()
         self.is_locked_operation = false
         self.hud_obj:ShowArrivalDisplay()
         self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
-        self.sound_obj:PlaySound("110_arrive_vehicle")
+        self.sound_obj:PlayGameSound("110_arrive_vehicle")
     end
 end
 

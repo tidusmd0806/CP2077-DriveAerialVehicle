@@ -13,8 +13,7 @@ function Sound:New()
     -- static --
     obj.av_audio_resource_model = "v_av_basilisk_tank"
     -- dynamic --
-    obj.sound_data = {}
-    obj.playing_sound = {}
+    obj.game_sound_data = {}
     -- audio resource
     obj.av_audio_metadata = nil
     obj.basilisk_audio_general_data = nil
@@ -23,7 +22,7 @@ end
 
 --- Initialize
 function Sound:Init()
-    self.sound_data = Utils:ReadJson("Data/sound.json")
+    self.game_sound_data = Utils:ReadJson("Data/sound.json").Game
     self.basilisk_audio_general_data = audioVehicleGeneralData.new()
     self.basilisk_audio_general_data.acoustingIsolationFactor = CName("veh_acoustic_isolation")
     self.basilisk_audio_general_data.dopplerShift = CName("doppler_shift")
@@ -89,41 +88,37 @@ end
 
 --- Play Sound
 ---@param sound_name string
-function Sound:PlaySound(sound_name)
-    -- Game.GetPlayer():PlaySoundEvent(self.sound_data[sound_name])
+function Sound:PlayGameSound(sound_name)
+    Game.GetPlayer():PlaySoundEvent(self.game_sound_data[sound_name])
 end
 
 --- Stop Sound
 ---@param sound_name string
-function Sound:StopSound(sound_name)
-    Game.GetPlayer():StopSoundEvent(self.sound_data[sound_name])
+function Sound:StopGameSound(sound_name)
+    Game.GetPlayer():StopSoundEvent(self.game_sound_data[sound_name])
 end
 
 --- Mute all sounds
 function Sound:Mute()
-    for _, sound_name in pairs(self.sound_data) do
+    for _, sound_name in pairs(self.game_sound_data) do
         Game.GetPlayer():StopSoundEvent(sound_name)
     end
 end
 
---- Get Identification Number of Sound
---- @param name string Sound Name
---- @return number | nil
-function Sound:GetIdentificationNumber(name)
-    local three_words = string.sub(name, 1, 3)
-    return tonumber(three_words)
+--- Start Engine Sound
+function Sound:StartAVEngineSound()
+    local evt = ActionEvent.new()
+    evt.eventAction = CName.new("dav_av_idle_start")
+    Game.GetPlayer():QueueEvent(evt)
+    self.log_obj:Record(LogLevel.Info, "Start Engine Sound")
 end
 
---- Mute pertial sounds
----@param num_min number
----@param num_max number
-function Sound:PartialMute(num_min, num_max)
-    for sound_id, sound_name in pairs(self.sound_data) do
-        local num = self:GetIdentificationNumber(sound_id)
-        if num >= num_min and num < num_max then
-            Game.GetPlayer():StopSoundEvent(sound_name)
-        end
-    end
+--- Stop Engine Sound
+function Sound:StopAVEngineSound()
+    local evt = ActionEvent.new()
+    evt.eventAction = CName.new("dav_av_idle_stop")
+    Game.GetPlayer():QueueEvent(evt)
+    self.log_obj:Record(LogLevel.Info, "Stop Engine Sound")
 end
 
 return Sound

@@ -24,9 +24,9 @@ function AV:New(core_obj)
 	-- summon
 	obj.spawn_distance = 5.5
 	obj.spawn_height = 20
-	obj.spawn_wait_count = 150
-	obj.down_time_count = 350
-	obj.land_offset = -1.0
+	obj.down_timeout = 500
+	obj.up_timeout = 350
+	obj.down_speed = -5.0
 	-- autopiolt
 	obj.profile_path = "Data/autopilot_profile.json"
 	obj.destination_range = 3
@@ -35,6 +35,7 @@ function AV:New(core_obj)
 	obj.autopilot_landing_angle_restore_rate = 0.1
 	obj.standard_leaving_height = 20
 	obj.exception_area_path = "Data/autopilot_exception_area.json"
+	obj.check_cell_distance = 5.0 -- check cell distance when leaving
 	-- thruster
 	obj.thruster_angle_step = 0.6
 	obj.thruster_angle_restore = 0.3
@@ -114,8 +115,11 @@ end
 
 --- Initialize
 function AV:Init()
+	self.camera_obj:Init()
+
 	local index = DAV.model_index
 	local type_number = DAV.model_type_index
+
 	self.vehicle_model_tweakdb_id = self.all_models[index].tweakdb_id
 	self.vehicle_model_type = self.all_models[index].type[type_number]
 	self.active_seat = self.all_models[index].actual_allocated_seat
@@ -135,13 +139,11 @@ function AV:Init()
 	self.thruster_offset_list = self.all_models[index].thruster_fx_offset
 	self.thruster_angle_max = self.all_models[index].thruster_angle_max
 	self.destroy_app = self.all_models[index].destroy_app
-	-- self.position_obj:SetModel(index)
-	self.camera_obj:Init()
 	self.entry_point = { x = self.all_models[index].entry_point.x, y = self.all_models[index].entry_point.y, z = self.all_models[index].entry_point.z }
     self.entry_area_radius = self.all_models[index].entry_area_radius
 	self.exit_point = {x = self.all_models[index].exit_point.x, y = self.all_models[index].exit_point.y, z = self.all_models[index].exit_point.z}
 	self.minimum_distance_to_ground = self.all_models[index].minimum_distance_to_ground
-	self.autopilot_prevention_length = self.all_models[index].autopilot_prevention_length
+	self.flight_mode = self.all_models[DAV.model_index].flight_mode
 
 	-- read autopilot profile
 	local speed_level = DAV.user_setting_table.autopilot_speed_level
@@ -155,8 +157,8 @@ function AV:Init()
 	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
 	self.autopilot_min_speed_rate = self.autopilot_profile[speed_level].min_speed_rate
 	self.autopilot_is_only_horizontal = self.autopilot_profile[speed_level].is_only_horizontal
-
 	self.autopilot_exception_area_list = Utils:ReadJson(self.exception_area_path)
+	self.autopilot_prevention_length = self.all_models[index].autopilot_prevention_length
 end
 
 --- Check if player is mounted.
@@ -354,6 +356,9 @@ function AV:Spawn(position, angle)
 			self.engine_obj:Init(self.entity_id)
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.engine_obj:EnableGravity(false)
+			if self.flight_mode == Def.FlightMode.AV then
+				self.core_obj.event_obj.sound_obj:StartAVEngineSound()
+			end
 			Cron.After(0.5, function()
 				if self:SetThrusterComponent() then
 					self.is_available_thruster = true
@@ -378,12 +383,12 @@ function AV:SpawnToSky()
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
 			if timer.tick == 1 then
 				self:DisableAllDoorInteractions()
-				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -5))
+				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed))
 				self.log_obj:Record(LogLevel.Info, "Initial Spawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
 			elseif self:GetHeightFromGround() < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
-				self.engine_obj:SetFluctuationVelocityParams(-1, 1)
+				self.engine_obj:SetFluctuationVelocityParams(-2, 1)
 				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
-			elseif self:GetHeightFromGround() < 1.5 or timer.tick > 500 then
+			elseif self:GetHeightFromGround() < self.minimum_distance_to_ground or timer.tick > self.down_timeout then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 				self.is_landed = true
@@ -403,6 +408,9 @@ function AV:Despawn()
 		return false
 	end
 	local entity_system = Game.GetDynamicEntitySystem()
+	if self.flight_mode == Def.FlightMode.AV then
+		self.core_obj.event_obj.sound_obj:StopAVEngineSound()
+	end
 	entity_system:DeleteEntity(self.entity_id)
 	self.entity_id = nil
 	return true
@@ -417,9 +425,9 @@ function AV:DespawnFromGround()
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 1))
 				self.log_obj:Record(LogLevel.Info, "Initial Despawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
 			elseif timer.tick == 2 then
-				self.engine_obj:SetFluctuationVelocityParams(1, 5)
+				self.engine_obj:SetFluctuationVelocityParams(1, -self.down_speed)
 				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
-			elseif timer.tick >= self.down_time_count then
+			elseif timer.tick >= self.up_timeout then
 				self.log_obj:Record(LogLevel.Info, "Despawn Timeout")
 				self:Despawn()
 				Cron.Halt(timer)
@@ -638,21 +646,6 @@ function AV:Mount()
 		self.is_crystal_dome = true
 	end
 
-	-- for abort infinite drop
-	-- local abort_flag = false
-	-- Cron.Every(0.1, {tick=0}, function(timer)
-	-- 	timer.tick = timer.tick + 1
-	-- 	if self.engine_obj.fly_av_system:IsOnGround() then
-	-- 		self.log_obj:Record(LogLevel.Warning, "Abort infinite drop")
-	-- 		self:ForceMove(0, 0, 1, 0, 0, 0)
-	-- 		abort_flag = true
-	-- 	elseif abort_flag then
-	-- 		Cron.Halt(timer)
-	-- 	elseif timer.tick > 50 then
-	-- 		Cron.Halt(timer)
-	-- 	end
-	-- end)
-
 	return true
 end
 
@@ -710,28 +703,6 @@ function AV:Unmount()
 	return true
 end
 
--- --- Teleport to the next position.
--- ---@return boolean
--- function AV:Move(x, y, z, roll, pitch, yaw)
--- 	if self.position_obj:SetNextPosition(x, y, z, roll, pitch, yaw) == Def.TeleportResult.Collision then
--- 		return false
--- 	end
--- 	return true
--- end
-
--- --- Teleport to the next position. This function is forced to teleport.
--- function AV:ForceMove(x, y, z, roll, pitch, yaw)
--- 	local position = self.position_obj:GetPosition()
--- 	local angle = self.position_obj:GetEulerAngles()
--- 	position.x = position.x + x
--- 	position.y = position.y + y
--- 	position.z = position.z + z
--- 	angle.roll = angle.roll + roll
--- 	angle.pitch = angle.pitch + pitch
--- 	angle.yaw = angle.yaw + yaw
--- 	Game.GetTeleportationFacility():Teleport(self.position_obj.entity, position, angle)
--- end
-
 --- Execute action commands.
 --- @param action_command_lists table
 function AV:Operate(action_command_lists)
@@ -745,15 +716,22 @@ function AV:Operate(action_command_lists)
 		if action_command_list[1] ~= Def.ActionList.Nothing then
 			self.log_obj:Record(LogLevel.Trace, "Operation:" .. action_command_list[1])
 		end
-		local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateAddVelocity(action_command_list)
-		x_total = x_total + x
-		y_total = y_total + y
-		z_total = z_total + z
-		roll_total = roll_total + roll
-		pitch_total = pitch_total + pitch
-		yaw_total = yaw_total + yaw
+		if not self.is_auto_pilot then
+			local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateAddVelocity(action_command_list)
+			x = x * action_command_list[2]
+			y = y * action_command_list[2]
+			z = z * action_command_list[2]
+			roll = roll * action_command_list[2]
+			pitch = pitch * action_command_list[2]
+			yaw = yaw * action_command_list[2]
+			x_total = x_total + x
+			y_total = y_total + y
+			z_total = z_total + z
+			roll_total = roll_total + roll
+			pitch_total = pitch_total + pitch
+			yaw_total = yaw_total + yaw
+		end
 	end
-	-- self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 
 	if not self.is_auto_pilot then
 		self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
@@ -827,6 +805,11 @@ function AV:AutoPilot()
 
 		if not self.is_auto_pilot then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted")
+			Cron.Halt(timer)
+			return
+		elseif self:IsCollision() then
+			self.log_obj:Record(LogLevel.Info, "Collision Detected")
+			self:InterruptAutoPilot()
 			Cron.Halt(timer)
 			return
 		end
@@ -927,7 +910,7 @@ function AV:AutoPilot()
 							if find_angle_abs < 30 then
 								self:MoveThruster({{Def.ActionList.Forward, 1}})
 							else
-								self:MoveThruster({{Def.ActionList.Nothing, 0}})
+								self:MoveThruster({{Def.ActionList.Nothing, 1}})
 							end
 							self.auto_speed_reduce_rate = (90 - find_angle_abs) / 90
 							if self.auto_speed_reduce_rate < self.autopilot_min_speed_rate then
@@ -1044,6 +1027,17 @@ function AV:AutoPilot()
 		local fix_direction_vector_norm = Vector4.Length(Vector4.new(fix_direction_vector.x, fix_direction_vector.y, fix_direction_vector.z, 1))
 		local adjust_x, adjust_y, adjust_z = new_x * fix_direction_vector_norm / new_vector_norm, new_y * fix_direction_vector_norm / new_vector_norm, new_z * fix_direction_vector_norm / new_vector_norm
 		self.pre_speed_list = {x = adjust_x, y = adjust_y, z = adjust_z}
+
+		local _, _, _, roll_nothing ,pitch_nothing ,_ = self.engine_obj:CalculateAddVelocity({Def.ActionList.Nothing, 1})
+		roll = roll + roll_nothing
+		pitch = pitch + pitch_nothing
+		-- limit
+		if current_angle.roll > self.engine_obj.max_roll or current_angle.roll < -self.engine_obj.max_roll then
+			roll = 0
+		end
+		if current_angle.pitch > self.engine_obj.max_pitch or current_angle.pitch < -self.engine_obj.max_pitch then
+			pitch = 0
+		end
 		self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw)
 	end)
 	return true
@@ -1072,15 +1066,30 @@ function AV:AutoLeaving(dist_vector, height)
 			self.is_leaving = false
 			Cron.Halt(timer)
 			return
+		elseif self:IsCollision() then
+			self.log_obj:Record(LogLevel.Info, "Collision Detected")
+			self:InterruptAutoPilot()
+			self.is_leaving = false
+			Cron.Halt(timer)
+			return
 		end
+
+		local is_dettected_celling, _ = self:IsWall(Vector4.new(0,0,1), self.check_cell_distance, 90, "Vertical", true)
 		local current_position_in_leaving = self:GetPosition()
-		if current_position_in_leaving.z > leaving_position.z then
+
+		if current_position_in_leaving.z > leaving_position.z or is_dettected_celling then
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 				timer.tick = timer.tick + 1
 				if not self.is_auto_pilot then
 					self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Canceling")
+					self:InterruptAutoPilot()
+					self.is_leaving = false
+					Cron.Halt(timer)
+					return
+				elseif self:IsCollision() then
+					self.log_obj:Record(LogLevel.Info, "Collision Detected")
 					self:InterruptAutoPilot()
 					self.is_leaving = false
 					Cron.Halt(timer)
@@ -1108,12 +1117,6 @@ function AV:AutoLeaving(dist_vector, height)
 				end
 
 				self.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half)
-				-- if not self:Move(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half) then
-				-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Collision")
-				-- 	self.is_leaving = false
-				-- 	self:InterruptAutoPilot()
-				-- 	Cron.Halt(timer)
-				-- end
 
 				if math.abs(yaw_diff_half) < 0.1 then
 					self.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -1123,7 +1126,7 @@ function AV:AutoLeaving(dist_vector, height)
 			end)
 			Cron.Halt(timer)
 		end
-		self:MoveThruster({{Def.ActionList.Nothing, 0}})
+		self:MoveThruster({{Def.ActionList.Nothing, 1}})
 	end)
 end
 
@@ -1148,7 +1151,7 @@ function AV:AutoLanding(height)
 			Cron.Halt(timer)
 			return
 		end
-   
+
 		-- restore angle 
 		local current_angle = self:GetEulerAngles()
 		local roll_diff = 0
@@ -1156,39 +1159,14 @@ function AV:AutoLanding(height)
 		roll_diff = roll_diff - current_angle.roll * self.autopilot_landing_angle_restore_rate
 		pitch_diff = pitch_diff - current_angle.pitch * self.autopilot_landing_angle_restore_rate
 
-		-- local current_velocity = self.engine_obj:GetDirectionVelocity()
-		-- self.engine_obj:Run(current_velocity.x, current_velocity.y, current_velocity.z,0,0,0)
-		-- if not self:Move(0.0, 0.0, 0.0, roll_diff, pitch_diff, 0.0) then
-		-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Collision")
-		-- 	self:InterruptAutoPilot()
-		-- 	Cron.Halt(timer)
-		-- end
-
-		-- if not self:Move(0.0, 0.0, Utils:CalculationQuadraticFuncSlope(down_time_count, self.autopilot_land_offset, height, timer.tick), roll_diff, pitch_diff, 0.0) then
-		-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Success. But Not move down ground")
-		-- 	self.is_landed = true
-		-- 	self:SeccessAutoPilot()
-		-- 	Cron.Halt(timer)
-		-- elseif timer.tick >= down_time_count then
-		-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Success. But Timeout")
-		-- 	self.is_landed = true
-		-- 	self:SeccessAutoPilot()
-		-- 	Cron.Halt(timer)
-		-- elseif self.position_obj:GetHeight() < self.position_obj.minimum_distance_to_ground then
-		-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Success.")
-		-- 	self.is_landed = true
-		-- 	self:SeccessAutoPilot()
-		-- 	Cron.Halt(timer)
-		-- end
-
-		if timer.tick > 500 or self:GetHeight() < 1.5 then
+		if timer.tick > self.down_timeout or self:GetHeight() < self.minimum_distance_to_ground or self:IsCollision() then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Success.")
 			self.is_landed = true
 			self:SeccessAutoPilot()
 			Cron.Halt(timer)
 		end
 
-		self:MoveThruster({{Def.ActionList.Nothing, 0}})
+		self:MoveThruster({{Def.ActionList.Nothing, 1}})
 	end)
 end
 
