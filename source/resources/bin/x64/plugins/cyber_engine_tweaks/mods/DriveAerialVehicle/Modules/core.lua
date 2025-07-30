@@ -1212,7 +1212,7 @@ function Core:OperateAerialVehicle(actions)
         if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
             self.av_obj:Operate(actions)
         elseif self.event_obj:IsWaiting() then
-            self.av_obj:Operate({{Def.ActionList.Idle, 0}})
+            self.av_obj:Operate({{Def.ActionList.Idle, 1}})
         end
     end
 end

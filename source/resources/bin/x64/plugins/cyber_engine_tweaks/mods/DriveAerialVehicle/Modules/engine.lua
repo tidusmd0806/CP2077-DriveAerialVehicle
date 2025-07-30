@@ -35,7 +35,7 @@ function Engine:New(av_obj)
     obj.prev_velocity = Vector3.new(0, 0, 0)
     obj.engine_control_type = Def.EngineControlType.None
     obj.is_finished_init = false
-    -- obj.hover_height = 0
+    obj.is_idle = false
 
     return setmetatable(obj, self)
 end
@@ -60,6 +60,12 @@ end
 ---@param engine_control_type Def.EngineControlType
 function Engine:SetControlType(engine_control_type)
     self.engine_control_type = engine_control_type
+end
+
+--- Set Idle
+---@param is_idle boolean
+function Engine:SetIdle(is_idle)
+    self.is_idle = is_idle
 end
 
 --- Update
@@ -236,7 +242,7 @@ function Engine:CalculateAddVelocity(action_command_list)
     end
 end
 
---- Interface for RED4Ext Plugin. Add linearly velocity.
+--- Run the engine with specified parameters.
 ---@param x number
 ---@param y number
 ---@param z number
@@ -315,14 +321,14 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
     y = y - horizontal_air_resistance_const * vel_vec.y
     z = z - vertical_air_resistance_const * vel_vec.z
     -- holding angle
-    if not self.av_obj.is_auto_pilot then
+    if not self.av_obj.is_auto_pilot and not self.is_idle then
         roll = roll - ang_vec.x
         pitch = pitch - ang_vec.y
         yaw = yaw - ang_vec.z
     end
 
-    self:SetDirectionVelocity(Vector3.new(x, y, z))
-    self:SetAngularVelocity(Vector3.new(roll, pitch, yaw))
+    self.direction_velocity = Vector3.new(x, y, z)
+    self.angular_velocity = Vector3.new(roll, pitch, yaw)
 end
 
 --- Calculate velocity for AV mode.
@@ -519,8 +525,37 @@ end
 ---@return number pitch
 ---@return number yaw
 function Engine:CalculateIdleMode()
-    local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
-    return x, y, z, roll, pitch, yaw
+    local x,y,z,roll,pitch = 0,0,0,0,0
+
+    if DAV.user_setting_table.is_enable_idle_gravity and self.av_obj:IsCollision() then
+        local vel_vec, _ = self:GetDirectionAndAngularVelocity()
+        local height = self.av_obj:GetHeight()
+        local dest_height = self.av_obj.minimum_distance_to_ground
+
+        local damping = 0.2
+        local height_gain = 0.5
+
+        z = z - vel_vec.z * damping
+        if math.abs(height - dest_height) > 0.01 then
+            z = z + (dest_height - height) * height_gain
+        end
+    end
+
+    local current_angle = self.av_obj:GetEulerAngles()
+    local pitch_restore_amount = DAV.user_setting_table.pitch_restore_amount
+    if current_angle.pitch > pitch_restore_amount then
+        pitch = pitch - pitch_restore_amount
+    elseif current_angle.pitch < -pitch_restore_amount then
+        pitch = pitch + pitch_restore_amount
+    elseif current_angle.pitch > 0 then
+        pitch = pitch - current_angle.pitch
+    elseif current_angle.pitch < 0 then
+        pitch = pitch - current_angle.pitch
+    end
+
+    local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(roll, pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
+
+    return x, y, z, d_roll, d_pitch, d_yaw
 end
 
 --- Get RPM count

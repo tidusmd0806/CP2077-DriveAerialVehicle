@@ -21,7 +21,7 @@
         "entry_area_radius": 2.5,
         "exit_point": {"x": -2.5, "y": 0, "z": 0},
         "exit_duration": 2.3,
-        "minimum_distance_to_ground": 0.8,
+        "minimum_distance_to_ground": 1.0,
         "ground_search_offset": 2.0,
         "combat_door": ["None"],
         "crystal_dome": true,

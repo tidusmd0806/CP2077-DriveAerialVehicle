@@ -262,15 +262,6 @@ function AV:GetEulerAngles()
     return entity:GetWorldOrientation():ToEulerAngles()
 end
 
-function AV:GetHeightFromGround()
-	local current_position = self:GetPosition()
-	if current_position == nil then
-		self.log_obj:Record(LogLevel.Warning, "No position to get height from ground")
-		return 0
-	end
-	return current_position.z - self:GetGroundPosition()
-end
-
 --- Get Ground Position
 ---@return number z
 function AV:GetGroundPosition()
@@ -385,10 +376,10 @@ function AV:SpawnToSky()
 				self:DisableAllDoorInteractions()
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed))
 				self.log_obj:Record(LogLevel.Info, "Initial Spawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
-			elseif self:GetHeightFromGround() < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
+			elseif self:GetHeight() < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
 				self.engine_obj:SetFluctuationVelocityParams(-2, 1)
 				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
-			elseif self:GetHeightFromGround() < self.minimum_distance_to_ground or timer.tick > self.down_timeout then
+			elseif self:GetHeight() < self.minimum_distance_to_ground or timer.tick > self.down_timeout then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 				self.is_landed = true
@@ -715,6 +706,11 @@ function AV:Operate(action_command_lists)
 		end
 		if action_command_list[1] ~= Def.ActionList.Nothing then
 			self.log_obj:Record(LogLevel.Trace, "Operation:" .. action_command_list[1])
+		end
+		if action_command_list[1] == Def.ActionList.Idle then
+			self.engine_obj:SetIdle(true)
+		else
+			self.engine_obj:SetIdle(false)
 		end
 		if not self.is_auto_pilot then
 			local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateAddVelocity(action_command_list)

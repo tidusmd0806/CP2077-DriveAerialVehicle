@@ -299,6 +299,7 @@ function Event:CheckInAV()
             self.hud_obj:HideCustomHint()
             self.hud_obj:EnableManualMeter(false, false)
             self.av_obj.engine_obj:EnableOriginalPhysics(true)
+            self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
             if self:IsAutoMode() then
                 self.av_obj:InterruptAutoPilot()
             end
