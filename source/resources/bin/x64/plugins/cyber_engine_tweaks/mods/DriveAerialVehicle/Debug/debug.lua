@@ -501,7 +501,7 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF5") then
-        DAV.core_obj.event_obj.hud_obj:ForceShowMeter()
+        self.core_obj.event_obj.hud_obj:ForceShowMeter()
         print("Excute Test Function 5")
     end
     ImGui.SameLine()

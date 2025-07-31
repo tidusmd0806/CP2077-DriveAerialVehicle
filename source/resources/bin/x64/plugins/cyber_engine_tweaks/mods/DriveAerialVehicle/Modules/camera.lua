@@ -125,7 +125,7 @@ function Camera:ChangePosition(level)
 end
 
 --- Toggle camera perspective
---- @return number current camera distance level
+---@return number current camera distance level
 function Camera:Toggle()
     local veh_camera_perspective = Game.GetPlayer():FindVehicleCameraManager():GetActivePerspective()
     if veh_camera_perspective == vehicleCameraPerspective.FPP then
@@ -142,6 +142,12 @@ function Camera:Toggle()
         end
     end
     self:ChangePosition(self.current_camera_mode)
+    return self.current_camera_mode
+end
+
+--- Get current camera distance level
+---@return Def.CameraDistanceLevel
+function Camera:GetCurrentCameraDistanceLevel()
     return self.current_camera_mode
 end
 

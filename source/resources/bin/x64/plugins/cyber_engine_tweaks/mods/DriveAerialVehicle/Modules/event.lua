@@ -33,6 +33,7 @@ function Event:New()
     obj.selected_seat_index = 1
     obj.is_keyboard_input_prev = false
     obj.is_enable_audio = true
+    obj.is_locked_showing_meter = false
     -- projection
     obj.is_landing_projection = false
 
@@ -196,6 +197,7 @@ function Event:CheckAllEvents()
         self:CheckInput()
         self:CheckCombat()
         self:CheckHeight()
+        self:CheckPerspective()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
         self:CheckLockedSave()
@@ -473,6 +475,16 @@ function Event:CheckLockedSave()
     end
 end
 
+--- Check if perspective is FPP.
+function Event:CheckPerspective()
+    if self:IsFPP() and not self.is_locked_showing_meter then
+        self.hud_obj:ForceShowMeter()
+        self.is_locked_showing_meter = true
+    else
+        self.is_locked_showing_meter = false
+    end
+end
+
 --- Check if AV is spawned.
 ---@return boolean
 function Event:IsNotSpawned()
@@ -548,6 +560,17 @@ end
 ---@return boolean
 function Event:IsAllowedEntry()
     return self.is_allowed_entry
+end
+
+--- Check perspective is FPP.
+---@return boolean
+function Event:IsFPP()
+    local veh_camera_perspective = self.av_obj.camera_obj:GetCurrentCameraDistanceLevel()
+    if veh_camera_perspective == Def.CameraDistanceLevel.Fpp then
+        return true
+    else
+        return false
+    end
 end
 
 --- Change door state.

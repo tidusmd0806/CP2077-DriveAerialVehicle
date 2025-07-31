@@ -65,6 +65,7 @@ Def.DoorOperation = {
 	Close = 2,
 }
 
+---@enum Def.TeleportResult
 Def.TeleportResult = {
     Error = -1,
     Collision = 0,
@@ -72,6 +73,7 @@ Def.TeleportResult = {
     AvoidStack = 2,
 }
 
+---@enum Def.CameraDistanceLevel
 Def.CameraDistanceLevel = {
     TppSeat = 0,
     Fpp = 1,
@@ -80,17 +82,20 @@ Def.CameraDistanceLevel = {
     TppFar = 4,
 }
 
+---@enum Def.AutopilotSpeedLevel
 Def.AutopilotSpeedLevel = {
     Slow = 1,
     Normal = 2,
     Fast = 3,
 }
 
+---@enum Def.FlightMode
 Def.FlightMode = {
     AV = 0,
     Helicopter = 1,
 }
 
+---@enum Def.ChangeVelocityType
 Def.ChangeVelocityType = {
     Both = 0,
     Direction = 1,
