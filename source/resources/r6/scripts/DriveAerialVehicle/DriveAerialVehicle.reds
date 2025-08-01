@@ -197,9 +197,12 @@ public class TranslationSystem {
 }
 
 @addField(PlayerPuppet)
-let m_av_emitter_id: EntityID;
+let m_dav_veh_emitter_id: EntityID;
 @addField(PlayerPuppet)
-let m_av_tag_name: CName;
+let m_av_idle_sound_tag_name: CName;
+@addField(PlayerPuppet)
+let m_av_control_sound_tag_name: CName;
+
 
 public class AVSoundSystem extends ScriptableSystem {
     private func OnAttach() {
@@ -210,13 +213,18 @@ public class AVSoundSystem extends ScriptableSystem {
 		let target = event.GetEntity();
 		LogChannel(n"DEBUG", "OnExcaliburSpawn");
         if !IsDefined(target) { return; }
-        this.RegisterEmitter(target.GetEntityID(), n"RayfieldExcaliburDAV");
+        this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Idle_Sound");
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Control_Sound");
     }
 	private func RegisterEmitter(emitter_id: EntityID, tag_name: CName) {
 		let game = this.GetGameInstance();
 		let player = GetPlayer(game);
-		player.m_av_emitter_id = emitter_id;
-		player.m_av_tag_name = tag_name;
+		player.m_dav_veh_emitter_id = emitter_id;
+		if Equals(tag_name, n"DAV_AV_Control_Sound") {
+			player.m_av_control_sound_tag_name = tag_name;
+		} else if Equals(tag_name, n"DAV_AV_Idle_Sound") {
+			player.m_av_idle_sound_tag_name = tag_name;
+		}
 		if !GameInstance.GetAudioSystemExt(game).IsRegisteredEmitter(emitter_id, tag_name) {
 			GameInstance.GetAudioSystemExt(game).RegisterEmitter(emitter_id, tag_name);
 		}
@@ -227,50 +235,19 @@ public class AVSoundSystem extends ScriptableSystem {
 private cb func OnDAVSoundEvent(event: ref<ActionEvent>) {
     let game = this.GetGame();
     let event_name : CName = event.eventAction;
-    if !GameInstance.GetAudioSystemExt(game).IsRegisteredEmitter(this.m_av_emitter_id, this.m_av_tag_name) {return;}
+    if !GameInstance.GetAudioSystemExt(game).IsRegisteredEmitter(this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name) {return;}
     if Equals(event_name, n"dav_av_idle_start") {
-		LogChannel(n"DEBUG", NameToString(this.m_av_tag_name));
-        GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_q306_sc_11_altus_02_idle", this.m_av_emitter_id, this.m_av_tag_name);
+		LogChannel(n"DEBUG", NameToString(this.m_av_idle_sound_tag_name));
+        GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_av_idle", this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name);
 	} else if Equals(event_name, n"dav_av_idle_stop") {
-		GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_q306_sc_11_altus_02_idle", this.m_av_emitter_id, this.m_av_tag_name);
+		GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_av_idle", this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name);
 	} else if Equals(event_name, n"dav_av_accel_start") {
-        // GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_move", this.m_av_emitter_id, this.m_av_tag_name);
-        GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_av_accel", this.m_av_emitter_id, this.m_av_tag_name);
+        GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_av_accel", this.m_dav_veh_emitter_id, this.m_av_control_sound_tag_name, LinearTween.Immediate(5.));
+	} else if Equals(event_name, n"dav_av_accel_stop") {
+        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_av_accel", this.m_dav_veh_emitter_id, this.m_av_control_sound_tag_name, LinearTween.Immediate(5.));
     } else if Equals(event_name, n"private_yacht_cancel") {
-        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_move", this.m_av_emitter_id, this.m_av_tag_name);
-        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_start", this.m_av_emitter_id, this.m_av_tag_name);
-        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_end", this.m_av_emitter_id, this.m_av_tag_name);
-    }
-}
-
-public class AutoEmittersSystem extends ScriptableSystem {
-    private func OnAttach() {
-        GameInstance.GetCallbackSystem().RegisterCallback(n"Input/Key", this, n"OnKeyInput")
-        // listen to F1 being pressed or released
-        .AddTarget(InputTarget.Key(EInputKey.IK_F1));
-    }
-    private cb func OnKeyInput(evt: ref<KeyInputEvent>) {
-        // when F1 is released
-        if NotEquals(evt.GetAction(), EInputAction.IACT_Release) { return; }
-        // some songs defined in manifest
-        let sounds = [ 
-            n"dav_q306_sc_11_altus_02_idle"
-        ];
-        // get a random sound above
-        let eventName = sounds[RandRange(0, ArraySize(sounds) -1)];
-        let emitterID: EntityID;
-        let tagName: CName = n"MyMod";
-		let settings = new EmitterSettings();
-		settings.affectedByReverbMix = false;
-		settings.affectedByEnvironmentalPreset = false;
-        let game = this.GetGameInstance();
-        // get entity V currently looks at (crosshair)
-        let target = GameInstance.GetTargetingSystem(game).GetLookAtObject(GetPlayer(game));
-        if !IsDefined(target) { return; }
-        emitterID = target.GetEntityID();
-        if !GameInstance.GetAudioSystemExt(game).IsRegisteredEmitter(emitterID, tagName) {
-            GameInstance.GetAudioSystemExt(game).RegisterEmitter(emitterID, tagName);
-        }
-        GameInstance.GetAudioSystemExt(game).PlayOnEmitter(eventName, emitterID, tagName, settings);
+        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_move", this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name);
+        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_start", this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name);
+        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_end", this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name);
     }
 }

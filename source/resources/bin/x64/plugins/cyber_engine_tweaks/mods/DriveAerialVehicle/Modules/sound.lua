@@ -109,7 +109,7 @@ end
 function Sound:StartAVEngineSound()
     local evt = ActionEvent.new()
     evt.eventAction = CName.new("dav_av_idle_start")
-    -- Game.GetPlayer():QueueEvent(evt)
+    Game.GetPlayer():QueueEvent(evt)
     self.log_obj:Record(LogLevel.Info, "Start Engine Sound")
 end
 
@@ -117,7 +117,7 @@ end
 function Sound:StopAVEngineSound()
     local evt = ActionEvent.new()
     evt.eventAction = CName.new("dav_av_idle_stop")
-    -- Game.GetPlayer():QueueEvent(evt)
+    Game.GetPlayer():QueueEvent(evt)
     self.log_obj:Record(LogLevel.Info, "Stop Engine Sound")
 end
 

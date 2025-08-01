@@ -519,6 +519,13 @@ function Debug:ImGuiExcuteFunction()
         player:QueueEvent(evt)
         print("Excute Test Function 7")
     end
+    if ImGui.Button("TF7-1") then
+        local evt = ActionEvent.new()
+        evt.eventAction = CName.new("dav_av_accel_stop")
+        local player = Game.GetPlayer()
+        player:QueueEvent(evt)
+        print("Excute Test Function 7-1")
+    end
     ImGui.SameLine()
     if ImGui.Button("TF8") then
         local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
