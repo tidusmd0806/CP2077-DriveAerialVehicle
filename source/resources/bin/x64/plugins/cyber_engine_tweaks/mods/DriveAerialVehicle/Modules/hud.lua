@@ -21,8 +21,11 @@ function HUD:New()
     obj.is_manually_setting_speed = false
     obj.is_manually_setting_rpm = false
     -- input hint
+    obj.input_hint_mapping_table = {}
+    obj.input_hint_controller = nil
     obj.key_input_show_hint_event = nil
     obj.key_input_hide_hint_event = nil
+    obj.current_input_hint_count = 0
     -- interaction choice
     obj.selected_choice_index = 1
     obj.interaction_ui_base = nil
@@ -35,6 +38,10 @@ function HUD:New()
     obj.ink_horizontal_panel = nil
     obj.ink_hp_title = nil
     obj.ink_hp_text = nil
+    -- widget monitoring
+    obj.widget_monitor_timer = nil
+    obj.monitored_widget = nil
+    obj.last_widget_visible_state = true
 
     return setmetatable(obj, self)
 end
@@ -50,6 +57,8 @@ function HUD:Init(av_obj)
         self:SetObserve()
         GameHUD.Initialize()
     end
+
+    self.input_hint_mapping_table = Utils:ReadJson("Data/input_hint_mapping.json")
 end
 
 --- Set Override Functions
@@ -449,6 +458,434 @@ function HUD:HideChoice()
     self.interaction_ui_base:OnDialogsData(data)
 end
 
+--- Set Input Hint Controller
+---@return boolean
+function HUD:SetInputHintController()
+    local ink_system = Game.GetInkSystem()
+    if not ink_system then
+        self.log_obj:Record(LogLevel.Error, "ink_system is nil")
+        return false
+    end
+
+    local hud_layer = ink_system:GetLayer(CName.new("inkHUDLayer"))
+    if not hud_layer then
+        self.log_obj:Record(LogLevel.Error, "hud_layer is nil")
+        return false
+    end
+
+    local game_controllers = hud_layer:GetGameControllers()
+    if not game_controllers then
+        self.log_obj:Record(LogLevel.Error, "game_controllers is nil")
+        return false
+    end
+
+    for _, controller in ipairs(game_controllers) do
+        if controller and controller:ToString() == "gameuiInputHintManagerGameController" then
+            self.input_hint_controller = controller
+            return true
+        end
+    end
+    self.log_obj:Record(LogLevel.Error, "input_hint_controller is nil")
+    return false
+end
+
+function HUD:ReconstructInputHint()
+    if self.input_hint_controller == nil then
+        self.log_obj:Record(LogLevel.Error, "input_hint_controller is nil")
+        return
+    end
+
+    local input_hint_widget = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints")
+    if not input_hint_widget then
+        self.log_obj:Record(LogLevel.Error, "input_hint_widget is nil")
+        return
+    end
+
+    -- Load input hint override configuration
+    local input_hint_override = Utils:ReadJson("Data/input_hint_override.json")
+    if not input_hint_override then
+        self.log_obj:Record(LogLevel.Error, "Failed to load input_hint_override.json")
+        return
+    end
+
+    -- Determine flight mode and input method
+    local flight_mode = self.av_obj.engine_obj.flight_mode
+    local is_keyboard_input = DAV.is_keyboard_input
+    local mode_name = (flight_mode == Def.FlightMode.AV) and "AV" or "Helicopter"
+    
+    -- Get the appropriate hint configuration for current mode
+    local hint_configs = input_hint_override[mode_name]
+    if not hint_configs then
+        self.log_obj:Record(LogLevel.Error, "No hint configuration found for mode: " .. mode_name)
+        return
+    end
+
+    -- Get appropriate keybind tables based on flight mode
+    local keybind_table = DAV.user_setting_table.keybind_table
+    local heli_keybind_table = DAV.user_setting_table.heli_keybind_table
+    local common_keybind_table = DAV.user_setting_table.common_keybind_table
+
+    -- Create hint widgets for each configuration
+    for _, config in ipairs(hint_configs) do
+        local hint_num = config.no
+        local title = DAV.core_obj:GetTranslationText(config.title) or config.title
+        local actions = config.actions
+
+        -- Get texture parts for each action
+        local texture_parts = {}
+        local used_texture_parts = {}
+        for i, action in ipairs(actions) do
+            local key_binding = self:FindKeyBinding(action, keybind_table, heli_keybind_table, common_keybind_table, flight_mode)
+            if key_binding then
+                local key_code = is_keyboard_input and key_binding.key or key_binding.pad
+                local is_hold = key_binding.is_hold or false
+                local texture_part = self:GetTexturePartFromKeyCode(key_code, is_hold)
+                
+                -- Skip if this texture part has already been used (avoid duplicates)
+                if texture_part ~= "" and used_texture_parts[texture_part] then
+                    texture_parts[i] = ""
+                    self.log_obj:Record(LogLevel.Info, "Action: " .. action .. ", Texture: " .. texture_part .. " (skipped - duplicate)")
+                else
+                    texture_parts[i] = texture_part
+                    if texture_part ~= "" then
+                        used_texture_parts[texture_part] = true
+                    end
+                    self.log_obj:Record(LogLevel.Info, "Action: " .. action .. ", Key: " .. (key_code or "nil") .. ", Hold: " .. tostring(is_hold) .. ", Texture: " .. texture_part)
+                end
+            else
+                -- Use empty string instead of nil to indicate no texture
+                texture_parts[i] = ""
+                self.log_obj:Record(LogLevel.Warning, "No key binding found for action: " .. action)
+            end
+        end
+
+        -- Ensure we have exactly 4 texture parts (pad with empty string if needed)
+        while #texture_parts < 4 do
+            texture_parts[#texture_parts + 1] = ""
+        end
+
+        -- Create and add the hint widget
+        local hint_widget = self:CreateOrUpdateHintWidget(hint_num, title, texture_parts, true)
+        if hint_widget then
+            hint_widget:Reparent(input_hint_widget)
+            self.log_obj:Record(LogLevel.Info, "Created hint widget: " .. title)
+        end
+
+    end
+    
+    -- Update widget visible state after reconstruction
+    self.last_widget_visible_state = true
+end
+
+--- Find key binding for a specific action
+---@param action string
+---@param keybind_table table
+---@param heli_keybind_table table
+---@param common_keybind_table table
+---@param flight_mode number
+---@return table|nil
+function HUD:FindKeyBinding(action, keybind_table, heli_keybind_table, common_keybind_table, flight_mode)
+    -- First check common keybinds (always available)
+    for _, binding in ipairs(common_keybind_table) do
+        if binding.name == action then
+            return binding
+        end
+    end
+
+    -- Check helicopter-specific keybinds if in helicopter mode
+    if flight_mode == Def.FlightMode.Helicopter then
+        for _, binding in ipairs(heli_keybind_table) do
+            if binding.name == action then
+                return binding
+            end
+        end
+    end
+
+    -- Check general keybinds
+    for _, binding in ipairs(keybind_table) do
+        if binding.name == action then
+            return binding
+        end
+    end
+
+    return nil
+end
+
+--- Get texture part from key code using mapping table
+---@param key_code string
+---@param is_hold boolean
+---@return string
+function HUD:GetTexturePartFromKeyCode(key_code, is_hold)
+    local base_texture_part = ""
+    
+    if not key_code or key_code == "IK_None" then
+        base_texture_part = ""
+        self.log_obj:Record(LogLevel.Debug, "Key code is nil or IK_None, using default: " .. base_texture_part)
+    else
+        -- Use mapping table if available
+        if self.input_hint_mapping_table then
+            local input_type = DAV.is_keyboard_input and "keyboard" or "gamepad"
+            local mapping_section = self.input_hint_mapping_table[input_type]
+            
+            if mapping_section and mapping_section[key_code] then
+                base_texture_part = mapping_section[key_code]
+                self.log_obj:Record(LogLevel.Debug, "Found " .. input_type .. " mapping for " .. key_code .. ": " .. base_texture_part)
+            else
+                base_texture_part = ""
+                self.log_obj:Record(LogLevel.Debug, "No " .. input_type .. " mapping found for " .. key_code .. ", using default: " .. base_texture_part)
+            end
+        else
+            base_texture_part = ""
+            self.log_obj:Record(LogLevel.Debug, "No mapping table available, using default: " .. base_texture_part)
+        end
+    end
+    
+    -- Add "_hold" suffix if is_hold is true, but not for axis controls or thumb controls
+    if is_hold and base_texture_part ~= "" and not string.find(base_texture_part, "axis") and not string.find(base_texture_part, "thumb") then
+        return base_texture_part .. "_hold"
+    else
+        return base_texture_part
+    end
+end
+
+--- Create main hint widget container
+---@param num number
+---@param enable boolean
+---@return inkFlex
+function HUD:CreateMainHintWidget(num, enable)
+    local main_widget = inkFlex.new()
+    main_widget:SetName(StringToName("hint_" .. num))
+    main_widget:SetSize(100.0, 100.0)
+    main_widget:SetVisible(enable or true)
+    return main_widget
+end
+
+--- Create hint panel container
+function HUD:CreateHintPanel()
+    local hint_panel = inkHorizontalPanel.new()
+    hint_panel:SetName(StringToName("hint"))
+    hint_panel:SetStyle(ResRef.FromName("base\\gameplay\\gui\\common\\main_colors.inkstyle"))
+    hint_panel:SetHAlign(inkEHorizontalAlign.Left)
+    hint_panel:SetVAlign(inkEVerticalAlign.Top)
+    return hint_panel
+end
+
+--- Create wrapper panel for text label
+function HUD:CreateWrapperPanel()
+    local wrapper_panel = inkHorizontalPanel.new()
+    wrapper_panel:SetName(StringToName("wrapper"))
+    wrapper_panel:SetHAlign(inkEHorizontalAlign.Right)
+    wrapper_panel:SetVAlign(inkEVerticalAlign.Center)
+    wrapper_panel:SetMargin(20, 0, 0, 0)
+    return wrapper_panel
+end
+
+--- Create text label widget
+---@param text string
+function HUD:CreateTextLabel(text)
+    local text_label = inkText.new()
+    text_label:SetName(StringToName("label"))
+    text_label:SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily")
+    text_label:SetFontStyle("Medium")
+    text_label:SetFontSize(44)
+    text_label:SetJustificationType(textJustificationType.Right)
+    text_label:SetHorizontalAlignment(textHorizontalAlignment.Right)
+    text_label:SetVerticalAlignment(textVerticalAlignment.Center)
+    text_label:SetFitToContent(false)
+    text_label:SetSize(700.0, 48.0)
+    text_label:SetStyle(ResRef.FromName("base\\gameplay\\gui\\common\\main_colors.inkstyle"))
+    text_label:BindProperty("tintColor", "MainColors.Red")
+    text_label:BindProperty("fontStyle", "MainColors.BodyFontWeight")
+    text_label:SetHAlign(inkEHorizontalAlign.Right)
+    text_label:SetVAlign(inkEVerticalAlign.Center)
+    text_label:SetScrollTextSpeed(0.3)
+    text_label:SetText(text or "")
+    return text_label
+end
+
+--- Create keys container panel
+function HUD:CreateKeysPanel()
+    local keys_panel = inkHorizontalPanel.new()
+    keys_panel:SetName(StringToName("keys"))
+    keys_panel:SetHAlign(inkEHorizontalAlign.Right)
+    keys_panel:SetVAlign(inkEVerticalAlign.Center)
+    keys_panel:SetMargin(20, 0, 0, 0)
+    keys_panel:SetSizeRule(inkESizeRule.Stretch)
+    return keys_panel
+end
+
+--- Create flex widget container for key icons
+---@param num number
+---@return inkFlex
+function HUD:CreateKeyFlexWidget(num)
+    local flex_widget = inkFlex.new()
+    flex_widget:SetName(StringToName("KeyFlexWidget_" .. num))
+    flex_widget:SetStyle(ResRef.FromName("base\\gameplay\\gui\\common\\main_colors.inkstyle"))
+    flex_widget:SetSize(100.0, 100.0)
+    return flex_widget
+end
+
+--- Create key panel container
+---@return inkHorizontalPanel
+function HUD:CreateKeyPanel()
+    local key_panel = inkHorizontalPanel.new()
+    key_panel:SetName(StringToName("inkHorizontalPanelWidget22"))
+    key_panel:SetHAlign(inkEHorizontalAlign.Left)
+    key_panel:SetVAlign(inkEVerticalAlign.Top)
+    key_panel:SetSize(75.0, 75.0)
+    key_panel:SetInteractive(true)
+    return key_panel
+end
+
+--- Create hold container for key animation
+---@return inkCanvas
+function HUD:CreateHoldContainer()
+    local hold_container = inkCanvas.new()
+    hold_container:SetName(StringToName("holdContainer"))
+    hold_container:SetHAlign(inkEHorizontalAlign.Left)
+    hold_container:SetVAlign(inkEVerticalAlign.Top)
+    hold_container:SetSize(64.0, 75.0)
+    hold_container:SetChildOrder(inkEChildOrder.Backward)
+    return hold_container
+end
+
+--- Create horizontal panel for key icon
+---@return inkHorizontalPanel
+function HUD:CreateKeyIconPanel()
+    local icon_panel = inkHorizontalPanel.new()
+    icon_panel:SetName(StringToName("keyIconPanel"))
+    icon_panel:SetHAlign(inkEHorizontalAlign.Left)
+    icon_panel:SetVAlign(inkEVerticalAlign.Center)
+    icon_panel:SetMargin(-64, 0, 0, 0)
+    return icon_panel
+end
+
+--- Create input icon image
+---@param texture_part string
+function HUD:CreateInputIcon(texture_part)
+    local input_icon = inkImage.new()
+    input_icon:SetName(StringToName("inputIcon"))
+    
+    -- Use appropriate texture atlas based on current input method
+    local texture_atlas = self:GetCurrentIconTextureAtlas()
+    if texture_atlas then
+        input_icon:SetAtlasResource(texture_atlas)
+    end
+    
+    if texture_part and texture_part ~= "" then
+        input_icon:SetVisible(true)
+        input_icon:SetTexturePart(texture_part)
+    else
+        input_icon:SetVisible(false)
+    end
+    input_icon:SetAnchor(inkEAnchor.Centered)
+    input_icon:SetHAlign(inkEHorizontalAlign.Center)
+    input_icon:SetVAlign(inkEVerticalAlign.Center)
+    input_icon:SetSize(64.0, 64.0)
+    input_icon:SetStyle(ResRef.FromName("base\\gameplay\\gui\\common\\main_colors.inkstyle"))
+    input_icon:BindProperty("tintColor", "MainColors.Blue")
+    return input_icon
+end
+
+--- Create input AND text widget
+function HUD:CreateInputANDText()
+    local input_and = inkText.new()
+    input_and:SetName(CName.new("InputAND"))
+    input_and:SetVisible(false)
+    return input_and
+end
+
+--- Create complete hint widget
+---@param num number
+---@param text string
+---@param texture_parts table
+---@return inkFlex | nil
+function HUD:CreateOrUpdateHintWidget(num, text, texture_parts, enable)
+    -- Check if input_hint_controller is available
+    if not self.input_hint_controller then
+        self.log_obj:Record(LogLevel.Warning, "input_hint_controller not available, creating widget without duplicate check")
+    else
+        -- Check if widget with the same name already exists
+        local input_hint_widget = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints")
+        if input_hint_widget then
+            local widget_name = "hint_" .. num
+            local existing_widget = input_hint_widget:GetWidget(StringToName(widget_name))
+            if existing_widget then
+                self.log_obj:Record(LogLevel.Info, "Widget " .. widget_name .. " already exists, updating existing widget")
+                existing_widget:SetVisible(enable or true)
+                existing_widget:GetWidget("hint"):GetWidget("wrapper"):GetWidget("label"):SetText(text or "")
+                for i = 1, 4 do
+                    local key_flex_widget = existing_widget:GetWidget("hint"):GetWidget("keys"):GetWidget(StringToName("KeyFlexWidget_" .. i))
+                    if key_flex_widget then
+                        local key_panel = key_flex_widget:GetWidget("inkHorizontalPanelWidget22")
+                        if key_panel then
+                            local key_icon_panel = key_panel:GetWidget("keyIconPanel")
+                            if key_icon_panel then
+                                local icon_widget = key_icon_panel:GetWidget("inputIcon")
+                                if icon_widget then
+                                    if texture_parts[i] and texture_parts[i] ~= "" then
+                                        icon_widget:SetVisible(true)
+                                        icon_widget:SetTexturePart(texture_parts[i])
+                                        -- Use appropriate texture atlas based on current input method
+                                        local texture_atlas = self:GetCurrentIconTextureAtlas()
+                                        if texture_atlas then
+                                            icon_widget:SetAtlasResource(texture_atlas)
+                                        end
+                                    else
+                                        icon_widget:SetVisible(false)  -- Hide icon if no texture part provided
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                return nil
+            end
+        end
+    end
+
+    -- Create all widgets
+    local main_widget = self:CreateMainHintWidget(num, enable)
+    if not main_widget then
+        self.log_obj:Record(LogLevel.Error, "Failed to create main_widget")
+        return nil
+    end
+
+    local hint_panel = self:CreateHintPanel()
+    local wrapper_panel = self:CreateWrapperPanel()
+    local text_label = self:CreateTextLabel(text)
+    local keys_panel = self:CreateKeysPanel()
+    local key_flex_widget_list = {}
+    local key_panel_list = {}
+    local hold_container_list = {}
+    local key_icon_panel_list = {}
+    local input_icon_list = {}
+    local input_and_list = {}
+    for i = 1, 4 do
+        key_flex_widget_list[i] = self:CreateKeyFlexWidget(i)
+        key_panel_list[i] = self:CreateKeyPanel()
+        hold_container_list[i] = self:CreateHoldContainer()
+        key_icon_panel_list[i] = self:CreateKeyIconPanel()
+        input_icon_list[i] = self:CreateInputIcon(texture_parts[i])  -- Use different texture for each icon
+        input_and_list[i] = self:CreateInputANDText()
+    end
+
+    for i = 1, 4 do
+        input_icon_list[i]:Reparent(key_icon_panel_list[i])
+        input_and_list[i]:Reparent(key_icon_panel_list[i])
+        hold_container_list[i]:Reparent(key_panel_list[i])
+        key_icon_panel_list[i]:Reparent(key_panel_list[i])
+        key_panel_list[i]:Reparent(key_flex_widget_list[i])
+        key_flex_widget_list[i]:Reparent(keys_panel)
+    end
+    text_label:Reparent(wrapper_panel)
+    wrapper_panel:Reparent(hint_panel)
+    keys_panel:Reparent(hint_panel)
+    hint_panel:Reparent(main_widget)
+
+    return main_widget
+end
+
 --- Set Custom Hint
 function HUD:SetCustomHint()
     local flight_mode = self.av_obj.engine_obj.flight_mode
@@ -479,6 +916,7 @@ function HUD:SetCustomHint()
             end
         end
     end
+    self.current_input_hint_count = #hint_table
     for _, hint in ipairs(hint_table) do
         local input_hint_data = InputHintData.new()
         input_hint_data.source = CName.new(hint.source)
@@ -502,6 +940,115 @@ function HUD:SetCustomHint()
         input_hint_data.localizedLabel = table.concat(localizedLabels, "-")
         self.key_input_show_hint_event:AddInputHint(input_hint_data, true)
         self.key_input_hide_hint_event:AddInputHint(input_hint_data, false)
+    end
+    Cron.Every(0.5, {tick=1}, function(timer)
+        if self:SetInputHintController() and self:GetCurrentIconTextureAtlas() then
+            self:ReconstructInputHint()
+            self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
+            Cron.Halt(timer)
+        end
+    end)
+end
+
+--- Get Current Icon Texture Atlas
+---@return inkTextureAtlas | nil
+function HUD:GetCurrentIconTextureAtlas()
+    if self.input_hint_controller == nil then
+        self.log_obj:Record(LogLevel.Error, "input_hint_controller is nil")
+        return nil
+    end
+    local main_container = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer")
+    if main_container == nil then
+        self.log_obj:Record(LogLevel.Warning, "main_container is nil")
+        return nil
+    end
+    local hints_widget = main_container:GetWidget("hints")
+    if hints_widget == nil then
+        self.log_obj:Record(LogLevel.Warning, "hints_widget is nil")
+        return nil
+    end
+    local ink_flex_widget = hints_widget:GetWidget(0)
+    if ink_flex_widget == nil then
+        self.log_obj:Record(LogLevel.Warning, "ink_flex_widget is nil")
+        return nil
+    end
+    local hint_widget = ink_flex_widget:GetWidget("hint")
+    if hint_widget == nil then
+        self.log_obj:Record(LogLevel.Warning, "hint_widget is nil")
+        return nil
+    end
+    local keys_widget = hint_widget:GetWidget("keys")
+    if keys_widget == nil then
+        self.log_obj:Record(LogLevel.Warning, "keys_widget is nil")
+        return nil
+    end
+    local input_icon_widget = keys_widget:GetWidget(0):GetWidget(0):GetWidget(1):GetWidget("inputIcon")
+    if input_icon_widget == nil then
+        self.log_obj:Record(LogLevel.Warning, "input_icon_widget is nil")
+        return nil
+    end
+    return input_icon_widget.textureAtlas
+end
+
+--- Start Widget Monitor
+function HUD:StartWidgetMonitor()
+    print(self.input_hint_controller)
+    print(self:GetCurrentIconTextureAtlas())
+    if self.input_hint_controller and self:GetCurrentIconTextureAtlas() then
+        print("Starting widget monitor")
+        self:ReconstructInputHint()
+    end
+    DAV.core_obj.event_obj.is_creating_custom_input_hint = false
+    -- Stop existing monitor if running
+    -- self:StopWidgetMonitor()
+    
+    -- Only monitor when player is in vehicle (using event obj for accurate state check)
+    -- if not DAV.core_obj.event_obj:IsInVehicle() then
+    --     self.log_obj:Record(LogLevel.Debug, "Not in vehicle, widget monitor not started")
+    --     return
+    -- end
+    
+    -- self.log_obj:Record(LogLevel.Info, "Starting widget monitor")
+    
+    -- self.widget_monitor_timer = Cron.Every(1.0, function(timer)
+    --     -- Double check vehicle state using event object
+    --     if not DAV.core_obj.event_obj:IsInVehicle() then
+    --         self.log_obj:Record(LogLevel.Info, "Player exited vehicle, stopping widget monitor")
+    --         -- self:StopWidgetMonitor()
+    --         return
+    --     end
+        
+        -- Get the first hint widget (hint_1) to monitor
+        -- if self.input_hint_controller then
+        --     local input_hint_widget = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints")
+        --     if input_hint_widget then
+        --         local monitored_widget = input_hint_widget:GetWidget(StringToName("hint_1"))
+        --         if monitored_widget then
+        --             local current_visible = monitored_widget:IsVisible()
+                    
+        --             -- If widget became invisible, reconstruct hints
+        --             if self.last_widget_visible_state and not current_visible then
+        --                 self.log_obj:Record(LogLevel.Info, "Widget became invisible, reconstructing input hints")
+        --                 self:ReconstructInputHint()
+        --             end
+                    
+        --             self.last_widget_visible_state = current_visible
+        --         else
+        --             -- Widget doesn't exist, try to reconstruct
+        --             self.log_obj:Record(LogLevel.Debug, "Monitored widget not found, reconstructing input hints")
+        --             self:ReconstructInputHint()
+        --         end
+        --     end
+        -- end
+    -- end)
+end
+
+--- Stop Widget Monitor
+function HUD:StopWidgetMonitor()
+    if self.widget_monitor_timer then
+        Cron.Halt(self.widget_monitor_timer)
+        self.widget_monitor_timer = nil
+        self.log_obj:Record(LogLevel.Info, "Stopped widget monitor")
     end
 end
 

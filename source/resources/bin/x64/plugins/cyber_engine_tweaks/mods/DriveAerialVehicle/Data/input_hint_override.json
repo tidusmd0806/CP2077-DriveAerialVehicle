@@ -1,0 +1,108 @@
+{
+    "AV": [
+        {
+            "no": 1,
+            "title": "av_vertical_movement",
+            "actions": [
+                "move_up",
+                "move_down"
+            ]
+        },
+        {
+            "no": 2,
+            "title": "av_horizontal_movement",
+            "actions": [
+                "move_forward",
+                "move_backward",
+                "move_left",
+                "move_right"
+            ]
+        },
+        {
+            "no": 3,
+            "title": "left_right_rotation",
+            "actions": [
+                "turn_left",
+                "turn_right"
+            ]
+        },
+        {
+            "no": 4,
+            "title": "forward_backward_rotation",
+            "actions": [
+                "lean_forward",
+                "lean_backward"
+            ]
+        },
+        {
+            "no": 5,
+            "title": "lean_reset",
+            "actions": [
+                "lean_reset"
+            ]
+        },
+        {
+            "no": 6,
+            "title": "toggle_camera",
+            "actions": [
+                "toggle_camera"
+            ]
+        },
+        {
+            "no": 7,
+            "title": "auto_pilot",
+            "actions": [
+                "toggle_autopilot"
+            ]
+        }
+    ],
+    "Helicopter": [
+        {
+            "no": 1,
+            "title": "helicopter_vertical_movement",
+            "actions": [
+                "ascend",
+                "descend"
+            ]
+        },
+        {
+            "no": 2,
+            "title": "helicopter_horizontal_movement",
+            "actions": [
+                "lean_forward",
+                "lean_backward",
+                "lean_left",
+                "lean_right"
+            ]
+        },
+        {
+            "no": 3,
+            "title": "helicopter_left_right_rotation",
+            "actions": [
+                "turn_left",
+                "turn_right"
+            ]
+        },
+        {
+            "no": 4,
+            "title": "helicopter_acceleration",
+            "actions": [
+                "acceleration"
+            ]
+        },
+        {
+            "no": 5,
+            "title": "helicopter_toggle_camera",
+            "actions": [
+                "toggle_camera"
+            ]
+        },
+        {
+            "no": 6,
+            "title": "auto_pilot",
+            "actions": [
+                "toggle_autopilot"
+            ]
+        }
+    ]
+}

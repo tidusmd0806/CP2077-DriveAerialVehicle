@@ -34,6 +34,7 @@ function Event:New()
     obj.is_keyboard_input_prev = false
     obj.is_enable_audio = true
     obj.is_locked_showing_meter = false
+    obj.is_creating_custom_input_hint = false
     -- projection
     obj.is_landing_projection = false
 
@@ -102,6 +103,8 @@ function Event:SetObserve()
     GameUI.Observe("SessionEnd", function()
         self.log_obj:Record(LogLevel.Info, "Session end detected")
         self.current_situation = Def.Situation.Idle
+        -- Stop widget monitoring when session ends
+        -- self.hud_obj:StopWidgetMonitor()
     end)
 end
 
@@ -228,7 +231,7 @@ end
 function Event:SpawnVehicle()
     self.sound_obj:PlayGameSound("100_call_vehicle")
     -- self.sound_obj:PlayGameSound("210_landing")
-    self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
+    -- self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
     self:SetSituation(Def.Situation.Landing)
     self.av_obj:SpawnToSky()
 end
@@ -290,6 +293,8 @@ function Event:CheckInAV()
                 self.hud_obj:ForceShowMeter()
                 self.hud_obj:ShowLeftBottomHUD()
                 self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
+                -- Start widget monitoring after HUD is fully initialized
+                self.hud_obj:StartWidgetMonitor()
             end)
         end
     else
@@ -306,6 +311,8 @@ function Event:CheckInAV()
                 self.av_obj:InterruptAutoPilot()
             end
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
+            -- Stop widget monitoring when exiting vehicle
+            -- self.hud_obj:StopWidgetMonitor()
         end
     end
 end
@@ -395,6 +402,8 @@ function Event:CheckDestroyed()
         self.av_obj:SetDestroyAppearance()
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
+        -- Stop widget monitoring when vehicle is destroyed
+        -- self.hud_obj:StopWidgetMonitor()
     end
 end
 
@@ -405,6 +414,8 @@ function Event:CheckDespawn()
         self.sound_obj:Mute()
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
+        -- Stop widget monitoring when vehicle despawns
+        -- self.hud_obj:StopWidgetMonitor()
     end
 end
 
@@ -419,7 +430,7 @@ function Event:CheckDistance()
         self.is_enable_audio = false
     else
         if not self.is_enable_audio then
-            self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
+            -- self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
         end
         self.is_enable_audio = true
     end
@@ -441,8 +452,16 @@ end
 function Event:CheckInput()
     if self.is_keyboard_input_prev ~= DAV.is_keyboard_input then
         self.is_keyboard_input_prev = DAV.is_keyboard_input
-        self.hud_obj:HideCustomHint()
-        self.hud_obj:ShowCustomHint()
+        if not self.is_creating_custom_input_hint then
+            self.is_creating_custom_input_hint = true
+            self.hud_obj:HideCustomHint()
+            self.hud_obj:ShowCustomHint()
+            -- Restart widget monitoring after input method change
+            -- self.hud_obj:StopWidgetMonitor()
+            Cron.After(0.5, function()
+                self.hud_obj:StartWidgetMonitor()
+            end)
+        end
     end
 end
 

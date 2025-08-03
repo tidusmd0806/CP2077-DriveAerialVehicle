@@ -558,6 +558,22 @@ function Debug:ImGuiExcuteFunction()
         DAV.core_obj.av_obj.engine_obj.fly_av_system:EnableOriginalPhysics(false)
         print("Excute Test Function 11")
     end
+    if ImGui.Button("TF12") then
+        local system = Game.GetInkSystem()
+        local controllers = system:GetLayer(CName.new("inkHUDLayer")):GetGameControllers()
+        local controller_input_hint
+        for _, controller in ipairs(controllers) do
+            print(controller:ToString())
+            if controller:ToString() == "gameuiInputHintManagerGameController" then
+                controller_input_hint = controller
+                break
+            end
+        end
+        controller_input_hint:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints"):GetWidget(0):GetWidget("hint"):GetWidget("keys"):GetWidget(0):GetWidget(0):GetWidget(1):GetWidget("inputIcon"):SetTexturePart("kb_s")
+        controller_input_hint:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints"):GetWidget(0):GetWidget("hint"):GetWidget("wrapper"):GetWidget("label"):SetText("kb_s")
+
+        print("Excute Test Function 12")
+    end
 end
 
 return Debug

@@ -106,19 +106,107 @@ function Sound:Mute()
 end
 
 --- Start Engine Sound
-function Sound:StartAVEngineSound()
+---@param flight_mode Def.FlightMode
+---@param fade_time number
+function Sound:StartEngineSound(flight_mode, fade_time)
     local evt = ActionEvent.new()
-    evt.eventAction = CName.new("dav_av_idle_start")
+    if flight_mode == Def.FlightMode.AV then
+        evt.eventAction = CName.new("dav_av_idle_start")
+    elseif flight_mode == Def.FlightMode.Helicopter then
+        evt.eventAction = CName.new("dav_heli_idle_start")
+    else
+        self.log_obj:Record(LogLevel.Error, "Invalid flight mode for starting engine sound: " .. tostring(flight_mode))
+        return
+    end
+    evt.timeToLive = fade_time or 0.5
     Game.GetPlayer():QueueEvent(evt)
     self.log_obj:Record(LogLevel.Info, "Start Engine Sound")
 end
 
 --- Stop Engine Sound
-function Sound:StopAVEngineSound()
+---@param flight_mode Def.FlightMode
+---@param fade_time number
+function Sound:StopEngineSound(flight_mode, fade_time)
     local evt = ActionEvent.new()
-    evt.eventAction = CName.new("dav_av_idle_stop")
+    if flight_mode == Def.FlightMode.AV then
+        evt.eventAction = CName.new("dav_av_idle_stop")
+    elseif flight_mode == Def.FlightMode.Helicopter then
+        evt.eventAction = CName.new("dav_heli_idle_stop")
+    else
+        self.log_obj:Record(LogLevel.Error, "Invalid flight mode for stopping engine sound: " .. tostring(self.flight_mode))
+        return
+    end
+    evt.timeToLive = fade_time or 0.5
     Game.GetPlayer():QueueEvent(evt)
     self.log_obj:Record(LogLevel.Info, "Stop Engine Sound")
+end
+
+--- Start Acceleration Sound
+---@param flight_mode Def.FlightMode
+---@param fade_time number
+function Sound:StartAccelerationSound(flight_mode, fade_time)
+    local evt = ActionEvent.new()
+    if flight_mode == Def.FlightMode.AV then
+        evt.eventAction = CName.new("dav_av_accel_start")
+    elseif flight_mode == Def.FlightMode.Helicopter then
+        evt.eventAction = CName.new("dav_heli_accel_start")
+    else
+        self.log_obj:Record(LogLevel.Error, "Invalid flight mode for starting acceleration sound: " .. tostring(flight_mode))
+        return
+    end
+    evt.timeToLive = fade_time or 0.5
+    Game.GetPlayer():QueueEvent(evt)
+    self.log_obj:Record(LogLevel.Info, "Start Acceleration Sound")
+end
+
+--- Stop Acceleration Sound
+---@param flight_mode Def.FlightMode
+---@param fade_time number
+function Sound:StopAccelerationSound(flight_mode, fade_time)
+    local evt = ActionEvent.new()
+    if flight_mode == Def.FlightMode.AV then
+        evt.eventAction = CName.new("dav_av_accel_stop")
+    elseif flight_mode == Def.FlightMode.Helicopter then
+        evt.eventAction = CName.new("dav_heli_accel_stop")
+    else
+        self.log_obj:Record(LogLevel.Error, "Invalid flight mode for stopping acceleration sound: " .. tostring(flight_mode))
+        return
+    end
+    evt.timeToLive = fade_time or 0.5
+    Game.GetPlayer():QueueEvent(evt)
+    self.log_obj:Record(LogLevel.Info, "Stop Acceleration Sound")
+end
+
+--- Start Thruster Sound
+---@param flight_mode Def.FlightMode
+---@param fade_time number
+function Sound:StartThrusterSound(flight_mode, fade_time)
+    local evt = ActionEvent.new()
+    if flight_mode == Def.FlightMode.Helicopter then
+        evt.eventAction = CName.new("dav_heli_thruster_start")
+    else
+        self.log_obj:Record(LogLevel.Error, "Invalid flight mode for starting thruster sound: " .. tostring(flight_mode))
+        return
+    end
+    evt.timeToLive = fade_time or 0.5
+    Game.GetPlayer():QueueEvent(evt)
+    self.log_obj:Record(LogLevel.Info, "Start Thruster Sound")
+end
+
+--- Stop Thruster Sound
+---@param flight_mode Def.FlightMode
+---@param fade_time number
+function Sound:StopThrusterSound(flight_mode, fade_time)
+    local evt = ActionEvent.new()
+    if flight_mode == Def.FlightMode.Helicopter then
+        evt.eventAction = CName.new("dav_heli_thruster_stop")
+    else
+        self.log_obj:Record(LogLevel.Error, "Invalid flight mode for stopping thruster sound: " .. tostring(flight_mode))
+        return
+    end
+    evt.timeToLive = fade_time or 0.5
+    Game.GetPlayer():QueueEvent(evt)
+    self.log_obj:Record(LogLevel.Info, "Stop Thruster Sound")
 end
 
 return Sound

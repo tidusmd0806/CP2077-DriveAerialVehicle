@@ -199,31 +199,82 @@ public class TranslationSystem {
 @addField(PlayerPuppet)
 let m_dav_veh_emitter_id: EntityID;
 @addField(PlayerPuppet)
-let m_av_idle_sound_tag_name: CName;
+let m_dav_idle_sound_tag_name: CName;
 @addField(PlayerPuppet)
-let m_av_control_sound_tag_name: CName;
+let m_dav_control_sound_tag_name: CName;
+@addField(PlayerPuppet)
+let m_dav_control_sound_thruster_tag_name: CName;
 
 
-public class AVSoundSystem extends ScriptableSystem {
-    private func OnAttach() {
-        GameInstance.GetCallbackSystem().RegisterCallback(n"Entity/AfterAttach", this, n"OnExcaliburSpawn")
-        .AddTarget(EntityTarget.RecordID(t"Vehicle.av_rayfield_excalibur_dav"));
-    }
-    private cb func OnExcaliburSpawn(event: ref<EntityLifecycleEvent>) {
+public class DAVAudioSystem extends ScriptableSystem {
+	private func OnAttach() {
+		GameInstance.GetCallbackSystem().RegisterCallback(n"Entity/AfterAttach", this, n"OnExcaliburSpawn")
+			.AddTarget(EntityTarget.RecordID(t"Vehicle.av_rayfield_excalibur_dav"));
+		GameInstance.GetCallbackSystem().RegisterCallback(n"Entity/AfterAttach", this, n"OnManticoreSpawn")
+			.AddTarget(EntityTarget.RecordID(t"Vehicle.av_militech_manticore_dav"));
+		GameInstance.GetCallbackSystem().RegisterCallback(n"Entity/AfterAttach", this, n"OnAtlusSpawn")
+			.AddTarget(EntityTarget.RecordID(t"Vehicle.av_zetatech_atlus_dav"));
+		GameInstance.GetCallbackSystem().RegisterCallback(n"Entity/AfterAttach", this, n"OnSurveyorSpawn")
+			.AddTarget(EntityTarget.RecordID(t"Vehicle.av_zetatech_surveyor_dav"));
+		GameInstance.GetCallbackSystem().RegisterCallback(n"Entity/AfterAttach", this, n"OnValgusSpawn")
+			.AddTarget(EntityTarget.RecordID(t"Vehicle.q000_nomad_border_patrol_heli_dav"));
+		GameInstance.GetCallbackSystem().RegisterCallback(n"Entity/AfterAttach", this, n"OnMayhemSpawn")
+			.AddTarget(EntityTarget.RecordID(t"Vehicle.q000_nomad_border_patrol_heli_mayhem_dav"));
+	}
+	private cb func OnExcaliburSpawn(event: ref<EntityLifecycleEvent>) {
 		let target = event.GetEntity();
-		LogChannel(n"DEBUG", "OnExcaliburSpawn");
-        if !IsDefined(target) { return; }
-        this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Idle_Sound");
+		if !IsDefined(target) { return; }
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Idle_Sound");
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Control_Sound");
-    }
+	}
+	private cb func OnManticoreSpawn(event: ref<EntityLifecycleEvent>) {
+		let target = event.GetEntity();
+		if !IsDefined(target) { return; }
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Idle_Sound");
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Control_Sound");
+	}
+	private cb func OnAtlusSpawn(event: ref<EntityLifecycleEvent>) {
+		let target = event.GetEntity();
+		if !IsDefined(target) { return; }
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Idle_Sound");
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Control_Sound");
+	}
+	private cb func OnSurveyorSpawn(event: ref<EntityLifecycleEvent>) {
+		let target = event.GetEntity();
+		if !IsDefined(target) { return; }
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Idle_Sound");
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Control_Sound");
+	}
+	private cb func OnValgusSpawn(event: ref<EntityLifecycleEvent>) {
+		let target = event.GetEntity();
+		if !IsDefined(target) { return; }
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Idle_Sound");
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Control_Sound");
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Thruster_Sound");
+	}
+	private cb func OnMayhemSpawn(event: ref<EntityLifecycleEvent>) {
+		let target = event.GetEntity();
+		if !IsDefined(target) { return; }
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Idle_Sound");
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Control_Sound");
+		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Thruster_Sound");
+	}
 	private func RegisterEmitter(emitter_id: EntityID, tag_name: CName) {
 		let game = this.GetGameInstance();
 		let player = GetPlayer(game);
 		player.m_dav_veh_emitter_id = emitter_id;
-		if Equals(tag_name, n"DAV_AV_Control_Sound") {
-			player.m_av_control_sound_tag_name = tag_name;
-		} else if Equals(tag_name, n"DAV_AV_Idle_Sound") {
-			player.m_av_idle_sound_tag_name = tag_name;
+		if Equals(tag_name, n"DAV_AV_Idle_Sound") {
+			player.m_dav_idle_sound_tag_name = tag_name;
+		} else if Equals(tag_name, n"DAV_AV_Control_Sound") {
+			player.m_dav_control_sound_tag_name = tag_name;
+		} else if Equals(tag_name, n"DAV_Heli_Idle_Sound") {
+			player.m_dav_idle_sound_tag_name = tag_name;
+		} else if Equals(tag_name, n"DAV_Heli_Control_Sound") {
+			player.m_dav_control_sound_tag_name = tag_name;
+		} else if Equals(tag_name, n"DAV_Heli_Thruster_Sound") {
+			player.m_dav_control_sound_thruster_tag_name = tag_name;
+		} else {
+			return; // Invalid tag name
 		}
 		if !GameInstance.GetAudioSystemExt(game).IsRegisteredEmitter(emitter_id, tag_name) {
 			GameInstance.GetAudioSystemExt(game).RegisterEmitter(emitter_id, tag_name);
@@ -233,21 +284,29 @@ public class AVSoundSystem extends ScriptableSystem {
 
 @addMethod(PlayerPuppet)
 private cb func OnDAVSoundEvent(event: ref<ActionEvent>) {
-    let game = this.GetGame();
-    let event_name : CName = event.eventAction;
-    if !GameInstance.GetAudioSystemExt(game).IsRegisteredEmitter(this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name) {return;}
-    if Equals(event_name, n"dav_av_idle_start") {
-		LogChannel(n"DEBUG", NameToString(this.m_av_idle_sound_tag_name));
-        GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_av_idle", this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name);
+	let game = this.GetGame();
+	let event_name : CName = event.eventAction;
+	let time_to_live : Float = event.timeToLive;
+	if !GameInstance.GetAudioSystemExt(game).IsRegisteredEmitter(this.m_dav_veh_emitter_id, this.m_dav_idle_sound_tag_name) {return;}
+	if Equals(event_name, n"dav_av_idle_start") {
+		GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_av_idle", this.m_dav_veh_emitter_id, this.m_dav_idle_sound_tag_name, LinearTween.Immediate(time_to_live));
 	} else if Equals(event_name, n"dav_av_idle_stop") {
-		GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_av_idle", this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name);
+		GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_av_idle", this.m_dav_veh_emitter_id, this.m_dav_idle_sound_tag_name, LinearTween.Immediate(time_to_live));
 	} else if Equals(event_name, n"dav_av_accel_start") {
-        GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_av_accel", this.m_dav_veh_emitter_id, this.m_av_control_sound_tag_name, LinearTween.Immediate(5.));
+		GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_av_accel", this.m_dav_veh_emitter_id, this.m_dav_control_sound_tag_name, LinearTween.Immediate(time_to_live));
 	} else if Equals(event_name, n"dav_av_accel_stop") {
-        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_av_accel", this.m_dav_veh_emitter_id, this.m_av_control_sound_tag_name, LinearTween.Immediate(5.));
-    } else if Equals(event_name, n"private_yacht_cancel") {
-        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_move", this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name);
-        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_start", this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name);
-        GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"private_yacht_end", this.m_dav_veh_emitter_id, this.m_av_idle_sound_tag_name);
-    }
+		GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_av_accel", this.m_dav_veh_emitter_id, this.m_dav_control_sound_tag_name, LinearTween.Immediate(time_to_live));
+	} else if Equals(event_name, n"dav_heli_idle_start") {
+		GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_heli_idle", this.m_dav_veh_emitter_id, this.m_dav_idle_sound_tag_name, LinearTween.Immediate(time_to_live));
+	} else if Equals(event_name, n"dav_heli_idle_stop") {
+		GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_heli_idle", this.m_dav_veh_emitter_id, this.m_dav_idle_sound_tag_name, LinearTween.Immediate(time_to_live));
+	} else if Equals(event_name, n"dav_heli_accel_start") {
+		GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_heli_accel", this.m_dav_veh_emitter_id, this.m_dav_control_sound_tag_name, LinearTween.Immediate(time_to_live));
+	} else if Equals(event_name, n"dav_heli_accel_stop") {
+		GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_heli_accel", this.m_dav_veh_emitter_id, this.m_dav_control_sound_tag_name, LinearTween.Immediate(time_to_live));
+	} else if Equals(event_name, n"dav_heli_thruster_start") {
+		GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_heli_thruster", this.m_dav_veh_emitter_id, this.m_dav_control_sound_thruster_tag_name, LinearTween.Immediate(time_to_live));
+	} else if Equals(event_name, n"dav_heli_thruster_stop") {
+		GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_heli_thruster", this.m_dav_veh_emitter_id, this.m_dav_control_sound_thruster_tag_name, LinearTween.Immediate(time_to_live));
+	}
 }

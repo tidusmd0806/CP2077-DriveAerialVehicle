@@ -480,13 +480,13 @@ function Engine:CalculateHelicopterMode(action_command_list)
         else
             local_pitch = local_pitch + pitch_change_amount
         end
-    elseif action_command_list[1] == Def.ActionList.HLeanRight then
+    elseif action_command_list[1] == Def.ActionList.HLeanLeft then
         if current_angle.roll < -self.max_roll then
             local_roll = 0
         else
             local_roll = local_roll - roll_change_amount
         end
-    elseif action_command_list[1] == Def.ActionList.HLeanLeft then
+    elseif action_command_list[1] == Def.ActionList.HLeanRight then
         if current_angle.roll > self.max_roll then
             local_roll = 0
         else

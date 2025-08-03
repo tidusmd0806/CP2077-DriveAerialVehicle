@@ -1,12 +1,27 @@
 version: 1.0.0
 sfx:
   dav_av_idle:
-    file: av_q306_sc_11_altus_02_idle.wav
+    file: 362939456.wav
     settings:
-      volume: 3
+      volume: 1.5
       loop: true
   dav_av_accel:
-    file: av_q306_sc_11_altus_02_idle.wav
+    file: 448819048.wav
     settings:
-      volume: 3
+      volume: 0.75
+      loop: true
+  dav_heli_idle:
+    file: 315264488.wav
+    settings:
+      volume: 0.75
+      loop: true
+  dav_heli_accel:
+    file: 814401767.wav
+    settings:
+      volume: 1.0
+      loop: true
+  dav_heli_thruster:
+    file: 450288952.wav
+    settings:
+      volume: 1.5
       loop: true

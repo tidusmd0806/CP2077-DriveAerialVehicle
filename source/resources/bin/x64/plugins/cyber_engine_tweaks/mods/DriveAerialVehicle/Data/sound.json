@@ -7,9 +7,5 @@
     "240_leaving": "q001_sc_00c_trauma_leaves_av_engines",
     "310_av_engine_idle": "sq017_sc_18_big_av_fly_idle_start",
     "320_heli_engine_idle": "q000_nomad_sc_04_heli"
-    },
-    "DAV":
-    {
-        
     }
 }

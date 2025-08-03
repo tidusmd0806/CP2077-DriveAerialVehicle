@@ -94,6 +94,8 @@ function AV:New(core_obj)
 	obj.destroy_app = nil
 	-- audio
 	obj.engine_audio_name = nil
+	obj.is_acceleration_sound = false
+	obj.is_thruster_sound = false
 	-- truster
 	obj.is_available_thruster = false
 	obj.engine_component_name_list = {}
@@ -343,14 +345,11 @@ function AV:Spawn(position, angle)
 		if entity ~= nil then
 			self.is_spawning = false
 			self.landing_vfx_component = entity:FindComponentByName("LandingVFXSlot")
-			-- self.position_obj:SetEntity(entity)
 			self.engine_obj:Init(self.entity_id)
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.engine_obj:EnableGravity(false)
-			if self.flight_mode == Def.FlightMode.AV then
-				self.core_obj.event_obj.sound_obj:StartAVEngineSound()
-			end
 			Cron.After(0.5, function()
+				self.core_obj.event_obj.sound_obj:StartEngineSound(self.flight_mode, 1.5)
 				if self:SetThrusterComponent() then
 					self.is_available_thruster = true
 				else
@@ -399,9 +398,6 @@ function AV:Despawn()
 		return false
 	end
 	local entity_system = Game.GetDynamicEntitySystem()
-	if self.flight_mode == Def.FlightMode.AV then
-		self.core_obj.event_obj.sound_obj:StopAVEngineSound()
-	end
 	entity_system:DeleteEntity(self.entity_id)
 	self.entity_id = nil
 	return true
@@ -420,7 +416,10 @@ function AV:DespawnFromGround()
 				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
 			elseif timer.tick >= self.up_timeout then
 				self.log_obj:Record(LogLevel.Info, "Despawn Timeout")
-				self:Despawn()
+				self.core_obj.event_obj.sound_obj:StopEngineSound(self.flight_mode, 1.5)
+				Cron.After(1.5, function()
+					self:Despawn()
+				end)
 				Cron.Halt(timer)
 			end
 			timer.tick = timer.tick + 1
@@ -732,9 +731,64 @@ function AV:Operate(action_command_lists)
 	if not self.is_auto_pilot then
 		self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
 		self:MoveThruster(action_command_lists)
+		self:ControlSound(action_command_lists)
 	end
 
 	return true
+end
+
+--- Control sound.
+---@param action_command_lists table
+---@return boolean
+function AV:ControlSound(action_command_lists)
+	local is_acceleration_sound = false
+	local is_thruster_sound = false
+	for _, action_command_list in ipairs(action_command_lists) do
+		if action_command_list[1] >= Def.ActionList.Enter then
+			self.log_obj:Record(LogLevel.Trace, "Invalid Sound Command:" .. action_command_list[1])
+			return false
+		end
+		for _, acceleration_command in pairs(Def.AccelerationActionList) do
+			if action_command_list[1] == acceleration_command then
+				is_acceleration_sound = true
+				break
+			end
+		end
+		for _, thruster_command in pairs(Def.ThrusterActionList) do
+			if action_command_list[1] == thruster_command then
+				is_thruster_sound = true
+				break
+			end
+		end
+		if is_acceleration_sound or is_thruster_sound then
+			break
+		end
+	end
+
+	if not self.is_acceleration_sound and is_acceleration_sound then
+		self.log_obj:Record(LogLevel.Info, "Start Acceleration Sound")
+		self.core_obj.event_obj.sound_obj:StartAccelerationSound(self.flight_mode, 1.5)
+		self.is_acceleration_sound = true
+		return true
+	elseif self.is_acceleration_sound and not is_acceleration_sound then
+		self.log_obj:Record(LogLevel.Info, "Stop Acceleration Sound")
+		self.core_obj.event_obj.sound_obj:StopAccelerationSound(self.flight_mode, 1.5)
+		self.is_acceleration_sound = false
+		return true
+	elseif not self.is_thruster_sound and is_thruster_sound then
+		self.log_obj:Record(LogLevel.Info, "Start Thruster Sound")
+		self.core_obj.event_obj.sound_obj:StartThrusterSound(self.flight_mode, 1.5)
+		self.is_thruster_sound = true
+		return true
+	elseif self.is_thruster_sound and not is_thruster_sound then
+		self.log_obj:Record(LogLevel.Info, "Stop Thruster Sound")
+		self.core_obj.event_obj.sound_obj:StopThrusterSound(self.flight_mode, 1.5)
+		self.is_thruster_sound = false
+		return true
+	end
+	self.log_obj:Record(LogLevel.Trace, "No Sound Change")
+	return true
+
 end
 
 --- Set destination by mappin.

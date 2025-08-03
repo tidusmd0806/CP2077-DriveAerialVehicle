@@ -48,6 +48,29 @@ Def.ActionList = {
     OpenAutopilotPanel = 201,
 }
 
+---@enum Def.AccelationActionList
+Def.AccelerationActionList = {
+    --- AV
+    Forward = Def.ActionList.Forward,
+    Backward = Def.ActionList.Backward,
+    Up = Def.ActionList.Up,
+    Down = Def.ActionList.Down,
+    Right = Def.ActionList.Right,
+    Left = Def.ActionList.Left,
+    --- Helicopter
+    HUp = Def.ActionList.HUp,
+    HLeanForward = Def.ActionList.HLeanForward,
+    HLeanBackward = Def.ActionList.HLeanBackward,
+    HLeanRight = Def.ActionList.HLeanRight,
+    HLeanLeft = Def.ActionList.HLeanLeft,
+}
+
+---@enum Def.ThrusterActionList
+Def.ThrusterActionList = {
+    --- Helicopter
+    HAccelerate = Def.ActionList.HAccelerate,
+}
+
 ---@enum Def.Situation
 Def.Situation = {
     Idle = -1,
