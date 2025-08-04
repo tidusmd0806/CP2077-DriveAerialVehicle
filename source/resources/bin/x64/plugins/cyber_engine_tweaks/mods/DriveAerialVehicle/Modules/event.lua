@@ -34,7 +34,6 @@ function Event:New()
     obj.is_keyboard_input_prev = false
     obj.is_enable_audio = true
     obj.is_locked_showing_meter = false
-    obj.is_creating_custom_input_hint = false
     -- projection
     obj.is_landing_projection = false
 
@@ -103,8 +102,6 @@ function Event:SetObserve()
     GameUI.Observe("SessionEnd", function()
         self.log_obj:Record(LogLevel.Info, "Session end detected")
         self.current_situation = Def.Situation.Idle
-        -- Stop widget monitoring when session ends
-        -- self.hud_obj:StopWidgetMonitor()
     end)
 end
 
@@ -286,15 +283,13 @@ function Event:CheckInAV()
             self.hud_obj:HideChoice()
             self.hud_obj:ShowCustomHint()
             self.hud_obj:EnableManualMeter(false, self.av_obj.is_enable_manual_rpm_meter)
-            self.is_keyboard_input_prev = DAV.is_keyboard_input
+            self.is_keyboard_input_prev = self.hud_obj.is_keyboard_input
             self.av_obj.engine_obj:EnableOriginalPhysics(false)
             self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
             Cron.After(1.5, function()
                 self.hud_obj:ForceShowMeter()
                 self.hud_obj:ShowLeftBottomHUD()
                 self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
-                -- Start widget monitoring after HUD is fully initialized
-                self.hud_obj:StartWidgetMonitor()
             end)
         end
     else
@@ -311,8 +306,6 @@ function Event:CheckInAV()
                 self.av_obj:InterruptAutoPilot()
             end
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
-            -- Stop widget monitoring when exiting vehicle
-            -- self.hud_obj:StopWidgetMonitor()
         end
     end
 end
@@ -402,8 +395,6 @@ function Event:CheckDestroyed()
         self.av_obj:SetDestroyAppearance()
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
-        -- Stop widget monitoring when vehicle is destroyed
-        -- self.hud_obj:StopWidgetMonitor()
     end
 end
 
@@ -414,8 +405,6 @@ function Event:CheckDespawn()
         self.sound_obj:Mute()
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
-        -- Stop widget monitoring when vehicle despawns
-        -- self.hud_obj:StopWidgetMonitor()
     end
 end
 
@@ -450,18 +439,10 @@ end
 
 --- Check player input. if or not keyboard input, show/hide custom hint.
 function Event:CheckInput()
-    if self.is_keyboard_input_prev ~= DAV.is_keyboard_input then
-        self.is_keyboard_input_prev = DAV.is_keyboard_input
-        if not self.is_creating_custom_input_hint then
-            self.is_creating_custom_input_hint = true
-            self.hud_obj:HideCustomHint()
-            self.hud_obj:ShowCustomHint()
-            -- Restart widget monitoring after input method change
-            -- self.hud_obj:StopWidgetMonitor()
-            Cron.After(0.5, function()
-                self.hud_obj:StartWidgetMonitor()
-            end)
-        end
+    if self.is_keyboard_input_prev ~= self.hud_obj.is_keyboard_input then
+        self.is_keyboard_input_prev = self.hud_obj.is_keyboard_input
+        self.hud_obj:HideCustomHint()
+        self.hud_obj:ShowCustomHint()
     end
 end
 

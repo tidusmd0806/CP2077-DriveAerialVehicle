@@ -103,7 +103,7 @@ end
 function Debug:ImGuiInputCheck()
     self.is_im_gui_input_check = ImGui.Checkbox("[ImGui] Input Check", self.is_im_gui_input_check)
     if self.is_im_gui_input_check then
-        if DAV.is_keyboard_input then
+        if self.core_obj.event_obj.hud_obj.is_keyboard_input then
             ImGui.Text("Keyboard : On")
         else
             ImGui.Text("Keyboard : Off")

@@ -21,11 +21,13 @@ function HUD:New()
     obj.is_manually_setting_speed = false
     obj.is_manually_setting_rpm = false
     -- input hint
+    obj.is_keyboard_input = true
     obj.input_hint_mapping_table = {}
     obj.input_hint_controller = nil
     obj.key_input_show_hint_event = nil
     obj.key_input_hide_hint_event = nil
     obj.current_input_hint_count = 0
+    obj.icon_texture_atlas = ResRef.FromName("base\\gameplay\\gui\\common\\input\\icons_keyboard.inkatlas")
     -- interaction choice
     obj.selected_choice_index = 1
     obj.interaction_ui_base = nil
@@ -38,10 +40,6 @@ function HUD:New()
     obj.ink_horizontal_panel = nil
     obj.ink_hp_title = nil
     obj.ink_hp_text = nil
-    -- widget monitoring
-    obj.widget_monitor_timer = nil
-    obj.monitored_widget = nil
-    obj.last_widget_visible_state = true
 
     return setmetatable(obj, self)
 end
@@ -188,6 +186,50 @@ function HUD:SetObserve()
                     end
                 end
             end
+        end)
+
+        ObserveAfter("gameuiPhotoModeMenuController", "OnPhotoModeLastInputDeviceEvent", function(this, wasKeyboardMouse)
+            if wasKeyboardMouse then
+                self.is_keyboard_input = true
+            else
+                self.is_keyboard_input = false
+            end
+            local compound_widget = this:GetRootCompoundWidget()
+            if compound_widget == nil then
+                self.log_obj:Record(LogLevel.Error, "compound_widget is nil")
+                return
+            end
+            local input_panel = compound_widget:GetWidget("input_panel")
+            if input_panel == nil then
+                self.log_obj:Record(LogLevel.Error, "input_panel is nil")
+                return
+            end
+            local input_light_pad = input_panel:GetWidget("inputLightPad")
+            if input_light_pad == nil then
+                self.log_obj:Record(LogLevel.Error, "inputLightPad is nil")
+                return
+            end
+            local camera_control_pad = input_light_pad:GetWidget("cameraControlPad")
+            if camera_control_pad == nil then
+                self.log_obj:Record(LogLevel.Error, "cameraControlPad is nil")
+                return
+            end
+            local move = camera_control_pad:GetWidget("move")
+            if move == nil then
+                self.log_obj:Record(LogLevel.Error, "move is nil")
+                return
+            end
+            local input_root = move:GetWidget("inputRoot")
+            if input_root == nil then
+                self.log_obj:Record(LogLevel.Error, "inputRoot is nil")
+                return
+            end
+            local input_icon = input_root:GetWidget("inputIcon")
+            if input_icon == nil then
+                self.log_obj:Record(LogLevel.Error, "inputIcon is nil")
+                return
+            end
+            self.icon_texture_atlas = input_icon.textureAtlas
         end)
     end
 end
@@ -510,7 +552,7 @@ function HUD:ReconstructInputHint()
 
     -- Determine flight mode and input method
     local flight_mode = self.av_obj.engine_obj.flight_mode
-    local is_keyboard_input = DAV.is_keyboard_input
+    local is_keyboard_input = self.is_keyboard_input
     local mode_name = (flight_mode == Def.FlightMode.AV) and "AV" or "Helicopter"
     
     -- Get the appropriate hint configuration for current mode
@@ -572,9 +614,6 @@ function HUD:ReconstructInputHint()
         end
 
     end
-    
-    -- Update widget visible state after reconstruction
-    self.last_widget_visible_state = true
 end
 
 --- Find key binding for a specific action
@@ -624,7 +663,7 @@ function HUD:GetTexturePartFromKeyCode(key_code, is_hold)
     else
         -- Use mapping table if available
         if self.input_hint_mapping_table then
-            local input_type = DAV.is_keyboard_input and "keyboard" or "gamepad"
+            local input_type = self.is_keyboard_input and "keyboard" or "gamepad"
             local mapping_section = self.input_hint_mapping_table[input_type]
             
             if mapping_section and mapping_section[key_code] then
@@ -767,7 +806,7 @@ function HUD:CreateInputIcon(texture_part)
     input_icon:SetName(StringToName("inputIcon"))
     
     -- Use appropriate texture atlas based on current input method
-    local texture_atlas = self:GetCurrentIconTextureAtlas()
+    local texture_atlas = self.icon_texture_atlas
     if texture_atlas then
         input_icon:SetAtlasResource(texture_atlas)
     end
@@ -827,7 +866,7 @@ function HUD:CreateOrUpdateHintWidget(num, text, texture_parts, enable)
                                         icon_widget:SetVisible(true)
                                         icon_widget:SetTexturePart(texture_parts[i])
                                         -- Use appropriate texture atlas based on current input method
-                                        local texture_atlas = self:GetCurrentIconTextureAtlas()
+                                        local texture_atlas = self.icon_texture_atlas
                                         if texture_atlas then
                                             icon_widget:SetAtlasResource(texture_atlas)
                                         end
@@ -889,7 +928,7 @@ end
 --- Set Custom Hint
 function HUD:SetCustomHint()
     local flight_mode = self.av_obj.engine_obj.flight_mode
-    local is_keyboard_input = DAV.is_keyboard_input
+    local is_keyboard_input = self.is_keyboard_input
     local hint_table = {}
     hint_table = Utils:ReadJson("Data/input_hint.json")
     self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()
@@ -941,115 +980,6 @@ function HUD:SetCustomHint()
         self.key_input_show_hint_event:AddInputHint(input_hint_data, true)
         self.key_input_hide_hint_event:AddInputHint(input_hint_data, false)
     end
-    Cron.Every(0.5, {tick=1}, function(timer)
-        if self:SetInputHintController() and self:GetCurrentIconTextureAtlas() then
-            self:ReconstructInputHint()
-            self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
-            Cron.Halt(timer)
-        end
-    end)
-end
-
---- Get Current Icon Texture Atlas
----@return inkTextureAtlas | nil
-function HUD:GetCurrentIconTextureAtlas()
-    if self.input_hint_controller == nil then
-        self.log_obj:Record(LogLevel.Error, "input_hint_controller is nil")
-        return nil
-    end
-    local main_container = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer")
-    if main_container == nil then
-        self.log_obj:Record(LogLevel.Warning, "main_container is nil")
-        return nil
-    end
-    local hints_widget = main_container:GetWidget("hints")
-    if hints_widget == nil then
-        self.log_obj:Record(LogLevel.Warning, "hints_widget is nil")
-        return nil
-    end
-    local ink_flex_widget = hints_widget:GetWidget(0)
-    if ink_flex_widget == nil then
-        self.log_obj:Record(LogLevel.Warning, "ink_flex_widget is nil")
-        return nil
-    end
-    local hint_widget = ink_flex_widget:GetWidget("hint")
-    if hint_widget == nil then
-        self.log_obj:Record(LogLevel.Warning, "hint_widget is nil")
-        return nil
-    end
-    local keys_widget = hint_widget:GetWidget("keys")
-    if keys_widget == nil then
-        self.log_obj:Record(LogLevel.Warning, "keys_widget is nil")
-        return nil
-    end
-    local input_icon_widget = keys_widget:GetWidget(0):GetWidget(0):GetWidget(1):GetWidget("inputIcon")
-    if input_icon_widget == nil then
-        self.log_obj:Record(LogLevel.Warning, "input_icon_widget is nil")
-        return nil
-    end
-    return input_icon_widget.textureAtlas
-end
-
---- Start Widget Monitor
-function HUD:StartWidgetMonitor()
-    print(self.input_hint_controller)
-    print(self:GetCurrentIconTextureAtlas())
-    if self.input_hint_controller and self:GetCurrentIconTextureAtlas() then
-        print("Starting widget monitor")
-        self:ReconstructInputHint()
-    end
-    DAV.core_obj.event_obj.is_creating_custom_input_hint = false
-    -- Stop existing monitor if running
-    -- self:StopWidgetMonitor()
-    
-    -- Only monitor when player is in vehicle (using event obj for accurate state check)
-    -- if not DAV.core_obj.event_obj:IsInVehicle() then
-    --     self.log_obj:Record(LogLevel.Debug, "Not in vehicle, widget monitor not started")
-    --     return
-    -- end
-    
-    -- self.log_obj:Record(LogLevel.Info, "Starting widget monitor")
-    
-    -- self.widget_monitor_timer = Cron.Every(1.0, function(timer)
-    --     -- Double check vehicle state using event object
-    --     if not DAV.core_obj.event_obj:IsInVehicle() then
-    --         self.log_obj:Record(LogLevel.Info, "Player exited vehicle, stopping widget monitor")
-    --         -- self:StopWidgetMonitor()
-    --         return
-    --     end
-        
-        -- Get the first hint widget (hint_1) to monitor
-        -- if self.input_hint_controller then
-        --     local input_hint_widget = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints")
-        --     if input_hint_widget then
-        --         local monitored_widget = input_hint_widget:GetWidget(StringToName("hint_1"))
-        --         if monitored_widget then
-        --             local current_visible = monitored_widget:IsVisible()
-                    
-        --             -- If widget became invisible, reconstruct hints
-        --             if self.last_widget_visible_state and not current_visible then
-        --                 self.log_obj:Record(LogLevel.Info, "Widget became invisible, reconstructing input hints")
-        --                 self:ReconstructInputHint()
-        --             end
-                    
-        --             self.last_widget_visible_state = current_visible
-        --         else
-        --             -- Widget doesn't exist, try to reconstruct
-        --             self.log_obj:Record(LogLevel.Debug, "Monitored widget not found, reconstructing input hints")
-        --             self:ReconstructInputHint()
-        --         end
-        --     end
-        -- end
-    -- end)
-end
-
---- Stop Widget Monitor
-function HUD:StopWidgetMonitor()
-    if self.widget_monitor_timer then
-        Cron.Halt(self.widget_monitor_timer)
-        self.widget_monitor_timer = nil
-        self.log_obj:Record(LogLevel.Info, "Stopped widget monitor")
-    end
 end
 
 --- Show Custom Hint
@@ -1059,6 +989,24 @@ function HUD:ShowCustomHint()
     end
     self:SetCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_show_hint_event)
+    Cron.Every(0.1, {tick=1}, function(timer)
+        timer.tick = timer.tick + 1
+        if timer.tick > 100 then
+            self.log_obj:Record(LogLevel.Error, "ReconstructInputHint not called after 1 second, stopping")
+            Cron.Halt(timer)
+            return
+        end
+        self:SetInputHintController()
+        if self:CheckVisibleSomeInputHint() then
+            self:ReconstructInputHint()
+            self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
+            Cron.After(1.5, function()
+                self:ReconstructInputHint()
+            end)
+            Cron.Halt(timer)
+            return
+        end
+    end)
 end
 
 --- Hide Custom Hint
@@ -1072,6 +1020,38 @@ function HUD:DeleteInputHint(name)
     delete_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
     delete_hint_event.source = CName.new(name)
     Game.GetUISystem():QueueEvent(delete_hint_event)
+end
+
+function HUD:CheckVisibleSomeInputHint()
+    if self.input_hint_controller == nil then
+        self.log_obj:Record(LogLevel.Error, "input_hint_controller is nil")
+        return false
+    end
+
+    local main_container = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer")
+    if main_container == nil then
+        self.log_obj:Record(LogLevel.Warning, "main_container is nil")
+        return false
+    end
+
+    local hints_widget = main_container:GetWidget("hints")
+    if hints_widget == nil then
+        self.log_obj:Record(LogLevel.Warning, "hints_widget is nil")
+        return false
+    end
+
+    for i = 0, 50 do
+        local hint_widget = hints_widget:GetWidget(i)
+        if hint_widget ~= nil then
+            if hint_widget:IsVisible() then
+                self.log_obj:Record(LogLevel.Trace, "Visible input hint found: " .. hint_widget:GetName().value)
+                return true
+            end
+        else
+            break
+        end
+    end
+    return false
 end
 
 --- Show Message when auto pilot is on.

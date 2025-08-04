@@ -315,11 +315,6 @@ registerForEvent("onHook", function()
             callback = function(event)
                 local key = event:GetKey().value
                 local action = event:GetAction().value
-                if key:find("IK_Pad") then
-                    DAV.is_keyboard_input = false
-                else
-                    DAV.is_keyboard_input = true
-                end
                 if DAV.listening_keybind_widget and key:find("IK_Pad") and action == "IACT_Release" then -- OnKeyBindingEvent has to be called manually for gamepad inputs, while there is a keybind widget listening for input
                     DAV.listening_keybind_widget:OnKeyBindingEvent(KeyBindingEvent.new({keyName = key}))
                     DAV.listening_keybind_widget = nil
@@ -354,7 +349,6 @@ registerForEvent("onHook", function()
                 local value = event:GetValue()
                 if math.abs(value) > DAV.axis_dead_zone then
                     if key:find("IK_Pad") then
-                        DAV.is_keyboard_input = false
                         local current_situation = Def.Situation.Idle
                         if DAV.core_obj ~= nil then
                             current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
@@ -363,7 +357,6 @@ registerForEvent("onHook", function()
                             DAV.core_obj:ConvertAxisAction(key, value)
                         end
                     else
-                        DAV.is_keyboard_input = true
                     end
                 end
             end
