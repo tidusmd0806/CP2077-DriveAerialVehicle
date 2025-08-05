@@ -140,7 +140,7 @@
         "exit_point": {"x": -3.2, "y": 1.0, "z": -1.0},
         "exit_duration": 2.2,
         "minimum_distance_to_ground": 3.5,
-        "ground_search_offset": 2.0,
+        "ground_search_offset": 1.5,
         "combat_door": ["trunk"],
         "crystal_dome": false,
         "landing_vfx": true,

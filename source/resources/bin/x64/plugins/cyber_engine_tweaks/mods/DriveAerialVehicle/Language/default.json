@@ -1,6 +1,6 @@
 {
     "language": "English",
-    "version": "2.5.4",
+    "version": "3.0.0",
 
     "native_settings_top_title": "Drive AV",
     "native_settings_general_subtitle": "General Settings",
@@ -47,6 +47,14 @@
     "native_settings_keybinds_move_right_description": "Hold on this to move the AV right.",
     "native_settings_keybinds_lean_reset": "Lean Reset",
     "native_settings_keybinds_lean_reset_description": "Hold on this to reset the AV's tilt.",
+    "native_settings_keybinds_move_forward": "Move Forward",
+    "native_settings_keybinds_move_forward_description": "Hold on this to move the AV forward.",
+    "native_settings_keybinds_move_backward": "Move Backward",
+    "native_settings_keybinds_move_backward_description": "Hold on this to move the AV backward.",
+    "native_settings_keybinds_lean_forward": "Lean Forward",
+    "native_settings_keybinds_lean_forward_description": "Hold on this to lean the AV forward.",
+    "native_settings_keybinds_lean_backward": "Lean Backward",
+    "native_settings_keybinds_lean_backward_description": "Hold on this to lean the AV backward.",
     "native_settings_keybinds_ascend": "Ascend",
     "native_settings_keybinds_ascend_description": "Hold on this to ascend the Helicopter.",
     "native_settings_keybinds_descend": "Descend",
@@ -151,6 +159,19 @@
     "hud_interaction_seat_Seat in Middle(Right)": "Seat in Middle(Right)",
     "hud_interaction_seat_Seat in Back": "Seat in Back",
     "hud_interaction_seat_Cockpit(Front)": "Cockpit(Front)",
-    "hud_interaction_seat_Cockpit(Back)": "Cockpit(Back)"
+    "hud_interaction_seat_Cockpit(Back)": "Cockpit(Back)",
+
+    "hud_input_hint_av_vertical_movement": "Vertical Movement",
+    "hud_input_hint_av_horizontal_movement": "Horizontal Movement", 
+    "hud_input_hint_left_right_rotation": "Left/Right Rotation",
+    "hud_input_hint_forward_backward_rotation": "Forward/Backward Rotation",
+    "hud_input_hint_lean_reset": "Lean Reset",
+    "hud_input_hint_toggle_camera": "Toggle Camera",
+    "hud_input_hint_auto_pilot": "AutoPilot",
+    "hud_input_hint_helicopter_vertical_movement": "Vertical Movement",
+    "hud_input_hint_helicopter_horizontal_movement": "Horizontal Movement", 
+    "hud_input_hint_helicopter_left_right_rotation": "Left/Right Rotation",
+    "hud_input_hint_helicopter_acceleration": "Acceleration",
+    "hud_input_hint_helicopter_toggle_camera": "Toggle Camera"
 
 }

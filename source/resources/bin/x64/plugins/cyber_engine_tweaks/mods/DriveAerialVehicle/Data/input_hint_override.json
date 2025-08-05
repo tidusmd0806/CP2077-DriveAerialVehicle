@@ -2,7 +2,7 @@
     "AV": [
         {
             "no": 1,
-            "title": "av_vertical_movement",
+            "title": "hud_input_hint_av_vertical_movement",
             "actions": [
                 "move_up",
                 "move_down"
@@ -10,7 +10,7 @@
         },
         {
             "no": 2,
-            "title": "av_horizontal_movement",
+            "title": "hud_input_hint_av_horizontal_movement",
             "actions": [
                 "move_forward",
                 "move_backward",
@@ -20,7 +20,7 @@
         },
         {
             "no": 3,
-            "title": "left_right_rotation",
+            "title": "hud_input_hint_left_right_rotation",
             "actions": [
                 "turn_left",
                 "turn_right"
@@ -28,7 +28,7 @@
         },
         {
             "no": 4,
-            "title": "forward_backward_rotation",
+            "title": "hud_input_hint_forward_backward_rotation",
             "actions": [
                 "lean_forward",
                 "lean_backward"
@@ -36,21 +36,21 @@
         },
         {
             "no": 5,
-            "title": "lean_reset",
+            "title": "hud_input_hint_lean_reset",
             "actions": [
                 "lean_reset"
             ]
         },
         {
             "no": 6,
-            "title": "toggle_camera",
+            "title": "hud_input_hint_toggle_camera",
             "actions": [
                 "toggle_camera"
             ]
         },
         {
             "no": 7,
-            "title": "auto_pilot",
+            "title": "hud_input_hint_auto_pilot",
             "actions": [
                 "toggle_autopilot"
             ]
@@ -59,7 +59,7 @@
     "Helicopter": [
         {
             "no": 1,
-            "title": "helicopter_vertical_movement",
+            "title": "hud_input_hint_helicopter_vertical_movement",
             "actions": [
                 "ascend",
                 "descend"
@@ -67,7 +67,7 @@
         },
         {
             "no": 2,
-            "title": "helicopter_horizontal_movement",
+            "title": "hud_input_hint_helicopter_horizontal_movement",
             "actions": [
                 "lean_forward",
                 "lean_backward",
@@ -77,7 +77,7 @@
         },
         {
             "no": 3,
-            "title": "helicopter_left_right_rotation",
+            "title": "hud_input_hint_helicopter_left_right_rotation",
             "actions": [
                 "turn_left",
                 "turn_right"
@@ -85,21 +85,21 @@
         },
         {
             "no": 4,
-            "title": "helicopter_acceleration",
+            "title": "hud_input_hint_helicopter_acceleration",
             "actions": [
                 "acceleration"
             ]
         },
         {
             "no": 5,
-            "title": "helicopter_toggle_camera",
+            "title": "hud_input_hint_helicopter_toggle_camera",
             "actions": [
                 "toggle_camera"
             ]
         },
         {
             "no": 6,
-            "title": "auto_pilot",
+            "title": "hud_input_hint_auto_pilot",
             "actions": [
                 "toggle_autopilot"
             ]

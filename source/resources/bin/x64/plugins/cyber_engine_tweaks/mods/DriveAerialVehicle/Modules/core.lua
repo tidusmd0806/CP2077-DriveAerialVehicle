@@ -231,9 +231,11 @@ function Core:SetTranslationNameList()
         end
     end
 
+    local default_version = nil
     if default_file then
         local default_language_table = Utils:ReadJson(DAV.language_path .. "/" .. default_file.name)
         if default_language_table and default_language_table.language then
+            default_version = default_language_table.version
             table.insert(self.language_file_list, default_file)
             table.insert(self.language_name_list, default_language_table.language)
         end
@@ -245,9 +247,17 @@ function Core:SetTranslationNameList()
     for _, file in ipairs(other_files) do
         local language_table = Utils:ReadJson(DAV.language_path .. "/" .. file.name)
         if language_table and language_table.language then
+            -- Check version compatibility
+            if language_table.version and default_version then
+                if self:CompareVersions(language_table.version, default_version) < 0 then
+                    self.log_obj:Record(LogLevel.Warning, "Skipping language file " .. file.name .. " (version " .. language_table.version .. " is lower than default version " .. default_version .. ")")
+                    goto continue
+                end
+            end
             table.insert(self.language_file_list, file)
             table.insert(self.language_name_list, language_table.language)
         end
+        ::continue::
     end
 end
 
@@ -1594,6 +1604,43 @@ function Core:SetDestructibility(enable)
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".tags"), tweek_db_tag_list)
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tags"), tweek_db_tag_list)
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tags"), tweek_db_tag_list)
+end
+
+--- Compare two version strings.
+--- Returns: -1 if version1 < version2, 0 if equal, 1 if version1 > version2
+---@param version1 string
+---@param version2 string
+---@return number
+function Core:CompareVersions(version1, version2)
+    if not version1 or not version2 then
+        return 0
+    end
+    
+    local function parseVersion(version)
+        local parts = {}
+        for part in string.gmatch(version, "[^%.]+") do
+            table.insert(parts, tonumber(part) or 0)
+        end
+        return parts
+    end
+    
+    local v1_parts = parseVersion(version1)
+    local v2_parts = parseVersion(version2)
+    
+    local max_length = math.max(#v1_parts, #v2_parts)
+    
+    for i = 1, max_length do
+        local v1_part = v1_parts[i] or 0
+        local v2_part = v2_parts[i] or 0
+        
+        if v1_part < v2_part then
+            return -1
+        elseif v1_part > v2_part then
+            return 1
+        end
+    end
+    
+    return 0
 end
 
 return Core

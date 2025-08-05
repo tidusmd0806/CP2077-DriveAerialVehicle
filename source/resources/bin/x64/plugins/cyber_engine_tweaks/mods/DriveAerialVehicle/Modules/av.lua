@@ -1300,7 +1300,7 @@ end
 function AV:ProjectLandingWarning(on)
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to project landing warning")
+		self.log_obj:Record(LogLevel.Trace, "No entity to project landing warning")
 		return
 	end
 	if self.is_enable_landing_vfx and DAV.user_setting_table.is_enable_landing_vfx then

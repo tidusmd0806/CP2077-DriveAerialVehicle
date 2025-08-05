@@ -458,7 +458,7 @@ function UI:CreateNativeSettingsPage()
 	table.insert(self.option_table_list, option_table)
 
 	for index, keybind_list in ipairs(keybind_table) do
-		if keybind_list.pad ~= nil then
+		if keybind_list.pad ~= nil and not string.find(keybind_list.pad, "Axis") then
 			option_table = DAV.NativeSettings.addKeyBinding("/DAV/controller", DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name), DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name .. "_description"), keybind_list.pad, keybind_table[index].pad, keybind_table[index].is_hold, function(pad)
 				if not string.find(pad, "IK_Pad") then
 					self.log_obj:Record(LogLevel.Warning, "Invalid keybind (no controller): " .. pad)
@@ -475,7 +475,7 @@ function UI:CreateNativeSettingsPage()
 	end
 
 	for index, keybind_list in ipairs(DAV.user_setting_table.common_keybind_table) do
-		if keybind_list.pad ~= nil then
+		if keybind_list.pad ~= nil and not string.find(keybind_list.pad, "Axis") then
 			option_table = DAV.NativeSettings.addKeyBinding("/DAV/controller", DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name), DAV.core_obj:GetTranslationText("native_settings_keybinds_" .. keybind_list.name .. "_description"), keybind_list.pad, DAV.default_common_keybind_table[index].pad, DAV.default_common_keybind_table[index].is_hold, function(pad)
 				if not string.find(pad, "IK_Pad") then
 					self.log_obj:Record(LogLevel.Warning, "Invalid keybind (no controller): " .. pad)
