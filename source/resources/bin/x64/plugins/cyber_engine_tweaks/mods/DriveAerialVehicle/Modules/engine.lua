@@ -24,6 +24,7 @@ function Engine:New(av_obj)
     obj.entity_id = nil
     obj.flight_mode = Def.FlightMode.AV
     obj.fly_av_system = nil
+    obj.mass = 5000
     obj.current_speed = 0
     obj.heli_lift_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
     obj.rpm_count = 0
@@ -48,6 +49,7 @@ function Engine:Init(entity_id)
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
     self.is_finished_init = true
+    self.mass = self.fly_av_system:GetMass()
 end
 
 --- Get Control Type
@@ -85,7 +87,7 @@ function Engine:Update(delta)
     elseif self.engine_control_type == Def.EngineControlType.AddForce then
         local direction_velocity = self:GetDirectionVelocity()
         local angular_velocity = self:GetAngularVelocity()
-        local mass = self:GetMass()
+        local mass = self.mass
         self.force = Vector3.new(direction_velocity.x / delta * mass, direction_velocity.y / delta * mass, direction_velocity.z / delta * mass)
         self.torque = Vector3.new(angular_velocity.x / delta * mass, angular_velocity.y / delta * mass, angular_velocity.z / delta * mass)
         self:AddForce(delta, self.force, self.torque)

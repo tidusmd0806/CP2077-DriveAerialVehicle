@@ -55,15 +55,15 @@ DAV = {
     default_keybind_table = {
         {name = "move_up", key = "IK_G", pad = "IK_Pad_X_SQUARE", is_hold = true},
         {name = "move_down", key = "IK_V", pad = "IK_Pad_A_CROSS", is_hold = true},
-        {name = "move_left", key = "IK_Q", pad = "IK_Pad_DigitLeft", is_hold = true},
-        {name = "move_right", key = "IK_E", pad = "IK_Pad_DigitRight", is_hold = true},
-        {name = "lean_reset", key = "IK_B", pad = "IK_Pad_LeftShoulder", is_hold = true},
         {name = "move_forward", key = "IK_W", pad = "IK_Pad_RightTrigger", is_hold = true},
         {name = "move_backward", key = "IK_S", pad = "IK_Pad_LeftTrigger", is_hold = true},
+        {name = "move_left", key = "IK_Q", pad = "IK_Pad_DigitLeft", is_hold = true},
+        {name = "move_right", key = "IK_E", pad = "IK_Pad_DigitRight", is_hold = true},
         {name = "turn_left", key = "IK_A", pad = "IK_Pad_LeftAxisX", is_hold = true},
         {name = "turn_right", key = "IK_D", pad = "IK_Pad_LeftAxisX", is_hold = true},
         {name = "lean_forward", key = "IK_LShift", pad = "IK_Pad_LeftAxisY", is_hold = true},
         {name = "lean_backward", key = "IK_LControl", pad = "IK_Pad_LeftAxisY", is_hold = true},
+        {name = "lean_reset", key = "IK_B", pad = "IK_Pad_LeftShoulder", is_hold = true},
     },
     default_heli_keybind_table = {
         {name = "ascend", key = "IK_G", pad = "IK_Pad_X_SQUARE", is_hold = true},
@@ -144,6 +144,13 @@ DAV.user_setting_table = {
 -- set custom vehicle record
 registerForEvent("onTweak",function ()
 
+    -- FPP Camera Parameters
+    if TweakDB:GetRecord("Vehicle.VehicleDriverFPPCameraParamsDefault_DAV") == nil then
+        TweakDB:CloneRecord("Vehicle.VehicleDriverFPPCameraParamsDefault_DAV", "Vehicle.VehicleDriverFPPCameraParamsDefault")
+    end
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.VehicleDriverFPPCameraParamsDefault_DAV.forward_offset_value"), -0.2)
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.VehicleDriverFPPCameraParamsDefault_DAV.is_forward_offset"), 1)
+
     -- TPP Camera Parameters
     if TweakDB:GetRecord("Camera.VehicleTPP_4w_Preset_High_Close_DAV") == nil then
         TweakDB:CloneRecord("Camera.VehicleTPP_4w_Preset_High_Close_DAV", "Camera.VehicleTPP_4w_Preset_High_Close")
@@ -207,13 +214,14 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_rayfield_excalibur_inline0_dav.exitDelay"), 2.3)
     TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".vehDataPackage"), "Vehicle.av_rayfield_excalibur_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".tppCameraPresets"), camera_presets_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.excalibur_record .. ".vehDriver_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
 
     -- Custom manticore record
     if TweakDB:GetRecord(DAV.manticore_record) == nil then
         TweakDB:CloneRecord(DAV.manticore_record, "Vehicle.av_militech_manticore")
     end
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".entityTemplatePath"), "base\\dav\\manticore\\av_militech_manticore_basic_01_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    -- TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".destroyedAppearance"), "burnt")
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".isArmoredVehicle"), true)
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".weapons"), weapon_list)
@@ -224,13 +232,14 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_militech_manticore_inline0_dav.exitDelay"), 1.2)
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".vehDataPackage"), "Vehicle.av_militech_manticore_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".tppCameraPresets"), camera_presets_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".vehDriver_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
 
     -- Custom atlus record
     if TweakDB:GetRecord(DAV.atlus_record) == nil then
         TweakDB:CloneRecord(DAV.atlus_record, "Vehicle.av_zetatech_atlus")
     end
     TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".entityTemplatePath"), "base\\dav\\atlus\\av_zetatech_atlus_basic_02_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    -- TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".isArmoredVehicle"), true)
     TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".weapons"), weapon_list)
     if TweakDB:GetRecord("Vehicle.av_zetatech_atlus_inline0_dav") == nil then
@@ -240,13 +249,14 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_atlus_inline0_dav.exitDelay"), 1.2)
     TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_atlus_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".tppCameraPresets"), camera_presets_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".vehDriver_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
 
      -- Custom surveyor record
     if TweakDB:GetRecord(DAV.surveyor_record) == nil then
         TweakDB:CloneRecord(DAV.surveyor_record, "Vehicle.av_zetatech_surveyor")
     end
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".entityTemplatePath"), "base\\dav\\surveyor\\av_zetatech_surveyor_basic_01_ep1_dav.ent")
-    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    -- TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".isArmoredVehicle"), true)
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".weapons"), weapon_list)
     if TweakDB:GetRecord("Vehicle.av_zetatech_surveyor_inline0_dav") == nil then
@@ -256,6 +266,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_surveyor_inline0_dav.exitDelay"), 2.2)
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.av_zetatech_surveyor_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".tppCameraPresets"), camera_presets_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDriver_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
 
     -- Custom valgus record
     if TweakDB:GetRecord(DAV.valgus_record) == nil then
@@ -264,7 +275,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".entityTemplatePath"), "base\\dav\\valgus\\q000_border_patrol_heli_dav.ent")
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".displayName"), LocKey(77966))
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".manufacturer"), "Vehicle.Zetatech")
-    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    -- TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".destroyedAppearance"), "valgus_rusted")
     local valgus_tag_list = {CName.new("InteractiveTrunk")}
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tags"), valgus_tag_list)
@@ -277,6 +288,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.exitDelay"), 0.8)
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_valgus_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tppCameraPresets"), camera_presets_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".vehDriver_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
 
     -- Custom mayhem record
     if TweakDB:GetRecord(DAV.mayhem_record) == nil then
@@ -285,7 +297,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".entityTemplatePath"), "base\\dav\\mayhem\\q000_border_patrol_heli_mayhem_dav.ent")
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".displayName"), LocKey(88814))
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".manufacturer"), "Vehicle.Militech")
-    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".player_audio_resource"), "v_av_basilisk_tank")
+    -- TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".player_audio_resource"), "v_av_basilisk_tank")
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".destroyedAppearance"), "valgus_rusted")
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tags"), valgus_tag_list)
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".savable"), false)
@@ -299,6 +311,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_mayhem_inline0_dav.exitDelay"), 0.8)
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDataPackage"), "Vehicle.av_zetatech_mayhem_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tppCameraPresets"), camera_presets_list)
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDriver_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
 
     -- Destruction Dummy Parameters
     if TweakDB:GetRecord("Vehicle.VehicleDestructionParamsNoDamage") == nil then

@@ -257,38 +257,95 @@ end
 --- Check Consume Item Slot HUD
 ---@return boolean
 function HUD:IsVisibleConsumeItemSlot()
-    return self.hud_consumable_controller:GetRootCompoundWidget().visible
+    if self.hud_consumable_controller == nil then
+        self.log_obj:Record(LogLevel.Warning, "IsVisibleConsumeItemSlot: hud_consumable_controller is nil")
+        return false
+    end
+
+    local success, result = pcall(function()
+        return self.hud_consumable_controller:GetRootCompoundWidget().visible
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "IsVisibleConsumeItemSlot: GetRootCompoundWidget operation failed - " .. tostring(result))
+        return false
+    end
+
+    return result
 end
 
 --- (Unused) Check Phone Slot HUD
 ---@return boolean
 function HUD:IsVisiblePhoneSlot()
-    return self.hud_phone_controller:GetRootCompoundWidget().visible
+    if self.hud_phone_controller == nil then
+        self.log_obj:Record(LogLevel.Warning, "IsVisiblePhoneSlot: hud_phone_controller is nil")
+        return false
+    end
+
+    local success, result = pcall(function()
+        return self.hud_phone_controller:GetRootCompoundWidget().visible
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "IsVisiblePhoneSlot: GetRootCompoundWidget operation failed - " .. tostring(result))
+        return false
+    end
+
+    return result
 end
 
 --- Set Visible Consume Item Slot
 ---@param is_visible boolean
 function HUD:SetVisibleConsumeItemSlot(is_visible)
-    self.hud_consumable_controller:GetRootCompoundWidget():SetVisible(is_visible)
+    if self.hud_consumable_controller == nil then
+        self.log_obj:Record(LogLevel.Warning, "SetVisibleConsumeItemSlot: hud_consumable_controller is nil, skipping operation")
+        return
+    end
+
+    local success, error_msg = pcall(function()
+        self.hud_consumable_controller:GetRootCompoundWidget():SetVisible(is_visible)
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "SetVisibleConsumeItemSlot: GetRootCompoundWidget operation failed - " .. tostring(error_msg))
+    end
 end
 
 --- (Unused) Set Visible Phone Slot
 ---@param is_visible boolean
 function HUD:SetVisiblePhoneSlot(is_visible)
-    self.hud_phone_controller:GetRootCompoundWidget():SetVisible(is_visible)
+    if self.hud_phone_controller == nil then
+        self.log_obj:Record(LogLevel.Warning, "SetVisiblePhoneSlot: hud_phone_controller is nil, skipping operation")
+        return
+    end
+
+    local success, error_msg = pcall(function()
+        self.hud_phone_controller:GetRootCompoundWidget():SetVisible(is_visible)
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "SetVisiblePhoneSlot: GetRootCompoundWidget operation failed - " .. tostring(error_msg))
+    end
 end
 
 --- Show Meter HUD
 ---@return boolean
 function HUD:ForceShowMeter()
     if self.hud_car_controller == nil then
-        self.log_obj:Record(LogLevel.Error, "hud_car_controller is nil")
+        self.log_obj:Record(LogLevel.Warning, "hud_car_controller is nil")
         self.is_active_hp_display = false
         return false
     end
 
-    self.hud_car_controller:ShowRequest()
-    self.hud_car_controller:OnCameraModeChanged(true)
+    local success, error_msg = pcall(function()
+        self.hud_car_controller:ShowRequest()
+        self.hud_car_controller:OnCameraModeChanged(true)
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "ForceShowMeter: HUD meter operation failed - " .. tostring(error_msg))
+        return false
+    end
 
     return true
 end
@@ -305,7 +362,18 @@ function HUD:CreateHPDisplay()
         self.is_active_hp_display = false
         return false
     end
-    local parent = self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer")
+
+    local parent = nil
+    local success, error_msg = pcall(function()
+        parent = self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer")
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "CreateHPDisplay: GetRootCompoundWidget operation failed - " .. tostring(error_msg))
+        self.is_active_hp_display = false
+        return false
+    end
+
     if parent == nil then
         self.log_obj:Record(LogLevel.Error, "maindashcontainer is nil")
         self.is_active_hp_display = false
@@ -391,7 +459,14 @@ function HUD:SetSpeedMeterValue(speed_value)
     if self.hud_car_controller == nil or not self.is_manually_setting_speed then
         return
     end
-    inkTextRef.SetText(self.hud_car_controller.SpeedValue, speed_value)
+
+    local success, error_msg = pcall(function()
+        inkTextRef.SetText(self.hud_car_controller.SpeedValue, speed_value)
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "SetSpeedMeterValue: Speed meter operation failed - " .. tostring(error_msg))
+    end
 end
 
 --- Set RPM Meter Value
@@ -400,20 +475,35 @@ function HUD:SetRPMMeterValue(rpm_value)
     if self.hud_car_controller == nil or not self.is_manually_setting_rpm then
         return
     end
-    self.hud_car_controller:EvaluateRPMMeterWidget(rpm_value)
+
+    local success, error_msg = pcall(function()
+        self.hud_car_controller:EvaluateRPMMeterWidget(rpm_value)
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "SetRPMMeterValue: RPM meter operation failed - " .. tostring(error_msg))
+    end
 end
 
 --- Toggle Original MPH Display On/Off
 ---@param on boolean
 function HUD:ToggleOriginalMPHDisplay(on)
     if self.hud_car_controller == nil then
+        self.log_obj:Record(LogLevel.Warning, "ToggleOriginalMPHDisplay: hud_car_controller is nil, skipping operation")
         return
     end
-    local mph_text = self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer"):GetWidget("dynamic"):GetWidget("mph_text")
-    if on then
-        mph_text:SetText(GetLocalizedText("LocKey#78030"))
-    else
-        mph_text:SetText(GetLocalizedText("LocKey#95281"))
+
+    local success, error_msg = pcall(function()
+        local mph_text = self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer"):GetWidget("dynamic"):GetWidget("mph_text")
+        if on then
+            mph_text:SetText(GetLocalizedText("LocKey#78030"))
+        else
+            mph_text:SetText(GetLocalizedText("LocKey#95281"))
+        end
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "ToggleOriginalMPHDisplay: GetRootCompoundWidget operation failed - " .. tostring(error_msg))
     end
 end
 
@@ -465,6 +555,12 @@ end
 --- Show Choice
 --- @param selected_index number
 function HUD:ShowChoice(selected_index)
+    -- Check if interaction_ui_base is available and has the correct context
+    if self.interaction_ui_base == nil then
+        self.log_obj:Record(LogLevel.Warning, "ShowChoice: interaction_ui_base is nil, skipping dialog operations")
+        return
+    end
+
     self.selected_choice_index = selected_index
 
     self:SetChoiceList()
@@ -475,11 +571,19 @@ function HUD:ShowChoice(selected_index)
     interaction_blackboard:SetInt(ui_interaction_define.ActiveChoiceHubID, self.interaction_hub.id)
     local data = interaction_blackboard:GetVariant(ui_interaction_define.DialogChoiceHubs)
     self.dialogIsScrollable = true
-    self.interaction_ui_base:OnDialogsSelectIndex(selected_index - 1)
-    self.interaction_ui_base:OnDialogsData(data)
-    self.interaction_ui_base:OnInteractionsChanged()
-    self.interaction_ui_base:UpdateListBlackboard()
-    self.interaction_ui_base:OnDialogsActivateHub(self.interaction_hub.id)
+
+    -- Use pcall to safely call OnDialogsSelectIndex
+    local success, error_msg = pcall(function()
+        self.interaction_ui_base:OnDialogsSelectIndex(selected_index - 1)
+        self.interaction_ui_base:OnDialogsData(data)
+        self.interaction_ui_base:OnInteractionsChanged()
+        self.interaction_ui_base:UpdateListBlackboard()
+        self.interaction_ui_base:OnDialogsActivateHub(self.interaction_hub.id)
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "ShowChoice: Dialog operation failed - " .. tostring(error_msg))
+    end
 end
 
 --- Hide Choice
@@ -495,9 +599,18 @@ function HUD:HideChoice()
 
     local data = interaction_blackboard:GetVariant(ui_interaction_define.DialogChoiceHubs)
     if self.interaction_ui_base == nil then
+        self.log_obj:Record(LogLevel.Warning, "HideChoice: interaction_ui_base is nil, skipping dialog operations")
         return
     end
-    self.interaction_ui_base:OnDialogsData(data)
+
+    -- Use pcall to safely call OnDialogsData
+    local success, error_msg = pcall(function()
+        self.interaction_ui_base:OnDialogsData(data)
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "HideChoice: Dialog operation failed - " .. tostring(error_msg))
+    end
 end
 
 --- Set Input Hint Controller
@@ -527,17 +640,26 @@ function HUD:SetInputHintController()
             return true
         end
     end
-    self.log_obj:Record(LogLevel.Error, "input_hint_controller is nil")
+    self.log_obj:Record(LogLevel.Warning, "input_hint_controller is nil in SetInputHintController, no matching controller found")
     return false
 end
 
 function HUD:ReconstructInputHint()
     if self.input_hint_controller == nil then
-        self.log_obj:Record(LogLevel.Error, "input_hint_controller is nil")
+        self.log_obj:Record(LogLevel.Warning, "input_hint_controller is nil in ReconstructInputHint, trying to set it")
         return
     end
 
-    local input_hint_widget = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints")
+    local input_hint_widget = nil
+    local success, error_msg = pcall(function()
+        input_hint_widget = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints")
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "ReconstructInputHint: GetRootCompoundWidget operation failed - " .. tostring(error_msg))
+        return
+    end
+
     if not input_hint_widget then
         self.log_obj:Record(LogLevel.Error, "input_hint_widget is nil")
         return
@@ -554,7 +676,7 @@ function HUD:ReconstructInputHint()
     local flight_mode = self.av_obj.engine_obj.flight_mode
     local is_keyboard_input = self.is_keyboard_input
     local mode_name = (flight_mode == Def.FlightMode.AV) and "AV" or "Helicopter"
-    
+
     -- Get the appropriate hint configuration for current mode
     local hint_configs = input_hint_override[mode_name]
     if not hint_configs then
@@ -582,7 +704,7 @@ function HUD:ReconstructInputHint()
                 local key_code = is_keyboard_input and key_binding.key or key_binding.pad
                 local is_hold = key_binding.is_hold or false
                 local texture_part = self:GetTexturePartFromKeyCode(key_code, is_hold)
-                
+
                 -- Skip if this texture part has already been used (avoid duplicates)
                 if texture_part ~= "" and used_texture_parts[texture_part] then
                     texture_parts[i] = ""
@@ -656,7 +778,7 @@ end
 ---@return string
 function HUD:GetTexturePartFromKeyCode(key_code, is_hold)
     local base_texture_part = ""
-    
+
     if not key_code or key_code == "IK_None" then
         base_texture_part = ""
         self.log_obj:Record(LogLevel.Debug, "Key code is nil or IK_None, using default: " .. base_texture_part)
@@ -665,7 +787,7 @@ function HUD:GetTexturePartFromKeyCode(key_code, is_hold)
         if self.input_hint_mapping_table then
             local input_type = self.is_keyboard_input and "keyboard" or "gamepad"
             local mapping_section = self.input_hint_mapping_table[input_type]
-            
+
             if mapping_section and mapping_section[key_code] then
                 base_texture_part = mapping_section[key_code]
                 self.log_obj:Record(LogLevel.Debug, "Found " .. input_type .. " mapping for " .. key_code .. ": " .. base_texture_part)
@@ -678,7 +800,7 @@ function HUD:GetTexturePartFromKeyCode(key_code, is_hold)
             self.log_obj:Record(LogLevel.Debug, "No mapping table available, using default: " .. base_texture_part)
         end
     end
-    
+
     -- Add "_hold" suffix if is_hold is true, but not for axis controls or thumb controls
     if is_hold and base_texture_part ~= "" and not string.find(base_texture_part, "axis") and not string.find(base_texture_part, "thumb") then
         return base_texture_part .. "_hold"
@@ -804,13 +926,13 @@ end
 function HUD:CreateInputIcon(texture_part)
     local input_icon = inkImage.new()
     input_icon:SetName(StringToName("inputIcon"))
-    
+
     -- Use appropriate texture atlas based on current input method
     local texture_atlas = self.icon_texture_atlas
     if texture_atlas then
         input_icon:SetAtlasResource(texture_atlas)
     end
-    
+
     if texture_part and texture_part ~= "" then
         input_icon:SetVisible(true)
         input_icon:SetTexturePart(texture_part)
@@ -845,8 +967,14 @@ function HUD:CreateOrUpdateHintWidget(num, text, texture_parts, enable)
         self.log_obj:Record(LogLevel.Warning, "input_hint_controller not available, creating widget without duplicate check")
     else
         -- Check if widget with the same name already exists
-        local input_hint_widget = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints")
-        if input_hint_widget then
+        local input_hint_widget = nil
+        local success, error_msg = pcall(function()
+            input_hint_widget = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints")
+        end)
+
+        if not success then
+            self.log_obj:Record(LogLevel.Debug, "CreateOrUpdateHintWidget: GetRootCompoundWidget operation failed - " .. tostring(error_msg))
+        elseif input_hint_widget then
             local widget_name = "hint_" .. num
             local existing_widget = input_hint_widget:GetWidget(StringToName(widget_name))
             if existing_widget then
@@ -1024,34 +1152,43 @@ end
 
 function HUD:CheckVisibleSomeInputHint()
     if self.input_hint_controller == nil then
-        self.log_obj:Record(LogLevel.Error, "input_hint_controller is nil")
+        self.log_obj:Record(LogLevel.Warning, "input_hint_controller is nil in CheckVisibleSomeInputHint, skipping operation")
         return false
     end
 
-    local main_container = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer")
-    if main_container == nil then
-        self.log_obj:Record(LogLevel.Warning, "main_container is nil")
-        return false
-    end
-
-    local hints_widget = main_container:GetWidget("hints")
-    if hints_widget == nil then
-        self.log_obj:Record(LogLevel.Warning, "hints_widget is nil")
-        return false
-    end
-
-    for i = 0, 50 do
-        local hint_widget = hints_widget:GetWidget(i)
-        if hint_widget ~= nil then
-            if hint_widget:IsVisible() then
-                self.log_obj:Record(LogLevel.Trace, "Visible input hint found: " .. hint_widget:GetName().value)
-                return true
-            end
-        else
-            break
+    local success, result = pcall(function()
+        local main_container = self.input_hint_controller:GetRootCompoundWidget():GetWidget("mainContainer")
+        if main_container == nil then
+            self.log_obj:Record(LogLevel.Debug, "main_container is nil")
+            return false
         end
+
+        local hints_widget = main_container:GetWidget("hints")
+        if hints_widget == nil then
+            self.log_obj:Record(LogLevel.Debug, "hints_widget is nil")
+            return false
+        end
+
+        for i = 0, 50 do
+            local hint_widget = hints_widget:GetWidget(i)
+            if hint_widget ~= nil then
+                if hint_widget:IsVisible() then
+                    self.log_obj:Record(LogLevel.Trace, "Visible input hint found: " .. hint_widget:GetName().value)
+                    return true
+                end
+            else
+                break
+            end
+        end
+        return false
+    end)
+
+    if not success then
+        self.log_obj:Record(LogLevel.Debug, "CheckVisibleSomeInputHint: GetRootCompoundWidget operation failed - " .. tostring(result))
+        return false
     end
-    return false
+
+    return result
 end
 
 --- Show Message when auto pilot is on.
