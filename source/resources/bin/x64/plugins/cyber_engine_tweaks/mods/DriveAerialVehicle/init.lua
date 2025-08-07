@@ -233,6 +233,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".vehDataPackage"), "Vehicle.av_militech_manticore_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".tppCameraPresets"), camera_presets_list)
     TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".vehDriver_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
+    TweakDB:SetFlat(TweakDBID.new(DAV.manticore_record .. ".vehDriverCombat_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
 
     -- Custom atlus record
     if TweakDB:GetRecord(DAV.atlus_record) == nil then
@@ -250,6 +251,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_atlus_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".tppCameraPresets"), camera_presets_list)
     TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".vehDriver_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
+    TweakDB:SetFlat(TweakDBID.new(DAV.atlus_record .. ".vehDriverCombat_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
 
      -- Custom surveyor record
     if TweakDB:GetRecord(DAV.surveyor_record) == nil then
@@ -267,6 +269,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDataPackage"), "Vehicle.av_zetatech_surveyor_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".tppCameraPresets"), camera_presets_list)
     TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDriver_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
+    TweakDB:SetFlat(TweakDBID.new(DAV.surveyor_record .. ".vehDriverCombat_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
 
     -- Custom valgus record
     if TweakDB:GetRecord(DAV.valgus_record) == nil then
@@ -284,7 +287,7 @@ registerForEvent("onTweak",function ()
     if TweakDB:GetRecord("Vehicle.av_zetatech_valgus_inline0_dav") == nil then
         TweakDB:CloneRecord("Vehicle.av_zetatech_valgus_inline0_dav", "Vehicle.av_zetatech_valgus_inline0")
     end
-    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.driverCombat"), "DriverCombatTypes.MountedWeapons")
+    TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.driverCombat"), "DriverCombatTypes.Disabled")
     TweakDB:SetFlat(TweakDBID.new("Vehicle.av_zetatech_valgus_inline0_dav.exitDelay"), 0.8)
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".vehDataPackage"), "Vehicle.av_zetatech_valgus_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.valgus_record .. ".tppCameraPresets"), camera_presets_list)
@@ -312,6 +315,7 @@ registerForEvent("onTweak",function ()
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDataPackage"), "Vehicle.av_zetatech_mayhem_inline0_dav")
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".tppCameraPresets"), camera_presets_list)
     TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDriver_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
+    TweakDB:SetFlat(TweakDBID.new(DAV.mayhem_record .. ".vehDriverCombat_FPPCameraParams"), "Vehicle.VehicleDriverFPPCameraParamsDefault_DAV")
 
     -- Destruction Dummy Parameters
     if TweakDB:GetRecord("Vehicle.VehicleDestructionParamsNoDamage") == nil then

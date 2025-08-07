@@ -281,6 +281,15 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
         local_roll = local_roll + roll_restore_amount
     end
 
+    -- Smooth roll correction when exceeding max_roll
+    if current_angle.roll > self.max_roll then
+        local excess_roll = current_angle.roll - self.max_roll
+        local_roll = local_roll - excess_roll * 0.5 -- Apply gradual correction
+    elseif current_angle.roll < -self.max_roll then
+        local excess_roll = -self.max_roll - current_angle.roll
+        local_roll = local_roll + excess_roll * 0.5 -- Apply gradual correction
+    end
+
     if current_angle.roll > self.force_restore_angle or current_angle.roll < -self.force_restore_angle then
         local_roll = - current_angle.roll
     elseif current_angle.pitch > self.force_restore_angle or current_angle.pitch < -self.force_restore_angle then
@@ -374,24 +383,40 @@ function Engine:CalculateAVMode(action_command_list)
         z = z - acceleration * forward_vec.z
     elseif action_command_list[1] == Def.ActionList.LeftRotate then
         yaw = yaw + yaw_change_amount
-        if current_angle.roll > -self.max_roll then
+        if current_angle.roll > self.max_roll then
+            local_roll = 0
+        elseif current_angle.roll > 0 then
+            local_roll = local_roll - rotate_roll_change_amount * ((self.max_roll - current_angle.roll) / self.max_roll)
+        else
             local_roll = local_roll - rotate_roll_change_amount
         end
     elseif action_command_list[1] == Def.ActionList.RightRotate then
         yaw = yaw - yaw_change_amount
-        if current_angle.roll < self.max_roll then
+        if current_angle.roll < -self.max_roll then
+            local_roll = 0
+        elseif current_angle.roll < 0 then
+            local_roll = local_roll + rotate_roll_change_amount * ((self.max_roll + current_angle.roll) / self.max_roll)
+        else
             local_roll = local_roll + rotate_roll_change_amount
         end
     elseif action_command_list[1] == Def.ActionList.Right then
         x = x + left_right_acceleration * right_vec.x
         y = y + left_right_acceleration * right_vec.y
-        if current_angle.roll < self.max_roll then
+        if current_angle.roll > self.max_roll then
+            local_roll = 0
+        elseif current_angle.roll > 0 then
+            local_roll = local_roll + roll_change_amount * ((self.max_roll - current_angle.roll) / self.max_roll)
+        else
             local_roll = local_roll + roll_change_amount
         end
     elseif action_command_list[1] == Def.ActionList.Left then
         x = x - left_right_acceleration * right_vec.x
         y = y - left_right_acceleration * right_vec.y
-        if current_angle.roll > -self.max_roll then
+        if current_angle.roll < -self.max_roll then
+            local_roll = 0
+        elseif current_angle.roll < 0 then
+            local_roll = local_roll - roll_change_amount * ((self.max_roll + current_angle.roll) / self.max_roll)
+        else
             local_roll = local_roll - roll_change_amount
         end
     elseif action_command_list[1] == Def.ActionList.LeanForward then
@@ -485,12 +510,16 @@ function Engine:CalculateHelicopterMode(action_command_list)
     elseif action_command_list[1] == Def.ActionList.HLeanLeft then
         if current_angle.roll < -self.max_roll then
             local_roll = 0
+        elseif current_angle.roll < 0 then
+            local_roll = local_roll - roll_change_amount * ((self.max_roll + current_angle.roll) / self.max_roll)
         else
             local_roll = local_roll - roll_change_amount
         end
     elseif action_command_list[1] == Def.ActionList.HLeanRight then
         if current_angle.roll > self.max_roll then
             local_roll = 0
+        elseif current_angle.roll > 0 then
+            local_roll = local_roll + roll_change_amount * ((self.max_roll - current_angle.roll) / self.max_roll)
         else
             local_roll = local_roll + roll_change_amount
         end

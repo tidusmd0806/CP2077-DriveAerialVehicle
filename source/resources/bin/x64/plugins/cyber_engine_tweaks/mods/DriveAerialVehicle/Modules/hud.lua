@@ -98,7 +98,7 @@ function HUD:SetOverride()
             end
         end)
 
-        Override("hudCarController", "OnSpeedValueChanged", function(this, speedValue, wrappedMethod)
+        Override("hudCarController", "OnSpeedValueChanged", function(_, speedValue, wrappedMethod)
             local result = true
             if not self.is_manually_setting_speed then
                 result = wrappedMethod(speedValue)
@@ -106,7 +106,7 @@ function HUD:SetOverride()
             return result
         end)
 
-        Override("hudCarController", "OnRpmValueChanged", function(this, rpmValue, wrappedMethod)
+        Override("hudCarController", "OnRpmValueChanged", function(_, rpmValue, wrappedMethod)
             local result = true
             if not self.is_manually_setting_rpm then
                 result = wrappedMethod(rpmValue)
@@ -136,7 +136,7 @@ function HUD:SetObserve()
         end)
 
         -- hide unnecessary input hint
-        Observe("UISystem", "QueueEvent", function(this, event)
+        Observe("UISystem", "QueueEvent", function(_, event)
             if DAV.core_obj.event_obj:IsInEntryArea() or DAV.core_obj.event_obj:IsInVehicle() then
                 if event:ToString() == "gameuiUpdateInputHintEvent" then
                     if event.data.source == CName.new("VehicleDriver") then

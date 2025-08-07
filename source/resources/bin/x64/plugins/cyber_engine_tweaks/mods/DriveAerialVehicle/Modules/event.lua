@@ -19,8 +19,8 @@ function Event:New()
 
     -- static --
     -- distance limit
-    obj.distance_limit = 80
-    obj.engine_audio_limit = 40
+    -- obj.distance_limit = 80
+    -- obj.engine_audio_limit = 40
     -- projection
     obj.projection_max_height_offset = 4
     -- dynamic --
@@ -184,7 +184,7 @@ function Event:CheckAllEvents()
         self:CheckInEntryArea()
         self:CheckInAV()
         self:CheckDestroyed()
-        self:CheckDistance()
+        -- self:CheckDistance()
         self:CheckHeight()
         self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
@@ -409,21 +409,21 @@ function Event:CheckDespawn()
 end
 
 --- Check distance between player and AV.
-function Event:CheckDistance()
-    local player_pos = Game.GetPlayer():GetWorldPosition()
-    local av_pos = self.av_obj:GetPosition()
-    local distance = Vector4.Distance(player_pos, av_pos)
-    if distance > self.distance_limit then
-        self:ReturnVehicle(false)
-    elseif distance > self.engine_audio_limit then
-        self.is_enable_audio = false
-    else
-        if not self.is_enable_audio then
-            -- self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
-        end
-        self.is_enable_audio = true
-    end
-end
+-- function Event:CheckDistance()
+--     local player_pos = Game.GetPlayer():GetWorldPosition()
+--     local av_pos = self.av_obj:GetPosition()
+--     local distance = Vector4.Distance(player_pos, av_pos)
+--     if distance > self.distance_limit then
+--         self:ReturnVehicle(false)
+--     elseif distance > self.engine_audio_limit then
+--         self.is_enable_audio = false
+--     else
+--         if not self.is_enable_audio then
+--             -- self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
+--         end
+--         self.is_enable_audio = true
+--     end
+-- end
 
 --- Check height between AV and ground. if height is too low, show landing warning.
 function Event:CheckHeight()
