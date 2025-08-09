@@ -57,6 +57,7 @@ function AV:New(core_obj)
 	obj.collision_filters =  {"Static", "Terrain", "Water"}
 	obj.weak_collision_filters = {"Static", "Terrain"}
 	obj.minimum_distance_to_ground = 1.2
+	obj.spawn_wait_time = 10 -- wait time for spawning (milliseconds)
 	-- av status
 	obj.is_landed = false
 	obj.is_leaving = false
@@ -371,14 +372,16 @@ function AV:SpawnToSky()
 	self:Spawn(position, angle)
 	Cron.Every(0.01, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
-			if timer.tick == 1 then
+			if timer.tick < self.spawn_wait_time then
+				self.log_obj:Record(LogLevel.Trace, "Spawn Tick: " .. timer.tick)
+			elseif timer.tick == self.spawn_wait_time then
 				self:DisableAllDoorInteractions()
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed))
 				self.log_obj:Record(LogLevel.Info, "Initial Spawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
 			elseif self:GetHeight() < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
 				self.engine_obj:SetFluctuationVelocityParams(-2, 1)
 				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
-			elseif self:GetHeight() < self.minimum_distance_to_ground or timer.tick > self.down_timeout then
+			elseif self:GetHeight() < self.minimum_distance_to_ground or timer.tick > self.down_timeout or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 				self.is_landed = true
@@ -697,14 +700,11 @@ end
 --- @param action_command_lists table
 function AV:Operate(action_command_lists)
 	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
-	self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_command_lists)
+	-- self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_command_lists)
 	for _, action_command_list in ipairs(action_command_lists) do
 		if action_command_list[1] >= Def.ActionList.Enter then
 			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
 			return false
-		end
-		if action_command_list[1] ~= Def.ActionList.Nothing then
-			self.log_obj:Record(LogLevel.Trace, "Operation:" .. action_command_list[1])
 		end
 		if action_command_list[1] == Def.ActionList.Idle then
 			self.engine_obj:SetIdle(true)
@@ -786,7 +786,6 @@ function AV:ControlSound(action_command_lists)
 		self.is_thruster_sound = false
 		return true
 	end
-	self.log_obj:Record(LogLevel.Trace, "No Sound Change")
 	return true
 
 end

@@ -63,6 +63,17 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
+        Observe("Entity", "QueueEvent",
+        ---@param this Entity
+        ---@param evt Event
+        function(this, evt)
+            if evt:IsA(StringToName("VehicleFlightActivationEvent")) then
+                print("VehicleFlightActivationEvent has been triggered")
+            elseif evt:IsA(StringToName("VehicleFlightDeactivationEvent")) then
+                print("VehicleFlightDeactivationEvent has been triggered")
+            end
+        end)
+
     end
     self.is_set_observer = true
 

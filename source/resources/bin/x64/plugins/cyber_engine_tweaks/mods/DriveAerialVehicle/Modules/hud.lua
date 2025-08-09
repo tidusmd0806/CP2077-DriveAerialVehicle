@@ -136,14 +136,14 @@ function HUD:SetObserve()
         end)
 
         -- hide unnecessary input hint
-        Observe("UISystem", "QueueEvent", function(_, event)
+        Observe("UISystem", "QueueEvent", function(this, event)
             if DAV.core_obj.event_obj:IsInEntryArea() or DAV.core_obj.event_obj:IsInVehicle() then
-                if event:ToString() == "gameuiUpdateInputHintEvent" then
+                if event:IsA(StringToName("gameuiUpdateInputHintEvent")) then
                     if event.data.source == CName.new("VehicleDriver") then
                         local delete_hint_source_event = DeleteInputHintBySourceEvent.new()
                         delete_hint_source_event.targetHintContainer = CName.new("GameplayInputHelper")
                         delete_hint_source_event.source = CName.new("VehicleDriver")
-                        Game.GetUISystem():QueueEvent(delete_hint_source_event)
+                        this:QueueEvent(delete_hint_source_event)
                     end
                 end
             end
@@ -176,7 +176,7 @@ function HUD:SetObserve()
 
         local exception_hint_table = Utils:ReadJson("Data/exception_input_hint.json")
         ObserveAfter("UISystem", "QueueEvent", function(this, event)
-            if DAV.core_obj.event_obj:IsInVehicle() and event:IsA("gameuiUpdateInputHintEvent") then
+            if DAV.core_obj.event_obj:IsInVehicle() and event:IsA(StringToName("gameuiUpdateInputHintEvent")) then
                 for _, hint in ipairs(exception_hint_table) do
                     if event.data.action == CName.new(hint) then
                         if event.show then
@@ -640,7 +640,7 @@ function HUD:SetInputHintController()
             return true
         end
     end
-    self.log_obj:Record(LogLevel.Warning, "input_hint_controller is nil in SetInputHintController, no matching controller found")
+    self.log_obj:Record(LogLevel.Debug, "input_hint_controller is nil in SetInputHintController, no matching controller found")
     return false
 end
 
@@ -1117,24 +1117,30 @@ function HUD:ShowCustomHint()
     end
     self:SetCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_show_hint_event)
-    Cron.Every(0.1, {tick=1}, function(timer)
-        timer.tick = timer.tick + 1
-        if timer.tick > 100 then
-            self.log_obj:Record(LogLevel.Error, "ReconstructInputHint not called after 1 second, stopping")
-            Cron.Halt(timer)
-            return
-        end
-        self:SetInputHintController()
-        if self:CheckVisibleSomeInputHint() then
-            self:ReconstructInputHint()
-            self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
-            Cron.After(1.5, function()
-                self:ReconstructInputHint()
-            end)
-            Cron.Halt(timer)
-            return
-        end
-    end)
+    -- self:SetInputHintController()
+    -- if not self:IsVisibleCustomInputHints() then
+    --     self:ReconstructInputHint()
+    --     self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
+    --     return
+    -- end
+    -- Cron.Every(0.1, {tick=1}, function(timer)
+    --     timer.tick = timer.tick + 1
+    --     if timer.tick > 100 then
+    --         self.log_obj:Record(LogLevel.Error, "ReconstructInputHint not called after 1 second, stopping")
+    --         Cron.Halt(timer)
+    --         return
+    --     end
+    --     self:SetInputHintController()
+    --     if not self:IsVisibleCustomInputHints() then
+    --         self:ReconstructInputHint()
+    --         self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
+    --         return
+    --     else
+    --         self.log_obj:Record(LogLevel.Debug, "Input hints are already visible, skipping ReconstructInputHint")
+    --         Cron.Halt(timer)
+    --         return
+    --     end
+    -- end)
 end
 
 --- Hide Custom Hint
@@ -1142,7 +1148,30 @@ function HUD:HideCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_hide_hint_event)
 end
 
+--- Add Custom Hint
+---@param name string
+---@param action string
+---@param holdIndicationType inkInputHintHoldIndicationType
+---@param sortingPriority number
+---@param enableHoldAnimation boolean
+---@param localizedLabel string
+function HUD:AddInputHint(name, action, localizedLabel, holdIndicationType, enableHoldAnimation, sortingPriority)
+    local update_input_hint_event = UpdateInputHintEvent.new()
+    local input_hint_data = InputHintData.new()
+    update_input_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
+    input_hint_data.source = CName.new(name)
+    input_hint_data.action = CName.new(action)
+    input_hint_data.holdIndicationType = holdIndicationType
+    input_hint_data.sortingPriority = sortingPriority
+    input_hint_data.enableHoldAnimation = enableHoldAnimation
+    input_hint_data.localizedLabel = localizedLabel
+    update_input_hint_event.data = input_hint_data
+    update_input_hint_event.show = true
+    Game.GetUISystem():QueueEvent(update_input_hint_event)
+end
+
 --- Delete Custom Hint
+---@param name string
 function HUD:DeleteInputHint(name)
     local delete_hint_event = DeleteInputHintBySourceEvent.new()
     delete_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
@@ -1150,9 +1179,83 @@ function HUD:DeleteInputHint(name)
     Game.GetUISystem():QueueEvent(delete_hint_event)
 end
 
-function HUD:CheckVisibleSomeInputHint()
+--- Get expected hint texts from configuration files
+---@return table
+function HUD:GetExpectedHintTexts()
+    local expected_texts = {}
+
+    -- Get texts from input_hint.json
+    local hint_table = Utils:ReadJson("Data/input_hint.json")
+    if hint_table then
+        local flight_mode = self.av_obj.engine_obj.flight_mode
+        local is_keyboard_input = self.is_keyboard_input
+
+        for _, hint in ipairs(hint_table) do
+            -- Filter by flight mode and input method (same logic as SetCustomHint)
+            if (hint.mode == flight_mode or hint.mode == -1) then
+                local include_hint = true
+
+                if is_keyboard_input then
+                    if hint.usage == "gamepad" then
+                        include_hint = false
+                    end
+                else
+                    if hint.usage == "keyboard" then
+                        include_hint = false
+                    end
+                end
+
+                -- Skip weapon hints if not in combat seat
+                if not self.av_obj:IsMountedCombatSeat() and hint.source == "DrawWeapon" then
+                    include_hint = false
+                end
+
+                if include_hint then
+                    -- Parse localized label (same logic as SetCustomHint)
+                    local keys = string.gmatch(hint.localizedLabel, "LocKey#(%d+)")
+                    local localizedLabels = {}
+                    for key in keys do
+                        table.insert(localizedLabels, GetLocalizedText("LocKey#" .. key))
+                    end
+                    local label_text = table.concat(localizedLabels, "-")
+                    if label_text ~= "" then
+                        table.insert(expected_texts, label_text)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Get texts from input_hint_override.json
+    local input_hint_override = Utils:ReadJson("Data/input_hint_override.json")
+    if input_hint_override then
+        local flight_mode = self.av_obj.engine_obj.flight_mode
+        local mode_name = (flight_mode == Def.FlightMode.AV) and "AV" or "Helicopter"
+        local hint_configs = input_hint_override[mode_name]
+
+        if hint_configs then
+            for _, config in ipairs(hint_configs) do
+                local translation_text = DAV.core_obj:GetTranslationText(config.title)
+                if translation_text and translation_text ~= "" then
+                    table.insert(expected_texts, translation_text)
+                end
+            end
+        end
+    end
+
+    return expected_texts
+end
+
+function HUD:IsVisibleCustomInputHints()
     if self.input_hint_controller == nil then
-        self.log_obj:Record(LogLevel.Warning, "input_hint_controller is nil in CheckVisibleSomeInputHint, skipping operation")
+        self.log_obj:Record(LogLevel.Debug, "input_hint_controller is nil in IsVisibleCustomInputHints, skipping operation")
+        return false
+    end
+
+    -- Get expected hint texts from configuration files
+    local expected_hint_texts = self:GetExpectedHintTexts()
+    if #expected_hint_texts == 0 then
+        self.log_obj:Record(LogLevel.Debug, "No expected hint texts found")
         return false
     end
 
@@ -1169,22 +1272,50 @@ function HUD:CheckVisibleSomeInputHint()
             return false
         end
 
+        -- Collect visible hint texts
+        local visible_hint_texts = {}
         for i = 0, 50 do
             local hint_widget = hints_widget:GetWidget(i)
             if hint_widget ~= nil then
+                -- Check if the hint widget itself is visible
                 if hint_widget:IsVisible() then
-                    self.log_obj:Record(LogLevel.Trace, "Visible input hint found: " .. hint_widget:GetName().value)
-                    return true
+                    local label_widget = hint_widget:GetWidget("hint"):GetWidget("wrapper"):GetWidget("label")
+                    if label_widget then
+                        local hint_text = label_widget:GetText()
+                        if hint_text ~= "" then
+                            table.insert(visible_hint_texts, hint_text)
+                            self.log_obj:Record(LogLevel.Trace, "Visible input hint found: " .. hint_text)
+                        end
+                    end
+                else
+                    self.log_obj:Record(LogLevel.Trace, "Hint widget " .. i .. " exists but is not visible")
                 end
             else
                 break
             end
         end
-        return false
+
+        -- Check if all expected hints are visible
+        for _, expected_text in ipairs(expected_hint_texts) do
+            local found = false
+            for _, visible_text in ipairs(visible_hint_texts) do
+                if visible_text == expected_text then
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                self.log_obj:Record(LogLevel.Debug, "Expected hint not visible: " .. expected_text)
+                return false
+            end
+        end
+
+        self.log_obj:Record(LogLevel.Debug, "All expected hints are visible")
+        return true
     end)
 
     if not success then
-        self.log_obj:Record(LogLevel.Debug, "CheckVisibleSomeInputHint: GetRootCompoundWidget operation failed - " .. tostring(result))
+        self.log_obj:Record(LogLevel.Debug, "IsVisibleCustomInputHints: GetRootCompoundWidget operation failed - " .. tostring(result))
         return false
     end
 

@@ -34,6 +34,7 @@ function Event:New()
     obj.is_keyboard_input_prev = false
     obj.is_enable_audio = true
     obj.is_locked_showing_meter = false
+    obj.check_input_count = 0
     -- projection
     obj.is_landing_projection = false
 
@@ -133,6 +134,12 @@ function Event:SetOverride()
     end)
 end
 
+--- Get current situation.
+---@return Def.Situation
+function Event:GetSituation()
+    return self.current_situation
+end
+
 --- Set new situation if it is possible.
 ---@param situation Def.Situation
 function Event:SetSituation(situation)
@@ -174,7 +181,9 @@ end
 
 --- Check events for current situation.
 function Event:CheckAllEvents()
-    if self.current_situation == Def.Situation.Normal then
+    if self:IsInMenuOrPopupOrPhoto() then
+        self.log_obj:Record(LogLevel.Debug, "In Menu or Popup or Photo mode. Skip all checks")
+    elseif self.current_situation == Def.Situation.Normal then
         self:CheckGarage()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
@@ -281,7 +290,6 @@ function Event:CheckInAV()
             SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
-            self.hud_obj:ShowCustomHint()
             self.hud_obj:EnableManualMeter(false, self.av_obj.is_enable_manual_rpm_meter)
             self.is_keyboard_input_prev = self.hud_obj.is_keyboard_input
             self.av_obj.engine_obj:EnableOriginalPhysics(false)
@@ -290,6 +298,9 @@ function Event:CheckInAV()
                 self.hud_obj:ForceShowMeter()
                 self.hud_obj:ShowLeftBottomHUD()
                 self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
+                Cron.After(1.5, function()
+                    self.hud_obj:ShowCustomHint()
+                end)
             end)
         end
     else
@@ -367,12 +378,13 @@ function Event:CheckCombat()
             if self.av_obj.combat_door[1] ~= "None" then
                 self.av_obj:ChangeDoorState(Def.DoorOperation.Open, self.av_obj.combat_door)
             end
+            self.hud_obj:DeleteInputHint("Exit")
         else
             if self.av_obj.combat_door[1] ~= "None" then
                 self.av_obj:ChangeDoorState(Def.DoorOperation.Close, self.av_obj.combat_door)
             end
+            self.hud_obj:AddInputHint("Exit", "Exit", "LocKey#36196", inkInputHintHoldIndicationType.Hold, true, 20)
         end
-        self.hud_obj:DeleteInputHint("Exit")
     end
 end
 
@@ -439,10 +451,21 @@ end
 
 --- Check player input. if or not keyboard input, show/hide custom hint.
 function Event:CheckInput()
+    self.check_input_count = self.check_input_count + 1
     if self.is_keyboard_input_prev ~= self.hud_obj.is_keyboard_input then
         self.is_keyboard_input_prev = self.hud_obj.is_keyboard_input
         self.hud_obj:HideCustomHint()
         self.hud_obj:ShowCustomHint()
+        return
+    end
+    if self.check_input_count > (2 / DAV.time_resolution) then
+        self.check_input_count = 0
+        self.hud_obj:SetInputHintController()
+        if not self.hud_obj:IsVisibleCustomInputHints() then
+            self.hud_obj:ReconstructInputHint()
+            self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
+            return
+        end
     end
 end
 
