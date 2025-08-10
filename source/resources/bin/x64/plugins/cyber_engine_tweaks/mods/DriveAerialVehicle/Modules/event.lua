@@ -103,14 +103,13 @@ function Event:SetObserve()
     end)
 
     -- Compatibility with LTBF
-    Observe("Entity", "QueueEvent", function(_, evt)
-        if not evt then return end
-        if evt:IsA(StringToName("VehicleFlightActivationEvent")) then
+    Observe("vehicleBaseObject", "QueueEvent", function(_, event)
+        if event:IsA(StringToName("VehicleFlightActivationEvent")) then
             if self:IsInVehicle() then
                 self.hud_obj:SetDeleteWidgetFlag(true)
                 self.av_obj:BlockOperation(true)
             end
-        elseif evt:IsA(StringToName("VehicleFlightDeactivationEvent")) then
+        elseif event:IsA(StringToName("VehicleFlightDeactivationEvent")) then
             if self:IsInVehicle() then
                 self.hud_obj:SetDeleteWidgetFlag(false)
                 self.av_obj:BlockOperation(false)
@@ -304,7 +303,7 @@ function Event:CheckInAV()
             SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
             self:SetSituation(Def.Situation.InVehicle)
             self.hud_obj:HideChoice()
-            self.hud_obj:EnableManualMeter(false, self.av_obj.is_enable_manual_rpm_meter)
+            self.hud_obj:EnableManualMeter(true, self.av_obj.is_enable_manual_rpm_meter)
             self.is_keyboard_input_prev = self.hud_obj.is_keyboard_input
             self.av_obj.engine_obj:EnableOriginalPhysics(false)
             self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
@@ -355,7 +354,9 @@ function Event:CheckHUD()
         self.hud_obj:SetRPMMeterValue(math.floor(10 * (1 - current_length / initial_length) + 1))
     else
         self.hud_obj:ToggleOriginalMPHDisplay(false)
-        self.hud_obj:EnableManualMeter(false, self.av_obj.is_enable_manual_rpm_meter)
+        self.hud_obj:EnableManualMeter(true, self.av_obj.is_enable_manual_rpm_meter)
+        local current_speed = self.av_obj:GetCurrentSpeed()
+        self.hud_obj:SetSpeedMeterValue(current_speed)
         local rpm_count = self.av_obj.engine_obj:GetRPMCount()
         self.hud_obj:SetRPMMeterValue(math.abs(rpm_count))
     end

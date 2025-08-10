@@ -289,6 +289,12 @@ function AV:GetHeight()
     return self:GetPosition().z - self:GetGroundPosition()
 end
 
+function AV:GetCurrentSpeed()
+	local vel_vec3, _ = self.engine_obj:GetDirectionAndAngularVelocity()
+	local vel_vec4 = Vector4.Vector3To4(vel_vec3)
+	return vel_vec4:Length()
+end
+
 --- Check if player is mounted combat seat.
 ---@return boolean
 function AV:IsMountedCombatSeat()

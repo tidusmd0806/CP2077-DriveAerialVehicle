@@ -116,27 +116,27 @@ DAV.user_setting_table = {
     common_keybind_table = DAV.default_common_keybind_table,
     --- physics
     -- common
-    max_speed = 450, -- Cannot take values ​​greater than this one.(MPH)
-    horizontal_air_resistance_const = 0.01,
+    max_speed = 220, -- Max speed in MPH (Max:100m/s)
+    horizontal_air_resistance_const = 0.015,
     vertical_air_resistance_const = 0.025,
     -- av
-    acceleration = 1,
-    vertical_acceleration = 0.8,
+    acceleration = 1.5,
+    vertical_acceleration = 1.5,
     left_right_acceleration = 0.5,
     roll_change_amount = 0.5,
     roll_restore_amount = 0.2,
     pitch_change_amount = 0.5,
     pitch_restore_amount = 0.2,
-    yaw_change_amount = 1,
+    yaw_change_amount = 1.0,
     rotate_roll_change_amount = 0.5,
     -- helicopter
     h_roll_change_amount = 0.8,
     h_roll_restore_amount = 0.2,
     h_pitch_change_amount = 0.8,
     h_pitch_restore_amount = 0.2,
-    h_yaw_change_amount = 1,
-    h_acceleration = 0.5,
-    h_lift_idle_acceleration = 1.0,
+    h_yaw_change_amount = 1.0,
+    h_acceleration = 1.0,
+    h_lift_idle_acceleration = 2.0,
     h_ascend_acceleration = 0.5,
     h_descend_acceleration = 0.5,
 }

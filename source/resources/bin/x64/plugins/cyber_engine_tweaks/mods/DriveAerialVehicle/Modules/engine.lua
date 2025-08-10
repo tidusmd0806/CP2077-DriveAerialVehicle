@@ -281,7 +281,7 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
     local local_roll = 0
     local local_pitch = 0
 
-    if self.flight_mode == Def.FlightMode.Helicopter or self.fly_av_system:HasGravity() then
+    if self.flight_mode == Def.FlightMode.Helicopter or self:HasGravity() then
         if current_angle.pitch > pitch_restore_amount then
             local_pitch = local_pitch - pitch_restore_amount
         elseif current_angle.pitch < -pitch_restore_amount then
@@ -331,7 +331,7 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
     local current_y = y + vel_vec.y
     local current_z = z + vel_vec.z
     self.current_speed = math.sqrt(current_x * current_x + current_y * current_y + current_z * current_z)
-    local max_speed = (DAV.user_setting_table.max_speed * 1000 + 34867) / 4968 -- Approximate formula
+    local max_speed = DAV.user_setting_table.max_speed  / 2.23 -- Convert MPH to m/s
     if self.current_speed > max_speed then
         x = 0
         y = 0

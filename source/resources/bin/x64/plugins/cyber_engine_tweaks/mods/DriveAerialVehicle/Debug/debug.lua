@@ -14,18 +14,19 @@ function Debug:New(core_obj)
     obj.is_im_gui_player_position = false
     obj.is_im_gui_av_position = false
     obj.is_im_gui_vehicle_info = false
+    obj.is_im_gui_engine_info = false
     obj.is_im_gui_sound_check = false
-    obj.selected_sound = "100_call_vehicle"
     obj.is_im_gui_mappin_position = false
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_status = false
     obj.is_im_gui_change_auto_setting = false
     obj.is_im_gui_auto_pilot_info = false
     obj.is_im_gui_auto_pilot_exception_area = false
+    obj.is_im_gui_check_setting_param = false
+    obj.selected_sound = "100_call_vehicle"
+    obj.fade_time = 1.5
     obj.exception_area_entity_list = {}
     obj.spawn_lock = false
-    obj.is_im_gui_measurement = false
-    obj.is_im_gui_engine_info = false
 
     return setmetatable(obj, self)
 end
@@ -52,7 +53,7 @@ function Debug:ImGuiMain()
     self:ImGuiChangeAutoPilotSetting()
     self:ImGuiAutoPilotInfo()
     self:ImGuiAutoPilotExceptionArea()
-    self:ImGuiMeasurement()
+    self:ImGuiCheckSettingParam()
     self:ImGuiExcuteFunction()
 
     ImGui.End()
@@ -233,7 +234,7 @@ function Debug:ImGuiSoundCheck()
     self.is_im_gui_sound_check = ImGui.Checkbox("[ImGui] Sound Check", self.is_im_gui_sound_check)
     if self.is_im_gui_sound_check then
         if ImGui.BeginCombo("##Sound List", self.selected_sound) then
-            for key, _ in pairs(self.core_obj.event_obj.sound_obj.sound_data) do
+            for key, _ in pairs(self.core_obj.event_obj.sound_obj.game_sound_data) do
                 if (ImGui.Selectable(key, (self.selected_sound==key))) then
                     self.selected_sound = key
                 end
@@ -244,9 +245,53 @@ function Debug:ImGuiSoundCheck()
         if ImGui.Button("Play", 150, 60) then
             self.core_obj.event_obj.sound_obj:PlayGameSound(self.selected_sound)
         end
-
+        ImGui.SameLine()
         if ImGui.Button("Stop", 150, 60) then
             self.core_obj.event_obj.sound_obj:StopGameSound(self.selected_sound)
+        end
+        ImGui.Text("Engine Sound")
+        local fade_time, _ = ImGui.InputFloat("Fade time", self.fade_time)
+        self.fade_time = fade_time
+        if ImGui.Button("Idle Start", 150, 60) then
+            if self.core_obj.av_obj.flight_mode == Def.FlightMode.AV then
+                self.core_obj.event_obj.sound_obj:StartEngineSound(Def.FlightMode.AV, fade_time)
+            elseif self.core_obj.av_obj.flight_mode == Def.FlightMode.Helicopter then
+                self.core_obj.event_obj.sound_obj:StartEngineSound(Def.FlightMode.Helicopter, fade_time)
+            end
+        end
+        ImGui.SameLine()
+        if ImGui.Button("Idle Stop", 150, 60) then
+            if self.core_obj.av_obj.flight_mode == Def.FlightMode.AV then
+                self.core_obj.event_obj.sound_obj:StopEngineSound(Def.FlightMode.AV, fade_time)
+            elseif self.core_obj.av_obj.flight_mode == Def.FlightMode.Helicopter then
+                self.core_obj.event_obj.sound_obj:StopEngineSound(Def.FlightMode.Helicopter, fade_time)
+            end
+        end
+        ImGui.SameLine()
+        if ImGui.Button("Acceleration start", 150, 60) then
+            if self.core_obj.av_obj.flight_mode == Def.FlightMode.AV then
+                self.core_obj.event_obj.sound_obj:StartAccelerationSound(Def.FlightMode.AV, fade_time)
+            elseif self.core_obj.av_obj.flight_mode == Def.FlightMode.Helicopter then
+                self.core_obj.event_obj.sound_obj:StartAccelerationSound(Def.FlightMode.Helicopter, fade_time)
+            end
+        end
+        ImGui.SameLine()
+        if ImGui.Button("Acceleration stop", 150, 60) then
+            if self.core_obj.av_obj.flight_mode == Def.FlightMode.AV then
+                self.core_obj.event_obj.sound_obj:StopAccelerationSound(Def.FlightMode.AV, fade_time)
+            elseif self.core_obj.av_obj.flight_mode == Def.FlightMode.Helicopter then
+                self.core_obj.event_obj.sound_obj:StopAccelerationSound(Def.FlightMode.Helicopter, fade_time)
+            end
+        end
+        ImGui.SameLine()
+        ImGui.Button("Thruster Start", 150, 60)
+        if self.core_obj.av_obj.flight_mode == Def.FlightMode.Helicopter then
+            self.core_obj.event_obj.sound_obj:StartThrusterSound(Def.FlightMode.Helicopter, fade_time)
+        end
+        ImGui.SameLine()
+        ImGui.Button("Thruster Stop", 150, 60)
+        if self.core_obj.av_obj.flight_mode == Def.FlightMode.Helicopter then
+            self.core_obj.event_obj.sound_obj:StopThrusterSound(Def.FlightMode.Helicopter, fade_time)
         end
     end
 end
@@ -415,26 +460,44 @@ function Debug:ImGuiAutoPilotExceptionArea()
     end
 end
 
-function Debug:ImGuiMeasurement()
-    self.is_im_gui_measurement = ImGui.Checkbox("[ImGui] Measurement", self.is_im_gui_measurement)
-    if self.is_im_gui_measurement then
-        local look_at_pos = Game.GetTargetingSystem():GetLookAtPosition(Game.GetPlayer())
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        if entity == nil then
-            return
-        end
-        local origin = self.core_obj.av_obj:GetPosition()
-        local right = self.core_obj.av_obj:GetWorldRight()
-        local forward = self.core_obj.av_obj:GetWorldForward()
-        local up = self.core_obj.av_obj:GetWorldUp()
-        local relative = Vector4.new(look_at_pos.x - origin.x, look_at_pos.y - origin.y, look_at_pos.z - origin.z, 1)
-        local x = Vector4.Dot(relative, right)
-        local y = Vector4.Dot(relative, forward)
-        local z = Vector4.Dot(relative, up)
-        local absolute_position_x = string.format("%.2f", x)
-        local absolute_position_y = string.format("%.2f", y)
-        local absolute_position_z = string.format("%.2f", z)
-        ImGui.Text("[LookAt]X:" .. absolute_position_x .. ", Y:" .. absolute_position_y .. ", Z:" .. absolute_position_z)
+function Debug:ImGuiCheckSettingParam()
+    self.is_im_gui_check_setting_param = ImGui.Checkbox("[ImGui] Check Setting Param", self.is_im_gui_check_setting_param)
+    if self.is_im_gui_check_setting_param then
+        local user_setting = DAV.user_setting_table
+        
+        ImGui.Text("=== Engine Parameters (Internal Values) ===")
+        
+        -- Movement Parameters
+        ImGui.Text("--- AV Movement ---")
+        ImGui.Text("acceleration: " .. user_setting.acceleration)
+        ImGui.Text("vertical_acceleration: " .. user_setting.vertical_acceleration)
+        ImGui.Text("left/right left_right_acceleration: " .. user_setting.left_right_acceleration)
+        ImGui.Text("roll_change_amount: " .. user_setting.roll_change_amount)
+        ImGui.Text("roll_restore_amount: " .. user_setting.pitch_restore_amount)
+        ImGui.Text("pitch_change_amount: " .. user_setting.pitch_change_amount)
+        ImGui.Text("pitch_restore_amount: " .. user_setting.pitch_restore_amount)
+        ImGui.Text("yaw_change_amount: " .. user_setting.yaw_change_amount)
+        ImGui.Text("rotate_roll_change_amount: " .. user_setting.rotate_roll_change_amount)
+
+        ImGui.Text("--- helicopter Movement ---")
+        ImGui.Text("h_roll_change_amount: " .. user_setting.h_roll_change_amount)
+        ImGui.Text("h_roll_restore_amount: " .. user_setting.h_roll_restore_amount)
+        ImGui.Text("h_pitch_change_amount: " .. user_setting.h_pitch_change_amount)
+        ImGui.Text("h_pitch_restore_amount: " .. user_setting.h_pitch_restore_amount)
+        ImGui.Text("h_yaw_change_amount: " .. user_setting.h_yaw_change_amount)
+        ImGui.Text("h_acceleration: " .. user_setting.h_acceleration)
+        ImGui.Text("h_lift_idle_acceleration: " .. user_setting.h_lift_idle_acceleration)
+        ImGui.Text("h_ascend_acceleration: " .. user_setting.h_ascend_acceleration)
+        ImGui.Text("h_descend_acceleration: " .. user_setting.h_descend_acceleration)
+
+        -- Resistance Parameters
+        ImGui.Text("--- Resistance ---")
+        ImGui.Text("Horizontal Air Resistance: " .. user_setting.horizontal_air_resistance_const)
+        ImGui.Text("Vertical Air Resistance: " .. user_setting.vertical_air_resistance_const)
+
+        -- Speed Parameters
+        ImGui.Text("--- Speed Settings ---")
+        ImGui.Text("Max Speed: " .. user_setting.max_speed)
     end
 end
 
@@ -479,6 +542,14 @@ function Debug:ImGuiExcuteFunction()
         end
         
         print("Excute Test Function 2")
+    end
+    ImGui.SameLine()
+    if ImGui.Button("TF3") then
+        print("Get SpeedMeter Type")
+        local GameSettings = require('External/GameSettings.lua')
+        local speedometer_units = GameSettings.Get("/interface/SpeedometerUnits")
+        print(speedometer_units)
+        print("Excute Test Function 3")
     end
 end
 

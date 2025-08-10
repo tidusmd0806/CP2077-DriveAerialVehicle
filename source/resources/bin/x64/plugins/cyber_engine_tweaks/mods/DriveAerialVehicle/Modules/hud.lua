@@ -1,5 +1,5 @@
--- local GameSettings = require('External/GameSettings.lua')
 local GameHUD = require('External/GameHUD.lua')
+local GameSettings = require('External/GameSettings.lua')
 local Utils = require("Etc/utils.lua")
 local HUD = {}
 HUD.__index = HUD
@@ -455,13 +455,19 @@ function HUD:EnableManualMeter(is_manual_speed, is_manual_rpm)
 end
 
 --- Set Speed Meter Value
----@param speed_value number
+---@param speed_value number m/s
 function HUD:SetSpeedMeterValue(speed_value)
     if self.hud_car_controller == nil or not self.is_manually_setting_speed then
         return
     end
 
     local success, error_msg = pcall(function()
+        if GameSettings.Get("/interface/SpeedometerUnits") == "UI-Settings-UnitImperial" then
+            speed_value = speed_value * 2.23694 -- m/s to mph
+        else
+            speed_value = speed_value * 3.6 -- m/s to km/h
+        end
+        speed_value = math.floor(speed_value)
         inkTextRef.SetText(self.hud_car_controller.SpeedValue, speed_value)
     end)
 
@@ -499,7 +505,11 @@ function HUD:ToggleOriginalMPHDisplay(on)
         if on then
             mph_text:SetText(GetLocalizedText("LocKey#78030"))
         else
-            mph_text:SetText(GetLocalizedText("LocKey#95281"))
+            if GameSettings.Get("/interface/SpeedometerUnits") == "UI-Settings-UnitImperial" then
+                mph_text:SetText(GetLocalizedText("LocKey#95281"))
+            else
+                mph_text:SetText(GetLocalizedText("LocKey#95356"))
+            end
         end
     end)
 
