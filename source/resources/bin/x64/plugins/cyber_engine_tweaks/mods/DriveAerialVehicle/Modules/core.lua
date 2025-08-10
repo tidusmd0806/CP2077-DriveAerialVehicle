@@ -476,6 +476,10 @@ end
 ---@param action_type string
 ---@param action_value number
 function Core:StorePlayerAction(action_name, action_type, action_value)
+    if self.av_obj and self.av_obj.is_blocking_operation then
+        self.log_obj:Record(LogLevel.Trace, "Operation is blocked in StorePlayerAction")
+        return
+    end
     if action_type == "RELATIVE_CHANGE" then
         if action_value < self.relative_dead_zone and action_value > -self.relative_dead_zone then
             action_value = 0
@@ -534,18 +538,6 @@ function Core:GetAVAction(action_name, action_type, action_value)
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
 
     if self.event_obj.current_situation == Def.Situation.InVehicle then
-        -- if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_FORWARD_MOVE) then
-        --     action_command = Def.ActionList.Forward
-        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_BACK_MOVE) then
-        --     action_command = Def.ActionList.Backward
-        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_RIGHT_ROTATE) then
-        --     action_command = Def.ActionList.RightRotate
-        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEFT_ROTATE) then
-        --     action_command = Def.ActionList.LeftRotate
-        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEAN_FORWARD) then
-        --     action_command = Def.ActionList.LeanForward
-        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_LEAN_BACKWARD) then
-        --     action_command = Def.ActionList.LeanBackward
         if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_EXIT_AV) then
             action_command = Def.ActionList.Exit
         end
@@ -577,18 +569,6 @@ function Core:GetHeliAction(action_name, action_type, action_value)
     local action_dist = {name = action_name, type = action_type, value = action_value_type}
 
     if self.event_obj.current_situation == Def.Situation.InVehicle then
-        -- if DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_FORWARD) then
-        --     action_command = Def.ActionList.HLeanForward
-        -- elseif not DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.PAD_HELI_LEAN_FORWARD) then
-        --     action_command = Def.ActionList.HLeanForward
-        -- elseif DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_BACKWARD) then
-        --     action_command = Def.ActionList.HLeanBackward
-        -- elseif not DAV.is_keyboard_input and Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.PAD_HELI_LEAN_BACKWARD) then
-        --     action_command = Def.ActionList.HLeanBackward
-        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_RIGHT) then
-        --     action_command = Def.ActionList.HLeanRight
-        -- elseif Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_HELI_LEAN_LEFT) then
-        --     action_command = Def.ActionList.HLeanLeft
         if Utils:IsTablesNearlyEqual(action_dist, self.input_key_table.KEY_AV_EXIT_AV) then
             action_command = Def.ActionList.Exit
         end
@@ -607,6 +587,10 @@ end
 --- Convert Hold Button Action.
 ---@param key string
 function Core:ConvertHoldButtonAction(key)
+    if self.av_obj.is_blocking_operation then
+        self.log_obj:Record(LogLevel.Trace, "Operation is blocked in ConvertHoldButtonAction")
+        return
+    end
     local keybind_name = ""
     if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
         for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
@@ -721,6 +705,10 @@ end
 --- Convert Press Button Action.
 ---@param key string
 function Core:ConvertPressButtonAction(key)
+    if self.av_obj.is_blocking_operation then
+        self.log_obj:Record(LogLevel.Trace, "Operation is blocked in ConvertPressButtonAction")
+        return
+    end
     local keybind_name = ""
     if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
         for _, keybind in ipairs(DAV.user_setting_table.keybind_table) do
@@ -1135,6 +1123,10 @@ end
 ---@param key string
 ---@param value number
 function Core:ConvertAxisAction(key, value)
+    if self.av_obj.is_blocking_operation then
+        self.log_obj:Record(LogLevel.Trace, "Operation is blocked in ConvertAxisAction")
+        return
+    end
     local keybind_name = ""
     local axis_key_list = {"IK_Pad_LeftAxisX", "IK_Pad_LeftAxisY"}
     if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then

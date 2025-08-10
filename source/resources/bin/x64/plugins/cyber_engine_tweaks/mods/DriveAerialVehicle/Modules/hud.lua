@@ -28,6 +28,7 @@ function HUD:New()
     obj.key_input_hide_hint_event = nil
     obj.current_input_hint_count = 0
     obj.icon_texture_atlas = ResRef.FromName("base\\gameplay\\gui\\common\\input\\icons_keyboard.inkatlas")
+    obj.delete_custom_input_flag = false
     -- interaction choice
     obj.selected_choice_index = 1
     obj.interaction_ui_base = nil
@@ -729,6 +730,11 @@ function HUD:ReconstructInputHint()
         end
 
         -- Create and add the hint widget
+        local visible = true
+        if self.delete_custom_input_flag then
+            visible = false
+            self.log_obj:Record(LogLevel.Trace, "CreateOrUpdateHintWidget is setting visible to false due to delete_custom_input_flag being true")
+        end
         local hint_widget = self:CreateOrUpdateHintWidget(hint_num, title, texture_parts, true)
         if hint_widget then
             hint_widget:Reparent(input_hint_widget)
@@ -977,7 +983,7 @@ function HUD:CreateOrUpdateHintWidget(num, text, texture_parts, enable)
         elseif input_hint_widget then
             local widget_name = "hint_" .. num
             local existing_widget = input_hint_widget:GetWidget(StringToName(widget_name))
-            if existing_widget then
+            if existing_widget and not self.delete_custom_input_flag then
                 self.log_obj:Record(LogLevel.Info, "Widget " .. widget_name .. " already exists, updating existing widget")
                 existing_widget:SetVisible(enable or true)
                 existing_widget:GetWidget("hint"):GetWidget("wrapper"):GetWidget("label"):SetText(text or "")
@@ -1007,50 +1013,53 @@ function HUD:CreateOrUpdateHintWidget(num, text, texture_parts, enable)
                     end
                 end
                 return nil
+            elseif existing_widget and self.delete_custom_input_flag then
+                existing_widget.parentWidget:RemoveChild(existing_widget)
+                return nil
+            elseif not self.delete_custom_input_flag then
+                -- Create all widgets
+                local main_widget = self:CreateMainHintWidget(num, enable)
+                if not main_widget then
+                    self.log_obj:Record(LogLevel.Error, "Failed to create main_widget")
+                    return nil
+                end
+
+                local hint_panel = self:CreateHintPanel()
+                local wrapper_panel = self:CreateWrapperPanel()
+                local text_label = self:CreateTextLabel(text)
+                local keys_panel = self:CreateKeysPanel()
+                local key_flex_widget_list = {}
+                local key_panel_list = {}
+                local hold_container_list = {}
+                local key_icon_panel_list = {}
+                local input_icon_list = {}
+                local input_and_list = {}
+                for i = 1, 4 do
+                    key_flex_widget_list[i] = self:CreateKeyFlexWidget(i)
+                    key_panel_list[i] = self:CreateKeyPanel()
+                    hold_container_list[i] = self:CreateHoldContainer()
+                    key_icon_panel_list[i] = self:CreateKeyIconPanel()
+                    input_icon_list[i] = self:CreateInputIcon(texture_parts[i])  -- Use different texture for each icon
+                    input_and_list[i] = self:CreateInputANDText()
+                end
+
+                for i = 1, 4 do
+                    input_icon_list[i]:Reparent(key_icon_panel_list[i])
+                    input_and_list[i]:Reparent(key_icon_panel_list[i])
+                    hold_container_list[i]:Reparent(key_panel_list[i])
+                    key_icon_panel_list[i]:Reparent(key_panel_list[i])
+                    key_panel_list[i]:Reparent(key_flex_widget_list[i])
+                    key_flex_widget_list[i]:Reparent(keys_panel)
+                end
+                text_label:Reparent(wrapper_panel)
+                wrapper_panel:Reparent(hint_panel)
+                keys_panel:Reparent(hint_panel)
+                hint_panel:Reparent(main_widget)
+
+                return main_widget
             end
         end
     end
-
-    -- Create all widgets
-    local main_widget = self:CreateMainHintWidget(num, enable)
-    if not main_widget then
-        self.log_obj:Record(LogLevel.Error, "Failed to create main_widget")
-        return nil
-    end
-
-    local hint_panel = self:CreateHintPanel()
-    local wrapper_panel = self:CreateWrapperPanel()
-    local text_label = self:CreateTextLabel(text)
-    local keys_panel = self:CreateKeysPanel()
-    local key_flex_widget_list = {}
-    local key_panel_list = {}
-    local hold_container_list = {}
-    local key_icon_panel_list = {}
-    local input_icon_list = {}
-    local input_and_list = {}
-    for i = 1, 4 do
-        key_flex_widget_list[i] = self:CreateKeyFlexWidget(i)
-        key_panel_list[i] = self:CreateKeyPanel()
-        hold_container_list[i] = self:CreateHoldContainer()
-        key_icon_panel_list[i] = self:CreateKeyIconPanel()
-        input_icon_list[i] = self:CreateInputIcon(texture_parts[i])  -- Use different texture for each icon
-        input_and_list[i] = self:CreateInputANDText()
-    end
-
-    for i = 1, 4 do
-        input_icon_list[i]:Reparent(key_icon_panel_list[i])
-        input_and_list[i]:Reparent(key_icon_panel_list[i])
-        hold_container_list[i]:Reparent(key_panel_list[i])
-        key_icon_panel_list[i]:Reparent(key_panel_list[i])
-        key_panel_list[i]:Reparent(key_flex_widget_list[i])
-        key_flex_widget_list[i]:Reparent(keys_panel)
-    end
-    text_label:Reparent(wrapper_panel)
-    wrapper_panel:Reparent(hint_panel)
-    keys_panel:Reparent(hint_panel)
-    hint_panel:Reparent(main_widget)
-
-    return main_widget
 end
 
 --- Set Custom Hint
@@ -1117,30 +1126,6 @@ function HUD:ShowCustomHint()
     end
     self:SetCustomHint()
     Game.GetUISystem():QueueEvent(self.key_input_show_hint_event)
-    -- self:SetInputHintController()
-    -- if not self:IsVisibleCustomInputHints() then
-    --     self:ReconstructInputHint()
-    --     self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
-    --     return
-    -- end
-    -- Cron.Every(0.1, {tick=1}, function(timer)
-    --     timer.tick = timer.tick + 1
-    --     if timer.tick > 100 then
-    --         self.log_obj:Record(LogLevel.Error, "ReconstructInputHint not called after 1 second, stopping")
-    --         Cron.Halt(timer)
-    --         return
-    --     end
-    --     self:SetInputHintController()
-    --     if not self:IsVisibleCustomInputHints() then
-    --         self:ReconstructInputHint()
-    --         self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
-    --         return
-    --     else
-    --         self.log_obj:Record(LogLevel.Debug, "Input hints are already visible, skipping ReconstructInputHint")
-    --         Cron.Halt(timer)
-    --         return
-    --     end
-    -- end)
 end
 
 --- Hide Custom Hint
@@ -1320,6 +1305,11 @@ function HUD:IsVisibleCustomInputHints()
     end
 
     return result
+end
+
+---@param enabled boolean
+function HUD:SetDeleteWidgetFlag(enabled)
+    self.delete_custom_input_flag = enabled
 end
 
 --- Show Message when auto pilot is on.

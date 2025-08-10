@@ -18,9 +18,6 @@ function Event:New()
     obj.sound_obj = Sound:New()
 
     -- static --
-    -- distance limit
-    -- obj.distance_limit = 80
-    -- obj.engine_audio_limit = 40
     -- projection
     obj.projection_max_height_offset = 4
     -- dynamic --
@@ -104,10 +101,27 @@ function Event:SetObserve()
         self.log_obj:Record(LogLevel.Info, "Session end detected")
         self.current_situation = Def.Situation.Idle
     end)
+
+    -- Compatibility with LTBF
+    Observe("Entity", "QueueEvent", function(_, evt)
+        if not evt then return end
+        if evt:IsA(StringToName("VehicleFlightActivationEvent")) then
+            if self:IsInVehicle() then
+                self.hud_obj:SetDeleteWidgetFlag(true)
+                self.av_obj:BlockOperation(true)
+            end
+        elseif evt:IsA(StringToName("VehicleFlightDeactivationEvent")) then
+            if self:IsInVehicle() then
+                self.hud_obj:SetDeleteWidgetFlag(false)
+                self.av_obj:BlockOperation(false)
+            end
+        end
+    end)
 end
 
 --- Set Override Functions
 function Event:SetOverride()
+    -- To prevent the door from opening while driving
     Override("VehicleComponentPS", "GetHasAnyDoorOpen", function(this, wrapped_method)
         if self:IsInVehicle() then
             return false
@@ -115,7 +129,7 @@ function Event:SetOverride()
             return wrapped_method()
         end
     end)
-
+    -- Depending on the position of the driver's seat, an animation will play in which the driver moves to the opposite door, just like in a normal car. This hook prevents this.
     Override("VehicleTransition", "IsUnmountDirectionClosest", function(this, state_context, unmount_direction, wrapped_method)
         if self:IsInVehicle() and not Game.GetPlayer():PSIsInDriverCombat() then
             self.av_obj:Unmount()
@@ -125,6 +139,7 @@ function Event:SetOverride()
         end
     end)
 
+    -- Depending on the position of the driver's seat, an animation will play in which the driver moves to the opposite door, just like in a normal car. This hook prevents this.
     Override("VehicleTransition", "IsUnmountDirectionOpposite", function(this, state_context, unmount_direction, wrapped_method)
         if self:IsInVehicle() and not Game.GetPlayer():PSIsInDriverCombat() then
             return false
@@ -193,7 +208,6 @@ function Event:CheckAllEvents()
         self:CheckInEntryArea()
         self:CheckInAV()
         self:CheckDestroyed()
-        -- self:CheckDistance()
         self:CheckHeight()
         self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
@@ -420,23 +434,6 @@ function Event:CheckDespawn()
     end
 end
 
---- Check distance between player and AV.
--- function Event:CheckDistance()
---     local player_pos = Game.GetPlayer():GetWorldPosition()
---     local av_pos = self.av_obj:GetPosition()
---     local distance = Vector4.Distance(player_pos, av_pos)
---     if distance > self.distance_limit then
---         self:ReturnVehicle(false)
---     elseif distance > self.engine_audio_limit then
---         self.is_enable_audio = false
---     else
---         if not self.is_enable_audio then
---             -- self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
---         end
---         self.is_enable_audio = true
---     end
--- end
-
 --- Check height between AV and ground. if height is too low, show landing warning.
 function Event:CheckHeight()
     local height = self.av_obj:GetHeight()
@@ -458,7 +455,7 @@ function Event:CheckInput()
         self.hud_obj:ShowCustomHint()
         return
     end
-    if self.check_input_count > (2 / DAV.time_resolution) then
+    if self.check_input_count > math.floor(2 / DAV.time_resolution) then
         self.check_input_count = 0
         self.hud_obj:SetInputHintController()
         if not self.hud_obj:IsVisibleCustomInputHints() then

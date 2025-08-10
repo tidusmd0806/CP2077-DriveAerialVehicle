@@ -42,6 +42,7 @@ function AV:New(core_obj)
 	---dynamic---
 	-- common
 	obj.entity_id = nil
+	obj.is_blocking_operation = false
 	-- door
 	obj.combat_door = nil
 	obj.door_input_lock_list = {seat_front_left = false, seat_front_right = false, seat_back_left = false, seat_back_right = false, trunk = false, hood = false}
@@ -57,7 +58,6 @@ function AV:New(core_obj)
 	obj.collision_filters =  {"Static", "Terrain", "Water"}
 	obj.weak_collision_filters = {"Static", "Terrain"}
 	obj.minimum_distance_to_ground = 1.2
-	obj.spawn_wait_time = 10 -- wait time for spawning (milliseconds)
 	-- av status
 	obj.is_landed = false
 	obj.is_leaving = false
@@ -347,6 +347,7 @@ function AV:Spawn(position, angle)
 			self.is_spawning = false
 			self.landing_vfx_component = entity:FindComponentByName("LandingVFXSlot")
 			self.engine_obj:Init(self.entity_id)
+			self.engine_obj:UnsetPhysicsState()
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.engine_obj:EnableGravity(false)
 			Cron.After(0.5, function()
@@ -370,18 +371,18 @@ function AV:SpawnToSky()
 	position.z = position.z + self.spawn_height
 	local angle = self:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
-	Cron.Every(0.01, { tick = 1 }, function(timer)
+	Cron.Every(DAV.time_resolution, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
-			if timer.tick < self.spawn_wait_time then
-				self.log_obj:Record(LogLevel.Trace, "Spawn Tick: " .. timer.tick)
-			elseif timer.tick == self.spawn_wait_time then
+			local height = self:GetHeight()
+			self.log_obj:Record(LogLevel.Trace, "Current Height In Spawning: " .. height)
+			if timer.tick == 1 then
 				self:DisableAllDoorInteractions()
-				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed))
+				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed)) 
 				self.log_obj:Record(LogLevel.Info, "Initial Spawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
-			elseif self:GetHeight() < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
+			elseif height < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
 				self.engine_obj:SetFluctuationVelocityParams(-2, 1)
 				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
-			elseif self:GetHeight() < self.minimum_distance_to_ground or timer.tick > self.down_timeout or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
+			elseif height < self.minimum_distance_to_ground or timer.tick > self.down_timeout or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 				self.is_landed = true
@@ -696,8 +697,27 @@ function AV:Unmount()
 	return true
 end
 
+---@param on boolean
+function AV:BlockOperation(on)
+	if on then
+		self.is_blocking_operation = true
+		self.engine_obj:SetControlType(Def.EngineControlType.Blocking)
+		self.engine_obj:EnableOriginalPhysics(true)
+		self.engine_obj:EnableGravity(true)
+	else
+		self.is_blocking_operation = false
+		if self:IsPlayerIn() then
+			self.engine_obj:SetControlType(Def.EngineControlType.AddForce)
+		else
+			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+		end
+		self.engine_obj:EnableOriginalPhysics(false)
+		self.engine_obj:EnableGravity(false)
+	end
+end
+
 --- Execute action commands.
---- @param action_command_lists table
+---@param action_command_lists table
 function AV:Operate(action_command_lists)
 	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
 	-- self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_command_lists)

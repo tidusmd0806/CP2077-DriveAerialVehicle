@@ -63,17 +63,6 @@ function Debug:SetObserver()
 
     if not self.is_set_observer then
         -- reserved
-        Observe("Entity", "QueueEvent",
-        ---@param this Entity
-        ---@param evt Event
-        function(this, evt)
-            if evt:IsA(StringToName("VehicleFlightActivationEvent")) then
-                print("VehicleFlightActivationEvent has been triggered")
-            elseif evt:IsA(StringToName("VehicleFlightDeactivationEvent")) then
-                print("VehicleFlightDeactivationEvent has been triggered")
-            end
-        end)
-
     end
     self.is_set_observer = true
 
@@ -480,110 +469,16 @@ function Debug:ImGuiExcuteFunction()
     end
     ImGui.SameLine()
     if ImGui.Button("TF2") then
-        print("Auto Down Test")
-        Cron.Every(1, {tick=1}, function(timer)
-            timer.tick = timer.tick + 1
-            if self.core_obj.av_obj.engine_obj:IsOnGround() then
-                if self.core_obj.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
-                    self.core_obj.av_obj:Operate({Def.ActionList.Down})
-                else
-                    self.core_obj.av_obj:Operate({Def.ActionList.HDown})
-                end
-            end
-            if timer.tick > 10 then
-                Cron.Halt(timer)
-            end
-        end)
+        print("Toggle Block Operation")
+        if self.core_obj.av_obj.is_blocking_operation then
+            self.core_obj.av_obj:BlockOperation(false)
+            print("Unblock Operation")
+        else
+            self.core_obj.av_obj:BlockOperation(true)
+            print("Block Operation")
+        end
+        
         print("Excute Test Function 2")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF3") then
-        print("Force HP Display On Test")
-        DAV.core_obj.event_obj.hud_obj.is_active_hp_display = true
-        print("Excute Test Function 3")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF4") then
-        print("Force Unmount Test")
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local vehicle_ps = entity:GetVehiclePS()
-        vehicle_ps:DisableAllVehInteractions()
-        print("Excute Test Function 4")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF5") then
-        self.core_obj.event_obj.hud_obj:ForceShowMeter()
-        print("Excute Test Function 5")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF6") then
-        local evt = ActionEvent.new()
-        evt.eventAction = CName.new("dav_av_idle_start")
-        local player = Game.GetPlayer()
-        player:QueueEvent(evt)
-        print("Excute Test Function 6")
-    end
-    if ImGui.Button("TF7") then
-        local evt = ActionEvent.new()
-        evt.eventAction = CName.new("dav_av_accel_start")
-        local player = Game.GetPlayer()
-        player:QueueEvent(evt)
-        print("Excute Test Function 7")
-    end
-    if ImGui.Button("TF7-1") then
-        local evt = ActionEvent.new()
-        evt.eventAction = CName.new("dav_av_accel_stop")
-        local player = Game.GetPlayer()
-        player:QueueEvent(evt)
-        print("Excute Test Function 7-1")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF8") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        local mesh = entity:FindComponentByName("ThrusterFL")
-        if mesh ~= nil then
-            -- mesh.visualScale = Vector3.new(0, 0, 0)
-            mesh:Toggle(false)
-            fs().playerComponent.configuration.thrusters[1]:Stop()
-        end
-        print("Excute Test Function 8")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF9") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        print(entity:IsEngineTurnedOn())
-        entity:TurnEngineOn(false)
-        print(entity:IsEngineTurnedOn())
-        print("Excute Test Function 9")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF10") then
-        local entity = Game.FindEntityByID(DAV.core_obj.av_obj.entity_id)
-        print(entity:IsEngineTurnedOn())
-        entity:TurnEngineOn(true)
-        print(entity:IsEngineTurnedOn())
-        print("Excute Test Function 10")
-    end
-    ImGui.SameLine()
-    if ImGui.Button("TF11") then
-        DAV.core_obj.av_obj.engine_obj.fly_av_system:EnableOriginalPhysics(false)
-        print("Excute Test Function 11")
-    end
-    if ImGui.Button("TF12") then
-        local system = Game.GetInkSystem()
-        local controllers = system:GetLayer(CName.new("inkHUDLayer")):GetGameControllers()
-        local controller_input_hint
-        for _, controller in ipairs(controllers) do
-            print(controller:ToString())
-            if controller:ToString() == "gameuiInputHintManagerGameController" then
-                controller_input_hint = controller
-                break
-            end
-        end
-        controller_input_hint:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints"):GetWidget(0):GetWidget("hint"):GetWidget("keys"):GetWidget(0):GetWidget(0):GetWidget(1):GetWidget("inputIcon"):SetTexturePart("kb_s")
-        controller_input_hint:GetRootCompoundWidget():GetWidget("mainContainer"):GetWidget("hints"):GetWidget(0):GetWidget("hint"):GetWidget("wrapper"):GetWidget("label"):SetText("kb_s")
-
-        print("Excute Test Function 12")
     end
 end
 

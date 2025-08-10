@@ -48,8 +48,8 @@ function Engine:Init(entity_id)
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
-    self.is_finished_init = true
     self.mass = self.fly_av_system:GetMass()
+    self.is_finished_init = true
 end
 
 --- Get Control Type
@@ -76,15 +76,16 @@ function Engine:Update(delta)
     if not self.is_finished_init then
         return
     end
-    self:UnsetPhysicsState()
     if self.av_obj.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
         return
     end
     if self.engine_control_type == Def.EngineControlType.ChangeVelocity then
+        self:UnsetPhysicsState()
         self.force = Vector3.new(0, 0, 0)
         self.torque = Vector3.new(0, 0, 0)
         self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.direction_velocity, self.angular_velocity)
     elseif self.engine_control_type == Def.EngineControlType.AddForce then
+        self:UnsetPhysicsState()
         local direction_velocity = self:GetDirectionVelocity()
         local angular_velocity = self:GetAngularVelocity()
         local mass = self.mass
@@ -92,9 +93,13 @@ function Engine:Update(delta)
         self.torque = Vector3.new(angular_velocity.x / delta * mass, angular_velocity.y / delta * mass, angular_velocity.z / delta * mass)
         self:AddForce(delta, self.force, self.torque)
     elseif self.engine_control_type == Def.EngineControlType.FluctuationVelocity then
+        self:UnsetPhysicsState()
         self.force = Vector3.new(0, 0, 0)
         self.torque = Vector3.new(0, 0, 0)
         self:FluctuationVelocity(delta)
+    elseif self.engine_control_type == Def.EngineControlType.Blocking then
+        -- Do nothing, just block the physics
+        self.log_obj:Record(LogLevel.Trace, "Blocking DAV physics")
     else
         self.log_obj:Record(LogLevel.Error, "Unknown control type")
     end
@@ -102,31 +107,37 @@ end
 
 --- Unset physics state
 function Engine:UnsetPhysicsState()
+    if not self.is_finished_init then
+        return
+    end
     self.fly_av_system:UnsetPhysicsState()
 end
 
 --- Enable original physics
 ---@param on boolean
 function Engine:EnableOriginalPhysics(on)
+    if not self.is_finished_init then
+        return
+    end
     self.fly_av_system:EnableOriginalPhysics(on)
 end
 
 --- Check if has gravity
 ---@return boolean
 function Engine:HasGravity()
+    if not self.is_finished_init then
+        return false
+    end
     return self.fly_av_system:HasGravity()
 end
 
 --- Set gravity
 ---@param on boolean
 function Engine:EnableGravity(on)
+    if not self.is_finished_init then
+        return
+    end
     self.fly_av_system:EnableGravity(on)
-end
-
---- Get Vehicle Mass
----@return number
-function Engine:GetMass()
-    return self.fly_av_system:GetMass()
 end
 
 --- If Collision Detected
@@ -142,6 +153,9 @@ end
 ---@return Vector3
 ---@return Vector3
 function Engine:GetDirectionAndAngularVelocity()
+    if not self.is_finished_init then
+        return Vector3.new(0, 0, 0), Vector3.new(0, 0, 0)
+    end
     return self.fly_av_system:GetVelocity(), self.fly_av_system:GetAngularVelocity()
 end
 
