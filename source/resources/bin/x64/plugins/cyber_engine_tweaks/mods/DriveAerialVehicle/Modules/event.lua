@@ -21,7 +21,7 @@ function Event:New()
     -- projection
     obj.projection_max_height_offset = 4
     -- dynamic --
-    obj.is_initial_load = false
+    obj.is_initial_load = true
     obj.current_situation = Def.Situation.Idle
     obj.is_in_menu = false
     obj.is_in_popup = false
@@ -32,6 +32,7 @@ function Event:New()
     obj.is_enable_audio = true
     obj.is_locked_showing_meter = false
     obj.check_input_count = 0
+    obj.is_ltbf_flight_active = false
     -- projection
     obj.is_landing_projection = false
 
@@ -83,10 +84,9 @@ function Event:SetObserve()
     end)
 
     GameUI.Observe("SessionStart", function()
-
-        if not self.is_initial_load then
+        if self.is_initial_load then
             self.log_obj:Record(LogLevel.Info, "Initial Session start detected")
-            self.is_initial_load = true
+            self.is_initial_load = false
         else
             self.log_obj:Record(LogLevel.Info, "Session start detected")
             DAV.core_obj:Reset()
@@ -102,20 +102,45 @@ function Event:SetObserve()
         self.current_situation = Def.Situation.Idle
     end)
 
-    -- Compatibility with LTBF
-    Observe("vehicleBaseObject", "QueueEvent", function(_, event)
-        if event:IsA(StringToName("VehicleFlightActivationEvent")) then
+    if DAV.is_valid_ltbf then
+        Cron.Every(0.1, {tick=1}, function(timer)
             if self:IsInVehicle() then
-                self.hud_obj:SetDeleteWidgetFlag(true)
-                self.av_obj:BlockOperation(true)
+                local is_ltbf_flight_active = fs().ctlr.active
+                if is_ltbf_flight_active and is_ltbf_flight_active ~= self.is_ltbf_flight_active then
+                    self.is_ltbf_flight_active = is_ltbf_flight_active
+                    self.hud_obj:SetDeleteWidgetFlag(true)
+                    self.av_obj:BlockOperation(true)
+                    Cron.Every(0.1, {tick=1}, function(timer)
+                        timer.tick = timer.tick + 1
+                        if timer.tick > 10 then
+                            self.log_obj:Record(LogLevel.Info, "Thruster check timed out")
+                            Cron.Halt(timer)
+                            return
+                        end
+                        local entity = Game.FindEntityByID(self.av_obj.entity_id)
+                        local mesh_fl = entity:FindComponentByName("ThrusterFL")
+                        local mesh_fr = entity:FindComponentByName("ThrusterFR")
+                        local mesh_bl = entity:FindComponentByName("ThrusterBL")
+                        local mesh_br = entity:FindComponentByName("ThrusterBR")
+                        if mesh_fl then mesh_fl:Toggle(false) end
+                        if mesh_fr then mesh_fr:Toggle(false) end
+                        if mesh_bl then mesh_bl:Toggle(false) end
+                        if mesh_br then mesh_br:Toggle(false) end
+                        if fs() then
+                            fs().playerComponent.configuration.thrusters[1]:Stop()
+                            fs().playerComponent.configuration.thrusters[2]:Stop()
+                            fs().playerComponent.configuration.thrusters[3]:Stop()
+                            fs().playerComponent.configuration.thrusters[4]:Stop()
+                        end
+                    end)
+                elseif is_ltbf_flight_active ~= self.is_ltbf_flight_active then
+                    self.is_ltbf_flight_active = is_ltbf_flight_active
+                    self.hud_obj:SetDeleteWidgetFlag(false)
+                    self.av_obj:BlockOperation(false)
+                end
             end
-        elseif event:IsA(StringToName("VehicleFlightDeactivationEvent")) then
-            if self:IsInVehicle() then
-                self.hud_obj:SetDeleteWidgetFlag(false)
-                self.av_obj:BlockOperation(false)
-            end
-        end
-    end)
+        end)
+    end
 end
 
 --- Set Override Functions

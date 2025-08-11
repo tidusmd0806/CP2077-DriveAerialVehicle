@@ -120,7 +120,7 @@ function Sound:StartEngineSound(flight_mode, fade_time)
     end
     evt.timeToLive = fade_time or 0.5
     Game.GetPlayer():QueueEvent(evt)
-    self.log_obj:Record(LogLevel.Info, "Start Engine Sound")
+    self.log_obj:Record(LogLevel.Debug, "Start Engine Sound")
 end
 
 --- Stop Engine Sound
@@ -138,7 +138,7 @@ function Sound:StopEngineSound(flight_mode, fade_time)
     end
     evt.timeToLive = fade_time or 0.5
     Game.GetPlayer():QueueEvent(evt)
-    self.log_obj:Record(LogLevel.Info, "Stop Engine Sound")
+    self.log_obj:Record(LogLevel.Debug, "Stop Engine Sound")
 end
 
 --- Start Acceleration Sound
@@ -156,7 +156,7 @@ function Sound:StartAccelerationSound(flight_mode, fade_time)
     end
     evt.timeToLive = fade_time or 0.5
     Game.GetPlayer():QueueEvent(evt)
-    self.log_obj:Record(LogLevel.Info, "Start Acceleration Sound")
+    self.log_obj:Record(LogLevel.Debug, "Start Acceleration Sound")
 end
 
 --- Stop Acceleration Sound
@@ -174,7 +174,7 @@ function Sound:StopAccelerationSound(flight_mode, fade_time)
     end
     evt.timeToLive = fade_time or 0.5
     Game.GetPlayer():QueueEvent(evt)
-    self.log_obj:Record(LogLevel.Info, "Stop Acceleration Sound")
+    self.log_obj:Record(LogLevel.Debug, "Stop Acceleration Sound")
 end
 
 --- Start Thruster Sound
@@ -190,7 +190,7 @@ function Sound:StartThrusterSound(flight_mode, fade_time)
     end
     evt.timeToLive = fade_time or 0.5
     Game.GetPlayer():QueueEvent(evt)
-    self.log_obj:Record(LogLevel.Info, "Start Thruster Sound")
+    self.log_obj:Record(LogLevel.Debug, "Start Thruster Sound")
 end
 
 --- Stop Thruster Sound
@@ -206,7 +206,7 @@ function Sound:StopThrusterSound(flight_mode, fade_time)
     end
     evt.timeToLive = fade_time or 0.5
     Game.GetPlayer():QueueEvent(evt)
-    self.log_obj:Record(LogLevel.Info, "Stop Thruster Sound")
+    self.log_obj:Record(LogLevel.Debug, "Stop Thruster Sound")
 end
 
 return Sound

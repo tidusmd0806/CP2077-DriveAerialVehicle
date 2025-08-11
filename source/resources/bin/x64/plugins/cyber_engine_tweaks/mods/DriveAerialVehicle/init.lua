@@ -46,6 +46,8 @@ DAV = {
     NativeSettings = nil,
     -- durability display mod
     is_valid_vehicle_durability_display = false,
+    -- Let There Be Flight(https://www.nexusmods.com/cyberpunk2077/mods/5208)
+    is_valid_ltbf = false,
     -- input
     axis_dead_zone = 0.1,
     input_key_listener = nil,
@@ -324,7 +326,6 @@ registerForEvent("onTweak",function ()
 end)
 
 registerForEvent("onHook", function()
-
     -- refer to Kiroshi Night Vision (https://www.nexusmods.com/cyberpunk2077/mods/8326)
     DAV.input_key_listener = NewProxy({
         OnKeyInput = {
@@ -446,6 +447,7 @@ end
 function CheckOtherMods()
     CheckNativeSettings()
     CheckVehicleDurabilityDisplay()
+    CheckLTBF()
 end
 
 function CheckNativeSettings()
@@ -467,6 +469,15 @@ function CheckVehicleDurabilityDisplay()
     local vehicle_durability_display_mod = GetMod("VehicleDurabilityDisplay")
     if vehicle_durability_display_mod ~= nil then
         DAV.is_valid_vehicle_durability_display = true
+    end
+end
+
+function CheckLTBF()
+    if fs() ~= nil then
+        DAV.is_valid_ltbf = true
+        print("[DAV][Info] LTBF compatibility mode enabled.")
+    else
+        DAV.is_valid_ltbf = false
     end
 end
 

@@ -71,8 +71,6 @@ function AV:New(core_obj)
 	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.autopilot_speed = 1
 	obj.autopilot_turn_speed = 0.01
-	obj.autopilot_land_offset = -1.0
-	obj.autopilot_down_time_count = 100
 	obj.autopilot_leaving_height = 100
 	obj.autopilot_searching_range = 50
 	obj.autopilot_searching_step = 5
@@ -153,8 +151,6 @@ function AV:Init()
 	self.autopilot_profile = Utils:ReadJson(self.profile_path)
 	self.autopilot_speed = self.autopilot_profile[speed_level].speed
 	self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
-	self.autopilot_land_offset = self.autopilot_profile[speed_level].land_offset
-	self.autopilot_down_time_count = self.autopilot_profile[speed_level].down_time_count
 	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
 	self.autopilot_searching_range = self.autopilot_profile[speed_level].searching_range
 	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
@@ -792,22 +788,22 @@ function AV:ControlSound(action_command_lists)
 	end
 
 	if not self.is_acceleration_sound and is_acceleration_sound then
-		self.log_obj:Record(LogLevel.Info, "Start Acceleration Sound")
+		self.log_obj:Record(LogLevel.Trace, "Start Acceleration Sound")
 		self.core_obj.event_obj.sound_obj:StartAccelerationSound(self.flight_mode, 1.5)
 		self.is_acceleration_sound = true
 		return true
 	elseif self.is_acceleration_sound and not is_acceleration_sound then
-		self.log_obj:Record(LogLevel.Info, "Stop Acceleration Sound")
+		self.log_obj:Record(LogLevel.Trace, "Stop Acceleration Sound")
 		self.core_obj.event_obj.sound_obj:StopAccelerationSound(self.flight_mode, 1.5)
 		self.is_acceleration_sound = false
 		return true
 	elseif not self.is_thruster_sound and is_thruster_sound then
-		self.log_obj:Record(LogLevel.Info, "Start Thruster Sound")
+		self.log_obj:Record(LogLevel.Trace, "Start Thruster Sound")
 		self.core_obj.event_obj.sound_obj:StartThrusterSound(self.flight_mode, 1.5)
 		self.is_thruster_sound = true
 		return true
 	elseif self.is_thruster_sound and not is_thruster_sound then
-		self.log_obj:Record(LogLevel.Info, "Stop Thruster Sound")
+		self.log_obj:Record(LogLevel.Trace, "Stop Thruster Sound")
 		self.core_obj.event_obj.sound_obj:StopThrusterSound(self.flight_mode, 1.5)
 		self.is_thruster_sound = false
 		return true
@@ -856,7 +852,7 @@ function AV:AutoPilot()
 	self.initial_destination_length = Vector4.Length(direction_vector)
 
 	if self.autopilot_is_only_horizontal then
-		self:AutoLeaving(direction_vector, self.autopilot_leaving_height)
+		self:AutoLeaving(direction_vector, self.autopilot_leaving_height - current_position.z)
 		self.log_obj:Record(LogLevel.Info, "Select Leaving Only Horizontal")
 	else
 		self:AutoLeaving(direction_vector, self.standard_leaving_height)
@@ -903,7 +899,7 @@ function AV:AutoPilot()
 		if self.dest_dir_vector_norm < self.destination_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
-			self:AutoLanding(current_position.z - destination_position.z)
+			self:AutoLanding(current_position.z - destination_position.z + self.destination_z_offset)
 			Cron.Halt(timer)
 			return
 		end
@@ -954,13 +950,13 @@ function AV:AutoPilot()
 						for search_angle = min_search_angle, max_search_angle, search_angle_step do
 							if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0 and search_angle < 90) or (swing_direction == "Vertical" and self.autopilot_vertical_sign * sign >= 0 and search_angle * sign > -90 ) then
 								if search_angle == 0 then
-									res, vec = self:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction, true)
+									res, vec = self:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction, true, false)
 								else
 									local is_check_exception_area = true
 									if swing_direction == "Vertical" and search_angle * sign >= 90 then
 										is_check_exception_area = false
 									end
-									res, vec = self:IsWall(dest_dir_2d, self.search_range, sign * search_angle, swing_direction, is_check_exception_area)
+									res, vec = self:IsWall(dest_dir_2d, self.search_range, sign * search_angle, swing_direction, is_check_exception_area, false)
 								end
 								if not res then
 									find_angle = search_angle
@@ -1044,8 +1040,8 @@ function AV:AutoPilot()
 		elseif self.auto_speed_reduce_rate > 1 then
 			self.auto_speed_reduce_rate = 1
 		end
-		-- local autopilot_speed = self.autopilot_speed * self.auto_speed_reduce_rate
-		local autopilot_speed = 10 * self.auto_speed_reduce_rate
+		local autopilot_speed = self.autopilot_speed * self.auto_speed_reduce_rate
+		-- local autopilot_speed = 10 * self.auto_speed_reduce_rate
 		local fix_direction_vector = Vector4.new(autopilot_speed * direction_vector.x / direction_vector_norm, autopilot_speed * direction_vector.y / direction_vector_norm, autopilot_speed * direction_vector.z / direction_vector_norm, 1)
 
 		-- yaw control
@@ -1133,7 +1129,8 @@ function AV:AutoLeaving(dist_vector, height)
 	local leaving_height = height or self.autopilot_leaving_height - current_position.z
 	local leaving_position = Vector4.new(current_position.x, current_position.y, current_position.z + leaving_height, 1)
 	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0.5))
-	self.engine_obj:SetFluctuationVelocityParams(1, 5)
+	self.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
+	self.engine_obj:SetFluctuationVelocityParams(1, self.autopilot_speed)
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
@@ -1149,12 +1146,24 @@ function AV:AutoLeaving(dist_vector, height)
 			return
 		end
 
-		local is_dettected_celling, _ = self:IsWall(Vector4.new(0,0,1), self.check_cell_distance, 90, "Vertical", true)
+		-- Stabilize roll and pitch during takeoff
+		local current_angle = self:GetEulerAngles()
+		local roll_correction = -current_angle.roll * 0.01  -- Stronger correction during takeoff
+		local pitch_correction = current_angle.pitch * 0.01
+
+		-- Apply stabilization using angular velocity
+		self.engine_obj:SetAngularVelocity(Vector3.new(roll_correction, pitch_correction, 0))
+
+		local is_detected_celling, search_vector = self:IsWall(Vector4.new(0, 0, 1, 1), self.check_cell_distance, 0, "Vertical", true, true)
+		if is_detected_celling then
+			self.log_obj:Record(LogLevel.Info, "Detected Ceiling, Search Vector:" .. search_vector.x .. ", " .. search_vector.y .. ", " .. search_vector.z)
+		end
 		local current_position_in_leaving = self:GetPosition()
 
-		if current_position_in_leaving.z > leaving_position.z or is_dettected_celling then
+		if current_position_in_leaving.z > leaving_position.z or is_detected_celling then
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+			self.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
 			Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 				timer.tick = timer.tick + 1
 				if not self.is_auto_pilot then
@@ -1208,16 +1217,17 @@ end
 --- Excute Landing when auto pilot is on.
 --- @param height number height to start landing
 function AV:AutoLanding(height)
-	if height <= self.standard_leaving_height then
-		self.log_obj:Record(LogLevel.Info, "AutoPilot Landing : Already Arrived")
-		self.is_landed = true
-		self:SeccessAutoPilot()
-		return
-	end
+	-- if height <= self.standard_leaving_height then
+	-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing : Already Arrived")
+	-- 	self.is_landed = true
+	-- 	self:SuccessAutoPilot()
+	-- 	return
+	-- end
 	local down_time_count = height / self.autopilot_speed
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing Start :" .. tostring(down_time_count) .. "s, " .. tostring(height) .. "m")
-	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -5.0))
-	self.engine_obj:SetFluctuationVelocityParams(-0.5, 1.0)
+	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -5))
+	self.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
+	self.engine_obj:SetFluctuationVelocityParams(-0.1, 1)
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
@@ -1234,10 +1244,24 @@ function AV:AutoLanding(height)
 		roll_diff = roll_diff - current_angle.roll * self.autopilot_landing_angle_restore_rate
 		pitch_diff = pitch_diff - current_angle.pitch * self.autopilot_landing_angle_restore_rate
 
-		if timer.tick > self.down_timeout or self:GetHeight() < self.minimum_distance_to_ground or self:IsCollision() then
-			self.log_obj:Record(LogLevel.Info, "AutoPilot Success.")
+		if timer.tick > self.down_timeout then
+			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for timeout")
 			self.is_landed = true
-			self:SeccessAutoPilot()
+			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+			self:SuccessAutoPilot()
+			Cron.Halt(timer)
+		elseif self:GetHeight() < self.minimum_distance_to_ground then
+			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for minimum_height")
+			self.is_landed = true
+			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+			self:SuccessAutoPilot()
+			Cron.Halt(timer)
+		elseif self:IsCollision() then
+			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for Collision")
+			self.is_landed = true
+			self:SuccessAutoPilot()
 			Cron.Halt(timer)
 		end
 
@@ -1246,7 +1270,7 @@ function AV:AutoLanding(height)
 end
 
 --- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Success.
-function AV:SeccessAutoPilot()
+function AV:SuccessAutoPilot()
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = false
 	self.core_obj:SetAutoPilotHistory()
@@ -1271,8 +1295,6 @@ function AV:ReloadAutopilotProfile()
 	local speed_level = DAV.user_setting_table.autopilot_speed_level
 	self.autopilot_speed = self.autopilot_profile[speed_level].speed
 	self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
-	self.autopilot_land_offset = self.autopilot_profile[speed_level].land_offset
-	self.autopilot_down_time_count = self.autopilot_profile[speed_level].down_time_count
 	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
 	self.autopilot_searching_range = self.autopilot_profile[speed_level].searching_range
 	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
@@ -1600,9 +1622,10 @@ end
 ---@param angle number angle
 ---@param swing_direction string "Vertical" or "Horizontal"
 ---@param is_check_exception_area boolean
+---@param upper_half_only boolean if true, only check upper half positions
 ---@return boolean
 ---@return Vector4
-function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception_area)
+function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception_area, upper_and_forward_half_only)
     local dir_base_vec = Vector4.Normalize(dir_vec)
     local up_vec = Vector4.new(0, 0, 1, 1)
     local right_vec = Vector4.Cross(dir_base_vec, up_vec)
@@ -1612,9 +1635,19 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
     else
         search_vec = Vector4.RotateAxis(dir_base_vec, up_vec, angle / 180 * Pi())
     end
-    for _, i in ipairs({0, self.autopilot_prevention_length, -self.autopilot_prevention_length}) do
-        for _, j in ipairs({0, self.autopilot_prevention_length, -self.autopilot_prevention_length}) do
-            for _, k in ipairs({0, self.autopilot_prevention_length, -self.autopilot_prevention_length}) do
+    
+    -- Define k values based on upper_and_forward_half_only flag
+	local i_values = {0, self.autopilot_prevention_length, -self.autopilot_prevention_length}
+	local j_values = {0, self.autopilot_prevention_length, -self.autopilot_prevention_length}
+    local k_values = {0, self.autopilot_prevention_length, -self.autopilot_prevention_length}
+    if upper_and_forward_half_only then
+        i_values = {0, self.autopilot_prevention_length}  -- Only 0 and positive values (forward half)
+        k_values = {0, self.autopilot_prevention_length}  -- Only 0 and positive values (upper half)
+    end
+
+    for _, i in ipairs(i_values) do
+        for _, j in ipairs(j_values) do
+            for _, k in ipairs(k_values) do
                 local current_position = self:GetPosition()
                 current_position.x = current_position.x + dir_base_vec.x * i + right_vec.x * j + up_vec.x * k
                 current_position.y = current_position.y + dir_base_vec.y * i + right_vec.y * j + up_vec.y * k

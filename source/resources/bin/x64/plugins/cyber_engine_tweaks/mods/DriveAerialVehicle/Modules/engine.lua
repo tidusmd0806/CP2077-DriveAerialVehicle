@@ -331,7 +331,7 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
     local current_y = y + vel_vec.y
     local current_z = z + vel_vec.z
     self.current_speed = math.sqrt(current_x * current_x + current_y * current_y + current_z * current_z)
-    local max_speed = DAV.user_setting_table.max_speed  / 2.23 -- Convert MPH to m/s
+    local max_speed = DAV.user_setting_table.max_speed * 0.44704 -- Convert MPH to m/s
     if self.current_speed > max_speed then
         x = 0
         y = 0
@@ -391,10 +391,30 @@ function Engine:CalculateAVMode(action_command_list)
         x = x + acceleration * forward_vec.x
         y = y + acceleration * forward_vec.y
         z = z + acceleration * forward_vec.z
+        -- Add pitch stabilization during forward movement
+        if current_angle.pitch > pitch_restore_amount then
+            local_pitch = local_pitch - pitch_restore_amount
+        elseif current_angle.pitch < -pitch_restore_amount then
+            local_pitch = local_pitch + pitch_restore_amount
+        elseif current_angle.pitch > 0 then
+            local_pitch = local_pitch - current_angle.pitch
+        elseif current_angle.pitch < 0 then
+            local_pitch = local_pitch - current_angle.pitch
+        end
     elseif action_command_list[1] == Def.ActionList.Backward then
         x = x - acceleration * forward_vec.x
         y = y - acceleration * forward_vec.y
         z = z - acceleration * forward_vec.z
+        -- Add pitch stabilization during backward movement
+        if current_angle.pitch > pitch_restore_amount then
+            local_pitch = local_pitch - pitch_restore_amount
+        elseif current_angle.pitch < -pitch_restore_amount then
+            local_pitch = local_pitch + pitch_restore_amount
+        elseif current_angle.pitch > 0 then
+            local_pitch = local_pitch - current_angle.pitch
+        elseif current_angle.pitch < 0 then
+            local_pitch = local_pitch - current_angle.pitch
+        end
     elseif action_command_list[1] == Def.ActionList.LeftRotate then
         yaw = yaw + yaw_change_amount
         if current_angle.roll > self.max_roll then
@@ -572,7 +592,7 @@ end
 function Engine:CalculateIdleMode()
     local x,y,z,roll,pitch = 0,0,0,0,0
 
-    if DAV.user_setting_table.is_enable_idle_gravity and self.av_obj:IsCollision() then
+    if DAV.user_setting_table.is_enable_idle_gravity and not self.av_obj:IsCollision() then
         local vel_vec, _ = self:GetDirectionAndAngularVelocity()
         local height = self.av_obj:GetHeight()
         local dest_height = self.av_obj.minimum_distance_to_ground

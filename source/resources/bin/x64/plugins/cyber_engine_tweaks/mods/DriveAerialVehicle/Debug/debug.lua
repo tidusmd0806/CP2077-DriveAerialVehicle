@@ -373,8 +373,8 @@ function Debug:ImGuiChangeAutoPilotSetting()
         end
         ImGui.Text("Level : " .. DAV.user_setting_table.autopilot_speed_level)
         ImGui.Text("Speed : " .. DAV.core_obj.av_obj.autopilot_speed .. ", Search Range : " .. DAV.core_obj.av_obj.autopilot_searching_range .. ", Search Step : " .. DAV.core_obj.av_obj.autopilot_searching_step)
-        ImGui.Text(" Min Speed Rate : " .. DAV.core_obj.av_obj.autopilot_min_speed_rate)
-        ImGui.Text("Turn Speed : " .. DAV.core_obj.av_obj.autopilot_turn_speed .. ", Land Offset : " .. DAV.core_obj.av_obj.autopilot_land_offset .. ", Down Count : " .. DAV.core_obj.av_obj.autopilot_down_time_count)
+        ImGui.Text("Min Speed Rate : " .. DAV.core_obj.av_obj.autopilot_min_speed_rate)
+        ImGui.Text("Turn Speed : " .. DAV.core_obj.av_obj.autopilot_turn_speed)
         ImGui.Text("Leaving Height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", Only Horizontal : " .. tostring(DAV.core_obj.av_obj.autopilot_is_only_horizontal))
     end
 end
