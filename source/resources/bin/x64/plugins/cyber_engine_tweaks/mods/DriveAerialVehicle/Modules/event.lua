@@ -102,6 +102,7 @@ function Event:SetObserve()
         self.current_situation = Def.Situation.Idle
     end)
 
+    -- Compatibility for LTBF
     if DAV.is_valid_ltbf then
         Cron.Every(0.1, {tick=1}, function(timer)
             if self:IsInVehicle() then
@@ -126,7 +127,7 @@ function Event:SetObserve()
                         if mesh_fr then mesh_fr:Toggle(false) end
                         if mesh_bl then mesh_bl:Toggle(false) end
                         if mesh_br then mesh_br:Toggle(false) end
-                        if fs() then
+                        if fs().playerComponent.configuration.thrusters then
                             fs().playerComponent.configuration.thrusters[1]:Stop()
                             fs().playerComponent.configuration.thrusters[2]:Stop()
                             fs().playerComponent.configuration.thrusters[3]:Stop()
@@ -226,7 +227,10 @@ function Event:CheckAllEvents()
         self:CheckGarage()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
-        self:CheckHeight()
+        -- Only check height if vehicle entity exists and is not currently spawning
+        if not self.av_obj:IsSpawning() and not self.av_obj:IsDespawned() then
+            self:CheckHeight()
+        end
     elseif self.current_situation == Def.Situation.Waiting then
         self:CheckDespawn()
         self:CheckInEntryArea()
@@ -265,8 +269,17 @@ function Event:CallVehicle()
         self.log_obj:Record(LogLevel.Trace, "Vehicle call detected in Waiting situation")
         self.av_obj:Despawn()
         DAV.core_obj:Reset()
-        Cron.After(1.0, function()
-            self:SpawnVehicle()
+        -- Wait longer to ensure complete cleanup before spawning new vehicle
+        Cron.After(1.5, function()
+            -- Double-check that previous vehicle is completely removed
+            if self.av_obj:IsDespawned() then
+                self:SpawnVehicle()
+            else
+                self.log_obj:Record(LogLevel.Warning, "Previous vehicle not fully despawned, retrying...")
+                Cron.After(0.5, function()
+                    self:SpawnVehicle()
+                end)
+            end
         end)
     end
 end
@@ -640,7 +653,7 @@ function Event:ToggleAutoMode()
             self.hud_obj:ShowAutoModeDisplay()
             self.is_locked_operation = true
             self.av_obj:AutoPilot()
-        elseif not self.av_obj.is_leaving then
+        else
             self.hud_obj:ShowDriveModeDisplay()
             self.is_locked_operation = false
             self.av_obj:InterruptAutoPilot()

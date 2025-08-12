@@ -1,7 +1,8 @@
 [
     {
         "level": 1,
-        "speed": 0.2,
+        "speed": 10,
+        "acceleration": 1,
         "turn_speed": 0.01,
         "leaving_height": 20,
         "searching_range": 96,
@@ -11,9 +12,10 @@
     },
     {
         "level": 2,
-        "speed": 10,
+        "speed": 25,
+        "acceleration": 1.5,
         "turn_speed": 0.02,
-        "leaving_height": 20,
+        "leaving_height": 50,
         "searching_range": 96,
         "searching_step": 5,
         "min_speed_rate": 0.4,
@@ -21,9 +23,10 @@
     },
     {
         "level": 3,
-        "speed": 50,
+        "speed": 48,
+        "acceleration": 3.0,
         "turn_speed": 0.03,
-        "leaving_height": 680,
+        "leaving_height": 400,
         "searching_range": 96,
         "searching_step": 15,
         "min_speed_rate": 0.4,

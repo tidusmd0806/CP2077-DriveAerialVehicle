@@ -79,13 +79,15 @@ function Engine:Update(delta)
     if self.av_obj.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
         return
     end
-    if self.engine_control_type == Def.EngineControlType.ChangeVelocity then
+    if self:GetPhysicsState() ~= 0 then
         self:UnsetPhysicsState()
+        self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
+    end
+    if self.engine_control_type == Def.EngineControlType.ChangeVelocity then
         self.force = Vector3.new(0, 0, 0)
         self.torque = Vector3.new(0, 0, 0)
         self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.direction_velocity, self.angular_velocity)
     elseif self.engine_control_type == Def.EngineControlType.AddForce then
-        self:UnsetPhysicsState()
         local direction_velocity = self:GetDirectionVelocity()
         local angular_velocity = self:GetAngularVelocity()
         local mass = self.mass
@@ -93,7 +95,6 @@ function Engine:Update(delta)
         self.torque = Vector3.new(angular_velocity.x / delta * mass, angular_velocity.y / delta * mass, angular_velocity.z / delta * mass)
         self:AddForce(delta, self.force, self.torque)
     elseif self.engine_control_type == Def.EngineControlType.FluctuationVelocity then
-        self:UnsetPhysicsState()
         self.force = Vector3.new(0, 0, 0)
         self.torque = Vector3.new(0, 0, 0)
         self:FluctuationVelocity(delta)
@@ -111,6 +112,15 @@ function Engine:UnsetPhysicsState()
         return
     end
     self.fly_av_system:UnsetPhysicsState()
+end
+
+--- Get Physics state
+---@return number
+function Engine:GetPhysicsState()
+    if not self.is_finished_init then
+        return 0
+    end
+    return self.fly_av_system:GetPhysicsState()
 end
 
 --- Enable original physics
@@ -266,6 +276,12 @@ end
 ---@param pitch number
 ---@param yaw number
 function Engine:Run(x, y, z, roll, pitch, yaw)
+    -- Skip execution if vehicle entity is not properly initialized
+    if self.av_obj:IsDespawned() then
+        self.log_obj:Record(LogLevel.Trace, "Engine:Run skipped - vehicle not spawned")
+        return
+    end
+    
     local vel_vec, ang_vec = self:GetDirectionAndAngularVelocity()
     local current_angle = self.av_obj:GetEulerAngles()
     local roll_restore_amount
@@ -353,6 +369,76 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
     end
 
     self.direction_velocity = Vector3.new(x, y, z)
+    self.angular_velocity = Vector3.new(roll, pitch, yaw)
+end
+
+---@param roll number
+---@param pitch number
+---@param yaw number
+function Engine:OnlyAngularRun(roll, pitch, yaw)
+    -- Skip execution if vehicle entity is not properly initialized
+    if self.av_obj:IsDespawned() then
+        self.log_obj:Record(LogLevel.Trace, "Engine:OnlyAngularRun skipped - vehicle not spawned")
+        return
+    end
+    
+    local _, ang_vec = self:GetDirectionAndAngularVelocity()
+    local current_angle = self.av_obj:GetEulerAngles()
+    local roll_restore_amount
+    local pitch_restore_amount
+
+    if self.flight_mode == Def.FlightMode.AV then
+        roll_restore_amount = DAV.user_setting_table.roll_restore_amount
+        pitch_restore_amount = DAV.user_setting_table.pitch_restore_amount
+    elseif self.flight_mode == Def.FlightMode.Helicopter then
+        roll_restore_amount = DAV.user_setting_table.h_roll_restore_amount
+        pitch_restore_amount = DAV.user_setting_table.h_pitch_restore_amount
+    end
+    local local_roll = 0
+    local local_pitch = 0
+
+    if self.flight_mode == Def.FlightMode.Helicopter or self:HasGravity() then
+        if current_angle.pitch > pitch_restore_amount then
+            local_pitch = local_pitch - pitch_restore_amount
+        elseif current_angle.pitch < -pitch_restore_amount then
+            local_pitch = local_pitch + pitch_restore_amount
+        end
+    end
+
+    if current_angle.roll > roll_restore_amount then
+        local_roll = local_roll - roll_restore_amount
+    elseif current_angle.roll < -roll_restore_amount then
+        local_roll = local_roll + roll_restore_amount
+    end
+
+    -- Smooth roll correction when exceeding max_roll
+    if current_angle.roll > self.max_roll then
+        local excess_roll = current_angle.roll - self.max_roll
+        local_roll = local_roll - excess_roll * 0.5 -- Apply gradual correction
+    elseif current_angle.roll < -self.max_roll then
+        local excess_roll = -self.max_roll - current_angle.roll
+        local_roll = local_roll + excess_roll * 0.5 -- Apply gradual correction
+    end
+
+    if current_angle.roll > self.force_restore_angle or current_angle.roll < -self.force_restore_angle then
+        local_roll = - current_angle.roll
+    elseif current_angle.pitch > self.force_restore_angle or current_angle.pitch < -self.force_restore_angle then
+        local_pitch = - current_angle.pitch
+    end
+
+    local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
+
+    roll = roll + d_roll
+    pitch = pitch + d_pitch
+    yaw = yaw + d_yaw
+
+    -- holding angle
+    if not self.av_obj.is_auto_pilot and not self.is_idle then
+        roll = roll - ang_vec.x
+        pitch = pitch - ang_vec.y
+        yaw = yaw - ang_vec.z
+    end
+
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
 end
 

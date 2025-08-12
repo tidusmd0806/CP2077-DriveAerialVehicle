@@ -24,15 +24,15 @@ function AV:New(core_obj)
 	-- summon
 	obj.spawn_distance = 5.5
 	obj.spawn_height = 20
-	obj.down_timeout = 500
+	obj.down_timeout = 5 -- s
 	obj.up_timeout = 350
 	obj.down_speed = -5.0
 	-- autopiolt
 	obj.profile_path = "Data/autopilot_profile.json"
 	obj.destination_range = 3
 	obj.destination_z_offset = 10
-	obj.autopilot_angle_restore_rate = 0.01
-	obj.autopilot_landing_angle_restore_rate = 0.1
+	obj.autopilot_angle_restore_rate = 0.005
+	obj.autopilot_landing_angle_restore_rate = 0.005
 	obj.standard_leaving_height = 20
 	obj.exception_area_path = "Data/autopilot_exception_area.json"
 	obj.check_cell_distance = 5.0 -- check cell distance when leaving
@@ -84,7 +84,9 @@ function AV:New(core_obj)
 	obj.dest_dir_vector_norm = 1
 	obj.pre_speed_list = {x = 0, y = 0, z = 0}
 	obj.autopilot_exception_area_list = {}
-	obj.autopilot_prevention_length = 10
+	obj.autopilot_prevention_length = 2.5
+	obj.autopilot_leaving_deceleration_start_flag = false
+	obj.autopilot_landing_deceleration_start_flag = false
 	-- appearance
 	obj.is_enable_crystal_dome = false
 	obj.is_enable_landing_vfx = false
@@ -150,6 +152,7 @@ function AV:Init()
 	local speed_level = DAV.user_setting_table.autopilot_speed_level
 	self.autopilot_profile = Utils:ReadJson(self.profile_path)
 	self.autopilot_speed = self.autopilot_profile[speed_level].speed
+	self.autopilot_acceleration = self.autopilot_profile[speed_level].acceleration
 	self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
 	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
 	self.autopilot_searching_range = self.autopilot_profile[speed_level].searching_range
@@ -346,12 +349,12 @@ function AV:Spawn(position, angle)
 	Cron.Every(0.1, {tick = 1}, function(timer)
 		local entity = Game.FindEntityByID(self.entity_id)
 		if entity ~= nil then
-			self.is_spawning = false
 			self.landing_vfx_component = entity:FindComponentByName("LandingVFXSlot")
 			self.engine_obj:Init(self.entity_id)
 			self.engine_obj:UnsetPhysicsState()
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.engine_obj:EnableGravity(false)
+			self.is_spawning = false
 			Cron.After(0.5, function()
 				self.core_obj.event_obj.sound_obj:StartEngineSound(self.flight_mode, 1.5)
 				if self:SetThrusterComponent() then
@@ -377,14 +380,17 @@ function AV:SpawnToSky()
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
 			local height = self:GetHeight()
 			self.log_obj:Record(LogLevel.Trace, "Current Height In Spawning: " .. height)
+			-- Stabilize attitude during landing - force level pitch for ground approach
+			local _, _, _, roll_idle, _, yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
+			self.engine_obj:OnlyAngularRun(roll_idle, 0, yaw_idle)  -- Force pitch to 0 for level landing
 			if timer.tick == 1 then
 				self:DisableAllDoorInteractions()
-				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed)) 
+				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed))
 				self.log_obj:Record(LogLevel.Info, "Initial Spawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
 			elseif height < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
 				self.engine_obj:SetFluctuationVelocityParams(-2, 1)
 				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
-			elseif height < self.minimum_distance_to_ground or timer.tick > self.down_timeout or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
+			elseif height < self.minimum_distance_to_ground or timer.tick > (self.down_timeout / DAV.time_resolution) or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 				self.is_landed = true
@@ -413,12 +419,14 @@ end
 function AV:DespawnFromGround()
 	Cron.Every(0.01, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+			local _, _, _, roll_idle, pitch_idle, yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
+			self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle)
 			if timer.tick == 1 then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 1))
 				self.log_obj:Record(LogLevel.Info, "Initial Despawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
 			elseif timer.tick == 2 then
-				self.engine_obj:SetFluctuationVelocityParams(1, -self.down_speed)
+				self.engine_obj:SetFluctuationVelocityParams(1, math.abs(self.down_speed))
 				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
 			elseif timer.tick >= self.up_timeout then
 				self.log_obj:Record(LogLevel.Info, "Despawn Timeout")
@@ -911,9 +919,7 @@ function AV:AutoPilot()
 		local direction_vector_norm = Vector4.Length(direction_vector)
 
 		-- check destination
-		if self.autopilot_is_only_horizontal then
-			relay_position = Vector4.new(destination_position.x, destination_position.y, current_position.z, 1)
-		elseif relay_position ~= nil and direction_vector_norm < self.destination_range then
+		if relay_position ~= nil and direction_vector_norm < self.destination_range then
 			relay_position = nil
 		end
 
@@ -922,7 +928,7 @@ function AV:AutoPilot()
 			local dest_dir_2d = Vector4.new(dest_dir_vector.x, dest_dir_vector.y, 0, 1)
 			local search_vec = Vector4.Zero()
 			local is_wall = true
-			local res, vec
+
 			for r_2 = 1, 2 do
 				self.search_range = self.autopilot_searching_range
 				if self.dest_dir_vector_norm < self.autopilot_searching_range then
@@ -933,79 +939,248 @@ function AV:AutoPilot()
 				if self.search_range < self.autopilot_searching_step then
 					self.search_range = self.autopilot_searching_step
 				end
-				for i = 1, 2 do
-					local search_angle_step = 6
-					local min_search_angle = 90 * (i - 1)
-					local max_search_angle = 90 * (i - 1) + 90 - search_angle_step
-					for _, swing in ipairs({"Down", "Left", "Right", "Up"}) do
-						local sign = 1
-						local swing_direction = "Horizontal"
-						if swing == "Down" or swing == "Left" then
-							sign = -1
+
+				-- 5-direction evaluation system: dynamically evaluate angles to select the optimal route
+				-- Favor small angles (closer to the destination) for efficient navigation
+				local directions = {
+					{name = "Forward", vector = dest_dir_2d, base_angle = 0, swing_dir = "Horizontal", priority = 1},
+					{name = "Left", vector = dest_dir_2d, base_angle = 0, swing_dir = "Horizontal", priority = 2, direction_sign = -1},
+					{name = "Right", vector = dest_dir_2d, base_angle = 0, swing_dir = "Horizontal", priority = 2, direction_sign = 1},
+					{name = "Up", vector = dest_dir_vector, base_angle = 0, swing_dir = "Vertical", priority = 3, direction_sign = 1},
+					{name = "Down", vector = dest_dir_vector, base_angle = 0, swing_dir = "Vertical", priority = 3, direction_sign = -1}
+				}
+
+				local best_direction = nil
+				local best_score = -1
+				local best_vec = Vector4.Zero()
+				local best_angle = 0
+
+				-- Evaluate safety for each direction
+				for _, dir in ipairs(directions) do
+					local direction_best_score = -1
+					local direction_best_angle = 0
+					local direction_best_vec = Vector4.Zero()
+					local collision_count = 0
+					local total_tests = 0
+					local safe_angles = {}
+
+					-- Dynamic angle test: evaluate appropriate angle ranges for each direction
+					local angle_step = 10  -- Efficient evaluation in 10-degree increments (50% computation reduction)
+					local start_angle = 0
+					local max_test_angle = 90
+
+					-- Set starting angle for each direction (avoid Forward duplication)
+					if dir.name == "Forward" then
+						max_test_angle = 0  -- Forward direction only tests 0 degrees
+					else
+						start_angle = angle_step  -- Left/Right/Up/Down start from 10 degrees
+					end
+
+					for test_angle = start_angle, max_test_angle, angle_step do
+						local actual_angle = test_angle
+						if dir.direction_sign then
+							actual_angle = test_angle * dir.direction_sign
 						end
-						if swing == "Down" or swing == "Up" then
-							swing_direction = "Vertical"
-						end
-						local find_angle = 0
-						for search_angle = min_search_angle, max_search_angle, search_angle_step do
-							if (swing_direction == "Horizontal" and self.autopilot_horizontal_sign * sign >= 0 and search_angle < 90) or (swing_direction == "Vertical" and self.autopilot_vertical_sign * sign >= 0 and search_angle * sign > -90 ) then
-								if search_angle == 0 then
-									res, vec = self:IsWall(dest_dir_vector, self.search_range, sign * search_angle, swing_direction, true, false)
-								else
-									local is_check_exception_area = true
-									if swing_direction == "Vertical" and search_angle * sign >= 90 then
-										is_check_exception_area = false
-									end
-									res, vec = self:IsWall(dest_dir_2d, self.search_range, sign * search_angle, swing_direction, is_check_exception_area, false)
-								end
-								if not res then
-									find_angle = search_angle
-									is_wall = false
-									search_vec = vec
-									self.autopilot_angle = sign * search_angle
-									if swing_direction == "Horizontal" then
-										if self.autopilot_horizontal_sign * sign <= 0 then
-											self.autopilot_horizontal_sign = sign
-										end
-									elseif swing_direction == "Vertical" then
-										if self.autopilot_vertical_sign * sign <= 0 and sign > 0 then
-											self.autopilot_vertical_sign = sign
-										end
-									end
-									break
-								end
+
+						-- Angle range restriction (-90 to +90 degrees)
+						if actual_angle >= -90 and actual_angle <= 90 then
+							total_tests = total_tests + 1
+							local is_check_exception = true
+							if dir.swing_dir == "Vertical" and math.abs(actual_angle) >= 90 then
+								is_check_exception = false
 							end
-						end
-						if not is_wall then
-							local find_angle_abs = math.abs(find_angle)
-							if find_angle_abs < 30 then
-								self:MoveThruster({{Def.ActionList.Forward, 1}})
+
+							local res, vec = self:IsWall(dir.vector, self.search_range, actual_angle, dir.swing_dir, is_check_exception, false)
+
+							if not res then
+								-- No collision: record as a safe angle
+								table.insert(safe_angles, {angle = actual_angle, vec = vec})
 							else
-								self:MoveThruster({{Def.ActionList.Nothing, 1}})
+								-- Collision: count as penalty
+								collision_count = collision_count + 1
 							end
-							self.auto_speed_reduce_rate = (90 - find_angle_abs) / 90
-							if self.auto_speed_reduce_rate < self.autopilot_min_speed_rate then
-								self.auto_speed_reduce_rate = self.autopilot_min_speed_rate
-							end
-							if find_angle_abs == 90 then
-								self.auto_speed_reduce_rate = 1
-							end
-							break
 						end
 					end
-					if not is_wall then
-						break
+
+					-- Evaluate overall safety for the direction
+					local safety_rate = 0
+					if total_tests > 0 then
+						safety_rate = (#safe_angles) / total_tests
+					end
+
+					-- Collision penalty: more collisions result in a significant score reduction
+					local collision_penalty = collision_count * 15  -- Adjusted collision penalty
+
+					-- Safety bonus: higher safety rate yields higher score
+					local safety_bonus = safety_rate * 100  -- 100% safe = +100 points
+
+					-- Calculate score for each safe angle
+					for _, safe_angle_data in ipairs(safe_angles) do
+						local actual_angle = safe_angle_data.angle
+						local vec = safe_angle_data.vec
+
+						-- Angle efficiency score: smaller angles get higher scores
+						local angle_efficiency_score = (90 - math.abs(actual_angle)) * 2
+
+						-- Base safety score
+						local base_safety_score = 100
+
+						-- Total score calculation
+						local total_score = base_safety_score + angle_efficiency_score + safety_bonus - collision_penalty
+
+						-- Bonus for forward direction (directness to destination)
+						if dir.name == "Forward" then
+							total_score = total_score * 1.5
+						end
+
+						-- Consider direction priority
+						total_score = total_score / dir.priority
+
+						-- Additional penalty if overall safety is low
+						if safety_rate < 0.3 then  -- Less than 30% safe
+							total_score = total_score * 0.7  -- 30% reduction
+						elseif safety_rate < 0.5 then  -- Less than 50% safe
+							total_score = total_score * 0.85  -- 15% reduction
+						end
+
+						-- Update best score for this direction
+						if total_score > direction_best_score then
+							direction_best_score = total_score
+							direction_best_angle = actual_angle
+							direction_best_vec = vec
+						end
+
+						-- If a safe route is found at a small angle, adopt it immediately (only if safety is sufficient)
+						-- Adjusted for 10-degree increments
+						if math.abs(actual_angle) <= 20 and safety_rate >= 0.4 then
+							break  -- Adopt immediately if sufficiently safe at a small angle
+						end
+					end
+
+					-- Compare with overall best score
+					if direction_best_score > best_score then
+						best_score = direction_best_score
+						best_direction = dir
+						best_vec = direction_best_vec
+						best_angle = direction_best_angle
+					end
+
+					-- Debug log: safety info for each direction
+					if #safe_angles > 0 then
+						self.log_obj:Record(LogLevel.Debug, string.format("Direction %s: safety_rate=%.2f, collisions=%d, best_angle=%d, best_score=%.1f",
+							dir.name, safety_rate, collision_count, direction_best_angle, direction_best_score))
 					end
 				end
-				if not search_vec:IsZero() then
-					local pos = relay_position or current_position
-					relay_position = Vector4.new(pos.x + self.autopilot_searching_step * search_vec.x, pos.y + self.autopilot_searching_step * search_vec.y, pos.z + self.autopilot_searching_step * search_vec.z, 1)
+
+				-- If the optimal direction is found
+				if best_direction ~= nil and best_score > 0 then
+					is_wall = false
+					search_vec = best_vec
+					self.autopilot_angle = best_angle
+
+					-- Calculate the actual vector for the optimal direction
+					local avoidance_vector = Vector4.Zero()
+					if best_direction.swing_dir == "Horizontal" then
+						-- Avoidance vector for horizontal direction
+						local rad = math.rad(best_angle)
+						local cos_angle = math.cos(rad)
+						local sin_angle = math.sin(rad)
+						avoidance_vector = Vector4.new(
+							dest_dir_2d.x * cos_angle - dest_dir_2d.y * sin_angle,
+							dest_dir_2d.x * sin_angle + dest_dir_2d.y * cos_angle,
+							0,
+							1
+						)
+					elseif best_direction.swing_dir == "Vertical" then
+						-- Avoidance vector for vertical direction
+						local rad = math.rad(best_angle)
+						local cos_angle = math.cos(rad)
+						local sin_angle = math.sin(rad)
+						local horizontal_length = Vector4.Length(Vector4.new(dest_dir_vector.x, dest_dir_vector.y, 0, 1))
+						avoidance_vector = Vector4.new(
+							dest_dir_vector.x * cos_angle,
+							dest_dir_vector.y * cos_angle,
+							horizontal_length * sin_angle,
+							1
+						)
+					end
+
+					-- Normalize and adjust to search range
+					if not avoidance_vector:IsZero() then
+						avoidance_vector = Vector4.Normalize(avoidance_vector)
+						search_vec = Vector4.new(
+							avoidance_vector.x,
+							avoidance_vector.y,
+							avoidance_vector.z,
+							1
+						)
+					end
+
+					-- Update direction record
+					if best_direction.swing_dir == "Horizontal" then
+						local sign = best_angle < 0 and -1 or 1
+						if self.autopilot_horizontal_sign * sign <= 0 then
+							self.autopilot_horizontal_sign = sign
+						end
+					elseif best_direction.swing_dir == "Vertical" then
+						if best_angle > 0 and self.autopilot_vertical_sign <= 0 then
+							self.autopilot_vertical_sign = 1
+						elseif best_angle < 0 and self.autopilot_vertical_sign >= 0 then
+							self.autopilot_vertical_sign = -1
+						end
+					end
+
+					-- Thruster control
+					local angle_abs = math.abs(best_angle)
+					if angle_abs < 30 then
+						self:MoveThruster({{Def.ActionList.Forward, 1}})
+					else
+						self:MoveThruster({{Def.ActionList.Nothing, 1}})
+					end
+
+					-- Dynamic speed adjustment
+					local base_speed_reduction = (90 - angle_abs) / 90
+					self.auto_speed_reduce_rate = base_speed_reduction * 0.6
+					if self.auto_speed_reduce_rate < self.autopilot_min_speed_rate then
+						self.auto_speed_reduce_rate = self.autopilot_min_speed_rate
+					end
+
+					-- Safety-focused speed adjustment according to avoidance angle
+					if angle_abs > 45 then
+						self.auto_speed_reduce_rate = self.auto_speed_reduce_rate * 0.3  -- Very cautious for steep angles
+					elseif angle_abs > 15 then
+						self.auto_speed_reduce_rate = self.auto_speed_reduce_rate * 0.5  -- Cautious for moderate angles
+					end
+
+					if angle_abs == 90 then
+						self.auto_speed_reduce_rate = 1  -- Stop
+					end
+
+					self.log_obj:Record(LogLevel.Info, "Selected direction: " .. best_direction.name .. ", angle: " .. best_angle .. ", score: " .. best_score)
+					self.log_obj:Record(LogLevel.Debug, "Avoidance vector: x=" .. search_vec.x .. ", y=" .. search_vec.y .. ", z=" .. search_vec.z)
+
+					-- Use avoidance vector to directly set relay_position
+					if not search_vec:IsZero() then
+						local pos = relay_position or current_position
+						relay_position = Vector4.new(
+							pos.x + self.autopilot_searching_step * search_vec.x,
+							pos.y + self.autopilot_searching_step * search_vec.y,
+							pos.z + self.autopilot_searching_step * search_vec.z,
+							1
+						)
+						self.log_obj:Record(LogLevel.Debug, "New relay position: x=" .. relay_position.x .. ", y=" .. relay_position.y .. ", z=" .. relay_position.z)
+					end
+					-- Successfully completed with new logic, break out of the loop completely
+					break  -- Exit r_2 loop
 				end
+
+				-- Fallback: emergency handling if new logic cannot resolve
 				if self.autopilot_angle == 0 then
 					-- reset search angle
 					self.autopilot_horizontal_sign = 0
 					self.autopilot_vertical_sign = 0
 				end
+
 				if not is_wall then
 					if relay_position ~= nil then
 						self.log_obj:Record(LogLevel.Trace, "Relay Position : " .. relay_position.x .. ", " .. relay_position.y .. ", " .. relay_position.z)
@@ -1014,6 +1189,7 @@ function AV:AutoPilot()
 					end
 					break
 				end
+
 				if r_2 >= 2 then
 					if self.autopilot_vertical_sign <= 0 then
 						self.autopilot_vertical_sign = 1
@@ -1041,7 +1217,6 @@ function AV:AutoPilot()
 			self.auto_speed_reduce_rate = 1
 		end
 		local autopilot_speed = self.autopilot_speed * self.auto_speed_reduce_rate
-		-- local autopilot_speed = 10 * self.auto_speed_reduce_rate
 		local fix_direction_vector = Vector4.new(autopilot_speed * direction_vector.x / direction_vector_norm, autopilot_speed * direction_vector.y / direction_vector_norm, autopilot_speed * direction_vector.z / direction_vector_norm, 1)
 
 		-- yaw control
@@ -1063,18 +1238,12 @@ function AV:AutoPilot()
 			yaw_diff_half = yaw_diff
 		end
 
-		-- restore angle
+		-- -- restore angle
 		local current_angle = self:GetEulerAngles()
 		local roll_diff = 0
 		local pitch_diff = 0
-		roll_diff = roll_diff - current_angle.roll * self.autopilot_angle_restore_rate
-		pitch_diff = pitch_diff - current_angle.pitch * self.autopilot_angle_restore_rate
-
-		-- roll and pitch control
-		local forward = vehicle_angle
-		local dir = direction_vector
-		forward.z = 0
-		dir.z = 0
+		local forward = Vector4.new(vehicle_angle.x, vehicle_angle.y, 0, 1) -- Use only x and y components for forward vector to avoid z-axis influence on roll and pitch control
+		local dir = Vector4.new(direction_vector.x, direction_vector.y, 0, 1)
 		local forward_base_vec = Vector4.Normalize(forward)
 		local direction_base_vec = Vector4.Normalize(dir)
 		local between_angle = 0
@@ -1082,26 +1251,90 @@ function AV:AutoPilot()
 			between_angle = Vector4.GetAngleDegAroundAxis(forward_base_vec, direction_base_vec, Vector4.new(0, 0, 1, 1))
 		end
 		local between_angle_rad = math.rad(between_angle)
-		if math.abs(current_angle.roll) < self.engine_obj.max_roll * 0.5 and math.abs(current_angle.pitch) < self.engine_obj.max_pitch * 0.5 then
-			-- helicopter pitch control
-			if self.engine_obj.flight_mode == Def.FlightMode.Helicopter then
-				pitch_diff = pitch_diff - math.cos(between_angle_rad) * 0.5 * (1 - math.abs(current_angle.pitch) / (self.engine_obj.max_pitch * 0.5))
+		local left_right_value = 0
+		local forward_value = 0
+		if self.engine_obj.flight_mode == Def.FlightMode.Helicopter then
+			forward_value = math.cos(between_angle_rad)
+			local _, _, _, roll_diff_forward, pitch_diff_forward, _ = self.engine_obj:CalculateAddVelocity({Def.ActionList.HLeanForward, forward_value})
+			left_right_value = math.sin(between_angle_rad)
+			local roll_control = {}
+			if left_right_value >= 0 then
+				roll_control = {Def.ActionList.HLeanLeft, left_right_value}
+			else
+				roll_control = {Def.ActionList.HLeanRight, -left_right_value}
 			end
-			roll_diff = roll_diff - math.sin(between_angle_rad) * 0.5 * (1 - math.abs(current_angle.roll) / (self.engine_obj.max_roll * 0.5))
+			local _, _, _, roll_diff_left_right, pitch_diff_left_right, _ = self.engine_obj:CalculateAddVelocity(roll_control)
+			roll_diff = roll_diff_forward * forward_value + roll_diff_left_right * math.abs(left_right_value)
+			pitch_diff = pitch_diff_forward * forward_value + pitch_diff_left_right * math.abs(left_right_value)
+		else
+			left_right_value = math.sin(between_angle_rad)
+			local roll_control = {}
+			if left_right_value >= 0 then
+				roll_control = {Def.ActionList.Left, left_right_value}
+			else
+				roll_control = {Def.ActionList.Right, -left_right_value}
+			end
+			local _, _, _, roll_diff_left_right, pitch_diff_left_right, _ = self.engine_obj:CalculateAddVelocity(roll_control)
+			roll_diff = roll_diff_left_right * math.abs(left_right_value)
+			pitch_diff = pitch_diff_left_right * math.abs(left_right_value)
 		end
 
 		self.log_obj:Record(LogLevel.Debug, "AutoPilot Move : " .. fix_direction_vector.x .. ", " .. fix_direction_vector.y .. ", " .. fix_direction_vector.z .. ", " .. roll_diff .. ", " .. pitch_diff .. ", " .. yaw_diff_half)
-		local dummy_inertia = Utils:ScaleListValues(self.pre_speed_list, 1)
+
+		-- Clean speed-dependent stability system with natural ranges
+		local speed_ranges = {
+			{max = 10.0, inertia = 0.3, blend = 0.75},   -- Low speed: responsive
+			{max = 20.0, inertia = 0.18, blend = 0.8},   -- Medium-low speed
+			{max = 30.0, inertia = 0.08, blend = 0.85},  -- Medium speed
+			{max = 45.0, inertia = 0.04, blend = 0.9},   -- Medium-high speed
+			{max = 60.0, inertia = 0.02, blend = 0.96}, -- High speed: ultra strong damping for 50m/s
+			{max = 80.0, inertia = 0.01, blend = 0.96}, -- Very high speed
+			{max = math.huge, inertia = 0.01, blend = 0.98} -- Extreme speed: maximum stability
+		}
+
+		-- Find appropriate parameters for current speed
+		local inertia_scale, blend_factor = 0.18, 0.8  -- defaults
+		for _, range in ipairs(speed_ranges) do
+			if autopilot_speed <= range.max then
+				inertia_scale = range.inertia
+				blend_factor = range.blend
+				break
+			end
+		end
+
+		-- Apply smooth transition between ranges to avoid sudden changes
+		local prev_inertia = self.prev_inertia_scale or inertia_scale
+		local prev_blend = self.prev_blend_factor or blend_factor
+		local transition_rate = 0.15  -- Balanced transition rate
+
+		inertia_scale = prev_inertia + (inertia_scale - prev_inertia) * transition_rate
+		blend_factor = prev_blend + (blend_factor - prev_blend) * transition_rate
+
+		-- Store for next frame
+		self.prev_inertia_scale = inertia_scale
+		self.prev_blend_factor = blend_factor
+
+		local dummy_inertia = Utils:ScaleListValues(self.pre_speed_list, inertia_scale)
+
 		local x, y, z, roll, pitch, yaw = fix_direction_vector.x, fix_direction_vector.y, fix_direction_vector.z, roll_diff, pitch_diff, yaw_diff_half
 		local new_x, new_y, new_z = x + dummy_inertia.x, y + dummy_inertia.y, z + dummy_inertia.z
-		local new_vector_norm = math.sqrt(new_x * new_x + new_y * new_y + new_z * new_z)
-		local fix_direction_vector_norm = Vector4.Length(Vector4.new(fix_direction_vector.x, fix_direction_vector.y, fix_direction_vector.z, 1))
-		local adjust_x, adjust_y, adjust_z = new_x * fix_direction_vector_norm / new_vector_norm, new_y * fix_direction_vector_norm / new_vector_norm, new_z * fix_direction_vector_norm / new_vector_norm
+
+		-- Dynamic velocity transition with speed-dependent smoothing
+		local current_norm = math.sqrt(new_x * new_x + new_y * new_y + new_z * new_z)
+		local target_norm = Vector4.Length(Vector4.new(fix_direction_vector.x, fix_direction_vector.y, fix_direction_vector.z, 1))
+
+		local adjust_x, adjust_y, adjust_z
+		if current_norm > 0.001 then
+			local smooth_norm = target_norm * blend_factor + current_norm * (1.0 - blend_factor)
+			adjust_x = new_x * smooth_norm / current_norm
+			adjust_y = new_y * smooth_norm / current_norm
+			adjust_z = new_z * smooth_norm / current_norm
+		else
+			adjust_x, adjust_y, adjust_z = fix_direction_vector.x, fix_direction_vector.y, fix_direction_vector.z
+		end
+
 		self.pre_speed_list = {x = adjust_x, y = adjust_y, z = adjust_z}
 
-		local _, _, _, roll_nothing ,pitch_nothing ,_ = self.engine_obj:CalculateAddVelocity({Def.ActionList.Nothing, 1})
-		roll = roll + roll_nothing
-		pitch = pitch + pitch_nothing
 		-- limit
 		if current_angle.roll > self.engine_obj.max_roll or current_angle.roll < -self.engine_obj.max_roll then
 			roll = 0
@@ -1109,7 +1342,20 @@ function AV:AutoPilot()
 		if current_angle.pitch > self.engine_obj.max_pitch or current_angle.pitch < -self.engine_obj.max_pitch then
 			pitch = 0
 		end
-		self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw)
+
+		-- Prevent FluctuationVelocity oscillation at target speed during movement
+		-- Temporarily increase target velocity margin to avoid 50m/s oscillation
+		local current_velocity = Vector4.Vector3To4(self.engine_obj.direction_velocity):Length()
+		if math.abs(current_velocity - self.autopilot_speed) < 1.0 then  -- Near target speed
+			local original_target = self.engine_obj.target_velocity
+			-- Temporarily set higher target to prevent oscillation
+			self.engine_obj.target_velocity = self.autopilot_speed * 1.05
+			self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw)
+			-- Restore original target after run
+			self.engine_obj.target_velocity = original_target
+		else
+			self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw)
+		end
 	end)
 	return true
 end
@@ -1130,7 +1376,8 @@ function AV:AutoLeaving(dist_vector, height)
 	local leaving_position = Vector4.new(current_position.x, current_position.y, current_position.z + leaving_height, 1)
 	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0.5))
 	self.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
-	self.engine_obj:SetFluctuationVelocityParams(1, self.autopilot_speed)
+	self.engine_obj:SetFluctuationVelocityParams(self.autopilot_acceleration, self.autopilot_speed)
+	self.autopilot_leaving_deceleration_start_flag = false
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
@@ -1147,12 +1394,8 @@ function AV:AutoLeaving(dist_vector, height)
 		end
 
 		-- Stabilize roll and pitch during takeoff
-		local current_angle = self:GetEulerAngles()
-		local roll_correction = -current_angle.roll * 0.01  -- Stronger correction during takeoff
-		local pitch_correction = current_angle.pitch * 0.01
-
-		-- Apply stabilization using angular velocity
-		self.engine_obj:SetAngularVelocity(Vector3.new(roll_correction, pitch_correction, 0))
+		local _, _, _, roll_idle ,pitch_idle ,yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
+		self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle)
 
 		local is_detected_celling, search_vector = self:IsWall(Vector4.new(0, 0, 1, 1), self.check_cell_distance, 0, "Vertical", true, true)
 		if is_detected_celling then
@@ -1168,7 +1411,6 @@ function AV:AutoLeaving(dist_vector, height)
 				timer.tick = timer.tick + 1
 				if not self.is_auto_pilot then
 					self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Canceling")
-					self:InterruptAutoPilot()
 					self.is_leaving = false
 					Cron.Halt(timer)
 					return
@@ -1209,6 +1451,9 @@ function AV:AutoLeaving(dist_vector, height)
 				end
 			end)
 			Cron.Halt(timer)
+		elseif current_position_in_leaving.z > leaving_position.z - (leaving_height * 0.3) and not self.autopilot_leaving_deceleration_start_flag then
+			self.autopilot_leaving_deceleration_start_flag = true
+			self.engine_obj:SetFluctuationVelocityParams(-self.autopilot_acceleration, self.autopilot_speed * 0.2)
 		end
 		self:MoveThruster({{Def.ActionList.Nothing, 1}})
 	end)
@@ -1217,34 +1462,38 @@ end
 --- Excute Landing when auto pilot is on.
 --- @param height number height to start landing
 function AV:AutoLanding(height)
-	-- if height <= self.standard_leaving_height then
-	-- 	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing : Already Arrived")
-	-- 	self.is_landed = true
-	-- 	self:SuccessAutoPilot()
-	-- 	return
-	-- end
-	local down_time_count = height / self.autopilot_speed
+	local down_time_count = ((height / self.autopilot_speed) / DAV.time_resolution) * 1.8
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing Start :" .. tostring(down_time_count) .. "s, " .. tostring(height) .. "m")
-	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -5))
+	self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -0.5))
 	self.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
-	self.engine_obj:SetFluctuationVelocityParams(-0.1, 1)
+	self.autopilot_leaving_deceleration_start_flag = false
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
-		timer.tick = timer.tick + 1
 		if not self.is_auto_pilot then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Canceling")
-			self:InterruptAutoPilot()
 			Cron.Halt(timer)
 			return
 		end
 
-		-- restore angle 
-		local current_angle = self:GetEulerAngles()
-		local roll_diff = 0
-		local pitch_diff = 0
-		roll_diff = roll_diff - current_angle.roll * self.autopilot_landing_angle_restore_rate
-		pitch_diff = pitch_diff - current_angle.pitch * self.autopilot_landing_angle_restore_rate
+		local deceleration_height = height * 0.5
+		local deceleration_rate = 1
+		if deceleration_height > 80 then
+			deceleration_height = 80
+			deceleration_rate = 3
+		end
 
-		if timer.tick > self.down_timeout then
+		-- restore angle 
+		local _, _, _, roll_idle ,pitch_idle ,yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
+		self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle)
+
+		local is_detected_ground, search_vector = self:IsWall(Vector4.new(0, 0, -1, 1), self.check_cell_distance, 0, "Vertical", true, true)
+		if is_detected_ground then
+			self.log_obj:Record(LogLevel.Info, "Detected Ground, Search Vector:" .. search_vector.x .. ", " .. search_vector.y .. ", " .. search_vector.z)
+		end
+
+		if timer.tick == 1 then
+			self.engine_obj:SetFluctuationVelocityParams(self.autopilot_acceleration, self.autopilot_speed)
+		elseif timer.tick > down_time_count then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for timeout")
 			self.is_landed = true
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
@@ -1258,14 +1507,19 @@ function AV:AutoLanding(height)
 			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:SuccessAutoPilot()
 			Cron.Halt(timer)
-		elseif self:IsCollision() then
-			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for Collision")
+		elseif self:IsCollision() or is_detected_ground then
+			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for Collision or Ground Detection")
 			self.is_landed = true
 			self:SuccessAutoPilot()
 			Cron.Halt(timer)
+		elseif self:GetHeight() <= deceleration_height and not self.autopilot_leaving_deceleration_start_flag then
+			self.autopilot_leaving_deceleration_start_flag = true
+			self.engine_obj:SetFluctuationVelocityParams(-self.autopilot_acceleration * deceleration_rate, self.autopilot_speed * 0.2)
 		end
 
 		self:MoveThruster({{Def.ActionList.Nothing, 1}})
+
+		timer.tick = timer.tick + 1
 	end)
 end
 
@@ -1294,6 +1548,7 @@ end
 function AV:ReloadAutopilotProfile()
 	local speed_level = DAV.user_setting_table.autopilot_speed_level
 	self.autopilot_speed = self.autopilot_profile[speed_level].speed
+	self.autopilot_acceleration = self.autopilot_profile[speed_level].acceleration
 	self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
 	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
 	self.autopilot_searching_range = self.autopilot_profile[speed_level].searching_range
@@ -1622,62 +1877,284 @@ end
 ---@param angle number angle
 ---@param swing_direction string "Vertical" or "Horizontal"
 ---@param is_check_exception_area boolean
----@param upper_half_only boolean if true, only check upper half positions
+---@param upper_and_forward_half_only boolean if true, only check upper and forward half positions
 ---@return boolean
 ---@return Vector4
 function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception_area, upper_and_forward_half_only)
-    local dir_base_vec = Vector4.Normalize(dir_vec)
-    local up_vec = Vector4.new(0, 0, 1, 1)
-    local right_vec = Vector4.Cross(dir_base_vec, up_vec)
-    local search_vec
-    if swing_direction == "Vertical" then
-        search_vec = Vector4.RotateAxis(dir_base_vec, right_vec, angle / 180 * Pi())
-    else
-        search_vec = Vector4.RotateAxis(dir_base_vec, up_vec, angle / 180 * Pi())
-    end
-    
-    -- Define k values based on upper_and_forward_half_only flag
-	local i_values = {0, self.autopilot_prevention_length, -self.autopilot_prevention_length}
-	local j_values = {0, self.autopilot_prevention_length, -self.autopilot_prevention_length}
-    local k_values = {0, self.autopilot_prevention_length, -self.autopilot_prevention_length}
-    if upper_and_forward_half_only then
-        i_values = {0, self.autopilot_prevention_length}  -- Only 0 and positive values (forward half)
-        k_values = {0, self.autopilot_prevention_length}  -- Only 0 and positive values (upper half)
-    end
+	-- Cache system: greatly reduces computation when no obstacle is present
+	local current_time = Game.GetTimeSystem():GetGameTimeStamp()
+	local current_position = self:GetPosition()
 
-    for _, i in ipairs(i_values) do
-        for _, j in ipairs(j_values) do
-            for _, k in ipairs(k_values) do
-                local current_position = self:GetPosition()
-                current_position.x = current_position.x + dir_base_vec.x * i + right_vec.x * j + up_vec.x * k
-                current_position.y = current_position.y + dir_base_vec.y * i + right_vec.y * j + up_vec.y * k
-                current_position.z = current_position.z + dir_base_vec.z * i + right_vec.z * j + up_vec.z * k
-                for _, filter in ipairs(self.weak_collision_filters) do
-                    local is_success, _ = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0), filter, false, false)
-                    if is_success then
-                        self.log_obj:Record(LogLevel.Trace, "Wall Detected: " .. filter .. " " .. i .. " " .. j .. " " .. k)
-                        return true, search_vec
-                    end
-                end
-                -- check exception area
-                if is_check_exception_area then
-                    local is_exception, tag, _ = self:IsInExceptionArea(Vector4.new(current_position.x + distance * search_vec.x, current_position.y + distance * search_vec.y, current_position.z + distance * search_vec.z, 1.0))
-                    if is_exception then
-                        self.log_obj:Record(LogLevel.Trace, "Exception Area Detected: " .. tag)
-                        return true, search_vec
-                    end
-                end
+	-- Generate cache key
+	local cache_key = string.format("%.1f_%.1f_%.1f_%d_%s",
+		math.floor(current_position.x), math.floor(current_position.y), math.floor(current_position.z),
+		math.floor(angle), swing_direction)
+
+	-- Initialize cache
+	if not self.iswall_cache then
+		self.iswall_cache = {}
+		self.safe_streak_count = 0
+		self.last_cache_time = current_time
+	end
+
+	-- Cache hit check
+	local cached_result = self.iswall_cache[cache_key]
+	if cached_result and (current_time - cached_result.timestamp) < 200 then  -- within 200ms
+		-- Position change check
+		local pos_diff = Vector4.Length(Vector4.new(
+			current_position.x - cached_result.position.x,
+			current_position.y - cached_result.position.y,
+			current_position.z - cached_result.position.z, 0))
+
+		if pos_diff < 3.0 then  -- within 3m change
+			self.log_obj:Record(LogLevel.Trace, "IsWall cache hit: " .. cache_key)
+			return cached_result.result, cached_result.search_vec
+		end
+	end
+
+	-- Adaptive check frequency: simplify checks when safety continues
+	local should_do_full_check = true
+	if self.safe_streak_count > 15 then  -- safe for 15 consecutive times
+		-- Only do full check once every 3 frames
+		should_do_full_check = (self.safe_streak_count % 3 == 0)
+	elseif self.safe_streak_count > 8 then  -- safe for 8 consecutive times
+		-- Only do full check every 2 frames
+		should_do_full_check = (self.safe_streak_count % 2 == 0)
+	end
+
+	local dir_base_vec = Vector4.Normalize(dir_vec)
+	local up_vec = Vector4.new(0, 0, 1, 1)
+	local right_vec = Vector4.Cross(dir_base_vec, up_vec)
+	local search_vec
+	if swing_direction == "Vertical" then
+		search_vec = Vector4.RotateAxis(dir_base_vec, right_vec, angle / 180 * Pi())
+	else
+		search_vec = Vector4.RotateAxis(dir_base_vec, up_vec, angle / 180 * Pi())
+	end
+
+	-- Simple check: only center point when safety streak is high
+	if not should_do_full_check then
+		-- Ground proximity protection for simple check
+		local raycast_start_pos = current_position
+		if swing_direction == "Vertical" and angle >= 0 then  -- Upward vertical check
+			local min_ground_clearance = 1.0  -- Minimum 1m above ground
+			-- Ensure raycast doesn't start below a reasonable ground level
+			raycast_start_pos = Vector4.new(current_position.x, current_position.y,
+				math.max(current_position.z, current_position.z), 1.0)
+		end
+
+		local adaptive_distance = distance * (1 + math.min(Vector4.Vector3To4(self.engine_obj.direction_velocity):Length() / 20.0, 2.0) * 0.4)
+		local target_pos = Vector4.new(
+			raycast_start_pos.x + adaptive_distance * search_vec.x,
+			raycast_start_pos.y + adaptive_distance * search_vec.y,
+			raycast_start_pos.z + adaptive_distance * search_vec.z,
+			1.0
+		)
+
+		for _, filter in ipairs(self.weak_collision_filters) do
+			local is_success, _ = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(raycast_start_pos, target_pos, filter, false, false)
+			if is_success then
+				self.safe_streak_count = 0  -- Reset
+				self.log_obj:Record(LogLevel.Trace, "Simple check - Wall Detected: " .. filter)
+				-- Save to cache
+				self.iswall_cache[cache_key] = {
+					result = true,
+					search_vec = search_vec,
+					timestamp = current_time,
+					position = current_position
+				}
+				return true, search_vec
+			end
+		end
+
+		self.safe_streak_count = self.safe_streak_count + 1
+		self.log_obj:Record(LogLevel.Trace, "Simple check - Safe (streak: " .. self.safe_streak_count .. ")")
+		-- Save to cache
+		self.iswall_cache[cache_key] = {
+			result = false,
+			search_vec = search_vec,
+			timestamp = current_time,
+			position = current_position
+		}
+		return false, search_vec
+	end
+
+	-- Optimized detection with balanced performance and coverage
+	local current_speed = Vector4.Vector3To4(self.engine_obj.direction_velocity):Length()
+	local speed_factor = math.min(current_speed / 20.0, 2.0)
+
+	-- Efficient detection grid - reduced complexity for performance
+	-- local base_step = self.autopilot_prevention_length * 0.4  -- Increased for performance
+	-- local detection_step = base_step / (1 + speed_factor * 0.3)
+	local detection_step = self.autopilot_prevention_length
+
+	-- Stepwise grid detection system: square distribution on the XZ plane perpendicular to the vehicle's direction
+	local function check_collision_at_point(offset_right, offset_up)
+		local current_position = self:GetPosition()
+		-- On the XZ plane perpendicular to the vehicle's direction, grid arrangement
+        current_position.x = current_position.x + right_vec.x * offset_right + up_vec.x * offset_up
+        current_position.y = current_position.y + right_vec.y * offset_right + up_vec.y * offset_up
+        current_position.z = current_position.z + right_vec.z * offset_right + up_vec.z * offset_up
+
+        -- Ground proximity protection: Prevent raycast start points from going below ground during upward checks
+        if swing_direction == "Vertical" and angle >= 0 then  -- Upward vertical check
+            local base_position = self:GetPosition()  -- Original vehicle position
+            local min_ground_clearance = 1.0  -- Minimum 1m above ground
+            if current_position.z < base_position.z - min_ground_clearance then
+                -- Raycast start point would be too low, clamp to minimum ground clearance
+                current_position.z = base_position.z - min_ground_clearance
+                self.log_obj:Record(LogLevel.Trace, "Raycast start point clamped to prevent ground false positive")
             end
         end
-    end
-    -- check exception area here
-    if is_check_exception_area then
-        local is_exception, tag, _ = self:IsInExceptionArea(self:GetPosition())
-        if is_exception then
-            self.log_obj:Record(LogLevel.Trace, "Here is Exception Area: " .. tag)
-            return true, search_vec
+
+        local adaptive_distance = distance * (1 + speed_factor * 0.4)
+        local target_pos = Vector4.new(
+            current_position.x + adaptive_distance * search_vec.x,
+            current_position.y + adaptive_distance * search_vec.y,
+            current_position.z + adaptive_distance * search_vec.z,
+            1.0
+        )
+
+        for _, filter in ipairs(self.weak_collision_filters) do
+            local is_success, _ = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(current_position, target_pos, filter, false, false)
+            if is_success then
+                self.log_obj:Record(LogLevel.Trace, "Wall Detected: " .. filter)
+                return true
+            end
         end
+
+        -- check exception area
+        if is_check_exception_area then
+            local is_exception, tag, _ = self:IsInExceptionArea(target_pos)
+            if is_exception then
+                self.log_obj:Record(LogLevel.Trace, "Exception Area Detected: " .. tag)
+                return true
+            end
+        end
+        return false
     end
+
+	-- Phase 1: Center point check (most important, fastest)
+	if check_collision_at_point(0, 0) then
+		return true, search_vec
+	end
+
+	-- Phase 2: Cross check (cross pattern on XZ plane perpendicular to vehicle direction)
+	local cross_points = {
+		{-detection_step, 0},   -- left
+		{detection_step, 0},    -- right
+		{0, -detection_step},   -- down
+		{0, detection_step},    -- up
+	}
+
+	for _, point in ipairs(cross_points) do
+		if check_collision_at_point(point[1], point[2]) then
+			return true, search_vec
+		end
+	end
+
+	-- Phase 3: Outer square grid (square distribution on XZ plane around the vehicle)
+	local grid_points = {}
+	if upper_and_forward_half_only then
+		-- When limited to upper half only: only positive Z axis (upward)
+		grid_points = {
+			{-detection_step, detection_step},         -- upper left
+			{detection_step, detection_step},          -- upper right
+			{-detection_step * 2, detection_step},     -- far upper left
+			{detection_step * 2, detection_step},      -- far upper right
+			{-detection_step * 2, detection_step * 2}, -- farthest upper left
+			{detection_step * 2, detection_step * 2},  -- farthest upper right
+		}
+	else
+		-- Full square distribution: square grid on XZ plane around the vehicle
+		grid_points = {
+			-- Inner square corners
+			{-detection_step, -detection_step},   -- lower left
+			{detection_step, -detection_step},    -- lower right
+			{-detection_step, detection_step},    -- upper left
+			{detection_step, detection_step},     -- upper right
+			-- Outer square corners
+			{-detection_step * 2, -detection_step * 2}, -- far lower left
+			{detection_step * 2, -detection_step * 2},  -- far lower right
+			{-detection_step * 2, detection_step * 2},  -- far upper left
+			{detection_step * 2, detection_step * 2},   -- far upper right
+		}
+	end
+
+	for _, point in ipairs(grid_points) do
+		if check_collision_at_point(point[1], point[2]) then
+			self.safe_streak_count = 0  -- Reset streak on collision detection
+			-- Save to cache
+			self.iswall_cache[cache_key] = {
+				result = true,
+				search_vec = search_vec,
+				timestamp = current_time,
+				position = current_position
+			}
+			return true, search_vec
+		end
+	end
+
+	-- Conditional radial detection: only performed if main grid is safe (significantly reduces computation)
+	-- Only execute if no collision found in main grid
+	local vehicle_center = self:GetPosition()
+	local adaptive_distance = distance * (1 + speed_factor * 0.4)
+	local radial_angles = {-10, -5, 0, 5, 10}  -- Reduced from 7 to 5 rays for performance
+
+	for _, radial_angle in ipairs(radial_angles) do
+		local radial_search_vec = Vector4.RotateAxis(search_vec, up_vec, radial_angle / 180 * Pi())
+		local radial_target = Vector4.new(
+			vehicle_center.x + adaptive_distance * radial_search_vec.x,
+			vehicle_center.y + adaptive_distance * radial_search_vec.y,
+			vehicle_center.z + adaptive_distance * radial_search_vec.z,
+			1.0
+		)
+
+		for _, filter in ipairs(self.weak_collision_filters) do
+			local is_success, _ = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(vehicle_center, radial_target, filter, false, false)
+			if is_success then
+				self.safe_streak_count = 0  -- Reset streak on collision detection
+				self.log_obj:Record(LogLevel.Trace, "Thin object detected at angle " .. radial_angle)
+				-- Save to cache
+				self.iswall_cache[cache_key] = {
+					result = true,
+					search_vec = search_vec,
+					timestamp = current_time,
+					position = current_position
+				}
+				return true, search_vec
+			end
+		end
+	end
+
+	-- Check exception area here
+	if is_check_exception_area then
+		local is_exception, tag, _ = self:IsInExceptionArea(self:GetPosition())
+		if is_exception then
+			self.safe_streak_count = 0  -- Reset streak on exception area detection
+			self.log_obj:Record(LogLevel.Trace, "Here is Exception Area: " .. tag)
+			-- Save to cache
+			self.iswall_cache[cache_key] = {
+				result = true,
+				search_vec = search_vec,
+				timestamp = current_time,
+				position = current_position
+			}
+			return true, search_vec
+		end
+	end
+
+	-- Safe: increase streak and save to cache
+	self.safe_streak_count = self.safe_streak_count + 1
+	self.log_obj:Record(LogLevel.Trace, "Full check - Safe (streak: " .. self.safe_streak_count .. ")")
+
+	-- Save to cache
+	self.iswall_cache[cache_key] = {
+		result = false,
+		search_vec = search_vec,
+		timestamp = current_time,
+		position = current_position
+	}
 
     return false, search_vec
 end

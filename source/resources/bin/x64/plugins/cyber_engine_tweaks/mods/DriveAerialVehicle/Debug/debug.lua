@@ -188,7 +188,7 @@ function Debug:ImGuiVehicleInfo()
         else
             ImGui.Text("In Air")
         end
-        ImGui.Text("Phy State: " .. tostring(DAV.core_obj.av_obj.engine_obj.fly_av_system:GetPhysicsState()))
+        ImGui.Text("Phy State: " .. tostring(self.core_obj.av_obj.engine_obj:GetPhysicsState()))
         if DAV.core_obj.av_obj.engine_obj.fly_av_system:HasGravity() then
             ImGui.Text("Gravity : On")
         else
@@ -284,14 +284,20 @@ function Debug:ImGuiSoundCheck()
             end
         end
         ImGui.SameLine()
-        ImGui.Button("Thruster Start", 150, 60)
-        if self.core_obj.av_obj.flight_mode == Def.FlightMode.Helicopter then
-            self.core_obj.event_obj.sound_obj:StartThrusterSound(Def.FlightMode.Helicopter, fade_time)
+        if ImGui.Button("Thruster Start", 150, 60) then
+            if self.core_obj.av_obj.flight_mode == Def.FlightMode.AV then
+                -- reserve
+            elseif self.core_obj.av_obj.flight_mode == Def.FlightMode.Helicopter then
+                self.core_obj.event_obj.sound_obj:StartThrusterSound(Def.FlightMode.Helicopter, fade_time)
+            end
         end
         ImGui.SameLine()
-        ImGui.Button("Thruster Stop", 150, 60)
-        if self.core_obj.av_obj.flight_mode == Def.FlightMode.Helicopter then
-            self.core_obj.event_obj.sound_obj:StopThrusterSound(Def.FlightMode.Helicopter, fade_time)
+        if ImGui.Button("Thruster Stop", 150, 60) then
+            if self.core_obj.av_obj.flight_mode == Def.FlightMode.AV then
+                -- reserve
+            elseif self.core_obj.av_obj.flight_mode == Def.FlightMode.Helicopter then
+                self.core_obj.event_obj.sound_obj:StopThrusterSound(Def.FlightMode.Helicopter, fade_time)
+            end
         end
     end
 end
@@ -372,9 +378,9 @@ function Debug:ImGuiChangeAutoPilotSetting()
             DAV.core_obj.av_obj:ReloadAutopilotProfile()
         end
         ImGui.Text("Level : " .. DAV.user_setting_table.autopilot_speed_level)
-        ImGui.Text("Speed : " .. DAV.core_obj.av_obj.autopilot_speed .. ", Search Range : " .. DAV.core_obj.av_obj.autopilot_searching_range .. ", Search Step : " .. DAV.core_obj.av_obj.autopilot_searching_step)
-        ImGui.Text("Min Speed Rate : " .. DAV.core_obj.av_obj.autopilot_min_speed_rate)
-        ImGui.Text("Turn Speed : " .. DAV.core_obj.av_obj.autopilot_turn_speed)
+        ImGui.Text("Speed : " .. DAV.core_obj.av_obj.autopilot_speed .. ", Acceleration : " .. DAV.core_obj.av_obj.autopilot_acceleration)
+        ImGui.Text("Search Range : " .. DAV.core_obj.av_obj.autopilot_searching_range .. ", Search Step : " .. DAV.core_obj.av_obj.autopilot_searching_step)
+        ImGui.Text("Min Speed Rate : " .. DAV.core_obj.av_obj.autopilot_min_speed_rate .. ", Turn Speed : " .. DAV.core_obj.av_obj.autopilot_turn_speed)
         ImGui.Text("Leaving Height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", Only Horizontal : " .. tostring(DAV.core_obj.av_obj.autopilot_is_only_horizontal))
     end
 end
