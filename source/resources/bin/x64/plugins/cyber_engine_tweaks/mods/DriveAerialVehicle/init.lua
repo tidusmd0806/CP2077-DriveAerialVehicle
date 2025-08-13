@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicele",
-	version = "3.0.0",
+	version = "3.0.1",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -79,7 +79,7 @@ DAV = {
         {name = "lean_right", key = "IK_D", pad = "IK_Pad_LeftAxisX", is_hold = true},
     },
     default_common_keybind_table = {
-        {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_DigitUp", is_hold = true},
+        {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_RightThumb", is_hold = true},
         {name = "toggle_camera", key = "IK_1", pad = "IK_Pad_DigitDown", is_hold = false},
         {name = "toggle_radio", key = "IK_2", pad = "IK_Pad_DigitUp", is_hold = true},
         {name = "toggle_door", key = "IK_3", pad = "IK_None", is_hold = false},
