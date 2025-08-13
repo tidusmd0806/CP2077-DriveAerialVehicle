@@ -1,0 +1,22 @@
+[
+    {
+        "source": "DrawWeapon",
+        "action": "MountedWeapons_SwitchWeapons",
+        "localizedLabel": "LocKey#52471",
+        "sortingPriority": 8,
+        "holdIndicationType": "FromInputConfig",
+        "enableHoldAnimation": false,
+        "mode": -1,
+        "usage": "Both"
+    },
+    {
+        "source": "Exit",
+        "action": "Exit",
+        "localizedLabel": "LocKey#36196",
+        "sortingPriority": 20,
+        "holdIndicationType": "Hold",
+        "enableHoldAnimation": true,
+        "mode": -1,
+        "usage": "Both"
+    }
+]

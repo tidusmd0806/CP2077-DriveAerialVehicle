@@ -1,0 +1,11 @@
+{
+    "Game":
+    {
+    "100_call_vehicle": "ui_jingle_car_call",
+    "110_arrive_vehicle": "ui_jingle_vehicle_arrive",
+    "210_landing": "v_av_rayfield_excalibur_sc_113_ext_engine_landing_to_idle",
+    "240_leaving": "q001_sc_00c_trauma_leaves_av_engines",
+    "310_av_engine_idle": "sq017_sc_18_big_av_fly_idle_start",
+    "320_heli_engine_idle": "q000_nomad_sc_04_heli"
+    }
+}

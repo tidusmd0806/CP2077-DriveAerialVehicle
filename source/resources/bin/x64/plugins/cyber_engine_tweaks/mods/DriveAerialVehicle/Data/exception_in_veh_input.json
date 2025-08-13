@@ -1,0 +1,19 @@
+[
+    "ToggleVehCamera",
+    "UseConsumable",
+    "VehicleInsideWheel",
+    "run_benchmark",
+    "HolsterWeapon",
+    "WeaponSlot1",
+    "WeaponSlot2",
+    "WeaponSlot3",
+    "WeaponSlot4",
+    "MountedWeapons_WeaponSlot1",
+    "MountedWeapons_WeaponSlot2",
+    "CameraAim",
+    "DriverCombatVisionHold",
+    "VisionHold",
+    "VehicleHorn",
+    "CycleLights",
+    "HoldAutodrive"
+]
