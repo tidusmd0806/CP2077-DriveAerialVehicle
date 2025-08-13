@@ -79,7 +79,7 @@ DAV = {
         {name = "lean_right", key = "IK_D", pad = "IK_Pad_LeftAxisX", is_hold = true},
     },
     default_common_keybind_table = {
-        {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_LeftThumb", is_hold = true},
+        {name = "toggle_autopilot", key = "IK_Space", pad = "IK_Pad_DigitUp", is_hold = true},
         {name = "toggle_camera", key = "IK_1", pad = "IK_Pad_DigitDown", is_hold = false},
         {name = "toggle_radio", key = "IK_2", pad = "IK_Pad_DigitUp", is_hold = true},
         {name = "toggle_door", key = "IK_3", pad = "IK_None", is_hold = false},
@@ -398,6 +398,11 @@ registerForEvent('onInit', function()
 
     DAV.core_obj:Init()
 
+    if io.open("debug.txt", "r") then
+        DAV.is_debug_mode = true
+        print("[DAV][Info] Debug mode enabled by debug.txt.")
+    end
+
     DAV.is_ready = true
 
     print('[DAV][Info] Finished initializing Drive an Aerial Vehicle Mod.')
@@ -412,7 +417,7 @@ end)
 
 registerForEvent('onUpdate', function(delta)
     Cron.Update(delta)
-    if DAV.core_obj.av_obj.engine_obj ~= nil then
+    if DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil and DAV.core_obj.av_obj.engine_obj ~= nil then
         DAV.core_obj.av_obj.engine_obj:Update(delta)
     end
 end)

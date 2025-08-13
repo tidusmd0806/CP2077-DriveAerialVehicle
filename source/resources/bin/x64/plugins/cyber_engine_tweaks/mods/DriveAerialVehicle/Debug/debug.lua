@@ -126,7 +126,7 @@ function Debug:ImGuiSituation()
 end
 
 function Debug:ImGuiPlayerPosition()
-    self.is_im_gui_player_position = ImGui.Checkbox("[ImGui] Player Position Angle", self.is_im_gui_player_position)
+    self.is_im_gui_player_position = ImGui.Checkbox("[ImGui] Player Position And Angle", self.is_im_gui_player_position)
     if self.is_im_gui_player_position then
         local x = string.format("%.2f", Game.GetPlayer():GetWorldPosition().x)
         local y = string.format("%.2f", Game.GetPlayer():GetWorldPosition().y)
@@ -136,6 +136,23 @@ function Debug:ImGuiPlayerPosition()
         local pitch = string.format("%.2f", Game.GetPlayer():GetWorldOrientation():ToEulerAngles().pitch)
         local yaw = string.format("%.2f", Game.GetPlayer():GetWorldOrientation():ToEulerAngles().yaw)
         ImGui.Text("[world]Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
+        -- Calculate distance between player and AV
+        local av_obj = self.core_obj.av_obj
+        if av_obj and av_obj.GetPosition then
+            local player_pos = Game.GetPlayer():GetWorldPosition()
+            local av_pos = av_obj:GetPosition()
+            if player_pos and av_pos then
+                local dx = player_pos.x - av_pos.x
+                local dy = player_pos.y - av_pos.y
+                local dz = player_pos.z - av_pos.z
+                local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+                ImGui.Text(string.format("Distance to AV: %.2f m", distance))
+            else
+                ImGui.Text("Distance to AV: N/A")
+            end
+        else
+            ImGui.Text("Distance to AV: N/A")
+        end
     end
 end
 
@@ -388,9 +405,161 @@ end
 function Debug:ImGuiAutoPilotInfo()
     self.is_im_gui_auto_pilot_info = ImGui.Checkbox("[ImGui] Auto Pilot Info", self.is_im_gui_auto_pilot_info)
     if self.is_im_gui_auto_pilot_info then
-        ImGui.Text("Angle : " .. tostring(DAV.core_obj.av_obj.autopilot_angle) .. ", H Sign : " .. tostring(DAV.core_obj.av_obj.autopilot_horizontal_sign) .. ", V Sign : " .. tostring(DAV.core_obj.av_obj.autopilot_vertical_sign))
-        ImGui.Text("Current Speed : " .. DAV.core_obj.av_obj.autopilot_speed * DAV.core_obj.av_obj.auto_speed_reduce_rate .. ", Serach Range : " .. DAV.core_obj.av_obj.search_range)
-        ImGui.Text("Destination Destance 2D : " .. DAV.core_obj.av_obj.dest_dir_vector_norm)
+        local av_obj = DAV.core_obj.av_obj
+
+        -- Current autopilot status
+        ImGui.Text("=== Current Autopilot Status ===")
+        ImGui.Text("AutoPilot Active: " .. tostring(av_obj.is_auto_pilot))
+        ImGui.Text("Current Speed: " .. string.format("%.2f", av_obj.autopilot_speed * av_obj.auto_speed_reduce_rate))
+        ImGui.Text("Search Range: " .. string.format("%.1f", av_obj.search_range))
+        ImGui.Text("Destination Distance 2D: " .. string.format("%.1f", av_obj.dest_dir_vector_norm))
+
+        ImGui.Separator()
+
+        -- Dead-end Avoidance System
+        ImGui.Text("=== Dead-end Avoidance System ===")
+        ImGui.Text("Score Threshold: " .. string.format("%.1f", av_obj.deadend_score_threshold))
+        ImGui.Text("Escape Distance: " .. string.format("%.1f", av_obj.deadend_vertical_escape_distance) .. "m")
+        ImGui.Text("Check Interval: " .. string.format("%.1f", av_obj.deadend_escape_check_interval) .. "s")
+        
+        if av_obj.is_deadend_escape_active then
+            ImGui.TextColored(1, 0.5, 0, 1, "Status: ESCAPE MODE ACTIVE")
+            if av_obj.deadend_escape_target_z then
+                local current_pos = Game.GetPlayer():GetWorldPosition()
+                ImGui.Text("Current Altitude: " .. string.format("%.1f", current_pos.z) .. "m")
+                ImGui.Text("Target Altitude: " .. string.format("%.1f", av_obj.deadend_escape_target_z) .. "m")
+                local remaining = av_obj.deadend_escape_target_z - current_pos.z
+                if remaining > 0 then
+                    ImGui.TextColored(1, 1, 0, 1, "Ascending: " .. string.format("%.1f", remaining) .. "m remaining")
+                else
+                    ImGui.TextColored(0, 1, 1, 1, "Testing forward path clearance...")
+                end
+            end
+        else
+            ImGui.TextColored(0, 1, 0, 1, "Status: NORMAL NAVIGATION")
+        end
+        
+        -- Show current best score and its relation to threshold
+        if av_obj.last_best_score then
+            local score_text = string.format("Current Best Score: %.1f", av_obj.last_best_score)
+            if av_obj.last_best_score <= av_obj.deadend_score_threshold then
+                if not av_obj.is_deadend_escape_active then
+                    ImGui.TextColored(1, 1, 0, 1, score_text .. " (Below threshold - will trigger escape)")
+                else
+                    ImGui.TextColored(1, 0.5, 0, 1, score_text .. " (Escape mode active)")
+                end
+            else
+                ImGui.TextColored(0, 1, 0, 1, score_text .. " (Above threshold)")
+            end
+        end
+
+        ImGui.Separator()
+
+        -- Exception Area Bypass Information
+        ImGui.Text("=== Exception Area Bypass ===")
+        ImGui.Text("Bypass Distance Threshold: " .. string.format("%.1f", av_obj.exception_area_bypass_distance))
+        if av_obj.is_exception_area_bypassed then
+            ImGui.TextColored(0, 1, 0, 1, "Status: BYPASSED (Exception areas ignored)")
+        else
+            ImGui.TextColored(1, 1, 0, 1, "Status: ACTIVE (Exception areas enforced)")
+        end
+
+        ImGui.Separator()
+
+        -- 5-Direction Evaluation System Results
+        ImGui.Text("=== 5-Direction Evaluation Results ===")
+        if av_obj.last_selected_direction then
+            ImGui.Text("Selected Direction: " .. av_obj.last_selected_direction)
+            ImGui.Text("Best Score: " .. string.format("%.1f", av_obj.last_best_score))
+            ImGui.Text("Last Evaluation: " .. string.format("%.2f", av_obj.last_evaluation_timestamp) .. "s ago")
+        else
+            ImGui.Text("No evaluation data available")
+        end
+
+        ImGui.Separator()
+
+        -- Direction Scores Table
+        ImGui.Text("=== Direction Evaluation Scores ===")
+        local directions = {"Forward", "Left", "Right", "Up", "Down"}
+        
+        -- Show direction priority and max angle information
+        ImGui.Text(string.format("Priorities: Forward=%.1f, Horizontal=%.1f, Up=%.1f, Down=%.1f", 
+            av_obj.eval_priority_forward, av_obj.eval_priority_horizontal, av_obj.eval_priority_up, av_obj.eval_priority_down))
+        ImGui.Text(string.format("Max Angles: Horizontal=%d°, Up=%d°, Down=%d°", 
+            av_obj.eval_max_angle_horizontal, av_obj.eval_max_angle_up, av_obj.eval_max_angle_down))
+
+        -- Add coordinate system debug info
+        if av_obj.last_direction_evaluations["Left"] and av_obj.last_direction_evaluations["Right"] then
+            local left_angle = av_obj.last_direction_evaluations["Left"].angle
+            local right_angle = av_obj.last_direction_evaluations["Right"].angle
+            ImGui.Text(string.format("Debug: Left angle=%d°, Right angle=%d° (Left should be negative, Right positive)",
+                left_angle, right_angle))
+
+            -- Show avoidance strength information
+            local selected_angle = math.abs(av_obj.autopilot_angle or 0)
+            local step_multiplier = 1.0
+            if selected_angle >= 15 and selected_angle <= 45 then
+                step_multiplier = 1.5
+            elseif selected_angle > 45 then
+                step_multiplier = 1.3
+            end
+            ImGui.Text(string.format("Avoidance Strength: %.1fx (angle: %d°)", step_multiplier, selected_angle))
+        end
+
+        for _, dir_name in ipairs(directions) do
+            local eval = av_obj.last_direction_evaluations[dir_name]
+            if eval then
+                local color = {1.0, 1.0, 1.0, 1.0}  -- White default
+                if dir_name == av_obj.last_selected_direction then
+                    color = {0.0, 1.0, 0.0, 1.0}  -- Green for selected
+                elseif eval.score <= 0 then
+                    color = {1.0, 0.0, 0.0, 1.0}  -- Red for bad score
+                elseif eval.score < 50 then
+                    color = {1.0, 1.0, 0.0, 1.0}  -- Yellow for low score
+                end
+
+                local display_name = dir_name
+                if dir_name == "Left" then
+                    display_name = "Right"
+                elseif dir_name == "Right" then
+                    display_name = "Left"
+                end
+
+                ImGui.PushStyleColor(ImGuiCol.Text, color[1], color[2], color[3], color[4])
+
+                -- Show collision count and penalty score if available in debug storage
+                local penalty_info = ""
+                if av_obj.last_direction_evaluations[dir_name] and av_obj.last_direction_evaluations[dir_name].collision_penalty_score then
+                    penalty_info = string.format(" (penalty: %.1f)", av_obj.last_direction_evaluations[dir_name].collision_penalty_score)
+                end
+
+                -- Add safety margin information
+                local margin_info = ""
+                if eval.safety_margin_score then
+                    if eval.safety_margin_score > 0 then
+                        margin_info = string.format(", SafeMargin: +%.1f", eval.safety_margin_score)
+                    elseif eval.safety_margin_score < 0 then
+                        margin_info = string.format(", SafeMargin: %.1f", eval.safety_margin_score)
+                    end
+                end
+
+                ImGui.Text(string.format("%s: %.1f (Safety: %.2f, Collisions: %d%s, Angle: %d°%s)",
+                    display_name, eval.score, eval.safety_rate, eval.collision_count, penalty_info, eval.angle, margin_info))
+
+                ImGui.PopStyleColor()
+            else
+                ImGui.Text(dir_name .. ": No data")
+            end
+        end
+
+        ImGui.Separator()
+
+        -- Current movement parameters (kept from original)
+        ImGui.Text("=== Movement Parameters ===")
+        ImGui.Text("Angle: " .. tostring(av_obj.autopilot_angle) .. "°")
+        ImGui.Text("H Sign: " .. tostring(av_obj.autopilot_horizontal_sign))
+        ImGui.Text("V Sign: " .. tostring(av_obj.autopilot_vertical_sign))
+        ImGui.Text("Speed Reduce Rate: " .. string.format("%.2f", av_obj.auto_speed_reduce_rate))
     end
 end
 
@@ -470,9 +639,9 @@ function Debug:ImGuiCheckSettingParam()
     self.is_im_gui_check_setting_param = ImGui.Checkbox("[ImGui] Check Setting Param", self.is_im_gui_check_setting_param)
     if self.is_im_gui_check_setting_param then
         local user_setting = DAV.user_setting_table
-        
+
         ImGui.Text("=== Engine Parameters (Internal Values) ===")
-        
+
         -- Movement Parameters
         ImGui.Text("--- AV Movement ---")
         ImGui.Text("acceleration: " .. user_setting.acceleration)
@@ -546,7 +715,7 @@ function Debug:ImGuiExcuteFunction()
             self.core_obj.av_obj:BlockOperation(true)
             print("Block Operation")
         end
-        
+
         print("Excute Test Function 2")
     end
     ImGui.SameLine()
