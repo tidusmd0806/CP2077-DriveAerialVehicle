@@ -12,8 +12,8 @@ local Core = require('Modules/core.lua')
 local Debug = require('Debug/debug.lua')
 
 DAV = {
-	description = "Drive an Aerial Vehicele",
-	version = "3.0.1",
+	description = "Drive an Aerial Vehicle",
+	version = "3.0.2",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -478,7 +478,8 @@ function CheckVehicleDurabilityDisplay()
 end
 
 function CheckLTBF()
-    if fs() ~= nil then
+    local ok, _ = pcall(function() return fs() end)
+    if ok then
         DAV.is_valid_ltbf = true
         print("[DAV][Info] LTBF compatibility mode enabled.")
     else
