@@ -101,7 +101,7 @@ function HUD:SetOverride()
 
         Override("hudCarController", "OnSpeedValueChanged", function(_, speedValue, wrappedMethod)
             local result = true
-            if not self.is_manually_setting_speed then
+            if not DAV.core_obj.event_obj:IsInVehicle() or not self.is_manually_setting_speed then
                 result = wrappedMethod(speedValue)
             end
             return result
@@ -109,7 +109,7 @@ function HUD:SetOverride()
 
         Override("hudCarController", "OnRpmValueChanged", function(_, rpmValue, wrappedMethod)
             local result = true
-            if not self.is_manually_setting_rpm then
+            if not DAV.core_obj.event_obj:IsInVehicle() or not self.is_manually_setting_rpm then
                 result = wrappedMethod(rpmValue)
             end
             return result
@@ -154,7 +154,7 @@ function HUD:SetObserve()
             self.popup_manager = this
         end)
 
-        Observe("VehicleComponent", "EvaluateDamageLevel", function(this, destruction)
+        Observe("VehicleComponent", "ReactToHPChange", function(this, destruction)
             if self.av_obj.entity_id == nil then
                 return
             end

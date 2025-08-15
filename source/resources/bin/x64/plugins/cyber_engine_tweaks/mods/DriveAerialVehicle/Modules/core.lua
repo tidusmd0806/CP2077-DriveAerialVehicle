@@ -31,9 +31,6 @@ function Core:New()
     -- custom mappin
     obj.huge_distance = 1000000
     obj.max_mappin_history = 10
-    -- radio
-    obj.default_station_num = 13
-    obj.get_track_name_time_resolution = 1
     -- dynamic --
     -- lock
     obj.is_locked_action_in_waiting = false
@@ -104,10 +101,6 @@ function Core:New()
     obj.mappin_controller = nil
     obj.dist_mappin_id = nil
     obj.is_custom_mappin = false
-    -- radio
-    obj.current_station_index = -1
-    obj.current_radio_volume = 50
-    obj.is_opened_radio_popup = false
     return setmetatable(obj, self)
 end
 

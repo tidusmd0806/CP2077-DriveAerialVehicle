@@ -20,6 +20,7 @@ function Engine:New(av_obj)
     obj.rpm_restore_step = 2
     obj.rpm_count_scale = 80
     obj.rpm_max_count = 10 * obj.rpm_count_scale
+    obj.torque_gain = 1000
     ---dynamic---
     obj.entity_id = nil
     obj.flight_mode = Def.FlightMode.AV
@@ -90,10 +91,12 @@ function Engine:Update(delta)
     elseif self.engine_control_type == Def.EngineControlType.AddForce then
         local direction_velocity = self:GetDirectionVelocity()
         local angular_velocity = self:GetAngularVelocity()
+        local _, actual_angular_velocity = self:GetDirectionAndAngularVelocity()
+        local angular_velocity_diff = Vector3.new(angular_velocity.x - actual_angular_velocity.x, angular_velocity.y - actual_angular_velocity.y, angular_velocity.z - actual_angular_velocity.z)
         local mass = self.mass
-        self.force = Vector3.new(direction_velocity.x / delta * mass, direction_velocity.y / delta * mass, direction_velocity.z / delta * mass)
-        self.torque = Vector3.new(angular_velocity.x / delta * mass, angular_velocity.y / delta * mass, angular_velocity.z / delta * mass)
-        self:AddForce(delta, self.force, self.torque)
+        self.force = Vector3.new(direction_velocity.x * mass, direction_velocity.y * mass, direction_velocity.z * mass)
+        self.torque = Vector3.new(angular_velocity_diff.x * self.torque_gain, angular_velocity_diff.y * self.torque_gain, angular_velocity_diff.z * self.torque_gain)
+        self:AddForce(self.force, self.torque)
     elseif self.engine_control_type == Def.EngineControlType.FluctuationVelocity then
         self.force = Vector3.new(0, 0, 0)
         self.torque = Vector3.new(0, 0, 0)
@@ -170,13 +173,10 @@ function Engine:GetDirectionAndAngularVelocity()
 end
 
 --- Add force
----@param delta number
 ---@param force Vector3
 ---@param torque Vector3
-function Engine:AddForce(delta, force, torque)
-    local delta_force = Vector3.new(force.x * delta, force.y * delta, force.z * delta)
-    local delta_torque = Vector3.new(torque.x * delta, torque.y * delta, torque.z * delta)
-    self.fly_av_system:AddForce(delta_force, delta_torque)
+function Engine:AddForce(force, torque)
+    self.fly_av_system:AddForce(force, torque)
 end
 
 --- Add velocity
@@ -282,7 +282,7 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
         return
     end
     
-    local vel_vec, ang_vec = self:GetDirectionAndAngularVelocity()
+    local vel_vec, _ = self:GetDirectionAndAngularVelocity()
     local current_angle = self.av_obj:GetEulerAngles()
     local roll_restore_amount
     local pitch_restore_amount
@@ -361,12 +361,6 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
     x = x - horizontal_air_resistance_const * vel_vec.x
     y = y - horizontal_air_resistance_const * vel_vec.y
     z = z - vertical_air_resistance_const * vel_vec.z
-    -- holding angle
-    if not self.av_obj.is_auto_pilot and not self.is_idle then
-        roll = roll - ang_vec.x
-        pitch = pitch - ang_vec.y
-        yaw = yaw - ang_vec.z
-    end
 
     self.direction_velocity = Vector3.new(x, y, z)
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
@@ -381,8 +375,6 @@ function Engine:OnlyAngularRun(roll, pitch, yaw)
         self.log_obj:Record(LogLevel.Trace, "Engine:OnlyAngularRun skipped - vehicle not spawned")
         return
     end
-    
-    local _, ang_vec = self:GetDirectionAndAngularVelocity()
     local current_angle = self.av_obj:GetEulerAngles()
     local roll_restore_amount
     local pitch_restore_amount
@@ -431,13 +423,6 @@ function Engine:OnlyAngularRun(roll, pitch, yaw)
     roll = roll + d_roll
     pitch = pitch + d_pitch
     yaw = yaw + d_yaw
-
-    -- holding angle
-    if not self.av_obj.is_auto_pilot and not self.is_idle then
-        roll = roll - ang_vec.x
-        pitch = pitch - ang_vec.y
-        yaw = yaw - ang_vec.z
-    end
 
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
 end
