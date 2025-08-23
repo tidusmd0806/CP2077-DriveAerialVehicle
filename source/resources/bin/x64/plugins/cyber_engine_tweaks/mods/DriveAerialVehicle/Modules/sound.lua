@@ -16,7 +16,9 @@ function Sound:New()
     obj.game_sound_data = {}
     -- audio resource
     obj.av_audio_metadata = nil
+    obj.av_audio_mechanical_data = nil
     obj.basilisk_audio_general_data = nil
+    obj.basilisk_audio_mechanical_data = nil
     return setmetatable(obj, self)
 end
 
@@ -43,6 +45,15 @@ function Sound:Init()
     data_2.rpmThreshold = 3
     data_2.timeToActivateTemperature = 8
     self.basilisk_audio_general_data.vehicleTemperatureSettings = data_2
+    self.basilisk_audio_mechanical_data = audioVehicleMechanicalData.new()
+    self.basilisk_audio_mechanical_data.acelleration = CName.new("v_av_panzer_accel")
+    self.basilisk_audio_mechanical_data.engineStartEvent = CName.new("v_av_panzer_01_engine_loop_start")
+    self.basilisk_audio_mechanical_data.engineStopEvent = CName.new("v_av_panzer_01_engine_loop_stop")
+    self.basilisk_audio_mechanical_data.sidewaysThrottle = CName.new("v_av_panzer_throttle_side")
+    self.basilisk_audio_mechanical_data.speed = CName.new("v_av_panzer_speed")
+    self.basilisk_audio_mechanical_data.throttle = CName.new("v_av_panzer_throttle")
+    self.basilisk_audio_mechanical_data.thrust = CName.new("v_av_panzer_thrust")
+    self.av_audio_mechanical_data = audioVehicleMechanicalData.new()
 end
 
 --- Exchange Sound Resource
@@ -73,6 +84,7 @@ function Sound:ChangeSoundResource()
     self.av_audio_metadata.vehicleGridDestructionSettings = CName.new("v_grid_dst_car_default")
     self.av_audio_metadata.vehiclePartSettings = CName.new("v_car_damage_default")
     self.av_audio_metadata.generalData = general_data
+    self.av_audio_metadata.mechanicalData = self.av_audio_mechanical_data
 end
 
 --- Change Default Sound Resource
@@ -84,6 +96,7 @@ function Sound:ResetSoundResource()
     self.av_audio_metadata.vehicleCollisionSettings = CName.new("v_military_panzer_collision")
     self.av_audio_metadata.vehicleGridDestructionSettings = CName.new("None")
     self.av_audio_metadata.vehiclePartSettings = CName.new("None")
+    self.av_audio_metadata.mechanicalData = self.basilisk_audio_mechanical_data
 end
 
 --- Play Sound
