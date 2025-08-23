@@ -450,15 +450,15 @@ function AV:SpawnToSky()
 				self:DisableAllDoorInteractions()
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed))
 				self.log_obj:Record(LogLevel.Info, "Initial Spawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
-			elseif height < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
-				self.engine_obj:SetFluctuationVelocityParams(-2, 1)
-				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
 			elseif height < self.minimum_distance_to_ground or timer.tick > (self.down_timeout / DAV.time_resolution) or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 				self.is_landed = true
 				self.log_obj:Record(LogLevel.Info, "Spawn to sky success")
 				Cron.Halt(timer)
+			elseif height < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
+				self.engine_obj:SetFluctuationVelocityParams(-2, 1)
+				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
 			end
 			timer.tick = timer.tick + 1
 		end
