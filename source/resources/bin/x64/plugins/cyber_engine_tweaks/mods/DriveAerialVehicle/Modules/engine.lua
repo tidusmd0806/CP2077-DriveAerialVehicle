@@ -712,6 +712,13 @@ end
 --- Fluctuation velocity
 ---@param delta number
 function Engine:FluctuationVelocity(delta)
+    -- Check if player is in vehicle - if so, switch to AddForce mode
+    if self.av_obj.core_obj.event_obj:IsInVehicle() and not self.av_obj.is_auto_pilot then
+        self.log_obj:Record(LogLevel.Info, "Player in vehicle detected - switching from FluctuationVelocity to AddForce")
+        self.engine_control_type = Def.EngineControlType.AddForce
+        return
+    end
+    
     local velocity = Vector4.Vector3To4(self.direction_velocity):Length()
     if self.step_width_per_second == 0 then
         self.log_obj:Record(LogLevel.Trace, "step_width_per_second is 0")
