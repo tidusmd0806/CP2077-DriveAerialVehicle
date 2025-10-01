@@ -118,6 +118,10 @@ function Event:SetObserve()
                             Cron.Halt(timer)
                             return
                         end
+                        if self.av_obj == nil or self.av_obj.entity_id == nil then
+                            self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for Thruster check")
+                            return
+                        end
                         local entity = Game.FindEntityByID(self.av_obj.entity_id)
                         local mesh_fl = entity:FindComponentByName("ThrusterFL")
                         local mesh_fr = entity:FindComponentByName("ThrusterFR")
