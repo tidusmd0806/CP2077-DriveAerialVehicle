@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicle",
-	version = "3.0.4",
+	version = "3.0.5",
     -- system
     is_ready = false,
     time_resolution = 0.01,

@@ -144,6 +144,10 @@ function UI:OpenAutopilotPopup()
 			-- Set Current Position
 			local current_position_name = ""
 			local current_district_list = DAV.core_obj:GetCurrentDistrict()
+			if self.av_obj == nil or self.av_obj.entity_id == nil then
+				self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for current position")
+				current_position_name = ""
+			end
 			local entity = Game.FindEntityByID(self.av_obj.entity_id)
 			if entity ~= nil then
 				local current_nearby_ft_index, current_nearby_ft_distance = DAV.core_obj:FindNearestFastTravelPosition(entity:GetWorldPosition())

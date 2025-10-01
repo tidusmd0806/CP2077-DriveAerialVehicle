@@ -232,6 +232,9 @@ end
 --- Check if player is mounted.
 ---@return boolean
 function AV:IsPlayerIn()
+	if self.entity_id == nil then
+		return false
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		return false
@@ -248,6 +251,9 @@ end
 --- Check if AV is destroyed.
 ---@return boolean
 function AV:IsDestroyed()
+	if self.entity_id == nil then
+		return true
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		return true
@@ -258,6 +264,9 @@ end
 --- Check if AV is despawned.
 ---@return boolean
 function AV:IsDespawned()
+	if self.entity_id == nil then
+		return true
+	end
 	if Game.FindEntityByID(self.entity_id) == nil then
 		return true
 	else
@@ -268,6 +277,9 @@ end
 --- Get AV position.
 ---@return Vector4
 function AV:GetPosition()
+	if self.entity_id == nil then
+		return Vector4.Zero()
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		return Vector4.Zero()
@@ -278,6 +290,10 @@ end
 --- Get Vehicle Forward Vector
 ---@return Vector4
 function AV:GetForward()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetForward")
+		return Vector4.new(0, 0, 0, 1.0)
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
     if entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetForward")
@@ -289,6 +305,10 @@ end
 --- Get Vehicle Right Vector
 ---@return Vector4
 function AV:GetRight()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetRight")
+		return Vector4.new(0, 0, 0, 1.0)
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
     if entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetRight")
@@ -300,6 +320,10 @@ end
 --- Get Vehicle Up Vector
 ---@return Vector4
 function AV:GetUp()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetUp")
+		return Vector4.new(0, 0, 0, 1.0)
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
     if entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetUp")
@@ -311,6 +335,10 @@ end
 --- Get Vehicle Quaternion
 ---@return Quaternion
 function AV:GetQuaternion()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetQuaternion")
+		return Quaternion.new(0, 0, 0, 1.0)
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
     if entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetQuaternion")
@@ -322,6 +350,10 @@ end
 --- Get Vehicle EulerAngles
 ---@return EulerAngles
 function AV:GetEulerAngles()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetEulerAngles")
+		return EulerAngles.new(0, 0, 0)
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
     if entity == nil then
         self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetEulerAngles")
@@ -363,6 +395,10 @@ end
 --- Check if player is mounted combat seat.
 ---@return boolean
 function AV:IsMountedCombatSeat()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity id to check combat seat")
+		return false
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to check combat seat")
@@ -382,6 +418,10 @@ end
 --- Check if engine is on.
 ---@return boolean
 function AV:IsEngineOn()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity id to check engine")
+		return false
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to check engine")
@@ -507,6 +547,10 @@ end
 --- Toggle crystal dome ON/OFF.
 ---@return boolean
 function AV:ToggleCrystalDome()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity id to change crystal dome")
+		return false
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	local effect_name
 	if entity == nil then
@@ -1849,6 +1893,10 @@ end
 
 --- Toggle radio ON or next radioStation.
 function AV:ToggleRadio()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change radio")
+		return
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change radio")
@@ -1864,6 +1912,10 @@ end
 --- Change appearance.
 ---@param type string appearance name
 function AV:ChangeAppearance(type)
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change appearance")
+		return
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change appearance")
@@ -1890,6 +1942,10 @@ end
 --- Toggle landing warning ON/OFF.
 ---@param on boolean
 function AV:ProjectLandingWarning(on)
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Trace, "No entity to project landing warning")
+		return
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Trace, "No entity to project landing warning")
@@ -1917,6 +1973,11 @@ function AV:SetThrusterComponent()
 
 	self.engine_components = {}
 	self.thruster_fxs = {}
+
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
+		return false
+	end
 
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
@@ -1980,6 +2041,11 @@ function AV:MoveThruster(action_command_lists)
 		self.thruster_angle = -self.thruster_angle_max
 	end
 
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
+		return false
+	end
+
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
@@ -2002,6 +2068,10 @@ end
 ---@param on boolean
 ---@return boolean
 function AV:ToggleThruster(on)
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
+		return false
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
@@ -2023,6 +2093,10 @@ end
 ---@param on boolean
 ---@return boolean
 function AV:ToggleHeliThruster(on)
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
+		return false
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
@@ -2043,6 +2117,10 @@ end
 --- Set destroy appearance.
 ---@return boolean
 function AV:SetDestroyAppearance()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to set destroy appearance")
+		return false
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to set destroy appearance")
@@ -2062,6 +2140,10 @@ end
 ---@param on boolean
 ---@return boolean
 function AV:TurnEngineOn(on)
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change engine status")
+		return false
+	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change engine status")
