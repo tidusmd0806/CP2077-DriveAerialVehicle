@@ -102,7 +102,7 @@ function Core:New()
     obj.dist_mappin_id = nil
     obj.is_custom_mappin = false
     return setmetatable(obj, self)
-end
+end   
 
 --- Initialize
 function Core:Init()
@@ -175,6 +175,10 @@ end
 --- Set Summon Trigger.
 function Core:SetSummonTrigger()
     Override("VehicleSystem", "SpawnActivePlayerVehicle", function(this, vehicle_type, wrapped_method)
+        if this:GetActivePlayerVehicle(vehicle_type) == nil then
+            self.log_obj:Record(LogLevel.Warning, "No Active Vehicle detected")
+            return wrapped_method(vehicle_type)
+        end
         local record_id = this:GetActivePlayerVehicle(vehicle_type).recordID
         local prev_model_index = DAV.model_index
 
@@ -308,7 +312,8 @@ function Core:SetInputListener()
                     break
                 end
             end
-            if Game.GetPlayer():PSIsInDriverCombat() then
+            local player = Game.GetPlayer()
+            if player ~= nil and player:PSIsInDriverCombat() then
                     -- block exit vehicle when player is in combat
                 if action_name == "Exit" and not self.is_locked_action_in_combat then
                     self.is_locked_action_in_combat = true
@@ -411,7 +416,12 @@ end
 
 --- Update Garage Info.
 function Core:UpdateGarageInfo(is_force_update)
-    local list = Game.GetVehicleSystem():GetPlayerUnlockedVehicles()
+    local vehicle_system = Game.GetVehicleSystem()
+    if vehicle_system == nil then
+        self.log_obj:Record(LogLevel.Warning, "Vehicle System is nil")
+        return
+    end
+    local list = vehicle_system:GetPlayerUnlockedVehicles()
     if (self.current_purchased_vehicle_count == #list or #list == 0) and not is_force_update then
         return
     else
@@ -602,12 +612,12 @@ function Core:ConvertHoldButtonAction(key)
             end
         end
     end
-    for _, keybind in ipairs(DAV.user_setting_table.common_keybind_table) do
-        if key == keybind.key or key == keybind.pad then
-            keybind_name = keybind.name
+        for _, keybind in ipairs(DAV.user_setting_table.common_keybind_table) do
+            if key == keybind.key or key == keybind.pad then
+                keybind_name = keybind.name
             self:ConvertCommonHoldAction(keybind_name)
             return
-        end
+            end
     end
 end
 
@@ -720,9 +730,9 @@ function Core:ConvertPressButtonAction(key)
             end
         end
     end
-    for _, keybind in ipairs(DAV.user_setting_table.common_keybind_table) do
-        if key == keybind.key or key == keybind.pad then
-            keybind_name = keybind.name
+        for _, keybind in ipairs(DAV.user_setting_table.common_keybind_table) do
+            if key == keybind.key or key == keybind.pad then
+                keybind_name = keybind.name
             self:ConvertCommonPressAction(keybind_name)
             return
         end
@@ -1067,48 +1077,48 @@ end
 --- Convert Press Button Action(Common).
 ---@param keybind_name string
 function Core:ConvertCommonPressAction(keybind_name)
-    if keybind_name == "toggle_autopilot" then
-        if not self.is_auto_pilot_button_hold_counter then
-            self.is_auto_pilot_button_hold_counter = true
-            Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.auto_pilot_button_hold_count = timer.tick
+            if keybind_name == "toggle_autopilot" then
+                if not self.is_auto_pilot_button_hold_counter then
+                    self.is_auto_pilot_button_hold_counter = true
+                    Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
+                        timer.tick = timer.tick + 1
+                        self.auto_pilot_button_hold_count = timer.tick
                 if timer.tick >= self.auto_pilot_hold_complete_time_count then
-                    self.is_auto_pilot_button_hold_counter = false
-                    self.queue_obj:Enqueue(Def.ActionList.ToggleAutopilot)
-                    Cron.Halt(timer)
+                            self.is_auto_pilot_button_hold_counter = false
+                            self.queue_obj:Enqueue(Def.ActionList.ToggleAutopilot)
+                            Cron.Halt(timer)
                 elseif not self.is_auto_pilot_button_hold_counter then
                     self.queue_obj:Enqueue(Def.ActionList.OpenAutopilotPanel)
                     Cron.Halt(timer)
+                        end
+                    end)
                 end
-            end)
-        end
-    elseif keybind_name == "toggle_camera" then
-        self.queue_obj:Enqueue(Def.ActionList.ChangeCamera)
-    elseif keybind_name == "toggle_door" then
-        self.queue_obj:Enqueue(Def.ActionList.ChangeDoor1)
-    elseif keybind_name == "toggle_radio" then
-        if not self.is_radio_button_hold_counter then
-            self.is_radio_button_hold_counter = true
-            Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.radio_button_hold_count = timer.tick
+            elseif keybind_name == "toggle_camera" then
+                self.queue_obj:Enqueue(Def.ActionList.ChangeCamera)
+            elseif keybind_name == "toggle_door" then
+                self.queue_obj:Enqueue(Def.ActionList.ChangeDoor1)
+            elseif keybind_name == "toggle_radio" then
+                if not self.is_radio_button_hold_counter then
+                    self.is_radio_button_hold_counter = true
+                    Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
+                        timer.tick = timer.tick + 1
+                        self.radio_button_hold_count = timer.tick
                 if timer.tick >= self.radio_hold_complete_time_count then
-                    self.is_radio_button_hold_counter = false
-                    self.queue_obj:Enqueue(Def.ActionList.OpenRadio)
-                    Cron.Halt(timer)
+                            self.is_radio_button_hold_counter = false
+                            self.queue_obj:Enqueue(Def.ActionList.OpenRadio)
+                            Cron.Halt(timer)
                 elseif not self.is_radio_button_hold_counter then
                     self.queue_obj:Enqueue(Def.ActionList.ToggleRadio)
                     Cron.Halt(timer)
+                        end
+                    end)
                 end
-            end)
-        end
-    elseif keybind_name == "toggle_crystal_dome" then
-        self.queue_obj:Enqueue(Def.ActionList.ToggleCrystalDome)
-    elseif keybind_name == "toggle_appearance" then
-        self.queue_obj:Enqueue(Def.ActionList.ToggleAppearance)
-    elseif keybind_name == "open_vehicle_manager" then
-        self.queue_obj:Enqueue(Def.ActionList.OpenVehicleManager)
+            elseif keybind_name == "toggle_crystal_dome" then
+                self.queue_obj:Enqueue(Def.ActionList.ToggleCrystalDome)
+            elseif keybind_name == "toggle_appearance" then
+                self.queue_obj:Enqueue(Def.ActionList.ToggleAppearance)
+            elseif keybind_name == "open_vehicle_manager" then
+                self.queue_obj:Enqueue(Def.ActionList.OpenVehicleManager)
     end
 end
 
@@ -1340,6 +1350,11 @@ end
 
 --- Set custom mappin
 function Core:SetCustomMappin(mappin)
+    -- This check is necessary because sometimes mappin becomes nil.
+    -- Discovered through report by Jamarlie
+    if mappin == nil then
+        return
+    end
     if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
         self.log_obj:Record(LogLevel.Info, "SetCustomMappin")
         self.is_custom_mappin = mappin:IsPlayerTracked()
@@ -1427,10 +1442,25 @@ end
 --- Set fast travel position.
 function Core:SetFastTravelPosition()
     self.fast_travel_position_list = {}
-    local fast_travel_list = Game.GetScriptableSystemsContainer():Get('FastTravelSystem'):GetFastTravelPoints()
+    local scriptable_systems = Game.GetScriptableSystemsContainer()
+    if scriptable_systems == nil then
+        self.log_obj:Record(LogLevel.Warning, "ScriptableSystemsContainer is nil in SetFastTravelPosition")
+        return
+    end
+    local fast_travel_system = scriptable_systems:Get('FastTravelSystem')
+    if fast_travel_system == nil then
+        self.log_obj:Record(LogLevel.Warning, "FastTravelSystem is nil in SetFastTravelPosition")
+        return
+    end
+    local fast_travel_list = fast_travel_system:GetFastTravelPoints()
 
     local mappin_type = gamemappinsMappinTargetType.Map
-    local mappin_list = Game.GetMappinSystem():GetMappinEntries(mappin_type)
+    local mappin_system = Game.GetMappinSystem()
+    if mappin_system == nil then
+        self.log_obj:Record(LogLevel.Warning, "MappinSystem is nil in SetFastTravelPosition")
+        return
+    end
+    local mappin_list = mappin_system:GetMappinEntries(mappin_type)
     local mappin_list_copy = Utils:DeepCopy(mappin_list)
 
     for _, fast_travel in ipairs(fast_travel_list) do
@@ -1534,7 +1564,21 @@ end
 ---@return table
 function Core:GetCurrentDistrict()
     local current_district_list = {}
-    local district_manager = Game.GetScriptableSystemsContainer():Get('PreventionSystem').districtManager
+    local scriptable_systems = Game.GetScriptableSystemsContainer()
+    if scriptable_systems == nil then
+        self.log_obj:Record(LogLevel.Warning, "ScriptableSystemsContainer is nil in GetCurrentDistrict")
+        return current_district_list
+    end
+    local prevention_system = scriptable_systems:Get('PreventionSystem')
+    if prevention_system == nil then
+        self.log_obj:Record(LogLevel.Warning, "PreventionSystem is nil in GetCurrentDistrict")
+        return current_district_list
+    end
+    local district_manager = prevention_system.districtManager
+    if district_manager == nil then
+        self.log_obj:Record(LogLevel.Warning, "DistrictManager is nil in GetCurrentDistrict")
+        return current_district_list
+    end
     local district = district_manager:GetCurrentDistrict()
     if district == nil then
         return current_district_list

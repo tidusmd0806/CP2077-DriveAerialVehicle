@@ -160,7 +160,12 @@ function Event:SetOverride()
     end)
     -- Depending on the position of the driver's seat, an animation will play in which the driver moves to the opposite door, just like in a normal car. This hook prevents this.
     Override("VehicleTransition", "IsUnmountDirectionClosest", function(this, state_context, unmount_direction, wrapped_method)
-        if self:IsInVehicle() and not Game.GetPlayer():PSIsInDriverCombat() then
+        local player = Game.GetPlayer()
+        if player == nil then
+            self.log_obj:Record(LogLevel.Warning, "No Player detected")
+            return wrapped_method(state_context, unmount_direction)
+        end
+        if self:IsInVehicle() and not player:PSIsInDriverCombat() then
             self.av_obj:Unmount()
             return true
         else
@@ -170,7 +175,12 @@ function Event:SetOverride()
 
     -- Depending on the position of the driver's seat, an animation will play in which the driver moves to the opposite door, just like in a normal car. This hook prevents this.
     Override("VehicleTransition", "IsUnmountDirectionOpposite", function(this, state_context, unmount_direction, wrapped_method)
-        if self:IsInVehicle() and not Game.GetPlayer():PSIsInDriverCombat() then
+        local player = Game.GetPlayer()
+        if player == nil then
+            self.log_obj:Record(LogLevel.Warning, "No Player detected")
+            return wrapped_method(state_context, unmount_direction)
+        end
+        if self:IsInVehicle() and not player:PSIsInDriverCombat() then
             return false
         else
             return wrapped_method(state_context, unmount_direction)
@@ -428,7 +438,12 @@ end
 
 --- Check if player is in combat.
 function Event:CheckCombat()
-    local is_combat = Game.GetPlayer():PSIsInDriverCombat()
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "No Player detected")
+        return
+    end
+    local is_combat = player:PSIsInDriverCombat()
     if is_combat ~= self.av_obj.is_combat then
         self.av_obj.is_combat = is_combat
         if is_combat then

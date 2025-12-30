@@ -368,20 +368,28 @@ function UI:CreateNativeSettingsPage()
 
 	-- activation
 	if self.is_activate_vehicle_switch then
+		local vehicle_system = Game.GetVehicleSystem()
+		if vehicle_system == nil then
+			self.log_obj:Record(LogLevel.Warning, "Vehicle System is nil in CreateNativeSettingsPage")
+			return
+		end
 		local excalibur_dummy_record = DAV.excalibur_record .. "_dummy"
 		local manticore_dummy_record = DAV.manticore_record .. "_dummy"
 		local atlus_dummy_record = DAV.atlus_record .. "_dummy"
 		local surveyor_dummy_record = DAV.surveyor_record .. "_dummy"
 		local valgus_dummy_record = DAV.valgus_record .. "_dummy"
 		local mayhem_dummy_record = DAV.mayhem_record .. "_dummy"
-		local is_activated_excalibur = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(excalibur_dummy_record))
-		local is_activated_manticore = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(manticore_dummy_record))
-		local is_activated_atlus = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(atlus_dummy_record))
-		local is_activated_surveyor = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(surveyor_dummy_record))
-		local is_activated_valgus = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(valgus_dummy_record))
-		local is_activated_mayhem = Game.GetVehicleSystem():IsVehiclePlayerUnlocked(TweakDBID.new(mayhem_dummy_record))
+		local is_activated_excalibur = vehicle_system:IsVehiclePlayerUnlocked(TweakDBID.new(excalibur_dummy_record))
+		local is_activated_manticore = vehicle_system:IsVehiclePlayerUnlocked(TweakDBID.new(manticore_dummy_record))
+		local is_activated_atlus = vehicle_system:IsVehiclePlayerUnlocked(TweakDBID.new(atlus_dummy_record))
+		local is_activated_surveyor = vehicle_system:IsVehiclePlayerUnlocked(TweakDBID.new(surveyor_dummy_record))
+		local is_activated_valgus = vehicle_system:IsVehiclePlayerUnlocked(TweakDBID.new(valgus_dummy_record))
+		local is_activated_mayhem = vehicle_system:IsVehiclePlayerUnlocked(TweakDBID.new(mayhem_dummy_record))
 		option_table = DAV.NativeSettings.addSwitch("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_excalibur"), DAV.core_obj:GetTranslationText("native_settings_activation_excalibur_description"), is_activated_excalibur, is_activated_excalibur, function(state)
-			Game.GetVehicleSystem():EnablePlayerVehicle(excalibur_dummy_record, state, true)
+			local vs = Game.GetVehicleSystem()
+			if vs ~= nil then
+				vs:EnablePlayerVehicle(excalibur_dummy_record, state, true)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
@@ -389,7 +397,10 @@ function UI:CreateNativeSettingsPage()
 		table.insert(self.option_table_list, option_table)
 
 		option_table = DAV.NativeSettings.addSwitch("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_manticore"), DAV.core_obj:GetTranslationText("native_settings_activation_manticore_description"), is_activated_manticore, is_activated_manticore, function(state)
-			Game.GetVehicleSystem():EnablePlayerVehicle(manticore_dummy_record, state, true)
+			local vs = Game.GetVehicleSystem()
+			if vs ~= nil then
+				vs:EnablePlayerVehicle(manticore_dummy_record, state, true)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
@@ -397,7 +408,10 @@ function UI:CreateNativeSettingsPage()
 		table.insert(self.option_table_list, option_table)
 
 		option_table = DAV.NativeSettings.addSwitch("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_atlus"), DAV.core_obj:GetTranslationText("native_settings_activation_atlus_description"), is_activated_atlus, is_activated_atlus, function(state)
-			Game.GetVehicleSystem():EnablePlayerVehicle(atlus_dummy_record, state, true)
+			local vs = Game.GetVehicleSystem()
+			if vs ~= nil then
+				vs:EnablePlayerVehicle(atlus_dummy_record, state, true)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
@@ -405,7 +419,10 @@ function UI:CreateNativeSettingsPage()
 		table.insert(self.option_table_list, option_table)
 
 		option_table = DAV.NativeSettings.addSwitch("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_surveyor"), DAV.core_obj:GetTranslationText("native_settings_activation_surveyor_description"), is_activated_surveyor, is_activated_surveyor, function(state)
-			Game.GetVehicleSystem():EnablePlayerVehicle(surveyor_dummy_record, state, true)
+			local vs = Game.GetVehicleSystem()
+			if vs ~= nil then
+				vs:EnablePlayerVehicle(surveyor_dummy_record, state, true)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
@@ -413,7 +430,10 @@ function UI:CreateNativeSettingsPage()
 		table.insert(self.option_table_list, option_table)
 
 		option_table = DAV.NativeSettings.addSwitch("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_valgus"), DAV.core_obj:GetTranslationText("native_settings_activation_valgus_description"), is_activated_valgus, is_activated_valgus, function(state)
-			Game.GetVehicleSystem():EnablePlayerVehicle(valgus_dummy_record, state, true)
+			local vs = Game.GetVehicleSystem()
+			if vs ~= nil then
+				vs:EnablePlayerVehicle(valgus_dummy_record, state, true)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
@@ -421,7 +441,10 @@ function UI:CreateNativeSettingsPage()
 		table.insert(self.option_table_list, option_table)
 
 		option_table = DAV.NativeSettings.addSwitch("/DAV/activation", DAV.core_obj:GetTranslationText("native_settings_activation_mayhem"), DAV.core_obj:GetTranslationText("native_settings_activation_mayhem_description"), is_activated_mayhem, is_activated_mayhem, function(state)
-			Game.GetVehicleSystem():EnablePlayerVehicle(mayhem_dummy_record, state, true)
+			local vs = Game.GetVehicleSystem()
+			if vs ~= nil then
+				vs:EnablePlayerVehicle(mayhem_dummy_record, state, true)
+			end
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
 			end)
