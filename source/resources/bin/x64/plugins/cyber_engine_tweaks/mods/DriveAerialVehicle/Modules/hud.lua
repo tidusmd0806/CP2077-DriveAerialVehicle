@@ -190,6 +190,10 @@ function HUD:SetObserve()
         end)
 
         ObserveAfter("gameuiPhotoModeMenuController", "OnPhotoModeLastInputDeviceEvent", function(this, wasKeyboardMouse)
+            if this == nil then
+                self.log_obj:Record(LogLevel.Error, "gameuiPhotoModeMenuController is nil")
+                return
+            end
             if wasKeyboardMouse then
                 self.is_keyboard_input = true
             else

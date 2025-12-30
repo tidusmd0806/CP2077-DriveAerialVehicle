@@ -104,7 +104,6 @@ end
 ---@param level number camera distance level
 function Camera:ChangePosition(level)
     local camera_perspective = vehicleRequestCameraPerspectiveEvent.new()
-
     if level == Def.CameraDistanceLevel.Fpp then
 		self.log_obj:Record(LogLevel.Trace, "Change Camera : FPP")
         camera_perspective.cameraPerspective = vehicleCameraPerspective.FPP
@@ -127,7 +126,17 @@ end
 --- Toggle camera perspective
 ---@return number current camera distance level
 function Camera:Toggle()
-    local veh_camera_perspective = Game.GetPlayer():FindVehicleCameraManager():GetActivePerspective()
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil")
+        return self.current_camera_mode
+    end
+    local vehicle_camera_manager = player:FindVehicleCameraManager()
+    if vehicle_camera_manager == nil then
+        self.log_obj:Record(LogLevel.Warning, "Vehicle Camera Manager is nil")
+        return self.current_camera_mode
+    end
+    local veh_camera_perspective = vehicle_camera_manager:GetActivePerspective()
     if veh_camera_perspective == vehicleCameraPerspective.FPP then
         self.current_camera_mode = Def.CameraDistanceLevel.TppClose
     elseif veh_camera_perspective == vehicleCameraPerspective.TPPClose or veh_camera_perspective == vehicleCameraPerspective.DriverCombatClose then

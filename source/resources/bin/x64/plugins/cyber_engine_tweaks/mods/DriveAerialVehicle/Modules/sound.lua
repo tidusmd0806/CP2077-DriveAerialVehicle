@@ -59,8 +59,20 @@ end
 --- Exchange Sound Resource
 function Sound:ChangeSoundResource()
     local depot = Game.GetResourceDepot()
+    if depot == nil then
+        self.log_obj:Record(LogLevel.Warning, "Resource Depot is nil in ChangeSoundResource")
+        return
+    end
     local token = depot:LoadResource("base\\sound\\metadata\\cooked_metadata.audio_metadata")
+    if token == nil then
+        self.log_obj:Record(LogLevel.Warning, "Token is nil in ChangeSoundResource")
+        return
+    end
     local metadata_list = token:GetResource()
+    if metadata_list == nil then
+        self.log_obj:Record(LogLevel.Warning, "Metadata list is nil in ChangeSoundResource")
+        return
+    end
     local aerondight_audio_metadata
     for _, metadata in pairs(metadata_list.entries) do
         if metadata.name.value == self.av_audio_resource_model then
@@ -73,7 +85,15 @@ function Sound:ChangeSoundResource()
 
     local general_data = audioVehicleGeneralData.new()
 
+    if aerondight_audio_metadata == nil then
+        self.log_obj:Record(LogLevel.Warning, "Aerondight audio metadata is nil in ChangeSoundResource")
+        return
+    end
     general_data = aerondight_audio_metadata.generalData
+    if general_data == nil then
+        self.log_obj:Record(LogLevel.Warning, "General data is nil in ChangeSoundResource")
+        return
+    end
     general_data.ignitionStartEvent = CName.new("None")
     general_data.ignitionEndEvent = CName.new("None")
 
@@ -102,19 +122,34 @@ end
 --- Play Sound
 ---@param sound_name string
 function Sound:PlayGameSound(sound_name)
-    Game.GetPlayer():PlaySoundEvent(self.game_sound_data[sound_name])
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil in PlayGameSound")
+        return
+    end
+    player:PlaySoundEvent(self.game_sound_data[sound_name])
 end
 
 --- Stop Sound
 ---@param sound_name string
 function Sound:StopGameSound(sound_name)
-    Game.GetPlayer():StopSoundEvent(self.game_sound_data[sound_name])
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil in StopGameSound")
+        return
+    end
+    player:StopSoundEvent(self.game_sound_data[sound_name])
 end
 
 --- Mute all sounds
 function Sound:Mute()
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil in Mute")
+        return
+    end
     for _, sound_name in pairs(self.game_sound_data) do
-        Game.GetPlayer():StopSoundEvent(sound_name)
+        player:StopSoundEvent(sound_name)
     end
 end
 
@@ -122,6 +157,11 @@ end
 ---@param flight_mode Def.FlightMode
 ---@param fade_time number
 function Sound:StartEngineSound(flight_mode, fade_time)
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil in StartEngineSound")
+        return
+    end
     local evt = ActionEvent.new()
     if flight_mode == Def.FlightMode.AV then
         evt.eventAction = CName.new("dav_av_idle_start")
@@ -132,7 +172,7 @@ function Sound:StartEngineSound(flight_mode, fade_time)
         return
     end
     evt.timeToLive = fade_time or 0.5
-    Game.GetPlayer():QueueEvent(evt)
+    player:QueueEvent(evt)
     self.log_obj:Record(LogLevel.Debug, "Start Engine Sound")
 end
 
@@ -140,6 +180,11 @@ end
 ---@param flight_mode Def.FlightMode
 ---@param fade_time number
 function Sound:StopEngineSound(flight_mode, fade_time)
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil in StopEngineSound")
+        return
+    end
     local evt = ActionEvent.new()
     if flight_mode == Def.FlightMode.AV then
         evt.eventAction = CName.new("dav_av_idle_stop")
@@ -150,7 +195,7 @@ function Sound:StopEngineSound(flight_mode, fade_time)
         return
     end
     evt.timeToLive = fade_time or 0.5
-    Game.GetPlayer():QueueEvent(evt)
+    player:QueueEvent(evt)
     self.log_obj:Record(LogLevel.Debug, "Stop Engine Sound")
 end
 
@@ -158,6 +203,11 @@ end
 ---@param flight_mode Def.FlightMode
 ---@param fade_time number
 function Sound:StartAccelerationSound(flight_mode, fade_time)
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil in StartAccelerationSound")
+        return
+    end
     local evt = ActionEvent.new()
     if flight_mode == Def.FlightMode.AV then
         evt.eventAction = CName.new("dav_av_accel_start")
@@ -168,7 +218,7 @@ function Sound:StartAccelerationSound(flight_mode, fade_time)
         return
     end
     evt.timeToLive = fade_time or 0.5
-    Game.GetPlayer():QueueEvent(evt)
+    player:QueueEvent(evt)
     self.log_obj:Record(LogLevel.Debug, "Start Acceleration Sound")
 end
 
@@ -176,6 +226,11 @@ end
 ---@param flight_mode Def.FlightMode
 ---@param fade_time number
 function Sound:StopAccelerationSound(flight_mode, fade_time)
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil in StopAccelerationSound")
+        return
+    end
     local evt = ActionEvent.new()
     if flight_mode == Def.FlightMode.AV then
         evt.eventAction = CName.new("dav_av_accel_stop")
@@ -186,7 +241,7 @@ function Sound:StopAccelerationSound(flight_mode, fade_time)
         return
     end
     evt.timeToLive = fade_time or 0.5
-    Game.GetPlayer():QueueEvent(evt)
+    player:QueueEvent(evt)
     self.log_obj:Record(LogLevel.Debug, "Stop Acceleration Sound")
 end
 
@@ -194,6 +249,11 @@ end
 ---@param flight_mode Def.FlightMode
 ---@param fade_time number
 function Sound:StartThrusterSound(flight_mode, fade_time)
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil in StartThrusterSound")
+        return
+    end
     local evt = ActionEvent.new()
     if flight_mode == Def.FlightMode.Helicopter then
         evt.eventAction = CName.new("dav_heli_thruster_start")
@@ -202,7 +262,7 @@ function Sound:StartThrusterSound(flight_mode, fade_time)
         return
     end
     evt.timeToLive = fade_time or 0.5
-    Game.GetPlayer():QueueEvent(evt)
+    player:QueueEvent(evt)
     self.log_obj:Record(LogLevel.Debug, "Start Thruster Sound")
 end
 
@@ -210,6 +270,11 @@ end
 ---@param flight_mode Def.FlightMode
 ---@param fade_time number
 function Sound:StopThrusterSound(flight_mode, fade_time)
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil in StopThrusterSound")
+        return
+    end
     local evt = ActionEvent.new()
     if flight_mode == Def.FlightMode.Helicopter then
         evt.eventAction = CName.new("dav_heli_thruster_stop")
@@ -218,7 +283,7 @@ function Sound:StopThrusterSound(flight_mode, fade_time)
         return
     end
     evt.timeToLive = fade_time or 0.5
-    Game.GetPlayer():QueueEvent(evt)
+    player:QueueEvent(evt)
     self.log_obj:Record(LogLevel.Debug, "Stop Thruster Sound")
 end
 

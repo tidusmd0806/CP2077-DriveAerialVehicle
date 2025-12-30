@@ -2156,7 +2156,12 @@ end
 --- Get Player Around Direction (for spawn position)
 ---@param angle number
 function AV:GetPlayerAroundDirection(angle)
-    return Vector4.RotateAxis(Game.GetPlayer():GetWorldForward(), Vector4.new(0, 0, 1, 0), angle / 180.0 * Pi())
+    local player = Game.GetPlayer()
+    if player == nil then
+        self.log_obj:Record(LogLevel.Warning, "Player is nil in GetPlayerAroundDirection")
+        return Vector4.new(0, 0, 0, 1.0)
+    end
+    return Vector4.RotateAxis(player:GetWorldForward(), Vector4.new(0, 0, 1, 0), angle / 180.0 * Pi())
 end
 
 --- Get Spawn Position Vector
