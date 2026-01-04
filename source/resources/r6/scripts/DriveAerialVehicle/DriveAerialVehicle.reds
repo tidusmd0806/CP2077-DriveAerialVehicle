@@ -1,13 +1,15 @@
-// Title: Drive an Aerial Vehicle HUD Popup
+// Title: Drive an Aerial Vehicle HUD Popup And Audio System
 // Author: tidusmd
-// Version: 2.0.0
-// This code was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
+// Version: 3.1.0
+// The code of UI was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
+// CopyRight (C) 2024, tidusmd. All rights reserved.
 
 module DAV
 import DAV.AutopilotMenu.*
 import Codeware.UI.*
 import Audioware.*
 
+//*** Aerial Vehicle Popup UI ***//
 public class AerialVehiclePopup extends InGamePopup {
 	protected let m_header: ref<InGamePopupHeader>;
 	protected let m_footer: ref<InGamePopupFooter>;
@@ -196,6 +198,7 @@ public class TranslationSystem {
 
 }
 
+//*** Aerial Vehicle Audio System ***//
 @addField(PlayerPuppet)
 let m_dav_veh_emitter_id: EntityID;
 @addField(PlayerPuppet)

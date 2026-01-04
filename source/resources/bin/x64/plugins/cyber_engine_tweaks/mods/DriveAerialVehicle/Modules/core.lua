@@ -1470,7 +1470,7 @@ function Core:SetFastTravelPosition()
         local district_record = nil
         local fast_travel_record = TweakDB:GetRecord(record_id)
         if fast_travel_record == nil then
-            self.log_obj:Record(LogLevel.Error, "Fast Travel Record is nil")
+            self.log_obj:Record(LogLevel.Warning, "Fast Travel Record is nil")
         else
             district_record = fast_travel_record:District()
         end
