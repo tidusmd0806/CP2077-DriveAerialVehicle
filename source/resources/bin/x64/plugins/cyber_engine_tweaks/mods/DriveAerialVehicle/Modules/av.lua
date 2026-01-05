@@ -13,7 +13,6 @@ function AV:New(core_obj)
 	local obj = {}
 	obj.core_obj = core_obj
 	obj.all_models = core_obj.all_models
-	-- obj.position_obj = Position:New(core_obj.all_models)
 	obj.engine_obj = Engine:New(obj)
 	obj.camera_obj = Camera:New(core_obj.all_models)
 	obj.log_obj = Log:New()

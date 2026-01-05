@@ -201,7 +201,7 @@ function Core:SetSummonTrigger()
                     if prev_model_index ~= DAV.model_index then
                         self.event_obj:CallVehicle()
                     else
-                        self.event_obj:ReturnVehicle(true)
+                        self.event_obj:ReturnVehicle()
                     end
                 end
                 return false
