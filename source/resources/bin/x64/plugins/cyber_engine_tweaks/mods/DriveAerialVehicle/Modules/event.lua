@@ -20,6 +20,8 @@ function Event:New()
     -- static --
     -- projection
     obj.projection_max_height_offset = 4
+    -- distance limit
+    obj.engine_audio_limit = 30
     -- dynamic --
     obj.is_initial_load = true
     obj.current_situation = Def.Situation.Idle
@@ -250,6 +252,7 @@ function Event:CheckAllEvents()
         self:CheckInEntryArea()
         self:CheckInAV()
         self:CheckDestroyed()
+        self:CheckDistance()
         self:CheckHeight()
         self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
@@ -301,18 +304,20 @@ end
 --- Spawn vehicle.
 function Event:SpawnVehicle()
     self.sound_obj:PlayGameSound("100_call_vehicle")
-    -- self.sound_obj:PlayGameSound("210_landing")
-    -- self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
+    if not DAV.is_valid_audioawre then
+        self.sound_obj:PlayGameSound("210_landing")
+        self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
+    end
     self:SetSituation(Def.Situation.Landing)
     self.av_obj:SpawnToSky()
 end
 
 --- Return vehicle.
-function Event:ReturnVehicle(is_leaving_sound)
+function Event:ReturnVehicle()
     if self:IsWaiting() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected in Waiting situation")
-        if is_leaving_sound then
-            -- self.sound_obj:PlayGameSound("240_leaving")
+        if not DAV.is_valid_audioawre then
+            self.sound_obj:PlayGameSound("240_leaving")
         end
         self.sound_obj:PlayGameSound("100_call_vehicle")
         self.sound_obj:ResetSoundResource()
@@ -327,7 +332,9 @@ end
 function Event:CheckLanded()
     if self.av_obj:IsCollision() or self.av_obj.is_landed then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
-        -- self.sound_obj:StopGameSound("210_landing")
+        if not DAV.is_valid_audioawre then
+            self.sound_obj:StopGameSound("210_landing")
+        end
         self.sound_obj:PlayGameSound("110_arrive_vehicle")
         self.sound_obj:ChangeSoundResource()
         self.av_obj.engine_obj:SetForce(Vector3.new(0, 0, 0))
@@ -489,6 +496,22 @@ function Event:CheckDespawn()
         self.sound_obj:Mute()
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
+    end
+end
+
+--- Check distance between player and AV.
+function Event:CheckDistance()
+    local player_pos = Game.GetPlayer():GetWorldPosition()
+    local av_pos = self.av_obj:GetPosition()
+    local distance = Vector4.Distance(player_pos, av_pos)
+    if distance > self.engine_audio_limit then
+        self.sound_obj:StopGameSound(self.av_obj.engine_audio_name)
+        self.is_enable_audio = false
+    else
+        if not self.is_enable_audio then
+            self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
+        end
+        self.is_enable_audio = true
     end
 end
 

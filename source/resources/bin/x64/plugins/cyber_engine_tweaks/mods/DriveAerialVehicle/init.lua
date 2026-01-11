@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicle",
-	version = "3.0.6",
+	version = "3.1.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -48,6 +48,8 @@ DAV = {
     is_valid_vehicle_durability_display = false,
     -- Let There Be Flight(https://www.nexusmods.com/cyberpunk2077/mods/5208)
     is_valid_ltbf = false,
+    -- audioware
+    is_valid_audioawre = false,
     -- input
     axis_dead_zone = 0.1,
     input_key_listener = nil,
@@ -453,6 +455,7 @@ function CheckOtherMods()
     CheckNativeSettings()
     CheckVehicleDurabilityDisplay()
     CheckLTBF()
+    CheckAudioware()
 end
 
 function CheckNativeSettings()
@@ -478,12 +481,23 @@ function CheckVehicleDurabilityDisplay()
 end
 
 function CheckLTBF()
-    local ok, _ = pcall(function() return fs() end)
-    if ok then
+    local flight_system = DAV_DAVFlightSystem.new()
+    if flight_system:IsLTBFExists() then
         DAV.is_valid_ltbf = true
         print("[DAV][Info] LTBF compatibility mode enabled.")
     else
         DAV.is_valid_ltbf = false
+    end
+end
+
+function CheckAudioware()
+    local audio_system = DAV_DAVAudioSystem.new()
+    if audio_system:IsAudiowareExists() then
+        DAV.is_valid_audioawre = true
+        print("[DAV][Info] Audioware is detected. Audioware compatibility mode enabled.")
+    else
+        DAV.is_valid_audioawre = false
+        print("[DAV][Info] Audioware is not detected. Audioware compatibility mode disabled.")
     end
 end
 

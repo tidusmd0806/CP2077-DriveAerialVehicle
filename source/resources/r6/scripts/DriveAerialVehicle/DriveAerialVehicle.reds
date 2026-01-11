@@ -1,13 +1,16 @@
-// Title: Drive an Aerial Vehicle HUD Popup
+// Title: Drive an Aerial's HUD Popup And Dependency Other Mods
 // Author: tidusmd
-// Version: 2.0.0
-// This code was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
+// Version: 3.1.0
+// The code of UI was created based on psiberx's InkPlayground. (https://github.com/psiberx/cp2077-playground)
+// CopyRight (C) 2024, tidusmd. All rights reserved.
 
 module DAV
 import DAV.AutopilotMenu.*
 import Codeware.UI.*
+@if(ModuleExists("Audioware"))
 import Audioware.*
 
+//*** Aerial Vehicle Popup UI ***//
 public class AerialVehiclePopup extends InGamePopup {
 	protected let m_header: ref<InGamePopupHeader>;
 	protected let m_footer: ref<InGamePopupFooter>;
@@ -196,17 +199,23 @@ public class TranslationSystem {
 
 }
 
+//*** Aerial Vehicle Audio System ***//
+@if(ModuleExists("Audioware"))
 @addField(PlayerPuppet)
 let m_dav_veh_emitter_id: EntityID;
+@if(ModuleExists("Audioware"))
 @addField(PlayerPuppet)
 let m_dav_idle_sound_tag_name: CName;
+@if(ModuleExists("Audioware"))
 @addField(PlayerPuppet)
 let m_dav_control_sound_tag_name: CName;
+@if(ModuleExists("Audioware"))
 @addField(PlayerPuppet)
 let m_dav_control_sound_thruster_tag_name: CName;
 
 
 public class DAVAudioSystem extends ScriptableSystem {
+	@if(ModuleExists("Audioware"))
 	private func OnAttach() {
 		GameInstance.GetCallbackSystem().RegisterCallback(n"Entity/AfterAttach", this, n"OnExcaliburSpawn")
 			.AddTarget(EntityTarget.RecordID(t"Vehicle.av_rayfield_excalibur_dav"));
@@ -221,30 +230,35 @@ public class DAVAudioSystem extends ScriptableSystem {
 		GameInstance.GetCallbackSystem().RegisterCallback(n"Entity/AfterAttach", this, n"OnMayhemSpawn")
 			.AddTarget(EntityTarget.RecordID(t"Vehicle.q000_nomad_border_patrol_heli_mayhem_dav"));
 	}
+	@if(ModuleExists("Audioware"))
 	private cb func OnExcaliburSpawn(event: ref<EntityLifecycleEvent>) {
 		let target = event.GetEntity();
 		if !IsDefined(target) { return; }
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Idle_Sound");
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Control_Sound");
 	}
+	@if(ModuleExists("Audioware"))
 	private cb func OnManticoreSpawn(event: ref<EntityLifecycleEvent>) {
 		let target = event.GetEntity();
 		if !IsDefined(target) { return; }
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Idle_Sound");
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Control_Sound");
 	}
+	@if(ModuleExists("Audioware"))
 	private cb func OnAtlusSpawn(event: ref<EntityLifecycleEvent>) {
 		let target = event.GetEntity();
 		if !IsDefined(target) { return; }
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Idle_Sound");
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Control_Sound");
 	}
+	@if(ModuleExists("Audioware"))
 	private cb func OnSurveyorSpawn(event: ref<EntityLifecycleEvent>) {
 		let target = event.GetEntity();
 		if !IsDefined(target) { return; }
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Idle_Sound");
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_AV_Control_Sound");
 	}
+	@if(ModuleExists("Audioware"))
 	private cb func OnValgusSpawn(event: ref<EntityLifecycleEvent>) {
 		let target = event.GetEntity();
 		if !IsDefined(target) { return; }
@@ -252,6 +266,7 @@ public class DAVAudioSystem extends ScriptableSystem {
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Control_Sound");
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Thruster_Sound");
 	}
+	@if(ModuleExists("Audioware"))
 	private cb func OnMayhemSpawn(event: ref<EntityLifecycleEvent>) {
 		let target = event.GetEntity();
 		if !IsDefined(target) { return; }
@@ -259,6 +274,7 @@ public class DAVAudioSystem extends ScriptableSystem {
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Control_Sound");
 		this.RegisterEmitter(target.GetEntityID(), n"DAV_Heli_Thruster_Sound");
 	}
+	@if(ModuleExists("Audioware"))
 	private func RegisterEmitter(emitter_id: EntityID, tag_name: CName) {
 		let game = this.GetGameInstance();
 		let player = GetPlayer(game);
@@ -280,8 +296,17 @@ public class DAVAudioSystem extends ScriptableSystem {
 			GameInstance.GetAudioSystemExt(game).RegisterEmitter(emitter_id, tag_name);
 		}
 	}
+	@if(ModuleExists("Audioware"))
+	public func IsAudiowareExists() -> Bool {
+		return true;
+	}
+	@if(!ModuleExists("Audioware"))
+	public func IsAudiowareExists() -> Bool {
+		return false;
+	}
 }
 
+@if(ModuleExists("Audioware"))
 @addMethod(PlayerPuppet)
 private cb func OnDAVSoundEvent(event: ref<ActionEvent>) {
 	let game = this.GetGame();
@@ -308,5 +333,17 @@ private cb func OnDAVSoundEvent(event: ref<ActionEvent>) {
 		GameInstance.GetAudioSystemExt(game).PlayOnEmitter(n"dav_heli_thruster", this.m_dav_veh_emitter_id, this.m_dav_control_sound_thruster_tag_name, LinearTween.Immediate(time_to_live));
 	} else if Equals(event_name, n"dav_heli_thruster_stop") {
 		GameInstance.GetAudioSystemExt(game).StopOnEmitter(n"dav_heli_thruster", this.m_dav_veh_emitter_id, this.m_dav_control_sound_thruster_tag_name, LinearTween.Immediate(time_to_live));
+	}
+}
+
+//*** LTBF ***//
+public class DAVFlightSystem {
+	@if(ModuleExists("LetThereBeFlight"))
+	public func IsLTBFExists() -> Bool {
+		return true;
+	}
+	@if(!ModuleExists("LetThereBeFlight"))
+	public func IsLTBFExists() -> Bool {
+		return false;
 	}
 }
