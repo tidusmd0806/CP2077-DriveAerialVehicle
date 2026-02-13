@@ -57,6 +57,7 @@ function AV:New(core_obj)
 	obj.collision_filters =  {"Static", "Terrain", "Water"}
 	obj.weak_collision_filters = {"Static", "Terrain"}
 	obj.minimum_distance_to_ground = 1.2
+	obj.spawn_time = 0
 	-- av status
 	obj.is_landed = false
 	obj.is_leaving = false
@@ -438,6 +439,7 @@ function AV:Spawn(position, angle)
 	end
 
 	self.is_spawning = true
+	self.spawn_time = os.clock()
 
 	local entity_system = Game.GetDynamicEntitySystem()
 	local entity_spec = DynamicEntitySpec.new()

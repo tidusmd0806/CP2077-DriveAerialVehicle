@@ -21,6 +21,7 @@ function Engine:New(av_obj)
     obj.rpm_count_scale = 80
     obj.rpm_max_count = 10 * obj.rpm_count_scale
     obj.torque_gain = 1000
+    obj.ground_check_delay = 3.0
     ---dynamic---
     obj.entity_id = nil
     obj.flight_mode = Def.FlightMode.AV
@@ -157,6 +158,11 @@ end
 ---@return boolean
 function Engine:IsOnGround()
     if not self.is_finished_init then
+        return false
+    end
+    -- Ignore ground checks for a short time after initialization (prevent false detections from physics engine initialization)
+    local elapsed_time = os.clock() - self.av_obj.spawn_time
+    if elapsed_time < self.ground_check_delay then
         return false
     end
     return self.fly_av_system:IsOnGround()
