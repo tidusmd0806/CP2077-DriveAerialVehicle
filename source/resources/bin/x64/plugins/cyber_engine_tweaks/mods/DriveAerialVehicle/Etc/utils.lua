@@ -137,7 +137,7 @@ function Utils:ReadJson(fill_path)
          file:close()
          return data
       else
-         self.log_obj:Record(LogLevel.Error, "Failed to open file for reading")
+         self.log_obj:Record(LogLevel.Warning, "Failed to open file for reading")
          return nil
       end
    end)

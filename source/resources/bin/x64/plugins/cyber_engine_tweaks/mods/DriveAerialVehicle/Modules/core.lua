@@ -108,7 +108,7 @@ end
 function Core:Init()
     self.all_models = self:GetAllModel()
     if self.all_models == nil then
-        self.log_obj:Record(LogLevel.Error, "Model is nil")
+        self.log_obj:Record(LogLevel.Error, "Model is nil", "Core:Init - Failed to load vehicle models from " .. self.av_model_path)
         return
     end
 
@@ -237,7 +237,7 @@ function Core:SetTranslationNameList()
             table.insert(self.language_name_list, default_language_table.language)
         end
     else
-        self.log_obj:Record(LogLevel.Critical, "Default Language File is not found")
+        self.log_obj:Record(LogLevel.Critical, "Default Language File is not found", "SetTranslationNameList - default.json missing in " .. DAV.language_path)
         return
     end
 
@@ -369,7 +369,7 @@ end
 function Core:GetAllModel()
     local models = Utils:ReadJson(self.av_model_path)
     if models == nil then
-        self.log_obj:Record(LogLevel.Error, "Default Model is nil")
+        self.log_obj:Record(LogLevel.Error, "Default Model is nil", "GetAllModel - Failed to read " .. self.av_model_path)
         return nil
     end
 
@@ -383,7 +383,7 @@ function Core:GetAllModel()
     for _, file_name in ipairs(file_name_list) do
         local import_models = Utils:ReadJson(DAV.import_path .. "/" .. file_name)
         if import_models == nil then
-            self.log_obj:Record(LogLevel.Error, "Import Model is nil")
+            self.log_obj:Record(LogLevel.Error, "Import Model is nil", "GetAllModel - Failed to import " .. file_name)
             return nil
         end
         for _, model in ipairs(import_models) do
@@ -520,7 +520,7 @@ function Core:ConvertActionList(action_name, action_type, action_value)
     elseif flight_mode == Def.FlightMode.Helicopter then
         return self:GetHeliAction(action_name, action_type, action_value)
     else
-        self.log_obj:Record(LogLevel.Critical, "Flight Mode is invalid")
+        self.log_obj:Record(LogLevel.Critical, "Flight Mode is invalid", "ConvertActionList - Unknown flight_mode: " .. tostring(flight_mode))
         return {Def.ActionList.Nothing, 1}
     end
 end
@@ -624,73 +624,23 @@ end
 --- Convert Hold Button Action(AV).
 ---@param keybind_name string
 function Core:ConvertAVHoldAction(keybind_name)
-    if keybind_name == "move_forward" then
-        self.is_move_forward_button_hold_counter = false
-        self.move_forward_button_hold_count = 0
-    elseif keybind_name == "move_backward" then
-        self.is_move_backward_button_hold_counter = false
-        self.move_backward_button_hold_count = 0
-    elseif keybind_name == "turn_left" then
-        self.is_turn_left_button_hold_counter = false
-        self.turn_left_button_hold_count = 0
-    elseif keybind_name == "turn_right" then
-        self.is_turn_right_button_hold_counter = false
-        self.turn_right_button_hold_count = 0
-    elseif keybind_name == "lean_forward" then
-        self.is_lean_forward_button_hold_counter = false
-        self.lean_forward_button_hold_count = 0
-    elseif keybind_name == "lean_backward" then
-        self.is_lean_backward_button_hold_counter = false
-        self.lean_backward_button_hold_count = 0
-    elseif keybind_name == "move_up" then
-        self.is_move_up_button_hold_counter = false
-        self.move_up_button_hold_count = 0
-    elseif keybind_name == "move_down" then
-        self.is_move_down_button_hold_counter = false
-        self.move_down_button_hold_count = 0
-    elseif keybind_name == "move_left" then
-        self.is_move_left_button_hold_counter = false
-        self.move_left_button_hold_count = 0
-    elseif keybind_name == "move_right" then
-        self.is_move_right_button_hold_counter = false
-        self.move_right_button_hold_count = 0
-    elseif keybind_name == "lean_reset" then
-        self.is_lean_reset_button_hold_counter = false
-        self.lean_reset_button_hold_count = 0
-    end
+    -- Use generic stop function to stop button hold
+    self:StopButtonHold(keybind_name)
+    
+    -- Reset counter value
+    local counter_value_name = keybind_name .. "_button_hold_count"
+    self[counter_value_name] = 0
 end
 
 --- Convert Hold Button Action(Helicopter).
 ---@param keybind_name string
 function Core:ConvertHeliHoldAction(keybind_name)
-    if keybind_name == "ascend" then
-        self.is_h_ascend_button_hold_counter = false
-        self.h_ascend_button_hold_count = 0
-    elseif keybind_name == "descend" then
-        self.is_h_descend_button_hold_counter = false
-        self.h_descend_button_hold_count = 0
-    elseif keybind_name == "turn_left" then
-        self.is_h_turn_left_button_hold_counter = false
-        self.h_turn_left_button_hold_count = 0
-    elseif keybind_name == "turn_right" then
-        self.is_h_turn_right_button_hold_counter = false
-        self.h_turn_right_button_hold_count = 0
-    elseif keybind_name == "acceleration" then
-        self.is_h_acceleration_button_hold_counter = false
-        self.h_acceleration_button_hold_count = 0
-    elseif keybind_name == "lean_forward" then
-        self.is_h_lean_forward_button_hold_counter = false
-        self.h_lean_forward_button_hold_count = 0
-    elseif keybind_name == "lean_backward" then
-        self.is_h_lean_backward_button_hold_counter = false
-        self.h_lean_backward_button_hold_count = 0
-    elseif keybind_name == "lean_left" then
-        self.is_h_lean_left_button_hold_counter = false
-        self.h_lean_left_button_hold_count = 0
-    elseif keybind_name == "lean_right" then
-        self.is_h_lean_right_button_hold_counter = false
-        self.h_lean_right_button_hold_count = 0
-    end
+    -- Use generic stop function to stop button hold
+    self:StopButtonHold(keybind_name)
+    
+    -- Reset counter value
+    local counter_value_name = keybind_name .. "_button_hold_count"
+    self[counter_value_name] = 0
 end
 
 --- Convert Hold Button Action(Common).
@@ -703,6 +653,69 @@ function Core:ConvertCommonHoldAction(keybind_name)
         self.is_auto_pilot_button_hold_counter = false
         self.auto_pilot_button_hold_count = 0
     end
+end
+
+--- Generic button hold handler with counter management
+---@param button_name string Unique identifier for the button
+---@param action_type number|table Action to enqueue (from Def.ActionList)
+---@param max_count number Maximum hold count before stopping
+---@param on_start_callback function|nil Optional callback when hold starts
+---@param on_stop_callback function|nil Optional callback when hold stops
+---@return boolean success
+function Core:StartButtonHold(button_name, action_type, max_count, on_start_callback, on_stop_callback)
+    local counter_flag_name = "is_" .. button_name .. "_button_hold_counter"
+    local counter_value_name = button_name .. "_button_hold_count"
+    
+    -- Already holding this button
+    if self[counter_flag_name] then
+        return false
+    end
+    
+    -- Initialize counter if not exists
+    if self[counter_value_name] == nil then
+        self[counter_value_name] = 0
+    end
+    
+    -- Set flag
+    self[counter_flag_name] = true
+    
+    -- Execute start callback
+    if on_start_callback then
+        on_start_callback()
+    end
+    
+    -- Start timer
+    Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
+        timer.tick = timer.tick + 1
+        self[counter_value_name] = timer.tick
+        
+        if timer.tick >= max_count then
+            -- Max count reached
+            self[counter_flag_name] = false
+            if on_stop_callback then
+                on_stop_callback()
+            end
+            Cron.Halt(timer)
+        elseif not self[counter_flag_name] then
+            -- Button released
+            if on_stop_callback then
+                on_stop_callback()
+            end
+            Cron.Halt(timer)
+        else
+            -- Continue holding
+            self.queue_obj:Enqueue(action_type)
+        end
+    end)
+    
+    return true
+end
+
+--- Stop button hold manually
+---@param button_name string
+function Core:StopButtonHold(button_name)
+    local counter_flag_name = "is_" .. button_name .. "_button_hold_counter"
+    self[counter_flag_name] = false
 end
 
 --- Convert Press Button Action.
@@ -742,383 +755,113 @@ end
 --- Convert Press Button Action(AV).
 ---@param keybind_name string
 function Core:ConvertAVPressAction(keybind_name)
-    if keybind_name == "move_forward" then
-        if not self.is_move_forward_button_hold_counter then
-            self.is_move_forward_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.move_forward_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_move_forward_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_move_forward_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.Forward)
-                end
-            end)
-        end
-    elseif keybind_name == "move_backward" then
-        if not self.is_move_backward_button_hold_counter then
-            self.is_move_backward_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.move_backward_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_move_backward_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_move_backward_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.Backward)
-                end
-            end)
-        end
-    elseif keybind_name == "turn_left" then
-        if not self.is_turn_left_button_hold_counter then
-            self.is_turn_left_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.turn_left_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_turn_left_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_turn_left_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.LeftRotate)
-                end
-            end)
-        end
-    elseif keybind_name == "turn_right" then
-        if not self.is_turn_right_button_hold_counter then
-            self.is_turn_right_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.turn_right_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_turn_right_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_turn_right_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.RightRotate)
-                end
-            end)
-        end
-    elseif keybind_name == "lean_forward" then
-        if not self.is_lean_forward_button_hold_counter then
-            self.is_lean_forward_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.lean_forward_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_lean_forward_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_lean_forward_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.LeanForward)
-                end
-            end)
-        end
-    elseif keybind_name == "lean_backward" then
-        if not self.is_lean_backward_button_hold_counter then
-            self.is_lean_backward_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.lean_backward_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_lean_backward_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_lean_backward_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.LeanBackward)
-                end
-            end)
-        end
-    elseif keybind_name == "move_up" then
-        if not self.is_move_up_button_hold_counter then
-            self.is_move_up_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.move_up_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_move_up_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_move_up_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.Up)
-                end
-            end)
-        end
-    elseif keybind_name == "move_down" then
-        if not self.is_move_down_button_hold_counter then
-            self.is_move_down_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.move_down_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_move_down_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_move_down_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.Down)
-                end
-            end)
-        end
-    elseif keybind_name == "move_left" then
-        if not self.is_move_left_button_hold_counter then
-            self.is_move_left_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.move_left_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_move_left_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_move_left_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.Left)
-                end
-            end)
-        end
-    elseif keybind_name == "move_right" then
-        if not self.is_move_right_button_hold_counter then
-            self.is_move_right_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.move_right_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_move_right_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_move_right_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.Right)
-                end
-            end)
-        end
-    elseif keybind_name == "lean_reset" then
-        if not self.is_lean_reset_button_hold_counter then
-            self.is_lean_reset_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.lean_reset_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_lean_reset_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_lean_reset_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.LeanReset)
-                end
-            end)
-        end
+    -- Define action mapping for AV controls
+    local action_map = {
+        move_forward = Def.ActionList.Forward,
+        move_backward = Def.ActionList.Backward,
+        turn_left = Def.ActionList.LeftRotate,
+        turn_right = Def.ActionList.RightRotate,
+        lean_forward = Def.ActionList.LeanForward,
+        lean_backward = Def.ActionList.LeanBackward,
+        move_up = Def.ActionList.Up,
+        move_down = Def.ActionList.Down,
+        move_left = Def.ActionList.Left,
+        move_right = Def.ActionList.Right,
+        lean_reset = Def.ActionList.LeanReset,
+    }
+    
+    local action = action_map[keybind_name]
+    if action then
+        self:StartButtonHold(keybind_name, action, self.max_move_hold_count)
     end
 end
 
 --- Convert Press Button Action(Heli).
 ---@param keybind_name string
 function Core:ConvertHeliPressAction(keybind_name)
-    if keybind_name == "ascend" then
-        if not self.is_h_ascend_button_hold_counter then
-            self.is_h_ascend_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.h_ascend_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_h_ascend_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_h_ascend_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.HUp)
-                end
-            end)
-        end
-    elseif keybind_name == "descend" then
-        if not self.is_h_descend_button_hold_counter then
-            self.is_h_descend_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.h_descend_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_h_descend_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_h_descend_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.HDown)
-                end
-            end)
-        end
-    elseif keybind_name == "turn_left" then
-        if not self.is_h_turn_left_button_hold_counter then
-            self.is_h_turn_left_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.h_turn_left_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_h_turn_left_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_h_turn_left_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.HLeftRotate)
-                end
-            end)
-        end
-    elseif keybind_name == "turn_right" then
-        if not self.is_h_turn_right_button_hold_counter then
-            self.is_h_turn_right_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.h_turn_right_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_h_turn_right_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_h_turn_right_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.HRightRotate)
-                end
-            end)
-        end
+    -- Define action mapping for Helicopter controls
+    local action_map = {
+        ascend = Def.ActionList.HUp,
+        descend = Def.ActionList.HDown,
+        turn_left = Def.ActionList.HLeftRotate,
+        turn_right = Def.ActionList.HRightRotate,
+        lean_forward = Def.ActionList.HLeanForward,
+        lean_backward = Def.ActionList.HLeanBackward,
+        lean_left = Def.ActionList.HLeanLeft,
+        lean_right = Def.ActionList.HLeanRight,
+    }
+    
+    local action = action_map[keybind_name]
+    if action then
+        self:StartButtonHold(keybind_name, action, self.max_move_hold_count)
     elseif keybind_name == "acceleration" then
-        if not self.is_h_acceleration_button_hold_counter then
-            self.is_h_acceleration_button_hold_counter = true
-            self.av_obj:ToggleHeliThruster(true)
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.h_acceleration_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_h_acceleration_button_hold_counter = false
-                    self.av_obj:ToggleHeliThruster(false)
-                    Cron.Halt(timer)
-                elseif not self.is_h_acceleration_button_hold_counter then
-                    self.av_obj:ToggleHeliThruster(false)
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.HAccelerate)
-                end
-            end)
-        end
-    elseif keybind_name == "lean_forward" then
-        if not self.is_h_lean_forward_button_hold_counter then
-            self.is_h_lean_forward_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.h_lean_forward_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_h_lean_forward_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_h_lean_forward_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.HLeanForward)
-                end
-            end)
-        end
-    elseif keybind_name == "lean_backward" then
-        if not self.is_h_lean_backward_button_hold_counter then
-            self.is_h_lean_backward_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.h_lean_backward_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_h_lean_backward_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_h_lean_backward_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.HLeanBackward)
-                end
-            end)
-        end
-    elseif keybind_name == "lean_left" then
-        if not self.is_h_lean_left_button_hold_counter then
-            self.is_h_lean_left_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.h_lean_left_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_h_lean_left_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_h_lean_left_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.HLeanLeft)
-                end
-            end)
-        end
-    elseif keybind_name == "lean_right" then
-        if not self.is_h_lean_right_button_hold_counter then
-            self.is_h_lean_right_button_hold_counter = true
-            Cron.Every(DAV.time_resolution, {tick=0}, function(timer)
-                timer.tick = timer.tick + 1
-                self.h_lean_right_button_hold_count = timer.tick
-                if timer.tick >= self.max_move_hold_count then
-                    self.is_h_lean_right_button_hold_counter = false
-                    Cron.Halt(timer)
-                elseif not self.is_h_lean_right_button_hold_counter then
-                    Cron.Halt(timer)
-                else
-                    self.queue_obj:Enqueue(Def.ActionList.HLeanRight)
-                end
-            end)
-        end
+        -- Special handling for acceleration with thruster callbacks
+        local self_ref = self
+        self:StartButtonHold(
+            keybind_name,
+            Def.ActionList.HAccelerate,
+            self.max_move_hold_count,
+            function() self_ref.av_obj:ToggleHeliThruster(true) end,
+            function() self_ref.av_obj:ToggleHeliThruster(false) end
+        )
     end
 end
 
 --- Convert Press Button Action(Common).
 ---@param keybind_name string
 function Core:ConvertCommonPressAction(keybind_name)
-            if keybind_name == "toggle_autopilot" then
-                if not self.is_auto_pilot_button_hold_counter then
-                    self.is_auto_pilot_button_hold_counter = true
-                    Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
-                        timer.tick = timer.tick + 1
-                        self.auto_pilot_button_hold_count = timer.tick
-                if timer.tick >= self.auto_pilot_hold_complete_time_count then
-                            self.is_auto_pilot_button_hold_counter = false
-                            self.queue_obj:Enqueue(Def.ActionList.ToggleAutopilot)
-                            Cron.Halt(timer)
-                elseif not self.is_auto_pilot_button_hold_counter then
+    -- Handle hold-time based buttons (toggle_autopilot, toggle_radio)
+    if keybind_name == "toggle_autopilot" then
+        local counter_flag_name = "is_auto_pilot_button_hold_counter"
+        if not self[counter_flag_name] then
+            self[counter_flag_name] = true
+            local hold_threshold = self.auto_pilot_hold_complete_time_count
+            Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.auto_pilot_button_hold_count = timer.tick
+                if timer.tick >= hold_threshold then
+                    -- Long press detected
+                    self[counter_flag_name] = false
+                    self.queue_obj:Enqueue(Def.ActionList.ToggleAutopilot)
+                    Cron.Halt(timer)
+                elseif not self[counter_flag_name] then
+                    -- Short press detected
                     self.queue_obj:Enqueue(Def.ActionList.OpenAutopilotPanel)
                     Cron.Halt(timer)
-                        end
-                    end)
                 end
-            elseif keybind_name == "toggle_camera" then
-                self.queue_obj:Enqueue(Def.ActionList.ChangeCamera)
-            elseif keybind_name == "toggle_door" then
-                self.queue_obj:Enqueue(Def.ActionList.ChangeDoor1)
-            elseif keybind_name == "toggle_radio" then
-                if not self.is_radio_button_hold_counter then
-                    self.is_radio_button_hold_counter = true
-                    Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
-                        timer.tick = timer.tick + 1
-                        self.radio_button_hold_count = timer.tick
-                if timer.tick >= self.radio_hold_complete_time_count then
-                            self.is_radio_button_hold_counter = false
-                            self.queue_obj:Enqueue(Def.ActionList.OpenRadio)
-                            Cron.Halt(timer)
-                elseif not self.is_radio_button_hold_counter then
+            end)
+        end
+    elseif keybind_name == "toggle_radio" then
+        local counter_flag_name = "is_radio_button_hold_counter"
+        if not self[counter_flag_name] then
+            self[counter_flag_name] = true
+            local hold_threshold = self.radio_hold_complete_time_count
+            Cron.Every(self.hold_time_resolution, {tick=0}, function(timer)
+                timer.tick = timer.tick + 1
+                self.radio_button_hold_count = timer.tick
+                if timer.tick >= hold_threshold then
+                    -- Long press detected
+                    self[counter_flag_name] = false
+                    self.queue_obj:Enqueue(Def.ActionList.OpenRadio)
+                    Cron.Halt(timer)
+                elseif not self[counter_flag_name] then
+                    -- Short press detected
                     self.queue_obj:Enqueue(Def.ActionList.ToggleRadio)
                     Cron.Halt(timer)
-                        end
-                    end)
                 end
-            elseif keybind_name == "toggle_crystal_dome" then
-                self.queue_obj:Enqueue(Def.ActionList.ToggleCrystalDome)
-            elseif keybind_name == "toggle_appearance" then
-                self.queue_obj:Enqueue(Def.ActionList.ToggleAppearance)
-            elseif keybind_name == "open_vehicle_manager" then
-                self.queue_obj:Enqueue(Def.ActionList.OpenVehicleManager)
+            end)
+        end
+    -- Handle single-action buttons
+    elseif keybind_name == "toggle_camera" then
+        self.queue_obj:Enqueue(Def.ActionList.ChangeCamera)
+    elseif keybind_name == "toggle_door" then
+        self.queue_obj:Enqueue(Def.ActionList.ChangeDoor1)
+    elseif keybind_name == "toggle_crystal_dome" then
+        self.queue_obj:Enqueue(Def.ActionList.ToggleCrystalDome)
+    elseif keybind_name == "toggle_appearance" then
+        self.queue_obj:Enqueue(Def.ActionList.ToggleAppearance)
+    elseif keybind_name == "open_vehicle_manager" then
+        self.queue_obj:Enqueue(Def.ActionList.OpenVehicleManager)
     end
 end
 
@@ -1470,7 +1213,7 @@ function Core:SetFastTravelPosition()
         local district_record = nil
         local fast_travel_record = TweakDB:GetRecord(record_id)
         if fast_travel_record == nil then
-            self.log_obj:Record(LogLevel.Warning, "Fast Travel Record is nil")
+            self.log_obj:Record(LogLevel.Trace, "Fast Travel Record is nil", "SetFastTravelPosition")
         else
             district_record = fast_travel_record:District()
         end

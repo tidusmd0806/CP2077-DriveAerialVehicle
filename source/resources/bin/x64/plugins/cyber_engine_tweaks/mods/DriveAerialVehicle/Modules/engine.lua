@@ -106,7 +106,7 @@ function Engine:Update(delta)
         -- Do nothing, just block the physics
         self.log_obj:Record(LogLevel.Trace, "Blocking DAV physics")
     else
-        self.log_obj:Record(LogLevel.Error, "Unknown control type")
+        self.log_obj:Record(LogLevel.Error, "Unknown control type", "Engine:Update - control_type: " .. tostring(self.engine_control_type))
     end
 end
 
@@ -281,15 +281,35 @@ end
 ---@param roll number
 ---@param pitch number
 ---@param yaw number
+---@return boolean success True if engine ran successfully, false otherwise
 function Engine:Run(x, y, z, roll, pitch, yaw)
-    -- Skip execution if vehicle entity is not properly initialized
+    -- Validation checks
+    if not self.is_finished_init then
+        self.log_obj:Record(LogLevel.Warning, "Engine not initialized", "Engine:Run")
+        return false
+    end
+    
+    if not self.entity_id then
+        self.log_obj:Record(LogLevel.Error, "Entity ID is nil", "Engine:Run")
+        return false
+    end
+    
     if self.av_obj:IsDespawned() then
-        self.log_obj:Record(LogLevel.Trace, "Engine:Run skipped - vehicle not spawned")
-        return
+        self.log_obj:Record(LogLevel.Trace, "Vehicle not spawned", "Engine:Run")
+        return false
     end
     
     local vel_vec, _ = self:GetDirectionAndAngularVelocity()
+    if not vel_vec then
+        self.log_obj:Record(LogLevel.Error, "Failed to get velocity", "Engine:Run")
+        return false
+    end
+    
     local current_angle = self.av_obj:GetEulerAngles()
+    if not current_angle then
+        self.log_obj:Record(LogLevel.Error, "Failed to get angles", "Engine:Run")
+        return false
+    end
     local roll_restore_amount
     local pitch_restore_amount
 
@@ -370,16 +390,18 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
 
     self.direction_velocity = Vector3.new(x, y, z)
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
+    return true
 end
 
 ---@param roll number
 ---@param pitch number
 ---@param yaw number
+---@return boolean success True if engine ran successfully, false otherwise
 function Engine:OnlyAngularRun(roll, pitch, yaw)
     -- Skip execution if vehicle entity is not properly initialized
     if self.av_obj:IsDespawned() then
         self.log_obj:Record(LogLevel.Trace, "Engine:OnlyAngularRun skipped - vehicle not spawned")
-        return
+        return false
     end
     local current_angle = self.av_obj:GetEulerAngles()
     local roll_restore_amount
@@ -431,6 +453,7 @@ function Engine:OnlyAngularRun(roll, pitch, yaw)
     yaw = yaw + d_yaw
 
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
+    return true
 end
 
 --- Calculate velocity for AV mode.

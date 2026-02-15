@@ -291,12 +291,10 @@ end
 ---@return Vector4
 function AV:GetForward()
 	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetForward")
 		return Vector4.new(0, 0, 0, 1.0)
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
     if entity == nil then
-        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetForward")
         return Vector4.new(0, 0, 0, 1.0)
     end
     return entity:GetWorldForward()
@@ -306,12 +304,10 @@ end
 ---@return Vector4
 function AV:GetRight()
 	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetRight")
 		return Vector4.new(0, 0, 0, 1.0)
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
     if entity == nil then
-        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetRight")
         return Vector4.new(0, 0, 0, 1.0)
     end
     return entity:GetWorldRight()
@@ -321,12 +317,10 @@ end
 ---@return Vector4
 function AV:GetUp()
 	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetUp")
 		return Vector4.new(0, 0, 0, 1.0)
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
     if entity == nil then
-        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetUp")
         return Vector4.new(0, 0, 0, 1.0)
     end
     return entity:GetWorldUp()
@@ -341,7 +335,6 @@ function AV:GetQuaternion()
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
     if entity == nil then
-        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetQuaternion")
         return Quaternion.new(0, 0, 0, 1.0)
     end
     return entity:GetWorldOrientation()
@@ -356,7 +349,6 @@ function AV:GetEulerAngles()
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
     if entity == nil then
-        self.log_obj:Record(LogLevel.Warning, "No vehicle entity for GetEulerAngles")
         return EulerAngles.new(0, 0, 0)
     end
     return entity:GetWorldOrientation():ToEulerAngles()
@@ -401,11 +393,9 @@ function AV:IsMountedCombatSeat()
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to check combat seat")
 		return false
 	end
 	if not entity:IsPlayerMounted() then
-		self.log_obj:Record(LogLevel.Trace, "Check Combat Seat: No player mounted")
 		return false
 	end
 	if self.is_armed and self.active_seat[self.seat_index] == "seat_front_left" then
@@ -419,12 +409,10 @@ end
 ---@return boolean
 function AV:IsEngineOn()
 	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity id to check engine")
 		return false
 	end
 	local entity = Game.FindEntityByID(self.entity_id)
 	if entity == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to check engine")
 		return false
 	end
 	return entity:IsEngineTurnedOn()
@@ -499,7 +487,7 @@ function AV:SpawnToSky()
 				Cron.Halt(timer)
 			elseif height < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
 				self.engine_obj:SetFluctuationVelocityParams(-2, 1)
-				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
+				self.log_obj:Record(LogLevel.Trace, "Fluctuation Velocity")
 			end
 			timer.tick = timer.tick + 1
 		end
@@ -524,14 +512,16 @@ function AV:DespawnFromGround()
 	Cron.Every(0.01, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			local _, _, _, roll_idle, pitch_idle, yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
-			self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle)
+			if not self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
+				self.log_obj:Record(LogLevel.Warning, "Failed to run angular velocity in DespawnFromGround")
+			end
 			if timer.tick == 1 then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 1))
 				self.log_obj:Record(LogLevel.Info, "Initial Despawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
 			elseif timer.tick == 2 then
 				self.engine_obj:SetFluctuationVelocityParams(1, math.abs(self.down_speed))
-				self.log_obj:Record(LogLevel.Info, "Fluctuation Velocity")
+				self.log_obj:Record(LogLevel.Trace, "Fluctuation Velocity")
 			elseif timer.tick >= self.up_timeout then
 				self.log_obj:Record(LogLevel.Info, "Despawn Timeout")
 				self.core_obj.event_obj.sound_obj:StopEngineSound(self.flight_mode, 1.5)
@@ -680,7 +670,7 @@ function AV:ChangeDoorState(door_state, door_name_list)
 			end
 		end
 		if door_event == nil then
-			self.log_obj:Record(LogLevel.Error, "Door event is not valid")
+			self.log_obj:Record(LogLevel.Error, "Door event is not valid", "ChangeDoorState - door: " .. tostring(door_name) .. ", state: " .. tostring(door_state))
 			return false
 		end
 
@@ -867,7 +857,9 @@ function AV:Operate(action_command_lists)
 	end
 
 	if not self.is_auto_pilot then
-		self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total)
+		if not self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total) then
+			self.log_obj:Record(LogLevel.Warning, "Failed to run engine in Operate")
+		end
 		self:MoveThruster(action_command_lists)
 		self:ControlSound(action_command_lists)
 	end
@@ -949,7 +941,7 @@ function AV:AutoPilot()
 	local relay_position = nil
 	if DAV.user_setting_table.autopilot_selected_index == 0 then
 		if self.mappin_destination_position:IsZero() then
-			self.log_obj:Record(LogLevel.Warning, "No Mappin Destination")
+			self.log_obj:Record(LogLevel.Debug, "No Mappin Destination", "StartAutoPilot")
 			self:InterruptAutoPilot()
 			return false
 		end
@@ -1297,7 +1289,7 @@ function AV:AutoPilot()
 					local max_angle_used = dir.name == "Up" and self.eval_max_angle_up or
 					                       dir.name == "Down" and self.eval_max_angle_down or
 					                       self.eval_max_angle_horizontal
-					self.log_obj:Record(LogLevel.Info, string.format("Direction %s: safety=%.2f, collisions=%d (penalty=%.1f), angle=%d, score=%.1f, max_angle=%d°, current_best=%.1f",
+					self.log_obj:Record(LogLevel.Debug, string.format("Direction %s: safety=%.2f, collisions=%d (penalty=%.1f), angle=%d, score=%.1f, max_angle=%d°, current_best=%.1f",
 						dir.name, safety_rate or 0, collision_count, collision_penalty_score, direction_best_angle, direction_best_score, max_angle_used, best_score))
 				end -- End of direction loop
 
@@ -1309,7 +1301,7 @@ function AV:AutoPilot()
 				   not self.is_deadend_escape_active and
 				   (current_time - self.deadend_last_check_time) >= self.deadend_escape_check_interval then
 
-					self.log_obj:Record(LogLevel.Info, string.format("Dead-end detected! Best score: %.1f (threshold: %.1f), activating vertical escape",
+					self.log_obj:Record(LogLevel.Debug, string.format("Dead-end detected! Best score: %.1f (threshold: %.1f), activating vertical escape",
 						best_score, self.deadend_score_threshold))
 
 					-- Activate dead-end escape mode
@@ -1330,16 +1322,16 @@ function AV:AutoPilot()
 
 						if not forward_clear then
 							-- Forward is clear, exit escape mode
-							self.log_obj:Record(LogLevel.Info, "Dead-end escape successful, forward path is now clear")
+							self.log_obj:Record(LogLevel.Debug, "Dead-end escape successful, forward path is now clear")
 							self.is_deadend_escape_active = false
 							self.deadend_escape_target_z = nil
 
 							-- Don't set direction here, let normal evaluation handle it
 							-- Reset flags and continue with normal evaluation
-							self.log_obj:Record(LogLevel.Info, "Resuming normal direction evaluation after escape")
+							self.log_obj:Record(LogLevel.Debug, "Resuming normal direction evaluation after escape")
 						else
 							-- Continue ascending
-							self.log_obj:Record(LogLevel.Trace, string.format("Dead-end escape: ascending to %.1fm (current: %.1fm)",
+							self.log_obj:Record(LogLevel.Debug, string.format("Dead-end escape: ascending to %.1fm (current: %.1fm)",
 								self.deadend_escape_target_z, current_pos.z))
 							is_wall = false
 							search_vec = Vector4.new(0, 0, 1, 0) -- Pure upward movement
@@ -1459,10 +1451,7 @@ function AV:AutoPilot()
 						self.auto_speed_reduce_rate = 1  -- Stop
 					end
 
-					self.log_obj:Record(LogLevel.Info, "5-Direction System: Selected " .. best_direction.name .. " direction, angle: " .. best_angle .. ", score: " .. string.format("%.1f", best_score))
-					self.log_obj:Record(LogLevel.Debug, "Avoidance vector: x=" .. string.format("%.3f", search_vec.x) .. ", y=" .. string.format("%.3f", search_vec.y) .. ", z=" .. string.format("%.3f", search_vec.z))
-
-					-- Store final selection for debug display
+				self.log_obj:Record(LogLevel.Debug, "5-Direction System: Selected " .. best_direction.name .. " direction, angle: " .. best_angle .. ", score: " .. string.format("%.1f", best_score))
 					self.last_selected_direction = best_direction.name
 					self.last_best_score = best_score
 					self.last_evaluation_timestamp = Game.GetTimeSystem():GetGameTimeStamp()
@@ -1683,11 +1672,15 @@ function AV:AutoPilot()
 			local original_target = self.engine_obj.target_velocity
 			-- Temporarily set higher target to prevent oscillation
 			self.engine_obj.target_velocity = self.autopilot_speed * 1.05
-			self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw)
+			if not self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw) then
+				self.log_obj:Record(LogLevel.Warning, "Failed to run engine in Autopilot (overshoot prevention)")
+			end
 			-- Restore original target after run
 			self.engine_obj.target_velocity = original_target
 		else
-			self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw)
+			if not self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw) then
+				self.log_obj:Record(LogLevel.Warning, "Failed to run engine in Autopilot")
+			end
 		end
 	end)
 	return true
@@ -1728,7 +1721,9 @@ function AV:AutoLeaving(dist_vector, height)
 
 		-- Stabilize roll and pitch during takeoff
 		local _, _, _, roll_idle ,pitch_idle ,yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
-		self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle)
+		if not self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
+			self.log_obj:Record(LogLevel.Warning, "Failed to run angular velocity during takeoff")
+		end
 
 		local is_detected_celling, search_vector = self:IsWall(Vector4.new(0, 0, 1, 1), self.check_cell_distance, 0, "Vertical", true, "simple")
 		if is_detected_celling then
@@ -1775,10 +1770,14 @@ function AV:AutoLeaving(dist_vector, height)
 					yaw_diff_half = yaw_diff
 				end
 
-				self.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half)
+				if not self.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half) then
+					self.log_obj:Record(LogLevel.Warning, "Failed to run engine during leaving")
+				end
 
 				if math.abs(yaw_diff_half) < 0.1 then
-					self.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+					if not self.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) then
+						self.log_obj:Record(LogLevel.Warning, "Failed to run engine at leaving end")
+					end
 					self.is_leaving = false
 					Cron.Halt(timer)
 				end
@@ -1817,7 +1816,9 @@ function AV:AutoLanding(height)
 
 		-- restore angle 
 		local _, _, _, roll_idle ,pitch_idle ,yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
-		self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle)
+		if not self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
+			self.log_obj:Record(LogLevel.Warning, "Failed to run angular velocity during landing")
+		end
 
 		local is_detected_ground, search_vector = self:IsWall(Vector4.new(0, 0, -1, 1), self.minimum_distance_to_ground - 0.2, 0, "Vertical", false, "simple")
 		if is_detected_ground then
@@ -2315,7 +2316,6 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 			current_position.z - cached_result.position.z, 0))
 
 		if pos_diff < 3.0 then  -- within 3m change
-			self.log_obj:Record(LogLevel.Trace, "IsWall cache hit: " .. cache_key)
 			return cached_result.result, cached_result.search_vec
 		end
 	end
@@ -2540,7 +2540,6 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 
 	-- Safe: increase streak and save to cache
 	self.safe_streak_count = self.safe_streak_count + 1
-	self.log_obj:Record(LogLevel.Trace, "Full check - Safe (streak: " .. self.safe_streak_count .. ")")
 
 	-- Save to cache
 	self.iswall_cache[cache_key] = {
