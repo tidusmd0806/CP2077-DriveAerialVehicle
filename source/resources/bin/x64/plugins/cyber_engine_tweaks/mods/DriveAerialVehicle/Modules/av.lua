@@ -72,8 +72,8 @@ function AV:New(core_obj)
 	obj.autopilot_speed = 1
 	obj.autopilot_turn_speed = 0.01
 	obj.autopilot_leaving_height = 100
-	obj.autopilot_searching_range = 50
-	obj.autopilot_searching_step = 5
+	obj.autopilot_searching_range = 50         -- Detection range for obstacles
+	obj.autopilot_searching_step = 2           -- Used for minimum search range validation
 	obj.is_failture_auto_pilot = false
 	obj.autopilot_horizontal_sign = 0
 	obj.autopilot_vertical_sign = 0
@@ -144,12 +144,75 @@ function AV:New(core_obj)
 	obj.eval_high_angle_penalty_multiplier = 1.3   -- Moderate penalty multiplier for high angles - Reduced for balance
 
 	-- Dead-end avoidance system
-	obj.deadend_score_threshold = 50               -- Threshold score to determine dead-end situation
+	obj.deadend_score_threshold = 10               -- Threshold score to determine dead-end situation (lowered to prevent false positives)
+	obj.deadend_emergency_threshold = 0            -- Emergency threshold: all directions blocked
 	obj.deadend_vertical_escape_distance = 20     -- Distance to ascend when escaping dead-end (meters)
 	obj.deadend_escape_check_interval = 3         -- Seconds between dead-end escape attempts
 	obj.is_deadend_escape_active = false          -- Flag for dead-end escape mode
 	obj.deadend_escape_target_z = nil             -- Target altitude for dead-end escape
 	obj.deadend_last_check_time = 0               -- Last time dead-end was checked
+
+	-- === NEW: Sector-Based Navigation System ===
+	-- Global route planning (sector-based)
+	obj.sector_size = 25                          -- Sector size: 25m x 25m x 25m
+	obj.sector_database = {
+		version = 4,                               -- Version 4: Connectivity-based system (26-direction passability)
+		sector_size = 25,
+		total_flights = 0,
+		sectors = {},                              -- Hash map: key = "x_y_z", value = {connections = {"dx_dy_dz" = boolean}}
+		max_sectors = 10000,
+		save_interval = 300,
+		database_path = "Data/sector_danger_map.json",
+		last_save_time = 0,
+	}
+	obj.current_global_route = {}                 -- Current planned route (list of sector coordinates)
+	obj.current_route_index = 1                   -- Current position in route
+	obj.route_replan_interval = 10                -- Replan route every N seconds
+	obj.last_route_plan_time = 0
+	
+	-- Stall detection for dynamic blocking (temporary, until destination reached)
+	obj.stall_detection_enabled = false           -- Disabled: no automatic stall detection
+	obj.stall_position_history = {}               -- Last N positions for stall detection
+	obj.stall_history_size = 30                   -- Number of positions to track (3 seconds at 10Hz)
+	obj.stall_distance_threshold = 5.0            -- If traveled < 5m in 3 seconds, consider stalled
+	obj.stall_check_interval = 3.0                -- Check every 3 seconds
+	obj.last_stall_check_time = 0
+	obj.temp_blocked_sectors = {}                 -- Temporarily blocked sectors (cleared on destination arrival)
+	obj.stall_escape_until = 0                    -- Timestamp until which emergency escape maneuver is active
+
+	-- Local avoidance (spherical raycast)
+	obj.local_avoidance_enabled = true
+	obj.local_ray_count = 32                      -- Number of rays for local avoidance
+	obj.local_ray_distance = 25                   -- Ray detection distance for local avoidance (meters)
+	obj.local_repulsion_strength = 35.0           -- Repulsion force multiplier (balanced for smooth avoidance)
+	obj.local_attraction_strength = 0.15          -- Attraction to destination multiplier (increased to prevent stalling)
+	obj.local_min_obstacle_distance = 35.0        -- Minimum safe distance from obstacles (increased for much safer margin)
+	obj.local_ray_angles = {}                     -- Pre-calculated ray directions (unit vectors)
+	
+	-- Repulsion-based route replanning
+	obj.repulsion_threshold = 20.0                -- If repulsion magnitude exceeds this, trigger route replan
+	obj.current_repulsion_direction = nil         -- Current repulsion direction (normalized Vector3)
+	obj.repulsion_route_bias_enabled = false      -- Whether to bias A* costs toward repulsion direction
+	obj.repulsion_cost_bonus = 0.5                -- Cost multiplier for sectors aligned with repulsion (lower = more favorable)
+	obj.last_repulsion_replan_time = 0
+	obj.repulsion_replan_cooldown = 0.5           -- Cooldown between repulsion-based route replans (seconds)
+	obj.force_escape_threshold = 200.0            -- Repulsion magnitude to force emergency vertical escape
+	
+	-- Scanning mode settings
+	obj.scanning_mode = false                     -- When true, scanning sectors for danger map
+	obj.scan_ray_count = 32                       -- Rays used for danger scanning
+	obj.scan_ray_distance = 25                    -- Ray detection distance for scanning (meters)
+	obj.scan_current_sector_index = 0             -- Current scanning progress
+	obj.scan_total_sectors = 0                    -- Total sectors to scan
+	obj.scan_sector_list = {}                     -- List of sectors to scan
+
+	-- Collision recording
+	obj.collision_detection_count = 0             -- Current session collision detections
+	obj.last_collision_sector = nil               -- Last sector where collision was detected
+
+	-- Smooth movement parameters
+	obj.direction_continuity_bonus = 10        -- Bonus for keeping same direction (reduced oscillation)
+	obj.last_selected_direction_name = nil     -- Track previous direction
 
 	-- appearance
 	obj.is_enable_crystal_dome = false
@@ -227,6 +290,15 @@ function AV:Init()
 	self.collision_check_side_distance = self.all_models[index].collision_check_side_distance
 	self.collision_check_front_distance = self.all_models[index].collision_check_front_distance or self.collision_check_side_distance
 	self.collision_check_rear_distance = self.all_models[index].collision_check_rear_distance or self.collision_check_side_distance
+
+	-- Initialize learning system (wrapped in pcall for safety)
+	local success, error_msg = pcall(function()
+		self:InitializeLearningSystem()
+	end)
+	
+	if not success and self.log_obj then
+		self.log_obj:Record(LogLevel.Warning, "Failed to initialize learning system in Init(): " .. tostring(error_msg))
+	end
 end
 
 --- Check if player is mounted.
@@ -786,6 +858,14 @@ function AV:Unmount()
 			timer.tick = timer.tick + 1
 			if not self:IsPlayerIn() then
 				self.log_obj:Record(LogLevel.Info, "Unmounted")
+				
+				-- Consolidate learning data before unmounting
+				if self.short_term_memory and 
+				   self.short_term_memory.path_history and 
+				   #self.short_term_memory.path_history > 0 then
+					self:ConsolidateMemory()
+				end
+				
 				local player = Game.GetPlayer()
 				local entity = Game.FindEntityByID(self.entity_id)
 				local vehicle_angle = entity:GetWorldOrientation():ToEulerAngles()
@@ -938,7 +1018,6 @@ function AV:AutoPilot()
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Start")
 	self.is_auto_pilot = true
 	local destination_position = Vector4.new(0, 0, 0, 1)
-	local relay_position = nil
 	if DAV.user_setting_table.autopilot_selected_index == 0 then
 		if self.mappin_destination_position:IsZero() then
 			self.log_obj:Record(LogLevel.Debug, "No Mappin Destination", "StartAutoPilot")
@@ -959,13 +1038,42 @@ function AV:AutoPilot()
 	local direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
 	self.initial_destination_length = Vector4.Length(direction_vector)
 
+	-- Store target altitude for maintaining flight height
+	local target_altitude
 	if self.autopilot_is_only_horizontal then
 		self:AutoLeaving(direction_vector, self.autopilot_leaving_height - current_position.z)
+		target_altitude = self.autopilot_leaving_height
 		self.log_obj:Record(LogLevel.Info, "Select Leaving Only Horizontal")
 	else
 		self:AutoLeaving(direction_vector, self.standard_leaving_height)
+		target_altitude = current_position.z + self.standard_leaving_height
 		self.log_obj:Record(LogLevel.Info, "Select Leaving Horizontal and Vertical")
 	end
+
+	-- Adjust destination altitude to match target flight altitude
+	-- Use the HIGHER of flight altitude or actual destination altitude
+	-- This prevents downward bias while maintaining safe flight altitude
+	local adjusted_z = math.max(destination_position.z, target_altitude)
+	
+	local altitude_adjusted_destination = Vector4.new(
+		destination_position.x,
+		destination_position.y,
+		adjusted_z,  -- Use higher altitude (either flight altitude or destination)
+		1
+	)
+	self.target_flight_altitude = target_altitude
+	
+	self.log_obj:Record(LogLevel.Info, string.format(
+		"Destination altitude adjusted: original=%.1f, flight_alt=%.1f, final=%.1f",
+		destination_position.z, target_altitude, adjusted_z))
+	
+	-- Debug: Log sector keys for start and destination
+	local start_sector = self:PositionToSectorKey(current_position)
+	local dest_sector = self:PositionToSectorKey(altitude_adjusted_destination)
+	self.log_obj:Record(LogLevel.Info, string.format(
+		"Route planning: start_sector=%s (pos: %.1f, %.1f, %.1f), dest_sector=%s (pos: %.1f, %.1f, %.1f)",
+		start_sector or "nil", current_position.x, current_position.y, current_position.z,
+		dest_sector or "nil", altitude_adjusted_destination.x, altitude_adjusted_destination.y, altitude_adjusted_destination.z))
 
 	-- autopilot parameter initialize
 	self.autopilot_angle = 0
@@ -973,6 +1081,15 @@ function AV:AutoPilot()
 	self.autopilot_vertical_sign = 0
 	self.auto_speed_reduce_rate = 1
 	self.pre_speed_list = {x = 0, y = 0, z = 0}
+
+	-- NEW: Initialize sector navigation system
+	self:InitializeSectorSystem()
+	
+	-- NEW: Plan initial global route with altitude-adjusted destination
+	self.current_global_route = self:PlanGlobalRoute(current_position, altitude_adjusted_destination)
+	self.current_route_index = 1
+	self.last_route_plan_time = os.clock()
+	self.altitude_adjusted_destination = altitude_adjusted_destination
 
 	-- autopilot loop
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
@@ -995,13 +1112,18 @@ function AV:AutoPilot()
 
 		-- set destination vector
 		current_position = self:GetPosition()
+		
+		-- NEW: Update sector visit
+		self:UpdateSectorVisit(current_position)
+		
+		-- Calculate destination vector (local variable)
 		local dest_dir_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
 		if self.autopilot_is_only_horizontal then
 			dest_dir_vector.z = 0
 		elseif dest_dir_vector.z < 0 then
 			dest_dir_vector.z = 0
 		end
-		self.dest_dir_vector_norm = Vector4.Length2D(dest_dir_vector)
+		self.dest_dir_vector_norm = Vector4.Length(dest_dir_vector)
 
 		-- Update exception area bypass status based on distance to destination
 		self:UpdateExceptionAreaBypass()
@@ -1011,509 +1133,163 @@ function AV:AutoPilot()
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:AutoLanding(current_position.z - destination_position.z + self.destination_z_offset)
+			-- Clear temporary blocked sectors on arrival
+			self.temp_blocked_sectors = {}
+			self.log_obj:Record(LogLevel.Debug, "Temporary blocked sectors cleared")
 			Cron.Halt(timer)
 			return
 		end
 
-		-- set direction vector
-		if relay_position ~= nil then
-			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, relay_position.z - current_position.z, 1)
+		-- NEW: Replan global route periodically
+		local current_time = os.clock()
+		if current_time - self.last_route_plan_time > self.route_replan_interval then
+			-- Use altitude-adjusted destination for replanning
+			local target_dest = self.altitude_adjusted_destination or destination_position
+			self.current_global_route = self:PlanGlobalRoute(current_position, target_dest)
+			self.current_route_index = 1
+			self.last_route_plan_time = current_time
+			self.log_obj:Record(LogLevel.Debug, "Global route replanned")
 		end
+
+		-- NEW: Determine global direction (toward next sector in route)
+		local global_direction = Vector4.Zero()
+		if self.current_global_route and #self.current_global_route > 0 and self.current_route_index <= #self.current_global_route then
+			local next_sector_key = self.current_global_route[self.current_route_index]
+			local next_sector_pos = self:SectorKeyToPosition(next_sector_key)
+			
+			if next_sector_pos then
+				-- Check if we've reached current sector target
+				local current_sector_key = self:PositionToSectorKey(current_position)
+				if current_sector_key == next_sector_key then
+					self.current_route_index = self.current_route_index + 1
+					if self.current_route_index <= #self.current_global_route then
+						next_sector_key = self.current_global_route[self.current_route_index]
+						next_sector_pos = self:SectorKeyToPosition(next_sector_key)
+					end
+				end
+				
+				if next_sector_pos then
+					global_direction = Vector4.new(
+						next_sector_pos.x - current_position.x,
+						next_sector_pos.y - current_position.y,
+						next_sector_pos.z - current_position.z,
+						1
+					)
+					if not global_direction:IsZero() then
+						global_direction = Vector4.Normalize(global_direction)
+					end
+					
+					self.log_obj:Record(LogLevel.Debug, string.format(
+						"Following route to sector %s (center: %.1f, %.1f, %.1f), current: %.1f, %.1f, %.1f",
+						next_sector_key, next_sector_pos.x, next_sector_pos.y, next_sector_pos.z,
+						current_position.x, current_position.y, current_position.z))
+				end
+			end
+		end
+		
+		-- Fallback: if no valid global direction, use destination direction
+		if global_direction:IsZero() then
+			global_direction = Vector4.Normalize(dest_dir_vector)
+		end
+
+		-- NEW: Apply local avoidance with repulsion
+		-- Calculate repulsion-modified navigation vector for obstacle avoidance
+		local navigation_vector = global_direction  -- Default to global direction
+		local repulsion_magnitude = 0
+		local obstacle_ray_count = 0
+		local repulsion_vector = nil  -- Store repulsion-modified navigation vector
+		local raw_repulsion_vector = nil  -- Store raw (unnormalized) repulsion vector for direction calculation
+		
+		if self.local_avoidance_enabled then
+			-- Get repulsion-modified navigation vector and raw repulsion for direction extraction
+			-- This applies local obstacle avoidance to the global route direction
+			navigation_vector, repulsion_magnitude, obstacle_ray_count, raw_repulsion_vector = self:CalculateLocalRepulsion(current_position, global_direction)
+			
+			-- Log local avoidance application
+			if repulsion_magnitude > 1.0 then
+				self.log_obj:Record(LogLevel.Debug, string.format(
+					"Local avoidance applied: repulsion=%.2f, obstacles=%d/%d rays",
+					repulsion_magnitude, obstacle_ray_count, #self.local_ray_angles))
+			end
+		end
+		
+		-- NEW: Repulsion-based obstacle detection and replanning
+		-- If repulsion is extremely high (200), stop and replan from previous sector
+		if repulsion_magnitude >= self.force_escape_threshold then
+			local time_since_last_replan = current_time - self.last_repulsion_replan_time
+			
+			if time_since_last_replan >= self.repulsion_replan_cooldown then
+				-- Stop vehicle
+				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+				
+				-- Block current sector (cannot pass through)
+				local current_sector_key = self:PositionToSectorKey(current_position)
+				if current_sector_key then
+					self.temp_blocked_sectors[current_sector_key] = true
+					self.log_obj:Record(LogLevel.Warning, string.format(
+						"CRITICAL repulsion (%.1f) - Stopped! Blocking sector %s and replanning from previous sector",
+						repulsion_magnitude, current_sector_key))
+				end
+				
+				-- Find previous sector in route to start replanning from
+				local target_dest = self.altitude_adjusted_destination or self.destination_position
+				local start_pos = current_position
+				
+				-- Try to get previous sector from route
+				if self.current_global_route and #self.current_global_route > 0 and self.current_route_index > 1 then
+					local prev_sector_key = self.current_global_route[self.current_route_index - 1]
+					local prev_sector_pos = self:SectorKeyToPosition(prev_sector_key)
+					
+					if prev_sector_pos and not self.temp_blocked_sectors[prev_sector_key] then
+						start_pos = prev_sector_pos
+						self.log_obj:Record(LogLevel.Info, string.format(
+							"Replanning from previous sector %s", prev_sector_key))
+					else
+						self.log_obj:Record(LogLevel.Warning, "Previous sector unavailable, planning from current position")
+					end
+				else
+					self.log_obj:Record(LogLevel.Warning, "No previous sector in route, planning from current position")
+				end
+				
+				-- Replan route
+				self.current_global_route = self:PlanGlobalRoute(start_pos, target_dest)
+				self.current_route_index = 1
+				self.last_route_plan_time = current_time
+				self.last_repulsion_replan_time = current_time
+				
+				self.log_obj:Record(LogLevel.Info, "Route replanned due to critical obstacle")
+			end
+		end
+
+		-- Set direction vector for movement
+		self.search_range = self.autopilot_searching_range
+		if self.dest_dir_vector_norm < self.autopilot_searching_range then
+			self.search_range = self.dest_dir_vector_norm + 0.1
+		end
+
+		local direction_vector = Vector4.new(
+			navigation_vector.x * self.search_range,
+			navigation_vector.y * self.search_range,
+			navigation_vector.z * self.search_range,
+			1
+		)
 		local direction_vector_norm = Vector4.Length(direction_vector)
 
-		-- check destination
-		if relay_position ~= nil and direction_vector_norm < self.destination_range then
-			relay_position = nil
+		-- Automatic speed adjustment based on navigation vector orientation
+		local navigation_angle = math.deg(math.acos(math.max(-1, math.min(1, 
+			(navigation_vector.x * dest_dir_vector.x + navigation_vector.y * dest_dir_vector.y + navigation_vector.z * dest_dir_vector.z) /
+			(Vector4.Length(navigation_vector) * Vector4.Length(dest_dir_vector))
+		))))
+		
+		-- Base speed reduction based on deviation from destination
+		local base_speed_rate = 0.7  -- Default normal speed
+		if navigation_angle > 60 then
+			base_speed_rate = 0.3  -- Slow down significantly for large deviations
+		elseif navigation_angle > 30 then
+			base_speed_rate = 0.5  -- Moderate slowdown
 		end
-
-		-- decide relay position
-		if relay_position == nil then
-			local dest_dir_2d = Vector4.new(dest_dir_vector.x, dest_dir_vector.y, 0, 1)
-			local search_vec = Vector4.Zero()
-			local is_wall = true
-
-			self.search_range = self.autopilot_searching_range
-			if self.dest_dir_vector_norm < self.autopilot_searching_range then
-				self.search_range = self.dest_dir_vector_norm + 0.1
-			end
-
-			if self.search_range < self.autopilot_searching_step then
-				self.search_range = self.autopilot_searching_step
-			end
-
-			-- Path finding logic execution flag
-			local path_found = false
-
-				-- 5-direction evaluation system: 5 primary directions only
-				local directions = {
-					{name = "Forward", vector = dest_dir_2d, base_angle = 0, swing_dir = "Horizontal", priority = self.eval_priority_forward},
-					{name = "Left", vector = dest_dir_2d, base_angle = 0, swing_dir = "Horizontal", priority = self.eval_priority_horizontal, direction_sign = 1},
-					{name = "Right", vector = dest_dir_2d, base_angle = 0, swing_dir = "Horizontal", priority = self.eval_priority_horizontal, direction_sign = -1},
-					{name = "Up", vector = dest_dir_vector, base_angle = 0, swing_dir = "Vertical", priority = self.eval_priority_up, direction_sign = 1},
-					{name = "Down", vector = dest_dir_vector, base_angle = 0, swing_dir = "Vertical", priority = self.eval_priority_down, direction_sign = -1}
-				}
-
-				local best_direction = nil
-				local best_score = -1
-				local best_vec = Vector4.Zero()
-				local best_angle = 0
-
-				-- Evaluate safety for each direction
-				for _, dir in ipairs(directions) do
-					local direction_best_score = -1
-					local direction_best_angle = 0
-					local direction_best_vec = Vector4.Zero()
-					local direction_best_safety_margin = 0  -- Store best safety margin score
-					local collision_count = 0          -- Actual collision count (for display)
-					local collision_penalty_score = 0  -- Weighted penalty score (for calculation)
-						local total_tests = 0
-						local safe_angles = {}
-
-						-- Dynamic angle test: evaluate appropriate angle ranges for each direction
-						local angle_step = self.eval_angle_step  -- Parameterized angle evaluation step
-						local start_angle = 0
-						local max_test_angle = 90
-
-						-- Set maximum test angle based on direction
-						if dir.name == "Up" then
-							max_test_angle = self.eval_max_angle_up         -- 110 degrees for up direction
-						elseif dir.name == "Down" then
-							max_test_angle = self.eval_max_angle_down       -- 90 degrees for down direction
-						elseif dir.name == "Left" or dir.name == "Right" then
-							max_test_angle = self.eval_max_angle_horizontal -- 90 degrees for horizontal directions
-						end
-
-						-- Set starting angle for each direction (avoid Forward duplication)
-						if dir.name == "Forward" then
-							-- Forward direction: only test 0 degrees directly, no loop needed
-							local actual_angle = 0
-							total_tests = 1
-							local is_check_exception = true
-							local res, vec = self:IsWall(dir.vector, self.search_range, actual_angle, dir.swing_dir, is_check_exception, "advanced")
-
-							if not res then
-								-- No collision: record as a safe angle
-								table.insert(safe_angles, {angle = actual_angle, vec = vec})
-							else
-								-- Collision: count as penalty
-								collision_count = 1  -- Actual collision count
-								collision_penalty_score = 1  -- Base penalty
-								-- Low angle penalty (0 degrees is always low angle)
-								if self.eval_low_angle_penalty_enabled then
-									collision_penalty_score = collision_penalty_score + (self.eval_low_angle_penalty_multiplier - 1)
-								end
-							end
-						else
-							-- Other directions: use loop with unified 5-degree step evaluation
-							start_angle = angle_step  -- Left/Right/Up/Down start from angle_step degrees
-
-							for test_angle = start_angle, max_test_angle, angle_step do
-								local actual_angle = test_angle
-								if dir.direction_sign then
-									actual_angle = test_angle * dir.direction_sign
-								end
-
-								-- Angle range restriction: use direction-specific max angles
-								local min_angle, max_angle = -90, 90  -- Default range
-								if dir.name == "Up" then
-									max_angle = self.eval_max_angle_up      -- 110 degrees for up direction
-								elseif dir.name == "Down" then
-									max_angle = self.eval_max_angle_down    -- 90 degrees for down direction
-								elseif dir.name == "Left" or dir.name == "Right" then
-									max_angle = self.eval_max_angle_horizontal  -- 90 degrees for horizontal directions
-								end
-
-								if actual_angle >= min_angle and actual_angle <= max_angle then
-									total_tests = total_tests + 1
-									local is_check_exception = true
-									if dir.swing_dir == "Vertical" and math.abs(actual_angle) >= max_angle then
-										is_check_exception = false
-									end
-
-									local res, vec = self:IsWall(dir.vector, self.search_range, actual_angle, dir.swing_dir, is_check_exception, "advanced")
-
-									if not res then
-										-- No collision: record as a safe angle
-										table.insert(safe_angles, {angle = actual_angle, vec = vec})
-									else
-										-- Collision: count as penalty with angle-based multiplier
-										collision_count = collision_count + 1  -- Actual collision count
-										collision_penalty_score = collision_penalty_score + 1  -- Base penalty
-
-										-- Apply graduated penalty based on angle (low angle = most dangerous, high angle = moderately dangerous)
-										local angle_abs = math.abs(actual_angle)
-										if self.eval_low_angle_penalty_enabled and angle_abs <= self.eval_low_angle_threshold then
-											-- Low angle: most dangerous (e.g., 0-10 degrees)
-											collision_penalty_score = collision_penalty_score + (self.eval_low_angle_penalty_multiplier - 1)
-										elseif angle_abs >= self.eval_high_angle_threshold then
-											-- High angle: moderately dangerous (e.g., 60-90 degrees)
-											collision_penalty_score = collision_penalty_score + (self.eval_high_angle_penalty_multiplier - 1)
-										end
-										-- Medium angles (11-59 degrees) get standard penalty (no extra multiplier)
-									end
-								end
-							end
-						end
-
-					-- Evaluate overall safety for the direction
-					local safety_rate = 0
-					if total_tests > 0 then
-						safety_rate = (#safe_angles) / total_tests
-					end
-
-					-- Collision penalty: more collisions result in a significant score reduction
-					local collision_penalty = collision_penalty_score * self.eval_collision_penalty_multiplier
-
-					-- Safety bonus: higher safety rate yields higher score
-					local safety_bonus = safety_rate * self.eval_safety_bonus_multiplier
-
-					-- Calculate score for each safe angle
-					for _, safe_angle_data in ipairs(safe_angles) do
-						local actual_angle = safe_angle_data.angle
-						local vec = safe_angle_data.vec
-
-						-- Angle efficiency score: optimized for effective avoidance
-						local angle_abs = math.abs(actual_angle)
-						local angle_efficiency_score
-						if angle_abs <= 5 then
-							-- Very small angles: moderate score
-							angle_efficiency_score = (90 - angle_abs) * self.eval_angle_efficiency_multiplier
-						elseif angle_abs <= 30 then
-							-- Optimal avoidance range: bonus score
-							angle_efficiency_score = (90 - angle_abs) * self.eval_angle_efficiency_multiplier * 1.3
-						elseif angle_abs <= 60 then
-							-- Good avoidance range: standard score
-							angle_efficiency_score = (90 - angle_abs) * self.eval_angle_efficiency_multiplier
-						else
-							-- Large angles: reduced but still viable
-							angle_efficiency_score = (90 - angle_abs) * self.eval_angle_efficiency_multiplier * 0.8
-						end
-
-						-- Base safety score
-						local base_safety_score = self.eval_base_safety_score
-
-						-- Safety margin evaluation: check adjacent angles for safer routes
-						local safety_margin_score = 0
-						if self.eval_safety_margin_enabled and dir.name ~= "Forward" then
-							local margin_safe_count = 0
-							local margin_total_count = 0
-							local margin_range = self.eval_safety_margin_range
-
-							-- Check angles around the selected angle for safety margin
-							for margin_offset = -margin_range, margin_range, 5 do
-								if margin_offset ~= 0 then  -- Skip the current angle itself
-									local margin_test_angle = actual_angle + margin_offset
-									-- Keep within reasonable bounds
-									if margin_test_angle >= -90 and margin_test_angle <= 90 then
-										margin_total_count = margin_total_count + 1
-										local is_check_exception = true
-										if dir.swing_dir == "Vertical" and math.abs(margin_test_angle) >= 90 then
-											is_check_exception = false
-										end
-
-										local res, _ = self:IsWall(dir.vector, self.search_range, margin_test_angle, dir.swing_dir, is_check_exception, "advanced")
-										if not res then
-											margin_safe_count = margin_safe_count + 1
-										end
-									end
-								end
-							end
-
-							-- Calculate safety margin score
-							if margin_total_count > 0 then
-								local margin_safety_rate = margin_safe_count / margin_total_count
-								if margin_safety_rate >= 0.8 then
-									-- Excellent safety margin: significant bonus
-									safety_margin_score = self.eval_safety_margin_bonus_multiplier * 1.5
-								elseif margin_safety_rate >= 0.6 then
-									-- Good safety margin: standard bonus
-									safety_margin_score = self.eval_safety_margin_bonus_multiplier
-								elseif margin_safety_rate >= 0.4 then
-									-- Moderate safety margin: small bonus
-									safety_margin_score = self.eval_safety_margin_bonus_multiplier * 0.5
-								elseif margin_safety_rate < 0.2 then
-									-- Poor safety margin: penalty for risky routes
-									safety_margin_score = -self.eval_safety_margin_penalty_multiplier
-								end
-								-- 0.2-0.4 range: neutral (no bonus or penalty)
-							end
-						end
-
-						-- Total score calculation including safety margin
-						local total_score = base_safety_score + angle_efficiency_score + safety_bonus + safety_margin_score - collision_penalty
-
-						-- Bonus for forward direction (directness to destination)
-						if dir.name == "Forward" then
-							total_score = total_score * self.eval_forward_bonus_multiplier
-						end
-
-						-- Consider direction priority
-						total_score = total_score / dir.priority
-
-						-- Additional penalty if overall safety is low
-						if safety_rate < self.eval_safety_threshold_low then
-							total_score = total_score * self.eval_safety_penalty_low
-						elseif safety_rate < self.eval_safety_threshold_medium then
-							total_score = total_score * self.eval_safety_penalty_medium
-						end
-
-						-- Update best score for this direction
-						if total_score > direction_best_score then
-							direction_best_score = total_score
-							direction_best_angle = actual_angle
-							direction_best_vec = vec
-							direction_best_safety_margin = safety_margin_score  -- Store safety margin for debug
-						end
-					end
-
-					-- Compare with overall best score
-					if direction_best_score > best_score then
-						best_score = direction_best_score
-						best_direction = dir
-						best_vec = direction_best_vec
-						best_angle = direction_best_angle
-					end
-
-					-- Store evaluation result for debug display
-					self.last_direction_evaluations[dir.name] = {
-						score = direction_best_score,
-						angle = direction_best_angle,
-						safety_rate = safety_rate or 0,
-						collision_count = collision_count,
-						collision_penalty_score = collision_penalty_score,
-						safety_margin_score = direction_best_safety_margin,  -- Add safety margin info
-						is_interpolated = false
-					}
-
-					-- Enhanced debug log: always show evaluation results for each direction
-					local max_angle_used = dir.name == "Up" and self.eval_max_angle_up or
-					                       dir.name == "Down" and self.eval_max_angle_down or
-					                       self.eval_max_angle_horizontal
-					self.log_obj:Record(LogLevel.Debug, string.format("Direction %s: safety=%.2f, collisions=%d (penalty=%.1f), angle=%d, score=%.1f, max_angle=%d°, current_best=%.1f",
-						dir.name, safety_rate or 0, collision_count, collision_penalty_score, direction_best_angle, direction_best_score, max_angle_used, best_score))
-				end -- End of direction loop
-
-				-- Dead-end detection and escape logic
-				local current_time = Game.GetTimeSystem():GetGameTimeStamp()
-
-				-- Check if we're in a dead-end situation (all directions have low scores)
-				if best_score <= self.deadend_score_threshold and
-				   not self.is_deadend_escape_active and
-				   (current_time - self.deadend_last_check_time) >= self.deadend_escape_check_interval then
-
-					self.log_obj:Record(LogLevel.Debug, string.format("Dead-end detected! Best score: %.1f (threshold: %.1f), activating vertical escape",
-						best_score, self.deadend_score_threshold))
-
-					-- Activate dead-end escape mode
-					self.is_deadend_escape_active = true
-					local current_pos = Game.GetPlayer():GetWorldPosition()
-					self.deadend_escape_target_z = current_pos.z + self.deadend_vertical_escape_distance
-					self.deadend_last_check_time = current_time
-				end
-
-				-- Handle dead-end escape mode
-				if self.is_deadend_escape_active then
-					local current_pos = Game.GetPlayer():GetWorldPosition()
-
-					-- Check if we've reached the escape altitude or can proceed forward
-					if current_pos.z >= self.deadend_escape_target_z then
-						-- Test if forward direction is now clear
-						local forward_clear, _ = self:IsWall(dest_dir_2d, self.search_range, 0, "Horizontal", true, "advanced")
-
-						if not forward_clear then
-							-- Forward is clear, exit escape mode
-							self.log_obj:Record(LogLevel.Debug, "Dead-end escape successful, forward path is now clear")
-							self.is_deadend_escape_active = false
-							self.deadend_escape_target_z = nil
-
-							-- Don't set direction here, let normal evaluation handle it
-							-- Reset flags and continue with normal evaluation
-							self.log_obj:Record(LogLevel.Debug, "Resuming normal direction evaluation after escape")
-						else
-							-- Continue ascending
-							self.log_obj:Record(LogLevel.Debug, string.format("Dead-end escape: ascending to %.1fm (current: %.1fm)",
-								self.deadend_escape_target_z, current_pos.z))
-							is_wall = false
-							search_vec = Vector4.new(0, 0, 1, 0) -- Pure upward movement
-							self.autopilot_angle = 90
-						end
-					else
-						-- Continue ascending to target altitude
-						self.log_obj:Record(LogLevel.Trace, string.format("Dead-end escape: ascending to %.1fm (current: %.1fm)",
-							self.deadend_escape_target_z, current_pos.z))
-						is_wall = false
-						search_vec = Vector4.new(0, 0, 1, 0) -- Pure upward movement
-						self.autopilot_angle = 90
-					end
-
-					-- Only force relay position for active escape mode
-					if self.is_deadend_escape_active then
-						-- Force relay position for dead-end escape (override any other logic)
-						if not search_vec:IsZero() then
-							relay_position = Vector4.new(
-								current_position.x + self.autopilot_searching_step * search_vec.x,
-								current_position.y + self.autopilot_searching_step * search_vec.y,
-								current_position.z + self.autopilot_searching_step * search_vec.z,
-								1
-							)
-							self.log_obj:Record(LogLevel.Info, string.format("Dead-end escape relay set: x=%.1f, y=%.1f, z=%.1f",
-								relay_position.x, relay_position.y, relay_position.z))
-						end
-						-- Mark path as found to exit path finding logic
-						path_found = true
-					end
-					-- If escape mode was just exited, continue to normal evaluation below
-				end
-
-				-- Normal path selection (executed when not in escape mode, or after escape mode ends)
-				-- If the optimal direction is found
-				if not path_found and best_direction ~= nil and best_score > 0 then
-					is_wall = false
-					search_vec = best_vec
-					self.autopilot_angle = best_angle
-
-					-- Calculate the actual vector for the optimal direction
-					local avoidance_vector = Vector4.Zero()
-					if best_direction.swing_dir == "Horizontal" then
-						-- Avoidance vector for horizontal direction
-						-- Corrected rotation: positive angle = left, negative angle = right
-						local rad = math.rad(best_angle)
-						local cos_angle = math.cos(rad)
-						local sin_angle = math.sin(rad)
-						avoidance_vector = Vector4.new(
-							dest_dir_2d.x * cos_angle - dest_dir_2d.y * sin_angle,
-							dest_dir_2d.x * sin_angle + dest_dir_2d.y * cos_angle,
-							0,
-							1
-						)
-					elseif best_direction.swing_dir == "Vertical" then
-						-- Avoidance vector for vertical direction
-						local rad = math.rad(best_angle)
-						local cos_angle = math.cos(rad)
-						local sin_angle = math.sin(rad)
-						local horizontal_length = Vector4.Length(Vector4.new(dest_dir_vector.x, dest_dir_vector.y, 0, 1))
-						avoidance_vector = Vector4.new(
-							dest_dir_vector.x * cos_angle,
-							dest_dir_vector.y * cos_angle,
-							horizontal_length * sin_angle,
-							1
-						)
-					end
-
-					-- Normalize and adjust to search range
-					if not avoidance_vector:IsZero() then
-						avoidance_vector = Vector4.Normalize(avoidance_vector)
-						search_vec = Vector4.new(
-							avoidance_vector.x,
-							avoidance_vector.y,
-							avoidance_vector.z,
-							1
-						)
-					end
-
-					-- Update direction record
-					if best_direction.swing_dir == "Horizontal" then
-						local sign = best_angle < 0 and -1 or 1
-						if self.autopilot_horizontal_sign * sign <= 0 then
-							self.autopilot_horizontal_sign = sign
-						end
-					elseif best_direction.swing_dir == "Vertical" then
-						if best_angle > 0 and self.autopilot_vertical_sign <= 0 then
-							self.autopilot_vertical_sign = 1
-						elseif best_angle < 0 and self.autopilot_vertical_sign >= 0 then
-							self.autopilot_vertical_sign = -1
-						end
-					end
-
-					-- Thruster control
-					local angle_abs = math.abs(best_angle)
-					if angle_abs < 30 then
-						self:MoveThruster({{Def.ActionList.Forward, 1}})
-					else
-						self:MoveThruster({{Def.ActionList.Nothing, 1}})
-					end
-
-					-- Dynamic speed adjustment
-					local base_speed_reduction = (90 - angle_abs) / 90
-					self.auto_speed_reduce_rate = base_speed_reduction * 0.6
-					if self.auto_speed_reduce_rate < self.autopilot_min_speed_rate then
-						self.auto_speed_reduce_rate = self.autopilot_min_speed_rate
-					end
-
-					-- Safety-focused speed adjustment according to avoidance angle
-					if angle_abs > 45 then
-						self.auto_speed_reduce_rate = self.auto_speed_reduce_rate * 0.3  -- Very cautious for steep angles
-					elseif angle_abs > 15 then
-						self.auto_speed_reduce_rate = self.auto_speed_reduce_rate * 0.5  -- Cautious for moderate angles
-					end
-
-					if angle_abs == 90 then
-						self.auto_speed_reduce_rate = 1  -- Stop
-					end
-
-				self.log_obj:Record(LogLevel.Debug, "5-Direction System: Selected " .. best_direction.name .. " direction, angle: " .. best_angle .. ", score: " .. string.format("%.1f", best_score))
-					self.last_selected_direction = best_direction.name
-					self.last_best_score = best_score
-					self.last_evaluation_timestamp = Game.GetTimeSystem():GetGameTimeStamp()
-
-					-- Use avoidance vector to directly set relay_position
-					if not search_vec:IsZero() then
-						local pos = relay_position or current_position
-						-- Dynamic step size based on avoidance angle for stronger evasion
-						local angle_abs = math.abs(best_angle)
-						local step_multiplier = 1.0
-						if angle_abs >= 15 and angle_abs <= 45 then
-							step_multiplier = 1.5  -- Stronger avoidance for optimal angles
-						elseif angle_abs > 45 then
-							step_multiplier = 1.3  -- Moderate boost for large angles
-						end
-
-						local effective_step = self.autopilot_searching_step * step_multiplier
-						relay_position = Vector4.new(
-							pos.x + effective_step * search_vec.x,
-							pos.y + effective_step * search_vec.y,
-							pos.z + effective_step * search_vec.z,
-							1
-						)
-						self.log_obj:Record(LogLevel.Debug, "New relay position: x=" .. relay_position.x .. ", y=" .. relay_position.y .. ", z=" .. relay_position.z .. " (step multiplier: " .. step_multiplier .. ")")
-					end
-					-- Mark path as found
-					path_found = true
-				end  -- End if best_direction ~= nil
-
-				-- Fallback: emergency handling if new logic cannot resolve
-				if not path_found then
-					if self.autopilot_angle == 0 then
-						-- reset search angle
-						self.autopilot_horizontal_sign = 0
-						self.autopilot_vertical_sign = 0
-					end
-
-					if not is_wall then
-						if relay_position ~= nil then
-							self.log_obj:Record(LogLevel.Trace, "Relay Position : " .. relay_position.x .. ", " .. relay_position.y .. ", " .. relay_position.z)
-						else
-							self.log_obj:Record(LogLevel.Critical, "Relay Position : nil")
-						end
-					else
-						-- Final fallback for unresolved wall situations
-						if self.autopilot_vertical_sign <= 0 then
-							self.autopilot_vertical_sign = 1
-						else
-							self.log_obj:Record(LogLevel.Info, "AutoPilot Move Interrupted")
-							self:InterruptAutoPilot()
-							Cron.Halt(timer)
-							return
-						end
-					end
-				end
-		end
-
-		-- recheck relay position
-		if relay_position ~= nil then
-			direction_vector = Vector4.new(relay_position.x - current_position.x, relay_position.y - current_position.y, relay_position.z - current_position.z, 1)
-		end
-		direction_vector_norm = Vector4.Length(direction_vector)
+		
+		self.auto_speed_reduce_rate = base_speed_rate
 
 		-- speed control
 		if self.auto_speed_reduce_rate < self.autopilot_min_speed_rate then
@@ -1522,22 +1298,20 @@ function AV:AutoPilot()
 			self.auto_speed_reduce_rate = 1
 		end
 
-		-- Override speed control for dead-end escape mode
-		if self.is_deadend_escape_active then
-			self.auto_speed_reduce_rate = 0.8  -- Use moderate speed for escape
-			self.log_obj:Record(LogLevel.Trace, "Dead-end escape: using escape speed rate 0.8")
-		end
-
 		local autopilot_speed = self.autopilot_speed * self.auto_speed_reduce_rate
 		local fix_direction_vector = Vector4.new(autopilot_speed * direction_vector.x / direction_vector_norm, autopilot_speed * direction_vector.y / direction_vector_norm, autopilot_speed * direction_vector.z / direction_vector_norm, 1)
 
-		-- yaw control
+		-- yaw control - use navigation vector instead of destination for obstacle avoidance
 		local vehicle_angle = self:GetForward()
 		local vehicle_angle_norm = Vector4.Length(vehicle_angle)
 		local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
+		
+		-- Use navigation_vector direction for yaw (so vehicle faces avoidance direction)
+		local yaw_target_vector = navigation_vector
+		local yaw_target_vector_norm = Vector4.Length(yaw_target_vector)
 		local yaw_dist = yaw_vehicle
-		if self.dest_dir_vector_norm ~= 0 then
-			yaw_dist = math.atan2(dest_dir_vector.y / self.dest_dir_vector_norm, dest_dir_vector.x / self.dest_dir_vector_norm) * 180 / Pi()
+		if yaw_target_vector_norm > 0.001 then
+			yaw_dist = math.atan2(yaw_target_vector.y / yaw_target_vector_norm, yaw_target_vector.x / yaw_target_vector_norm) * 180 / Pi()
 		end
 		local yaw_diff = yaw_dist - yaw_vehicle
 		if yaw_diff > 180 then
@@ -1864,12 +1638,18 @@ function AV:SuccessAutoPilot()
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = false
 	self.core_obj:SetAutoPilotHistory()
+	
+	-- Consolidate learning data
+	self:ConsolidateMemory()
 end
 
 --- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Failed.
 function AV:InterruptAutoPilot()
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = true
+	
+	-- Consolidate learning data (failures are important for learning)
+	self:ConsolidateMemory()
 end
 
 --- Set AV.is_failture_auto_pilot and get Failture AutoPilot Flag.
@@ -2550,6 +2330,1501 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 	}
 
     return false, search_vec
+end
+
+--- ============================================================================
+--- NEW: Sector-Based Navigation System
+--- ============================================================================
+
+--- Initialize Sector Navigation System
+function AV:InitializeSectorSystem()
+	local success, error_msg = pcall(function()
+		-- Initialize spherical ray pattern for local avoidance
+		self:GenerateSphericalRayPattern()
+		
+		-- Load sector database
+		self:LoadSectorData()
+		
+		local sector_count = 0
+		if self.sector_database.sectors then
+			for _ in pairs(self.sector_database.sectors) do
+				sector_count = sector_count + 1
+			end
+		end
+		
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"Sector navigation system initialized: %d sectors loaded, %d total flights",
+			sector_count, self.sector_database.total_flights or 0))
+	end)
+	
+	if not success then
+		self.log_obj:Record(LogLevel.Error, "Failed to initialize sector system: " .. tostring(error_msg))
+	end
+end
+
+--- Generate spherical ray pattern for local avoidance
+function AV:GenerateSphericalRayPattern()
+	self.local_ray_angles = {}
+	
+	-- Fibonacci sphere algorithm for even distribution
+	local n = self.local_ray_count
+	local golden_ratio = (1 + math.sqrt(5)) / 2
+	
+	for i = 0, n - 1 do
+		local theta = 2 * math.pi * i / golden_ratio
+		local phi = math.acos(1 - 2 * (i + 0.5) / n)
+		
+		local x = math.sin(phi) * math.cos(theta)
+		local y = math.sin(phi) * math.sin(theta)
+		local z = math.cos(phi)
+		
+		table.insert(self.local_ray_angles, {x = x, y = y, z = z})
+	end
+	
+	self.log_obj:Record(LogLevel.Debug, string.format("Generated %d spherical rays for local avoidance", n))
+end
+
+--- Convert position to sector key
+---@param position Vector4 Position in world space
+---@return string|nil sector_key Format: "x_y_z", or nil if position is invalid
+function AV:PositionToSectorKey(position)
+	if not position then return nil end
+	
+	local sx = math.floor(position.x / self.sector_size)
+	local sy = math.floor(position.y / self.sector_size)
+	local sz = math.floor(position.z / self.sector_size)
+	
+	return string.format("%d_%d_%d", sx, sy, sz)
+end
+
+--- Get sector center position from key
+---@param sector_key string Sector key "x_y_z"
+---@return Vector4|nil Sector center position
+function AV:SectorKeyToPosition(sector_key)
+	if not sector_key then return nil end
+	
+	local sx, sy, sz = sector_key:match("([^_]+)_([^_]+)_([^_]+)")
+	if not sx then return nil end
+	
+	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
+	
+	return Vector4.new(
+		(sx + 0.5) * self.sector_size,
+		(sy + 0.5) * self.sector_size,
+		(sz + 0.5) * self.sector_size,
+		1
+	)
+end
+
+--- Get or create sector data
+---@param sector_key string Sector key
+---@return table Sector data
+function AV:GetOrCreateSector(sector_key)
+	if not self.sector_database.sectors[sector_key] then
+		self.sector_database.sectors[sector_key] = {
+			key = sector_key,
+			static_collision_count = 0,    -- Pre-scanned obstacle count (static danger map)
+			is_accessible = nil,           -- Whether sector is reachable (nil = unknown, true/false)
+		}
+	end
+	return self.sector_database.sectors[sector_key]
+end
+
+--- Scan sector for danger (called during pre-scanning mode)
+--- Teleports vehicle to sector center and casts rays to detect obstacles
+---@param sector_key string Sector key to scan
+---@return number Number of obstacle hits detected
+function AV:ScanSectorDanger(sector_key)
+	if not sector_key then 
+		self.log_obj:Record(LogLevel.Warning, "ScanSectorDanger: No sector_key provided")
+		return 0 
+	end
+	
+	-- Ensure collision filters initialized
+	if not self.weak_collision_filters or #self.weak_collision_filters == 0 then
+		self.weak_collision_filters = {"Static", "Terrain"}
+	end
+	
+	-- Convert sector key to world position (center of sector)
+	local center_pos = self:SectorKeyToPosition(sector_key)
+	if not center_pos then 
+		self.log_obj:Record(LogLevel.Warning, "ScanSectorDanger: Could not convert sector_key to position")
+		return 0 
+	end
+	
+	-- Teleport vehicle to sector center for accurate scanning
+	if not self.entity_id then 
+		self.log_obj:Record(LogLevel.Warning, "ScanSectorDanger: No entity_id")
+		return 0 
+	end
+	local vehicle = Game.FindEntityByID(self.entity_id)
+	if not vehicle then 
+		self.log_obj:Record(LogLevel.Warning, "ScanSectorDanger: Vehicle entity not found")
+		return 0 
+	end
+	
+	Game.GetTeleportationFacility():Teleport(vehicle, center_pos, EulerAngles.new(0, 0, 0))
+	local actual_pos = vehicle:GetWorldPosition()
+	
+	-- Parse current sector coordinates
+	local sx, sy, sz = sector_key:match("([^_]+)_([^_]+)_([^_]+)")
+	if not sx then return 0 end
+	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
+	
+	-- Define 26 directional offsets (3x3x3 - center)
+	local offsets = {
+		-- 6 cardinal directions
+		{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
+		-- 12 edge neighbors
+		{1, 1, 0}, {1, -1, 0}, {-1, 1, 0}, {-1, -1, 0},
+		{1, 0, 1}, {1, 0, -1}, {-1, 0, 1}, {-1, 0, -1},
+		{0, 1, 1}, {0, 1, -1}, {0, -1, 1}, {0, -1, -1},
+		-- 8 corner neighbors
+		{1, 1, 1}, {1, 1, -1}, {1, -1, 1}, {1, -1, -1},
+		{-1, 1, 1}, {-1, 1, -1}, {-1, -1, 1}, {-1, -1, -1},
+	}
+	
+	-- Initialize connections table for this sector
+	local connections = {}
+	local passable_count = 0
+	local blocked_count = 0
+	
+	-- Scan each direction
+	for _, offset in ipairs(offsets) do
+		local dx, dy, dz = offset[1], offset[2], offset[3]
+		local direction_key = string.format("%d_%d_%d", dx, dy, dz)
+		
+		-- Calculate target sector center position
+		local target_sector_pos = Vector4.new(
+			actual_pos.x + dx * self.sector_size,
+			actual_pos.y + dy * self.sector_size,
+			actual_pos.z + dz * self.sector_size, 1)
+		
+		-- Raycast from current sector center to target sector center
+		local is_passable = true
+		for _, filter in ipairs(self.weak_collision_filters) do
+			local hit_success, hit_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(
+				actual_pos, target_sector_pos, filter, false, false)
+			
+			if hit_success then
+				is_passable = false
+				blocked_count = blocked_count + 1
+				break
+			end
+		end
+		
+		if is_passable then
+			passable_count = passable_count + 1
+		end
+		
+		connections[direction_key] = is_passable
+	end
+	
+	-- Store connections in sector database
+	if not self.sector_database.sectors[sector_key] then
+		self.sector_database.sectors[sector_key] = {}
+	end
+	self.sector_database.sectors[sector_key].connections = connections
+	
+	-- Log scan result
+	self.log_obj:Record(LogLevel.Debug, string.format(
+		"Sector %s scan: %d passable, %d blocked out of 26 directions",
+		sector_key, passable_count, blocked_count))
+	
+	return passable_count
+end
+
+--- Update sector visit
+---@param position Vector4 Current position
+function AV:UpdateSectorVisit(position)
+	if not position then return end
+	
+	local sector_key = self:PositionToSectorKey(position)
+	if not sector_key then return end
+	
+	local sector = self:GetOrCreateSector(sector_key)
+	
+	-- Mark as accessible since we successfully entered it
+	if sector.is_accessible == nil then
+		sector.is_accessible = true
+	end
+end
+
+--- Check for vehicle stall and permanently block problematic sectors
+---@param current_position Vector4 Current vehicle position
+---@param current_time number Current timestamp
+function AV:CheckForStall(current_position, current_time)
+	if not current_position then return end
+	
+	-- Add current position to history
+	table.insert(self.stall_position_history, {
+		position = current_position,
+		time = current_time
+	})
+	
+	-- Keep only recent history
+	while #self.stall_position_history > self.stall_history_size do
+		table.remove(self.stall_position_history, 1)
+	end
+	
+	-- Check if enough time has passed since last stall check
+	if current_time - self.last_stall_check_time < self.stall_check_interval then
+		return
+	end
+	self.last_stall_check_time = current_time
+	
+	-- Need sufficient history to detect stall
+	if #self.stall_position_history < self.stall_history_size then
+		return
+	end
+	
+	-- Calculate distance traveled over history period
+	local oldest_pos = self.stall_position_history[1].position
+	local distance_traveled = math.sqrt(
+		math.pow(current_position.x - oldest_pos.x, 2) +
+		math.pow(current_position.y - oldest_pos.y, 2) +
+		math.pow(current_position.z - oldest_pos.z, 2)
+	)
+	
+	-- If barely moved, vehicle is stalled
+	if distance_traveled < self.stall_distance_threshold then
+		local current_sector_key = self:PositionToSectorKey(current_position)
+		if current_sector_key then
+			-- Temporarily block this sector (until destination reached)
+			self.temp_blocked_sectors[current_sector_key] = true
+			
+			self.log_obj:Record(LogLevel.Warning, string.format(
+				"Stall detected! Temporarily blocking sector %s (traveled %.1fm in %.1fs)",
+				current_sector_key, distance_traveled, self.stall_check_interval))
+			
+			-- Force route replan FROM NEIGHBORING SECTOR to avoid blocked sector
+			local target_dest = self.altitude_adjusted_destination or self.destination_position
+			if target_dest then
+				-- Find best neighbor sector to start route from
+				local neighbors = self:GetNeighborSectors(current_sector_key)
+				local best_neighbor = nil
+				local best_score = math.huge
+				
+				for _, neighbor_key in ipairs(neighbors) do
+					-- Skip if neighbor is also blocked
+					if not self.temp_blocked_sectors[neighbor_key] then
+						local neighbor_pos = self:SectorKeyToPosition(neighbor_key)
+						if neighbor_pos then
+							-- Calculate distance to destination
+							local dist_to_dest = math.sqrt(
+								math.pow(target_dest.x - neighbor_pos.x, 2) +
+								math.pow(target_dest.y - neighbor_pos.y, 2) +
+								math.pow(target_dest.z - neighbor_pos.z, 2)
+							)
+							
+							-- Consider danger level from sector database
+							local sector_data = self.sector_database.sectors[neighbor_key]
+							local danger = sector_data and sector_data.static_collision_count or 0
+							
+							-- Score: distance + danger penalty
+							local score = dist_to_dest + (danger * 10)
+							
+							if score < best_score then
+								best_score = score
+								best_neighbor = neighbor_key
+							end
+						end
+					end
+				end
+				
+				-- Plan route from best neighbor (or current position if all blocked)
+				local start_pos = current_position
+				if best_neighbor then
+					start_pos = self:SectorKeyToPosition(best_neighbor)
+					self.log_obj:Record(LogLevel.Info, string.format(
+						"Planning route from neighbor sector %s (avoiding blocked %s)",
+						best_neighbor, current_sector_key))
+				else
+					self.log_obj:Record(LogLevel.Warning, "All neighbor sectors blocked, planning from current position")
+				end
+				
+				self.current_global_route = self:PlanGlobalRoute(start_pos, target_dest)
+				self.current_route_index = 1
+				self.last_route_plan_time = current_time
+				self.log_obj:Record(LogLevel.Info, "Route replanned to avoid stalled sector")
+			end
+			
+			-- Clear position history to reset stall detection
+			self.stall_position_history = {}
+		end
+	end
+end
+
+--- Get neighbor sector keys (26 directions: 6 cardinal + 12 edge + 8 corner)
+---@param sector_key string Current sector key
+---@return table List of neighbor sector keys
+function AV:GetNeighborSectors(sector_key)
+	if not sector_key then return {} end
+	
+	local sx, sy, sz = sector_key:match("([^_]+)_([^_]+)_([^_]+)")
+	if not sx then return {} end
+	
+	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
+	
+	local neighbors = {}
+	-- 26-directional neighbors for complete 3D connectivity
+	local offsets = {
+		-- 6 cardinal directions
+		{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
+		-- 12 edge neighbors
+		{1, 1, 0}, {1, -1, 0}, {-1, 1, 0}, {-1, -1, 0},
+		{1, 0, 1}, {1, 0, -1}, {-1, 0, 1}, {-1, 0, -1},
+		{0, 1, 1}, {0, 1, -1}, {0, -1, 1}, {0, -1, -1},
+		-- 8 corner neighbors
+		{1, 1, 1}, {1, 1, -1}, {1, -1, 1}, {1, -1, -1},
+		{-1, 1, 1}, {-1, 1, -1}, {-1, -1, 1}, {-1, -1, -1},
+	}
+	
+	for _, offset in ipairs(offsets) do
+		local neighbor_key = string.format("%d_%d_%d", 
+			sx + offset[1], sy + offset[2], sz + offset[3])
+		table.insert(neighbors, neighbor_key)
+	end
+	
+	return neighbors
+end
+
+--- Calculate heuristic (estimated cost) from sector to goal
+---@param sector_key string Current sector key
+---@param goal_key string Goal sector key
+---@return number Estimated cost (Euclidean distance)
+function AV:CalculateHeuristic(sector_key, goal_key)
+	if not sector_key or not goal_key then return 9999 end
+	
+	local sx, sy, sz = sector_key:match("([^_]+)_([^_]+)_([^_]+)")
+	local gx, gy, gz = goal_key:match("([^_]+)_([^_]+)_([^_]+)")
+	
+	if not sx or not gx then return 9999 end
+	
+	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
+	gx, gy, gz = tonumber(gx), tonumber(gy), tonumber(gz)
+	
+	-- Euclidean distance (more accurate for 3D flight)
+	local dx = gx - sx
+	local dy = gy - sy
+	local dz = gz - sz
+	
+	return math.sqrt(dx*dx + dy*dy + dz*dz)
+end
+
+--- Get movement cost between two adjacent sectors
+---@param from_key string Source sector key
+---@param to_key string Destination sector key
+---@return number Movement cost (distance + accessibility penalty + connectivity check)
+function AV:GetSectorMovementCost(from_key, to_key)
+	-- Base cost is the distance between sectors
+	local fx, fy, fz = from_key:match("([^_]+)_([^_]+)_([^_]+)")
+	local tx, ty, tz = to_key:match("([^_]+)_([^_]+)_([^_]+)")
+	
+	if not fx or not tx then return 1.0 end
+	
+	fx, fy, fz = tonumber(fx), tonumber(fy), tonumber(fz)
+	tx, ty, tz = tonumber(tx), tonumber(ty), tonumber(tz)
+	
+	local dx = tx - fx
+	local dy = ty - fy
+	local dz = tz - fz
+	
+	local base_cost = math.sqrt(dx*dx + dy*dy + dz*dz)
+	
+	-- CRITICAL: Block underground sectors (Z <= 0)
+	if tz <= 0 then
+		return base_cost * 10000000.0
+	end
+	
+	-- NEW: Check connectivity (version 4)
+	-- If there's no direct path from source to destination, block the route
+	local from_sector = self.sector_database.sectors[from_key]
+	if from_sector and from_sector.connections then
+		local direction_key = string.format("%d_%d_%d", dx, dy, dz)
+		local is_passable = from_sector.connections[direction_key]
+		
+		if is_passable == false then
+			-- No connection: path is blocked by obstacles
+			return base_cost * 10000000.0
+		elseif is_passable == nil then
+			-- Connection not scanned yet: treat as unknown (moderate penalty)
+			self.log_obj:Record(LogLevel.Trace, string.format(
+				"Connection %s->%s (%s) not scanned, applying moderate penalty",
+				from_key, to_key, direction_key))
+			return base_cost * 5.0
+		end
+		-- is_passable == true: continue with normal cost calculation
+	end
+	
+	-- Check temporarily blocked sectors (from stall detection)
+	if self.temp_blocked_sectors[to_key] then
+		return base_cost * 1000000.0
+	end
+	
+	-- Check accessibility of destination sector
+	local to_sector = self.sector_database.sectors[to_key]
+	local accessibility_penalty = 1.0
+	
+	if to_sector then
+		if to_sector.is_accessible == false then
+			accessibility_penalty = accessibility_penalty * 100.0
+		end
+	end
+	
+	return base_cost * accessibility_penalty
+end
+
+--- Plan global route using A* algorithm
+---@param start_pos Vector4 Start position
+---@param end_pos Vector4 End position
+---@return table Route as list of sector keys
+function AV:PlanGlobalRoute(start_pos, end_pos)
+	if not start_pos or not end_pos then
+		return {}
+	end
+	
+	local start_key = self:PositionToSectorKey(start_pos)
+	local end_key = self:PositionToSectorKey(end_pos)
+	
+	if not start_key or not end_key then
+		return {}
+	end
+	
+	-- Same sector, no need for pathfinding
+	if start_key == end_key then
+		return {start_key}
+	end
+	
+	-- A* Algorithm with optimized settings
+	local open_set = {}  -- Nodes to be evaluated
+	local closed_set = {}  -- Nodes already evaluated
+	local came_from = {}  -- For path reconstruction
+	local g_score = {}  -- Cost from start to node
+	local f_score = {}  -- Estimated total cost (g + h)
+	
+	-- Initialize start node
+	open_set[start_key] = true
+	g_score[start_key] = 0
+	f_score[start_key] = self:CalculateHeuristic(start_key, end_key)
+	
+	local max_iterations = 2000  -- Increased limit
+	local iterations = 0
+	
+	while next(open_set) ~= nil and iterations < max_iterations do
+		iterations = iterations + 1
+		
+		-- Find node in open_set with lowest f_score
+		local current = nil
+		local lowest_f = math.huge
+		for key, _ in pairs(open_set) do
+			local f = f_score[key] or math.huge
+			if f < lowest_f then
+				lowest_f = f
+				current = key
+			end
+		end
+		
+		if not current then
+			break
+		end
+		
+		-- Goal reached
+		if current == end_key then
+			-- Reconstruct path
+			local route = {}
+			local path_node = current
+			while path_node do
+				table.insert(route, 1, path_node)  -- Insert at beginning
+				path_node = came_from[path_node]
+			end
+			
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"A* route planned: %d sectors, %d iterations from %s to %s",
+				#route, iterations, start_key, end_key))
+			
+			return route
+		end
+		
+		-- Move current from open to closed
+		open_set[current] = nil
+		closed_set[current] = true
+		
+		-- Evaluate neighbors (14 directions: 6 cardinal + 8 corners)
+		local neighbors = self:GetNeighborSectors(current)
+		for _, neighbor in ipairs(neighbors) do
+			if not closed_set[neighbor] then
+				local tentative_g = (g_score[current] or math.huge) + 
+					self:GetSectorMovementCost(current, neighbor)
+				
+				if not open_set[neighbor] then
+					open_set[neighbor] = true
+				elseif tentative_g >= (g_score[neighbor] or math.huge) then
+					goto continue  -- Not a better path
+				end
+				
+				-- This path is the best so far
+				came_from[neighbor] = current
+				g_score[neighbor] = tentative_g
+				f_score[neighbor] = tentative_g + self:CalculateHeuristic(neighbor, end_key)
+			end
+			
+			::continue::
+		end
+	end
+	
+	-- No path found within iteration limit - return best partial path (local optimum)
+	local open_count = 0
+	local closed_count = 0
+	for _ in pairs(open_set) do open_count = open_count + 1 end
+	for _ in pairs(closed_set) do closed_count = closed_count + 1 end
+	
+	-- Find closest node to goal from explored nodes
+	local best_node = nil
+	local best_distance = math.huge
+	for node_key, _ in pairs(closed_set) do
+		local heuristic_distance = self:CalculateHeuristic(node_key, end_key)
+		if heuristic_distance < best_distance then
+			best_distance = heuristic_distance
+			best_node = node_key
+		end
+	end
+	
+	-- If found a better node than start, reconstruct path to it (local optimum)
+	if best_node and best_node ~= start_key then
+		local partial_route = {}
+		local path_node = best_node
+		while path_node do
+			table.insert(partial_route, 1, path_node)
+			path_node = came_from[path_node]
+		end
+		
+		self.log_obj:Record(LogLevel.Warning, string.format(
+			"A* incomplete after %d iterations, using partial route to closest explored node: %d sectors (distance to goal: %.1f)",
+			iterations, #partial_route, best_distance * self.sector_size))
+		
+		return partial_route
+	end
+	
+	-- If no better path found, use straight line fallback
+	self.log_obj:Record(LogLevel.Warning, string.format(
+		"A* pathfinding failed after %d iterations, using straight line fallback (start=%s, end=%s, open=%d, closed=%d)",
+		iterations, start_key, end_key, open_count, closed_count))
+	
+	-- Log temp blocked sectors for debugging
+	local blocked_list = {}
+	for key, _ in pairs(self.temp_blocked_sectors) do
+		table.insert(blocked_list, key)
+	end
+	if #blocked_list > 0 then
+		self.log_obj:Record(LogLevel.Warning, string.format(
+			"Currently blocked sectors: %s", table.concat(blocked_list, ", ")))
+	end
+	
+	return self:PlanStraightLineRoute(start_pos, end_pos)
+end
+
+--- Plan straight-line route as fallback
+---@param start_pos Vector4 Start position
+---@param end_pos Vector4 End position
+---@return table Route as list of sector keys
+function AV:PlanStraightLineRoute(start_pos, end_pos)
+	local start_key = self:PositionToSectorKey(start_pos)
+	local end_key = self:PositionToSectorKey(end_pos)
+	
+	local start_sector_pos = self:SectorKeyToPosition(start_key)
+	local end_sector_pos = self:SectorKeyToPosition(end_key)
+	
+	if not start_sector_pos or not end_sector_pos then
+		return {start_key or end_key}
+	end
+	
+	local route = {}
+	local direction = Vector4.new(
+		end_sector_pos.x - start_sector_pos.x,
+		end_sector_pos.y - start_sector_pos.y,
+		end_sector_pos.z - start_sector_pos.z,
+		1
+	)
+	local distance = Vector4.Length(direction)
+	local step_count = math.ceil(distance / self.sector_size)
+	
+	local skipped_count = 0
+	local total_count = 0
+	
+	if step_count > 0 then
+		direction = Vector4.Normalize(direction)
+		
+		for i = 0, step_count do
+			local t = i / step_count
+			local intermediate_pos = Vector4.new(
+				start_sector_pos.x + direction.x * distance * t,
+				start_sector_pos.y + direction.y * distance * t,
+				start_sector_pos.z + direction.z * distance * t,
+				1
+			)
+			local sector_key = self:PositionToSectorKey(intermediate_pos)
+			total_count = total_count + 1
+			if sector_key then
+				-- Skip temporarily blocked sectors in fallback route
+				if not self.temp_blocked_sectors[sector_key] then
+					-- Avoid duplicate consecutive keys
+					if #route == 0 or route[#route] ~= sector_key then
+						table.insert(route, sector_key)
+					end
+				else
+					skipped_count = skipped_count + 1
+					self.log_obj:Record(LogLevel.Debug, string.format(
+						"Skipping blocked sector %s in fallback route", sector_key))
+				end
+			end
+		end
+	end
+	
+	-- If all sectors were blocked, at least include start and end
+	if #route == 0 then
+		if not self.temp_blocked_sectors[start_key] then
+			table.insert(route, start_key)
+		end
+		table.insert(route, end_key)
+		self.log_obj:Record(LogLevel.Warning, "All fallback route sectors were blocked, using start/end only")
+	end
+	
+	self.log_obj:Record(LogLevel.Info, string.format(
+		"Fallback route generated: %d sectors (skipped %d blocked out of %d total)",
+		#route, skipped_count, total_count))
+	
+	return route
+end
+
+--- Calculate local repulsion vector using spherical raycast
+---@param current_pos Vector4 Current position
+---@param dest_dir Vector4 Normalized direction to destination
+---@return Vector4 Combined navigation vector (repulsion + attraction)
+---@return number Repulsion magnitude for speed control
+---@return integer Number of rays that hit obstacles
+---@return Vector4 Raw repulsion vector (unnormalized, for direction calculation)
+function AV:CalculateLocalRepulsion(current_pos, dest_dir)
+	if not current_pos or not dest_dir then
+		self.log_obj:Record(LogLevel.Warning, "CalculateLocalRepulsion: Invalid input parameters")
+		return Vector4.Zero(), 0, 0, Vector4.Zero()
+	end
+	
+	-- Debug: Log function entry (Trace level)
+	self.log_obj:Record(LogLevel.Trace, string.format(
+		"CalculateLocalRepulsion called: %d rays available, avoidance=%s, filters=%d",
+		#self.local_ray_angles, tostring(self.local_avoidance_enabled),
+		self.weak_collision_filters and #self.weak_collision_filters or 0))
+	
+	-- Ensure collision filters are initialized
+	if not self.weak_collision_filters or #self.weak_collision_filters == 0 then
+		self.weak_collision_filters = {"Static", "Terrain"}
+		self.log_obj:Record(LogLevel.Warning, "Collision filters not initialized, using defaults")
+	end
+	
+	local repulsion_vector = Vector4.Zero()
+	local ray_hit_count = 0
+	
+	-- Cast rays in all spherical directions
+	for _, ray_dir in ipairs(self.local_ray_angles) do
+		local ray_vector = Vector4.new(ray_dir.x, ray_dir.y, ray_dir.z, 1)
+		
+		-- Calculate target position for raycast
+		local target_pos = Vector4.new(
+			current_pos.x + ray_dir.x * self.local_ray_distance,
+			current_pos.y + ray_dir.y * self.local_ray_distance,
+			current_pos.z + ray_dir.z * self.local_ray_distance,
+			1
+		)
+		
+		-- Direct raycast using game's spatial query system
+		local is_collision = false
+		local collision_distance = nil
+		
+		-- Check against all collision filters
+		for _, filter in ipairs(self.weak_collision_filters) do
+			local hit_success, hit_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(
+				current_pos, target_pos, filter, false, false)
+			
+			if hit_success then
+				is_collision = true
+				-- Calculate distance from hit position
+				if hit_result and hit_result.position then
+					local dx = hit_result.position.x - current_pos.x
+					local dy = hit_result.position.y - current_pos.y
+					local dz = hit_result.position.z - current_pos.z
+					collision_distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+					
+					-- Debug: Reduced logging
+				else
+					-- Fallback: assume collision at max distance
+					collision_distance = self.local_ray_distance * 0.9
+				end
+				break  -- Found collision, no need to check other filters
+			end
+		end
+		
+		if is_collision and collision_distance then
+			-- Ensure collision_distance is a number
+			local distance = tonumber(collision_distance) or collision_distance
+			if type(distance) ~= "number" then
+				-- Skip if distance is not a valid number
+				goto continue_ray
+			end
+			
+			ray_hit_count = ray_hit_count + 1
+			
+			-- Calculate repulsion force (exponentially stronger when closer)
+			local safe_distance = self.local_min_obstacle_distance
+			
+			-- Apply repulsion if within safe distance OR detection range
+			if distance < self.local_ray_distance then
+				local distance_ratio = distance / self.local_ray_distance
+				
+				-- Non-linear repulsion: exponential increase as obstacle gets closer
+				-- Formula: strength = base * (1 - distance_ratio)^4 (even more aggressive curve)
+				local repulsion_strength = self.local_repulsion_strength * math.pow(1.0 - distance_ratio, 4.0)
+				
+				-- Extra strong repulsion if within minimum safe distance
+				if distance < safe_distance then
+					repulsion_strength = repulsion_strength * 5.0  -- 5x strength in danger zone to avoid stalling
+				end
+				
+				-- Apply repulsion in opposite direction of ray
+				repulsion_vector.x = repulsion_vector.x - ray_dir.x * repulsion_strength
+				repulsion_vector.y = repulsion_vector.y - ray_dir.y * repulsion_strength
+				repulsion_vector.z = repulsion_vector.z - ray_dir.z * repulsion_strength
+			end
+		end
+		
+		::continue_ray::
+	end
+	
+	-- Debug: Log raycast results (Trace level)
+	self.log_obj:Record(LogLevel.Trace, string.format(
+		"Raycast complete: %d/%d rays hit obstacles",
+		ray_hit_count, #self.local_ray_angles))
+	
+	-- Calculate repulsion magnitude for weighting
+	local repulsion_magnitude = math.sqrt(
+		repulsion_vector.x * repulsion_vector.x + 
+		repulsion_vector.y * repulsion_vector.y + 
+		repulsion_vector.z * repulsion_vector.z
+	)
+	
+	self.log_obj:Record(LogLevel.Trace, string.format(
+		"Repulsion calculated: magnitude=%.2f from %d hits",
+		repulsion_magnitude, ray_hit_count))
+	
+	-- Emergency avoidance mode: if very close obstacles detected, ignore destination
+	local attraction_weight = self.local_attraction_strength
+	local is_emergency = false
+	
+	if repulsion_magnitude > 1.5 then
+		-- EMERGENCY: Very strong repulsion means immediate danger
+		-- Completely disable attraction and use pure repulsion
+		attraction_weight = 0.0
+		is_emergency = true
+		self.log_obj:Record(LogLevel.Debug, string.format(
+			"EMERGENCY obstacle avoidance: repulsion=%.2f, rays=%d/%d - using pure repulsion",
+			repulsion_magnitude, ray_hit_count, #self.local_ray_angles))
+	elseif repulsion_magnitude > 1.0 then
+		-- Strong repulsion: heavily reduce attraction
+		attraction_weight = attraction_weight * math.max(0.1, 1.0 - repulsion_magnitude * 0.3)
+	elseif repulsion_magnitude > 0.1 then
+		-- Moderate repulsion: reduce attraction
+		attraction_weight = attraction_weight * math.max(0.4, 1.0 - repulsion_magnitude * 0.2)
+	end
+	
+	-- Add attraction to destination (unless in emergency mode)
+	local attraction_vector = Vector4.new(
+		dest_dir.x * attraction_weight,
+		dest_dir.y * attraction_weight,
+		dest_dir.z * attraction_weight,
+		0
+	)
+	
+	-- Combine repulsion and attraction
+	local combined_vector = Vector4.new(
+		repulsion_vector.x + attraction_vector.x,
+		repulsion_vector.y + attraction_vector.y,
+		repulsion_vector.z + attraction_vector.z,
+		1
+	)
+	
+	-- Normalize if not zero (but keep stronger magnitude in emergency)
+	if not combined_vector:IsZero() then
+		if is_emergency and repulsion_magnitude > 1.5 then
+			-- In emergency, keep the repulsion strength (don't normalize to length 1)
+			-- This creates stronger avoidance force
+			local scale = math.min(repulsion_magnitude, 10.0)  -- Cap at 10x normal strength for strong avoidance
+			combined_vector = Vector4.Normalize(combined_vector)
+			combined_vector.x = combined_vector.x * scale
+			combined_vector.y = combined_vector.y * scale
+			combined_vector.z = combined_vector.z * scale
+			combined_vector = Vector4.Normalize(combined_vector)  -- Normalize again for direction only
+		else
+			combined_vector = Vector4.Normalize(combined_vector)
+		end
+	else
+		-- If no repulsion needed, use destination direction
+		combined_vector = dest_dir
+	end
+	
+	-- Log significant repulsion events for debugging
+	if repulsion_magnitude > 1.5 then
+		self.log_obj:Record(LogLevel.Debug, string.format(
+			"Strong obstacle proximity: magnitude=%.2f, rays=%d/%d - local avoidance active",
+			repulsion_magnitude, ray_hit_count, #self.local_ray_angles))
+	end
+	
+	-- Return both navigation vector, repulsion magnitude, ray count, and RAW repulsion vector
+	-- Raw repulsion vector (before normalization) is needed for route bias direction calculation
+	return combined_vector, repulsion_magnitude, ray_hit_count, repulsion_vector
+end
+
+--- Save sector database to file
+function AV:SaveSectorData()
+	local success, error_msg = pcall(function()
+		local file_path = self.sector_database.database_path
+		local json_data = json.encode(self.sector_database or {})
+		local file = io.open(file_path, "w")
+		
+		if file then
+			file:write(json_data)
+			file:close()
+			self.log_obj:Record(LogLevel.Info, "Sector database saved successfully")
+			self.sector_database.last_save_time = os.time()
+		else
+			self.log_obj:Record(LogLevel.Error, "Failed to open file for writing: " .. file_path)
+		end
+	end)
+	
+	if not success then
+		self.log_obj:Record(LogLevel.Error, "Failed to save sector data: " .. tostring(error_msg))
+	end
+end
+
+--- Load sector database from file
+function AV:LoadSectorData()
+	local success, error_msg = pcall(function()
+		local file_path = self.sector_database.database_path
+		local file = io.open(file_path, "r")
+		
+		if file then
+			local json_data = file:read("*all")
+			file:close()
+			
+			if json_data and json_data ~= "" then
+				local loaded_data = json.decode(json_data)
+				if loaded_data and loaded_data.version == 4 then
+					self.sector_database.sectors = loaded_data.sectors or {}
+					self.log_obj:Record(LogLevel.Info, "Sector connectivity map loaded successfully (version 4)")
+				else
+					self.log_obj:Record(LogLevel.Warning, string.format(
+						"Sector database version mismatch (expected 4, got %s), starting fresh. Delete old sector_danger_map.json to rescan.",
+						tostring(loaded_data and loaded_data.version or "none")))
+				end
+			else
+				self.log_obj:Record(LogLevel.Info, "No existing sector danger map found, starting fresh")
+			end
+		end
+	end)
+	
+	if not success then
+		self.log_obj:Record(LogLevel.Warning, "Failed to load sector data: " .. tostring(error_msg))
+	end
+end
+
+--- ============================================================================
+--- Learning System Functions (DEPRECATED - Kept for compatibility)
+--- ============================================================================
+
+--- Initialize Learning System
+--- Initialize Learning System
+--- NOTE: This function is deprecated. Sector navigation system is initialized in InitializeSectorSystem().
+function AV:InitializeLearningSystem()
+	-- Old learning system no longer used
+	-- Sector navigation system handles all learning data
+	if self.log_obj then
+		self.log_obj:Record(LogLevel.Debug, "Legacy learning system skipped (using sector navigation)")
+	end
+end
+
+--- Convert position to grid key
+---@param position Vector4
+---@return string
+function AV:PositionToGridKey(position)
+	local grid_size = self.long_term_memory.grid_size
+	local x = math.floor(position.x / grid_size)
+	local y = math.floor(position.y / grid_size)
+	local z = math.floor(position.z / grid_size)
+	return string.format("%d_%d_%d", x, y, z)
+end
+
+--- Get or create cell data for a position
+---@param position Vector4
+---@return table cell_data
+function AV:GetOrCreateCell(position)
+	local key = self:PositionToGridKey(position)
+	
+	if not self.long_term_memory.cells[key] then
+		self.long_term_memory.cells[key] = {
+			visits = 0,
+			success_pass = 0,
+			collision = 0,
+			deadend = 0,
+			stuck = 0,
+			avg_score = 0,
+			min_score = 999,
+			max_score = 0,
+			total_score = 0,
+			direction_stats = {
+				forward = {success = 0, total = 0},
+				left = {success = 0, total = 0},
+				right = {success = 0, total = 0},
+				up = {success = 0, total = 0},
+				down = {success = 0, total = 0},
+			},
+			best_direction = nil,
+			last_visit = 0,
+			confidence = 0,
+			danger_level = 0,
+		}
+	end
+	
+	return self.long_term_memory.cells[key]
+end
+
+--- Get number of cells in long-term memory
+---@return number
+function AV:GetCellCount()
+	local count = 0
+	for _ in pairs(self.long_term_memory.cells) do
+		count = count + 1
+	end
+	return count
+end
+
+--- Calculate danger level for a cell
+---@param position Vector4
+---@return number danger_level (0-1)
+function AV:GetCellDangerLevel(position)
+	local cell = self:GetOrCreateCell(position)
+	
+	-- Unknown areas get medium danger level
+	if cell.visits < self.learning_confidence_threshold then
+		return 0.5
+	end
+	
+	-- Calculate failure rate
+	local failure_count = cell.collision + cell.deadend + cell.stuck
+	local failure_rate = failure_count / cell.visits
+	
+	-- Consider average score
+	local score_factor = 1.0
+	if cell.avg_score < 50 then
+		score_factor = 1.5
+	elseif cell.avg_score < 100 then
+		score_factor = 1.2
+	end
+	
+	return math.min(failure_rate * score_factor, 1.0)
+end
+
+--- Update cell statistics
+---@param position Vector4
+---@param score number
+---@param direction_name string|nil
+---@param result string "success", "collision", "deadend", "stuck"
+function AV:UpdateCellStatistics(position, score, direction_name, result)
+	local cell = self:GetOrCreateCell(position)
+	local current_time = os.clock()
+	
+	-- Update basic statistics
+	cell.visits = cell.visits + 1
+	cell.last_visit = current_time
+	cell.total_score = cell.total_score + score
+	cell.avg_score = cell.total_score / cell.visits
+	cell.min_score = math.min(cell.min_score, score)
+	cell.max_score = math.max(cell.max_score, score)
+	
+	-- Update result statistics
+	if result == "success" then
+		cell.success_pass = cell.success_pass + 1
+	elseif result == "collision" then
+		cell.collision = cell.collision + 1
+	elseif result == "deadend" then
+		cell.deadend = cell.deadend + 1
+	elseif result == "stuck" then
+		cell.stuck = cell.stuck + 1
+	end
+	
+	-- Update direction statistics
+	if direction_name then
+		local dir_lower = direction_name:lower()
+		if cell.direction_stats[dir_lower] then
+			cell.direction_stats[dir_lower].total = cell.direction_stats[dir_lower].total + 1
+			if result == "success" then
+				cell.direction_stats[dir_lower].success = cell.direction_stats[dir_lower].success + 1
+			end
+		end
+	end
+	
+	-- Update confidence (0-1 scale, based on visit count)
+	cell.confidence = math.min(cell.visits / 10, 1.0)
+	
+	-- Recalculate danger level
+	cell.danger_level = self:GetCellDangerLevel(position)
+end
+
+--- Record path history (short-term memory)
+---@param position Vector4
+---@param score number
+---@param direction Vector4
+function AV:RecordPathHistory(position, score, direction)
+	if not self.learning_enabled or not self.short_term_memory then return end
+	
+	local success, error_msg = pcall(function()
+		local current_time = os.clock()
+		
+		table.insert(self.short_term_memory.path_history, {
+			position = {x = position.x, y = position.y, z = position.z},
+			score = score,
+			direction = direction,
+			time = current_time,
+		})
+		
+		-- Remove entries older than duration
+		local duration = self.learning_path_history_duration or 30
+		while #self.short_term_memory.path_history > 0 do
+			local oldest = self.short_term_memory.path_history[1]
+			if current_time - oldest.time > duration then
+				table.remove(self.short_term_memory.path_history, 1)
+			else
+				break
+			end
+		end
+		
+		-- Also update long-term memory
+		self:UpdateCellStatistics(position, score, nil, "success")
+	end)
+	
+	if not success and self.log_obj then
+		self.log_obj:Record(LogLevel.Debug, "Error recording path history: " .. tostring(error_msg))
+	end
+end
+
+--- Record danger spot (short-term memory)
+---@param position Vector4
+---@param score number
+---@param reason string
+function AV:RecordDangerSpot(position, score, reason)
+	if not self.learning_enabled or not self.short_term_memory or not self.short_term_memory.danger_spots then
+		return
+	end
+	
+	local success, error_msg = pcall(function()
+		table.insert(self.short_term_memory.danger_spots, {
+			pos = {x = position.x, y = position.y, z = position.z},
+			score = score,
+			reason = reason,
+			time = os.clock(),
+			radius = self.learning_danger_spot_radius or 20,
+		})
+		
+		-- Update long-term memory
+		local result = "collision"
+		if reason == "deadend" then
+			result = "deadend"
+		elseif reason == "stuck" then
+			result = "stuck"
+		end
+		self:UpdateCellStatistics(position, score, nil, result)
+		
+		if self.log_obj then
+			self.log_obj:Record(LogLevel.Debug, string.format(
+				"Danger spot recorded: reason=%s, score=%.1f at (%.1f, %.1f, %.1f)",
+				reason, score, position.x, position.y, position.z))
+		end
+	end)
+	
+	if not success and self.log_obj then
+		self.log_obj:Record(LogLevel.Debug, "Error recording danger spot: " .. tostring(error_msg))
+	end
+end
+
+--- Check if near a danger spot (short-term memory)
+---@param position Vector4
+---@return boolean is_near
+---@return number score
+---@return string reason
+function AV:IsNearDangerSpot(position)
+	if not self.short_term_memory or not self.short_term_memory.danger_spots then
+		return false, 0, ""
+	end
+	
+	for _, spot in ipairs(self.short_term_memory.danger_spots) do
+		local dist = math.sqrt(
+			(position.x - spot.pos.x)^2 +
+			(position.y - spot.pos.y)^2 +
+			(position.z - spot.pos.z)^2)
+		
+		if dist < (spot.radius or 20) then
+			return true, spot.score or 0, spot.reason or ""
+		end
+	end
+	return false, 0, ""
+end
+
+--- Detect loop in path history
+---@param current_position Vector4
+---@return boolean is_loop
+function AV:DetectLoop(current_position)
+	if not self.short_term_memory or not self.short_term_memory.path_history then
+		return false
+	end
+	
+	local success, result = pcall(function()
+		local history = self.short_term_memory.path_history
+		local radius = self.short_term_memory.loop_check_radius or 20
+		local window = self.short_term_memory.loop_check_window or 20
+		local current_time = os.clock()
+		local visit_count = 0
+		
+		-- Check how many times we've visited this area recently
+		for i = #history, math.max(1, #history - 40), -1 do
+			local hist = history[i]
+			if current_time - hist.time <= window then
+				local dist = math.sqrt(
+					(current_position.x - hist.position.x)^2 +
+					(current_position.y - hist.position.y)^2 +
+					(current_position.z - hist.position.z)^2)
+				
+				if dist < radius then
+					visit_count = visit_count + 1
+				end
+			end
+		end
+		
+		-- Loop detected if visited same area 2+ times
+		if visit_count >= 2 then
+			if self.log_obj then
+				self.log_obj:Record(LogLevel.Warning, 
+					string.format("Loop detected! Visited same area %d times", visit_count))
+			end
+			
+			-- Record as deadend in long-term memory
+			self:UpdateCellStatistics(current_position, 0, nil, "deadend")
+			
+			return true
+		end
+		
+		return false
+	end)
+	
+	if not success then
+		return false
+	end
+	
+	return result
+end
+
+--- Detect if stuck
+---@return boolean is_stuck
+function AV:DetectStuck()
+	if not self.short_term_memory then
+		return false
+	end
+	
+	local success, result = pcall(function()
+		local current_pos = self:GetPosition()
+		local current_time = os.clock()
+		local speed = self:GetCurrentSpeed()
+		
+		-- Check if speed is below threshold
+		if speed < (self.stuck_speed_threshold or 1.0) then
+			if not self.stuck_start_time then
+				self.stuck_start_time = current_time
+				self.stuck_position = current_pos
+			elseif current_time - self.stuck_start_time > (self.stuck_detection_time or 3) then
+				-- Stuck for too long
+				if self.short_term_memory.stuck_positions then
+					table.insert(self.short_term_memory.stuck_positions, {
+						pos = {x = current_pos.x, y = current_pos.y, z = current_pos.z},
+						time = current_time,
+					})
+				end
+				
+				-- Record in long-term memory
+				self:UpdateCellStatistics(current_pos, 0, nil, "stuck")
+				
+				if self.log_obj then
+					self.log_obj:Record(LogLevel.Warning, "Stuck detected!")
+				end
+				return true
+			end
+		else
+			self.stuck_start_time = nil
+			self.stuck_position = nil
+		end
+		
+		return false
+	end)
+	
+	if not success then
+		return false
+	end
+	
+	return result
+end
+
+--- Find safe backtrack position from path history
+---@param distance number
+---@return Vector4|nil safe_position
+function AV:FindSafeBacktrackPosition(distance)
+	local history = self.short_term_memory.path_history
+	local current_pos = self:GetPosition()
+	
+	-- Search from recent to old
+	for i = #history, 1, -1 do
+		local hist = history[i]
+		local hist_pos = Vector4.new(hist.position.x, hist.position.y, hist.position.z, 1)
+		
+		local dist = Vector4.Length(Vector4.new(
+			current_pos.x - hist_pos.x,
+			current_pos.y - hist_pos.y,
+			current_pos.z - hist_pos.z, 1))
+		
+		if dist >= distance then
+			-- Check safety in long-term memory
+			local danger = self:GetCellDangerLevel(hist_pos)
+			
+			if danger < 0.3 then  -- Low danger
+				self.log_obj:Record(LogLevel.Info, string.format(
+					"Safe backtrack position found: %.1fm away, danger=%.2f",
+					dist, danger))
+				return hist_pos
+			end
+		end
+	end
+	
+	return nil
+end
+
+--- Execute backtrack maneuver
+---@return Vector4|nil backtrack_position
+function AV:ExecuteBacktrack()
+	self.log_obj:Record(LogLevel.Info, "Executing backtrack maneuver")
+	
+	-- Try to find safe position in history
+	local safe_position = self:FindSafeBacktrackPosition(self.backtrack_distance)
+	
+	if safe_position then
+		self.short_term_memory.backtrack_count = 
+			self.short_term_memory.backtrack_count + 1
+		return safe_position
+	end
+	
+	-- If no safe position found, go up
+	local current_pos = self:GetPosition()
+	self.log_obj:Record(LogLevel.Info, "No safe backtrack position, ascending instead")
+	return Vector4.new(current_pos.x, current_pos.y, current_pos.z + 20, 1)
+end
+
+--- Predict path danger using learning data
+---@param current_pos Vector4
+---@param direction Vector4
+---@param distance number
+---@return number max_danger
+---@return number avg_danger
+function AV:PredictPathDanger(current_pos, direction, distance)
+	local danger_levels = {}
+	local steps = 3  -- Check 3 steps ahead
+	
+	for i = 1, steps do
+		local check_pos = Vector4.new(
+			current_pos.x + direction.x * (distance * i / steps),
+			current_pos.y + direction.y * (distance * i / steps),
+			current_pos.z + direction.z * (distance * i / steps), 1)
+		
+		local danger = self:GetCellDangerLevel(check_pos)
+		table.insert(danger_levels, danger)
+	end
+	
+	-- Calculate max and average danger
+	local max_danger = 0
+	local sum_danger = 0
+	for _, d in ipairs(danger_levels) do
+		max_danger = math.max(max_danger, d)
+		sum_danger = sum_danger + d
+	end
+	local avg_danger = sum_danger / #danger_levels
+	
+	return max_danger, avg_danger
+end
+
+--- Get warning level based on score and predicted danger
+---@param score number
+---@param predicted_danger number
+---@return number level (0-3)
+---@return string description
+function AV:GetWarningLevel(score, predicted_danger)
+	-- Adjust score based on predicted danger
+	local adjusted_score = score * (1 - predicted_danger * 0.5)
+	
+	if adjusted_score < self.warning_threshold_critical then
+		return 3, "CRITICAL"  -- Force ascent
+	elseif adjusted_score < self.warning_threshold_high then
+		return 2, "HIGH"      -- Consider ascending
+	elseif adjusted_score < self.warning_threshold_medium then
+		return 1, "MEDIUM"    -- Prefer horizontal avoidance
+	else
+		return 0, "SAFE"
+	end
+end
+
+--- Apply learning to direction score
+---@param direction_name string
+---@param position Vector4
+---@param base_score number
+---@return number adjusted_score
+function AV:ApplyLearningToDirectionScore(direction_name, position, base_score)
+	if not self.learning_enabled or not self.long_term_memory or not self.long_term_memory.cells then
+		return base_score
+	end
+	
+	local success, result = pcall(function()
+		local cell = self:GetOrCreateCell(position)
+		
+		-- Don't apply learning if not enough data
+		if cell.visits < (self.learning_confidence_threshold or 3) then
+			return base_score
+		end
+		
+		-- Get direction success rate
+		local dir_lower = direction_name:lower()
+		local dir_stat = cell.direction_stats and cell.direction_stats[dir_lower]
+		
+		if dir_stat and dir_stat.total > 0 then
+			local success_rate = dir_stat.success / dir_stat.total
+			
+			-- Adjust score based on success rate
+			if success_rate > 0.7 then
+				base_score = base_score * (self.learning_score_bonus_multiplier or 1.3)
+				if self.log_obj then
+					self.log_obj:Record(LogLevel.Debug, string.format(
+						"Learning bonus for %s: success_rate=%.2f, multiplier=%.2f",
+						direction_name, success_rate, self.learning_score_bonus_multiplier or 1.3))
+				end
+			elseif success_rate < 0.3 then
+				base_score = base_score * (self.learning_score_penalty_multiplier or 0.6)
+				if self.log_obj then
+					self.log_obj:Record(LogLevel.Debug, string.format(
+						"Learning penalty for %s: success_rate=%.2f, multiplier=%.2f",
+						direction_name, success_rate, self.learning_score_penalty_multiplier or 0.6))
+				end
+			end
+		end
+		
+		return base_score
+	end)
+	
+	if not success then
+		return base_score
+	end
+	
+	return result
+end
+
+--- Evaluate direction with lookahead (2-step prediction)
+---@param direction table Direction data with score, vector, name
+---@param current_pos Vector4
+---@return number adjusted_score
+function AV:EvaluateDirectionWithLookahead(direction, current_pos)
+	local base_score = direction.score
+	
+	if not self.learning_enabled or not self.learning_lookahead_enabled or not self.long_term_memory or not self.long_term_memory.cells then
+		return base_score
+	end
+	
+	local success, result = pcall(function()
+		-- Step 1 position
+		local step1_pos = Vector4.new(
+			current_pos.x + direction.vector.x * (self.search_range or 50),
+			current_pos.y + direction.vector.y * (self.search_range or 50),
+			current_pos.z + direction.vector.z * (self.search_range or 50), 1)
+		
+		-- Check step 1 danger
+		local step1_cell = self:GetOrCreateCell(step1_pos)
+		local step1_danger = self:GetCellDangerLevel(step1_pos)
+		
+		-- If step 1 has best_direction and enough data, check step 2
+		local bonus = 0
+		local penalty = 0
+		
+		if step1_cell.best_direction and step1_cell.visits >= 5 then
+			local step2_pos = Vector4.new(
+				step1_pos.x + step1_cell.best_direction.x * (self.search_range or 50),
+				step1_pos.y + step1_cell.best_direction.y * (self.search_range or 50),
+				step1_pos.z + step1_cell.best_direction.z * (self.search_range or 50), 1)
+			
+			local step2_danger = self:GetCellDangerLevel(step2_pos)
+			
+			-- Both steps safe = big bonus
+			if step1_danger < 0.3 and step2_danger < 0.3 then
+				bonus = base_score * (self.learning_lookahead_bonus or 0.5)
+				if self.log_obj then
+					self.log_obj:Record(LogLevel.Debug, string.format(
+						"Lookahead bonus for %s: 2 steps clear, bonus=%.1f",
+						direction.name or "unknown", bonus))
+				end
+			end
+		end
+		
+		-- Step 1 dangerous = penalty
+		if step1_danger > 0.6 then
+			penalty = base_score * 0.3
+			if self.log_obj then
+				self.log_obj:Record(LogLevel.Debug, string.format(
+					"Lookahead penalty for %s: danger ahead=%.2f, penalty=%.1f",
+					direction.name or "unknown", step1_danger, penalty))
+			end
+		end
+		
+		return base_score + bonus - penalty
+	end)
+	
+	if not success then
+		return base_score
+	end
+	
+	return result
+end
+
+--- Consolidate short-term memory into long-term memory (call on flight end)
+--- NOTE: This function is deprecated. Sector navigation system handles persistence automatically.
+function AV:ConsolidateMemory()
+	-- Save sector data when flight ends
+	self:SaveSectorData()
+	
+	if self.log_obj then
+		self.log_obj:Record(LogLevel.Info, "Flight completed, sector data saved")
+	end
+end
+
+--- Save learning data to JSON file
+--- NOTE: This function is deprecated. Use SaveSectorData() instead.
+function AV:SaveLearningData()
+	-- Legacy function - no longer used
+	-- Sector navigation data is saved automatically
+end
+
+--- Load learning data from JSON file
+--- NOTE: This function is deprecated. Use LoadSectorData() instead.
+function AV:LoadLearningData()
+	-- Legacy function - no longer used
+	-- Sector navigation data is loaded automatically
 end
 
 return AV

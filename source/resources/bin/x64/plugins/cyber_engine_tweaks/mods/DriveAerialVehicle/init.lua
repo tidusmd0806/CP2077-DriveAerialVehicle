@@ -342,7 +342,7 @@ registerForEvent("onHook", function()
                     DAV.listening_keybind_widget = nil
                 end
                 local current_situation = Def.Situation.Idle
-                if DAV.core_obj ~= nil then
+                if DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil then
                     current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
                 end
                 if current_situation == Def.Situation.InVehicle or current_situation == Def.Situation.Waiting or current_situation == Def.Situation.Normal then
