@@ -804,11 +804,17 @@ function Debug:ImGuiSectorDangerScanner()
                         local sector_key = av_obj.scan_sector_list[av_obj.scan_current_sector_index]
                         
                         if sector_key then
-                            local passable_count = av_obj:ScanSectorDanger(sector_key)
-                            -- Note: Connections are now stored automatically in ScanSectorDanger
-                            
-                            if passable_count < 26 then
-                                print(string.format("Sector %s: %d/26 directions passable", sector_key, passable_count))
+                            -- Skip if sector already has connection data
+                            local sector_data = av_obj.sector_database.sectors[sector_key]
+                            if sector_data and sector_data.connections then
+                                print(string.format("Sector %s: skipped (already scanned)", sector_key))
+                            else
+                                local passable_count = av_obj:ScanSectorDanger(sector_key)
+                                -- Note: Connections are now stored automatically in ScanSectorDanger
+                                
+                                if passable_count < 26 then
+                                    print(string.format("Sector %s: %d/26 directions passable", sector_key, passable_count))
+                                end
                             end
                         end
                     end)

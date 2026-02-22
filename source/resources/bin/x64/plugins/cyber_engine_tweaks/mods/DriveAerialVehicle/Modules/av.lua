@@ -180,6 +180,21 @@ function AV:New(core_obj)
 	obj.temp_blocked_sectors = {}                 -- Temporarily blocked sectors (cleared on destination arrival)
 	obj.stall_escape_until = 0                    -- Timestamp until which emergency escape maneuver is active
 
+	-- Retreat behavior when blocked
+	obj.is_retreating = false                     -- Currently retreating to previous sector
+	obj.retreat_target_position = nil             -- Target position for retreat (previous sector)
+	obj.retreat_start_time = 0                    -- When retreat started
+	obj.retreat_arrival_threshold = 3.0           -- Distance to consider arrived at retreat target (meters) - high precision for connection accuracy
+	obj.last_retreat_check_time = 0
+	obj.retreat_check_cooldown = 0.5              -- Cooldown between retreat checks (seconds)
+	obj.sustained_repulsion_start_time = nil      -- When sustained repulsion started (nil = not active)
+	obj.sustained_repulsion_trigger = 0.3         -- Repulsion threshold to start sustained-repulsion timer
+	obj.sustained_repulsion_duration = 3.0        -- Seconds of sustained repulsion before triggering retreat
+	obj.collision_proximity_threshold = 8.0       -- Distance (m) at which retreat triggers immediately
+	obj.sustained_repulsion_start_time = nil      -- When sustained repulsion started (nil = not in sustained repulsion)
+	obj.sustained_repulsion_trigger = 0.3         -- Repulsion threshold to start sustained-repulsion timer
+	obj.sustained_repulsion_duration = 3.0        -- Seconds of sustained repulsion before triggering retreat
+
 	-- Local avoidance (spherical raycast)
 	obj.local_avoidance_enabled = true
 	obj.local_ray_count = 32                      -- Number of rays for local avoidance
@@ -197,7 +212,28 @@ function AV:New(core_obj)
 	obj.last_repulsion_replan_time = 0
 	obj.repulsion_replan_cooldown = 0.5           -- Cooldown between repulsion-based route replans (seconds)
 	obj.force_escape_threshold = 200.0            -- Repulsion magnitude to force emergency vertical escape
-	
+
+	-- === 3D Tangent Bug Navigation ===
+	obj.tangent_mode = "DIRECT"           -- "DIRECT" = straight to goal, "BOUNDARY" = follow obstacle surface
+	obj.tangent_detect_dist = 25.0        -- Forward detection range (m)
+	obj.tangent_enter_dist = 18.0         -- Enter BOUNDARY when obstacle closer than this (m)
+	obj.tangent_exit_dist = 28.0          -- Return to DIRECT when path clears beyond this (m) - hysteresis
+	obj.tangent_obstacle_normal = nil     -- Estimated inward normal of detected obstacle face
+	obj.tangent_boundary_dir = nil        -- Current best boundary-following direction
+	obj.tangent_mode_start_time = 0       -- When BOUNDARY mode started (for timeout)
+	obj.tangent_boundary_timeout = 30.0   -- Max seconds in BOUNDARY before reset to DIRECT
+	obj.tangent_last_pos = nil            -- Position last tick (for stuck detection)
+	obj.tangent_stuck_timer = 0           -- Accumulated seconds without significant movement
+	obj.tangent_stuck_threshold = 5.0     -- Seconds without movement = stuck
+	obj.tangent_stuck_escape_time = 0     -- Timestamp when stuck-escape ascent started (0 = not escaping)
+	obj.tangent_stuck_escape_dur = 3.0    -- Seconds to ascend vertically during stuck escape
+	obj.tangent_entry_pos = nil           -- Position where BOUNDARY mode was entered (for progress check)
+
+	-- Yaw smoothing
+	obj.yaw_target_smoothed = nil         -- Smoothed yaw target angle (degrees), nil = not initialized
+	obj.yaw_smooth_alpha = 0.06           -- Low-pass coefficient (lower = smoother, slower response)
+	obj.yaw_deadzone_deg = 4.0            -- Don't turn if yaw error is smaller than this (degrees)
+
 	-- Scanning mode settings
 	obj.scanning_mode = false                     -- When true, scanning sectors for danger map
 	obj.scan_ray_count = 32                       -- Rays used for danger scanning
@@ -1081,6 +1117,16 @@ function AV:AutoPilot()
 	self.autopilot_vertical_sign = 0
 	self.auto_speed_reduce_rate = 1
 	self.pre_speed_list = {x = 0, y = 0, z = 0}
+	-- Tangent Bug state reset
+	self.tangent_mode = "DIRECT"
+	self.tangent_obstacle_normal = nil
+	self.tangent_boundary_dir = nil
+	self.tangent_last_pos = nil
+	self.tangent_stuck_timer = 0
+	self.tangent_stuck_escape_time = 0
+	self.tangent_entry_pos = nil
+	-- Yaw smoothing reset
+	self.yaw_target_smoothed = nil
 
 	-- NEW: Initialize sector navigation system
 	self:InitializeSectorSystem()
@@ -1140,126 +1186,9 @@ function AV:AutoPilot()
 			return
 		end
 
-		-- NEW: Replan global route periodically
+		-- 3D Tangent Bug Navigation
 		local current_time = os.clock()
-		if current_time - self.last_route_plan_time > self.route_replan_interval then
-			-- Use altitude-adjusted destination for replanning
-			local target_dest = self.altitude_adjusted_destination or destination_position
-			self.current_global_route = self:PlanGlobalRoute(current_position, target_dest)
-			self.current_route_index = 1
-			self.last_route_plan_time = current_time
-			self.log_obj:Record(LogLevel.Debug, "Global route replanned")
-		end
-
-		-- NEW: Determine global direction (toward next sector in route)
-		local global_direction = Vector4.Zero()
-		if self.current_global_route and #self.current_global_route > 0 and self.current_route_index <= #self.current_global_route then
-			local next_sector_key = self.current_global_route[self.current_route_index]
-			local next_sector_pos = self:SectorKeyToPosition(next_sector_key)
-			
-			if next_sector_pos then
-				-- Check if we've reached current sector target
-				local current_sector_key = self:PositionToSectorKey(current_position)
-				if current_sector_key == next_sector_key then
-					self.current_route_index = self.current_route_index + 1
-					if self.current_route_index <= #self.current_global_route then
-						next_sector_key = self.current_global_route[self.current_route_index]
-						next_sector_pos = self:SectorKeyToPosition(next_sector_key)
-					end
-				end
-				
-				if next_sector_pos then
-					global_direction = Vector4.new(
-						next_sector_pos.x - current_position.x,
-						next_sector_pos.y - current_position.y,
-						next_sector_pos.z - current_position.z,
-						1
-					)
-					if not global_direction:IsZero() then
-						global_direction = Vector4.Normalize(global_direction)
-					end
-					
-					self.log_obj:Record(LogLevel.Debug, string.format(
-						"Following route to sector %s (center: %.1f, %.1f, %.1f), current: %.1f, %.1f, %.1f",
-						next_sector_key, next_sector_pos.x, next_sector_pos.y, next_sector_pos.z,
-						current_position.x, current_position.y, current_position.z))
-				end
-			end
-		end
-		
-		-- Fallback: if no valid global direction, use destination direction
-		if global_direction:IsZero() then
-			global_direction = Vector4.Normalize(dest_dir_vector)
-		end
-
-		-- NEW: Apply local avoidance with repulsion
-		-- Calculate repulsion-modified navigation vector for obstacle avoidance
-		local navigation_vector = global_direction  -- Default to global direction
-		local repulsion_magnitude = 0
-		local obstacle_ray_count = 0
-		local repulsion_vector = nil  -- Store repulsion-modified navigation vector
-		local raw_repulsion_vector = nil  -- Store raw (unnormalized) repulsion vector for direction calculation
-		
-		if self.local_avoidance_enabled then
-			-- Get repulsion-modified navigation vector and raw repulsion for direction extraction
-			-- This applies local obstacle avoidance to the global route direction
-			navigation_vector, repulsion_magnitude, obstacle_ray_count, raw_repulsion_vector = self:CalculateLocalRepulsion(current_position, global_direction)
-			
-			-- Log local avoidance application
-			if repulsion_magnitude > 1.0 then
-				self.log_obj:Record(LogLevel.Debug, string.format(
-					"Local avoidance applied: repulsion=%.2f, obstacles=%d/%d rays",
-					repulsion_magnitude, obstacle_ray_count, #self.local_ray_angles))
-			end
-		end
-		
-		-- NEW: Repulsion-based obstacle detection and replanning
-		-- If repulsion is extremely high (200), stop and replan from previous sector
-		if repulsion_magnitude >= self.force_escape_threshold then
-			local time_since_last_replan = current_time - self.last_repulsion_replan_time
-			
-			if time_since_last_replan >= self.repulsion_replan_cooldown then
-				-- Stop vehicle
-				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
-				
-				-- Block current sector (cannot pass through)
-				local current_sector_key = self:PositionToSectorKey(current_position)
-				if current_sector_key then
-					self.temp_blocked_sectors[current_sector_key] = true
-					self.log_obj:Record(LogLevel.Warning, string.format(
-						"CRITICAL repulsion (%.1f) - Stopped! Blocking sector %s and replanning from previous sector",
-						repulsion_magnitude, current_sector_key))
-				end
-				
-				-- Find previous sector in route to start replanning from
-				local target_dest = self.altitude_adjusted_destination or self.destination_position
-				local start_pos = current_position
-				
-				-- Try to get previous sector from route
-				if self.current_global_route and #self.current_global_route > 0 and self.current_route_index > 1 then
-					local prev_sector_key = self.current_global_route[self.current_route_index - 1]
-					local prev_sector_pos = self:SectorKeyToPosition(prev_sector_key)
-					
-					if prev_sector_pos and not self.temp_blocked_sectors[prev_sector_key] then
-						start_pos = prev_sector_pos
-						self.log_obj:Record(LogLevel.Info, string.format(
-							"Replanning from previous sector %s", prev_sector_key))
-					else
-						self.log_obj:Record(LogLevel.Warning, "Previous sector unavailable, planning from current position")
-					end
-				else
-					self.log_obj:Record(LogLevel.Warning, "No previous sector in route, planning from current position")
-				end
-				
-				-- Replan route
-				self.current_global_route = self:PlanGlobalRoute(start_pos, target_dest)
-				self.current_route_index = 1
-				self.last_route_plan_time = current_time
-				self.last_repulsion_replan_time = current_time
-				
-				self.log_obj:Record(LogLevel.Info, "Route replanned due to critical obstacle")
-			end
-		end
+		local navigation_vector = self:TangentBugNavigate(current_position, dest_dir_vector, current_time)
 
 		-- Set direction vector for movement
 		self.search_range = self.autopilot_searching_range
@@ -1289,7 +1218,8 @@ function AV:AutoPilot()
 			base_speed_rate = 0.5  -- Moderate slowdown
 		end
 		
-		self.auto_speed_reduce_rate = base_speed_rate
+		-- Combine with proximity-based speed from TangentBug (take the more conservative value)
+		self.auto_speed_reduce_rate = math.min(base_speed_rate, self.auto_speed_reduce_rate)
 
 		-- speed control
 		if self.auto_speed_reduce_rate < self.autopilot_min_speed_rate then
@@ -1301,27 +1231,38 @@ function AV:AutoPilot()
 		local autopilot_speed = self.autopilot_speed * self.auto_speed_reduce_rate
 		local fix_direction_vector = Vector4.new(autopilot_speed * direction_vector.x / direction_vector_norm, autopilot_speed * direction_vector.y / direction_vector_norm, autopilot_speed * direction_vector.z / direction_vector_norm, 1)
 
-		-- yaw control - use navigation vector instead of destination for obstacle avoidance
+		-- yaw control
 		local vehicle_angle = self:GetForward()
 		local vehicle_angle_norm = Vector4.Length(vehicle_angle)
 		local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
-		
-		-- Use navigation_vector direction for yaw (so vehicle faces avoidance direction)
+
+		-- Compute raw yaw target from navigation vector
+		local yaw_target_raw = yaw_vehicle
 		local yaw_target_vector = navigation_vector
 		local yaw_target_vector_norm = Vector4.Length(yaw_target_vector)
-		local yaw_dist = yaw_vehicle
 		if yaw_target_vector_norm > 0.001 then
-			yaw_dist = math.atan2(yaw_target_vector.y / yaw_target_vector_norm, yaw_target_vector.x / yaw_target_vector_norm) * 180 / Pi()
+			yaw_target_raw = math.atan2(yaw_target_vector.y / yaw_target_vector_norm, yaw_target_vector.x / yaw_target_vector_norm) * 180 / Pi()
 		end
-		local yaw_diff = yaw_dist - yaw_vehicle
-		if yaw_diff > 180 then
-			yaw_diff = yaw_diff - 360
-		elseif yaw_diff < -180 then
-			yaw_diff = yaw_diff + 360
+
+		-- Low-pass filter: initialize on first tick, then blend toward raw target
+		if not self.yaw_target_smoothed then
+			self.yaw_target_smoothed = yaw_target_raw
 		end
-		local yaw_diff_half = yaw_diff * self.autopilot_turn_speed
-		if math.abs(yaw_diff_half) < 0.1 then
-			yaw_diff_half = yaw_diff
+		-- Shortest-path angular blend (handle 180° wrap)
+		local yaw_delta_raw = yaw_target_raw - self.yaw_target_smoothed
+		if yaw_delta_raw > 180 then yaw_delta_raw = yaw_delta_raw - 360
+		elseif yaw_delta_raw < -180 then yaw_delta_raw = yaw_delta_raw + 360 end
+		self.yaw_target_smoothed = self.yaw_target_smoothed + yaw_delta_raw * self.yaw_smooth_alpha
+
+		-- Error between vehicle heading and smoothed target
+		local yaw_diff = self.yaw_target_smoothed - yaw_vehicle
+		if yaw_diff > 180 then yaw_diff = yaw_diff - 360
+		elseif yaw_diff < -180 then yaw_diff = yaw_diff + 360 end
+
+		-- Dead zone: suppress micro-corrections
+		local yaw_diff_half = 0
+		if math.abs(yaw_diff) > self.yaw_deadzone_deg then
+			yaw_diff_half = yaw_diff * self.autopilot_turn_speed
 		end
 
 		-- Override yaw control for dead-end escape mode (minimize rotation during escape)
@@ -2667,17 +2608,9 @@ function AV:GetNeighborSectors(sector_key)
 	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
 	
 	local neighbors = {}
-	-- 26-directional neighbors for complete 3D connectivity
+	-- 6 cardinal directions only: all equal distance (1 sector = 25m)
 	local offsets = {
-		-- 6 cardinal directions
 		{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
-		-- 12 edge neighbors
-		{1, 1, 0}, {1, -1, 0}, {-1, 1, 0}, {-1, -1, 0},
-		{1, 0, 1}, {1, 0, -1}, {-1, 0, 1}, {-1, 0, -1},
-		{0, 1, 1}, {0, 1, -1}, {0, -1, 1}, {0, -1, -1},
-		-- 8 corner neighbors
-		{1, 1, 1}, {1, 1, -1}, {1, -1, 1}, {1, -1, -1},
-		{-1, 1, 1}, {-1, 1, -1}, {-1, -1, 1}, {-1, -1, -1},
 	}
 	
 	for _, offset in ipairs(offsets) do
@@ -2692,7 +2625,7 @@ end
 --- Calculate heuristic (estimated cost) from sector to goal
 ---@param sector_key string Current sector key
 ---@param goal_key string Goal sector key
----@return number Estimated cost (Euclidean distance)
+---@return number Estimated cost (weighted Euclidean distance)
 function AV:CalculateHeuristic(sector_key, goal_key)
 	if not sector_key or not goal_key then return 9999 end
 	
@@ -2704,12 +2637,13 @@ function AV:CalculateHeuristic(sector_key, goal_key)
 	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
 	gx, gy, gz = tonumber(gx), tonumber(gy), tonumber(gz)
 	
-	-- Euclidean distance (more accurate for 3D flight)
 	local dx = gx - sx
 	local dy = gy - sy
 	local dz = gz - sz
 	
-	return math.sqrt(dx*dx + dy*dy + dz*dz)
+	-- Manhattan distance: admissible heuristic for 6-direction grid
+	-- Each step costs exactly 1.0, so Manhattan = minimum possible moves → finds optimal path
+	return math.abs(dx) + math.abs(dy) + math.abs(dz)
 end
 
 --- Get movement cost between two adjacent sectors
@@ -2737,25 +2671,19 @@ function AV:GetSectorMovementCost(from_key, to_key)
 		return base_cost * 10000000.0
 	end
 	
-	-- NEW: Check connectivity (version 4)
-	-- If there's no direct path from source to destination, block the route
+	-- Check connectivity (version 4)
 	local from_sector = self.sector_database.sectors[from_key]
 	if from_sector and from_sector.connections then
 		local direction_key = string.format("%d_%d_%d", dx, dy, dz)
 		local is_passable = from_sector.connections[direction_key]
 		
 		if is_passable == false then
-			-- No connection: path is blocked by obstacles
+			-- Explicitly blocked by scan data: hard block
 			return base_cost * 10000000.0
-		elseif is_passable == nil then
-			-- Connection not scanned yet: treat as unknown (moderate penalty)
-			self.log_obj:Record(LogLevel.Trace, string.format(
-				"Connection %s->%s (%s) not scanned, applying moderate penalty",
-				from_key, to_key, direction_key))
-			return base_cost * 5.0
 		end
-		-- is_passable == true: continue with normal cost calculation
+		-- is_passable == true OR nil (no data): treat as passable, use normal cost
 	end
+	-- Sector has no data at all: treat all connections as valid (passable)
 	
 	-- Check temporarily blocked sectors (from stall detection)
 	if self.temp_blocked_sectors[to_key] then
@@ -2808,7 +2736,7 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 	g_score[start_key] = 0
 	f_score[start_key] = self:CalculateHeuristic(start_key, end_key)
 	
-	local max_iterations = 2000  -- Increased limit
+	local max_iterations = 5000  -- Increased limit for larger maps
 	local iterations = 0
 	
 	while next(open_set) ~= nil and iterations < max_iterations do
@@ -2850,26 +2778,23 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 		open_set[current] = nil
 		closed_set[current] = true
 		
-		-- Evaluate neighbors (14 directions: 6 cardinal + 8 corners)
+		-- Evaluate neighbors (6 cardinal directions: ±X, ±Y, ±Z)
 		local neighbors = self:GetNeighborSectors(current)
 		for _, neighbor in ipairs(neighbors) do
 			if not closed_set[neighbor] then
 				local tentative_g = (g_score[current] or math.huge) + 
 					self:GetSectorMovementCost(current, neighbor)
 				
-				if not open_set[neighbor] then
-					open_set[neighbor] = true
-				elseif tentative_g >= (g_score[neighbor] or math.huge) then
-					goto continue  -- Not a better path
-				end
+				local existing_g = g_score[neighbor] or math.huge
 				
-				-- This path is the best so far
-				came_from[neighbor] = current
-				g_score[neighbor] = tentative_g
-				f_score[neighbor] = tentative_g + self:CalculateHeuristic(neighbor, end_key)
+				if tentative_g < existing_g then
+					-- Found a better path to this neighbor
+					came_from[neighbor] = current
+					g_score[neighbor] = tentative_g
+					f_score[neighbor] = tentative_g + self:CalculateHeuristic(neighbor, end_key)
+					open_set[neighbor] = true
+				end
 			end
-			
-			::continue::
 		end
 	end
 	
@@ -3007,14 +2932,8 @@ end
 function AV:CalculateLocalRepulsion(current_pos, dest_dir)
 	if not current_pos or not dest_dir then
 		self.log_obj:Record(LogLevel.Warning, "CalculateLocalRepulsion: Invalid input parameters")
-		return Vector4.Zero(), 0, 0, Vector4.Zero()
+		return Vector4.Zero(), 0, 0, Vector4.Zero(), math.huge
 	end
-	
-	-- Debug: Log function entry (Trace level)
-	self.log_obj:Record(LogLevel.Trace, string.format(
-		"CalculateLocalRepulsion called: %d rays available, avoidance=%s, filters=%d",
-		#self.local_ray_angles, tostring(self.local_avoidance_enabled),
-		self.weak_collision_filters and #self.weak_collision_filters or 0))
 	
 	-- Ensure collision filters are initialized
 	if not self.weak_collision_filters or #self.weak_collision_filters == 0 then
@@ -3024,12 +2943,15 @@ function AV:CalculateLocalRepulsion(current_pos, dest_dir)
 	
 	local repulsion_vector = Vector4.Zero()
 	local ray_hit_count = 0
+	local min_obstacle_distance = math.huge
 	
-	-- Cast rays in all spherical directions
+	-- Cast rays: forward hemisphere only
+	-- Skip rays pointing more than 120 degrees backward (dot < -0.5)
 	for _, ray_dir in ipairs(self.local_ray_angles) do
-		local ray_vector = Vector4.new(ray_dir.x, ray_dir.y, ray_dir.z, 1)
+		-- Forward hemisphere filter: exclude rays pointing strongly backward
+		local dot_fwd = ray_dir.x * dest_dir.x + ray_dir.y * dest_dir.y + ray_dir.z * dest_dir.z
+		if dot_fwd < -0.5 then goto continue_ray end
 		
-		-- Calculate target position for raycast
 		local target_pos = Vector4.new(
 			current_pos.x + ray_dir.x * self.local_ray_distance,
 			current_pos.y + ray_dir.y * self.local_ray_distance,
@@ -3037,106 +2959,83 @@ function AV:CalculateLocalRepulsion(current_pos, dest_dir)
 			1
 		)
 		
-		-- Direct raycast using game's spatial query system
 		local is_collision = false
 		local collision_distance = nil
 		
-		-- Check against all collision filters
 		for _, filter in ipairs(self.weak_collision_filters) do
 			local hit_success, hit_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(
 				current_pos, target_pos, filter, false, false)
 			
 			if hit_success then
 				is_collision = true
-				-- Calculate distance from hit position
 				if hit_result and hit_result.position then
 					local dx = hit_result.position.x - current_pos.x
 					local dy = hit_result.position.y - current_pos.y
 					local dz = hit_result.position.z - current_pos.z
-					collision_distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-					
-					-- Debug: Reduced logging
+					collision_distance = math.sqrt(dx*dx + dy*dy + dz*dz)
 				else
-					-- Fallback: assume collision at max distance
 					collision_distance = self.local_ray_distance * 0.9
 				end
-				break  -- Found collision, no need to check other filters
+				break
 			end
 		end
 		
 		if is_collision and collision_distance then
-			-- Ensure collision_distance is a number
-			local distance = tonumber(collision_distance) or collision_distance
-			if type(distance) ~= "number" then
-				-- Skip if distance is not a valid number
-				goto continue_ray
-			end
+			local distance = tonumber(collision_distance)
+			if type(distance) ~= "number" then goto continue_ray end
 			
 			ray_hit_count = ray_hit_count + 1
+			if distance < min_obstacle_distance then
+				min_obstacle_distance = distance
+			end
 			
-			-- Calculate repulsion force (exponentially stronger when closer)
-			local safe_distance = self.local_min_obstacle_distance
-			
-			-- Apply repulsion if within safe distance OR detection range
+			-- Distance-based repulsion strength
+			-- Calibrated so 12m zone is clearly maintained and 8m triggers retreat
 			if distance < self.local_ray_distance then
-				local distance_ratio = distance / self.local_ray_distance
+				local strength = 0
 				
-				-- Non-linear repulsion: exponential increase as obstacle gets closer
-				-- Formula: strength = base * (1 - distance_ratio)^4 (even more aggressive curve)
-				local repulsion_strength = self.local_repulsion_strength * math.pow(1.0 - distance_ratio, 4.0)
-				
-				-- Extra strong repulsion if within minimum safe distance
-				if distance < safe_distance then
-					repulsion_strength = repulsion_strength * 5.0  -- 5x strength in danger zone to avoid stalling
+				if distance < 3.0 then
+					-- CRITICAL (<3m): extreme repulsion
+					strength = self.local_repulsion_strength * 50.0 * math.pow(1.0 - distance / 3.0, 4.0)
+				elseif distance < 8.0 then
+					-- DANGER (3-8m): strong repulsion, steer away hard
+					strength = self.local_repulsion_strength * 8.0 * math.pow(1.0 - distance / 8.0, 3.0)
+				elseif distance < 12.0 then
+					-- WARNING (8-12m): maintain safety zone, moderate push
+					strength = self.local_repulsion_strength * 2.0 * math.pow(1.0 - distance / 12.0, 2.0)
+				elseif distance < 20.0 then
+					-- CAUTION (12-20m): gentle awareness
+					strength = self.local_repulsion_strength * 0.4 * math.pow(1.0 - distance / 20.0, 2.0)
+				else
+					-- FAR (20-25m): very light early warning
+					strength = self.local_repulsion_strength * 0.05 * (1.0 - distance / self.local_ray_distance)
 				end
 				
-				-- Apply repulsion in opposite direction of ray
-				repulsion_vector.x = repulsion_vector.x - ray_dir.x * repulsion_strength
-				repulsion_vector.y = repulsion_vector.y - ray_dir.y * repulsion_strength
-				repulsion_vector.z = repulsion_vector.z - ray_dir.z * repulsion_strength
+				repulsion_vector.x = repulsion_vector.x - ray_dir.x * strength
+				repulsion_vector.y = repulsion_vector.y - ray_dir.y * strength
+				repulsion_vector.z = repulsion_vector.z - ray_dir.z * strength
 			end
 		end
 		
 		::continue_ray::
 	end
 	
-	-- Debug: Log raycast results (Trace level)
-	self.log_obj:Record(LogLevel.Trace, string.format(
-		"Raycast complete: %d/%d rays hit obstacles",
-		ray_hit_count, #self.local_ray_angles))
-	
-	-- Calculate repulsion magnitude for weighting
 	local repulsion_magnitude = math.sqrt(
-		repulsion_vector.x * repulsion_vector.x + 
-		repulsion_vector.y * repulsion_vector.y + 
+		repulsion_vector.x * repulsion_vector.x +
+		repulsion_vector.y * repulsion_vector.y +
 		repulsion_vector.z * repulsion_vector.z
 	)
 	
-	self.log_obj:Record(LogLevel.Trace, string.format(
-		"Repulsion calculated: magnitude=%.2f from %d hits",
-		repulsion_magnitude, ray_hit_count))
-	
-	-- Emergency avoidance mode: if very close obstacles detected, ignore destination
+	-- Combine repulsion with attraction toward destination
+	-- Reduce attraction as obstacles get closer
 	local attraction_weight = self.local_attraction_strength
-	local is_emergency = false
-	
-	if repulsion_magnitude > 1.5 then
-		-- EMERGENCY: Very strong repulsion means immediate danger
-		-- Completely disable attraction and use pure repulsion
-		attraction_weight = 0.0
-		is_emergency = true
-		self.log_obj:Record(LogLevel.Debug, string.format(
-			"EMERGENCY obstacle avoidance: repulsion=%.2f, rays=%d/%d - using pure repulsion",
-			repulsion_magnitude, ray_hit_count, #self.local_ray_angles))
-	elseif repulsion_magnitude > 1.0 then
-		-- Strong repulsion: heavily reduce attraction
-		attraction_weight = attraction_weight * math.max(0.1, 1.0 - repulsion_magnitude * 0.3)
-	elseif repulsion_magnitude > 0.1 then
-		-- Moderate repulsion: reduce attraction
-		attraction_weight = attraction_weight * math.max(0.4, 1.0 - repulsion_magnitude * 0.2)
+	if min_obstacle_distance < 8.0 then
+		attraction_weight = 0.0  -- Near collision: pure repulsion
+	elseif min_obstacle_distance < 12.0 then
+		-- Scale down attraction in safety zone
+		attraction_weight = attraction_weight * ((min_obstacle_distance - 8.0) / 4.0)
 	end
 	
-	-- Add attraction to destination (unless in emergency mode)
 	local attraction_vector = Vector4.new(
 		dest_dir.x * attraction_weight,
 		dest_dir.y * attraction_weight,
@@ -3144,7 +3043,6 @@ function AV:CalculateLocalRepulsion(current_pos, dest_dir)
 		0
 	)
 	
-	-- Combine repulsion and attraction
 	local combined_vector = Vector4.new(
 		repulsion_vector.x + attraction_vector.x,
 		repulsion_vector.y + attraction_vector.y,
@@ -3152,35 +3050,13 @@ function AV:CalculateLocalRepulsion(current_pos, dest_dir)
 		1
 	)
 	
-	-- Normalize if not zero (but keep stronger magnitude in emergency)
-	if not combined_vector:IsZero() then
-		if is_emergency and repulsion_magnitude > 1.5 then
-			-- In emergency, keep the repulsion strength (don't normalize to length 1)
-			-- This creates stronger avoidance force
-			local scale = math.min(repulsion_magnitude, 10.0)  -- Cap at 10x normal strength for strong avoidance
-			combined_vector = Vector4.Normalize(combined_vector)
-			combined_vector.x = combined_vector.x * scale
-			combined_vector.y = combined_vector.y * scale
-			combined_vector.z = combined_vector.z * scale
-			combined_vector = Vector4.Normalize(combined_vector)  -- Normalize again for direction only
-		else
-			combined_vector = Vector4.Normalize(combined_vector)
-		end
-	else
-		-- If no repulsion needed, use destination direction
+	if combined_vector:IsZero() then
 		combined_vector = dest_dir
+	else
+		combined_vector = Vector4.Normalize(combined_vector)
 	end
 	
-	-- Log significant repulsion events for debugging
-	if repulsion_magnitude > 1.5 then
-		self.log_obj:Record(LogLevel.Debug, string.format(
-			"Strong obstacle proximity: magnitude=%.2f, rays=%d/%d - local avoidance active",
-			repulsion_magnitude, ray_hit_count, #self.local_ray_angles))
-	end
-	
-	-- Return both navigation vector, repulsion magnitude, ray count, and RAW repulsion vector
-	-- Raw repulsion vector (before normalization) is needed for route bias direction calculation
-	return combined_vector, repulsion_magnitude, ray_hit_count, repulsion_vector
+	return combined_vector, repulsion_magnitude, ray_hit_count, repulsion_vector, min_obstacle_distance
 end
 
 --- Save sector database to file
@@ -3811,6 +3687,400 @@ function AV:ConsolidateMemory()
 	if self.log_obj then
 		self.log_obj:Record(LogLevel.Info, "Flight completed, sector data saved")
 	end
+end
+
+--- 3D Tangent Bug: cast a fan of rays in a cone around center_dir
+--- Returns min distance hit among all rays, and the averaged normal of blocked rays
+--- half_angle_deg: cone half-angle in degrees, n_rings: 1=center only, 2=center+ring
+function AV:RaycastFanMin(from_pos, center_dir, max_dist, half_angle_deg, n_extra)
+	if not from_pos or not center_dir then return max_dist, nil end
+	-- Build a small orthonormal basis around center_dir
+	local ref
+	if math.abs(center_dir.z) < 0.9 then
+		ref = Vector4.new(0, 0, 1, 0)
+	else
+		ref = Vector4.new(1, 0, 0, 0)
+	end
+	local b1x = ref.y*center_dir.z - ref.z*center_dir.y
+	local b1y = ref.z*center_dir.x - ref.x*center_dir.z
+	local b1z = ref.x*center_dir.y - ref.y*center_dir.x
+	local b1l = math.sqrt(b1x*b1x + b1y*b1y + b1z*b1z)
+	if b1l < 0.001 then return self:RaycastDist(from_pos, center_dir, max_dist), nil end
+	b1x, b1y, b1z = b1x/b1l, b1y/b1l, b1z/b1l
+	local b2x = center_dir.y*b1z - center_dir.z*b1y
+	local b2y = center_dir.z*b1x - center_dir.x*b1z
+	local b2z = center_dir.x*b1y - center_dir.y*b1x
+	-- Rays: center + n_extra evenly around the cone rim
+	local angle_rad = math.rad(half_angle_deg)
+	local sin_a, cos_a = math.sin(angle_rad), math.cos(angle_rad)
+	local dirs = {center_dir}
+	for i = 0, (n_extra or 4) - 1 do
+		local phi = (2 * math.pi * i) / (n_extra or 4)
+		local cp, sp = math.cos(phi), math.sin(phi)
+		dirs[#dirs+1] = Vector4.new(
+			cos_a*center_dir.x + sin_a*(cp*b1x + sp*b2x),
+			cos_a*center_dir.y + sin_a*(cp*b1y + sp*b2y),
+			cos_a*center_dir.z + sin_a*(cp*b1z + sp*b2z), 0)
+	end
+	local min_dist = max_dist
+	local blocked_nx, blocked_ny, blocked_nz, blocked_count = 0, 0, 0, 0
+	for _, d in ipairs(dirs) do
+		local dist = self:RaycastDist(from_pos, d, max_dist)
+		if dist < min_dist then min_dist = dist end
+		if dist < max_dist * 0.98 then
+			-- Accumulate inward normals of hit rays
+			blocked_nx = blocked_nx - d.x
+			blocked_ny = blocked_ny - d.y
+			blocked_nz = blocked_nz - d.z
+			blocked_count = blocked_count + 1
+		end
+	end
+	local avg_normal = nil
+	if blocked_count > 0 then
+		local nl = math.sqrt(blocked_nx*blocked_nx + blocked_ny*blocked_ny + blocked_nz*blocked_nz)
+		if nl > 0.001 then
+			avg_normal = Vector4.new(blocked_nx/nl, blocked_ny/nl, blocked_nz/nl, 0)
+		end
+	end
+	return min_dist, avg_normal
+end
+
+--- 3D Tangent Bug: single directional raycast
+--- Returns distance to first obstacle hit, or max_dist if clear
+function AV:RaycastDist(from_pos, dir_normalized, max_dist)
+	if not from_pos or not dir_normalized then return max_dist end
+	local target = Vector4.new(
+		from_pos.x + dir_normalized.x * max_dist,
+		from_pos.y + dir_normalized.y * max_dist,
+		from_pos.z + dir_normalized.z * max_dist, 1)
+	for _, filter in ipairs(self.weak_collision_filters) do
+		local hit, result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(
+			from_pos, target, filter, false, false)
+		if hit then
+			if result and result.position then
+				local dx = result.position.x - from_pos.x
+				local dy = result.position.y - from_pos.y
+				local dz = result.position.z - from_pos.z
+				return math.sqrt(dx*dx + dy*dy + dz*dz)
+			else
+				return max_dist * 0.9
+			end
+		end
+	end
+	return max_dist
+end
+
+--- 3D Tangent Bug: generate N directions evenly spaced in plane perpendicular to obstacle_normal
+--- Returns list of normalized Vector4 directions
+function AV:GeneratePerpDirs(obstacle_normal, n)
+	-- Build two orthogonal basis vectors in the perpendicular plane
+	local ref
+	if math.abs(obstacle_normal.z) < 0.9 then
+		ref = Vector4.new(0, 0, 1, 0)
+	else
+		ref = Vector4.new(1, 0, 0, 0)
+	end
+	-- basis1 = ref x normal (cross product, normalized)
+	local b1x = ref.y * obstacle_normal.z - ref.z * obstacle_normal.y
+	local b1y = ref.z * obstacle_normal.x - ref.x * obstacle_normal.z
+	local b1z = ref.x * obstacle_normal.y - ref.y * obstacle_normal.x
+	local b1len = math.sqrt(b1x*b1x + b1y*b1y + b1z*b1z)
+	if b1len < 0.001 then return {} end
+	b1x, b1y, b1z = b1x/b1len, b1y/b1len, b1z/b1len
+	-- basis2 = normal x basis1
+	local b2x = obstacle_normal.y * b1z - obstacle_normal.z * b1y
+	local b2y = obstacle_normal.z * b1x - obstacle_normal.x * b1z
+	local b2z = obstacle_normal.x * b1y - obstacle_normal.y * b1x
+	local b2len = math.sqrt(b2x*b2x + b2y*b2y + b2z*b2z)
+	if b2len < 0.001 then return {} end
+	b2x, b2y, b2z = b2x/b2len, b2y/b2len, b2z/b2len
+	-- Sample n directions evenly around the circle in the perpendicular plane
+	local dirs = {}
+	for i = 0, n - 1 do
+		local angle = (2 * math.pi * i) / n
+		local c, s = math.cos(angle), math.sin(angle)
+		dirs[i + 1] = Vector4.new(
+			c * b1x + s * b2x,
+			c * b1y + s * b2y,
+			c * b1z + s * b2z, 0)
+	end
+	return dirs
+end
+
+--- 3D Tangent Bug: find best passable direction to follow obstacle boundary toward goal
+--- Candidates are in the plane perpendicular to obstacle_normal
+--- Returns best normalized Vector4, or nil if all blocked
+function AV:FindBestBoundaryDir(current_pos, dest_dir, obstacle_normal)
+	local n = 16             -- candidate directions
+	local min_clear = 12.0   -- minimum clearance (m) to be considered passable
+	local ray_range = 35.0   -- raycast range for candidates
+	local candidates = self:GeneratePerpDirs(obstacle_normal, n)
+	local best_dir = nil
+	local best_score = -math.huge
+	for _, dir in ipairs(candidates) do
+		-- Blend slightly away from the obstacle (avoid hugging it)
+		local bx = dir.x - obstacle_normal.x * 0.3
+		local by = dir.y - obstacle_normal.y * 0.3
+		local bz = dir.z - obstacle_normal.z * 0.3
+		local blen = math.sqrt(bx*bx + by*by + bz*bz)
+		local blended
+		if blen > 0.001 then
+			blended = Vector4.new(bx/blen, by/blen, bz/blen, 0)
+		else
+			blended = dir
+		end
+		local dist = self:RaycastDist(current_pos, blended, ray_range)
+		if dist >= min_clear then
+			-- Score = goal progress component + small clearance bonus
+			local goal_dot = blended.x * dest_dir.x + blended.y * dest_dir.y + blended.z * dest_dir.z
+			local clearance_bonus = math.min(dist / ray_range, 1.0) * 0.2
+			local score = goal_dot + clearance_bonus
+			if score > best_score then
+				best_score = score
+				best_dir = blended
+			end
+		end
+	end
+	return best_dir
+end
+
+--- Get approximate rear-left and rear-right corner positions of the vehicle
+--- Based on current heading. Used to detect rear corner clips during turns.
+function AV:GetRearCornerPositions(current_pos)
+	local veh_fwd = self:GetForward()
+	local fwd_len = math.sqrt(veh_fwd.x^2 + veh_fwd.y^2)
+	if fwd_len < 0.001 then
+		return current_pos, current_pos
+	end
+	local fx = veh_fwd.x / fwd_len
+	local fy = veh_fwd.y / fwd_len
+	-- Right vector in XY plane (perpendicular to forward)
+	local rx = -fy
+	local ry =  fx
+	local half_rear = self.collision_check_rear_distance   -- center to rear face
+	local half_wid  = self.collision_check_side_distance   -- center to side face
+	local rear_left = Vector4.new(
+		current_pos.x - fx*half_rear - rx*half_wid,
+		current_pos.y - fy*half_rear - ry*half_wid,
+		current_pos.z, 1)
+	local rear_right = Vector4.new(
+		current_pos.x - fx*half_rear + rx*half_wid,
+		current_pos.y - fy*half_rear + ry*half_wid,
+		current_pos.z, 1)
+	return rear_left, rear_right
+end
+
+--- Returns front-left and front-right corner positions (horizontal plane)
+--- Uses collision_check_front_distance and collision_check_side_distance from model data
+function AV:GetFrontCornerPositions(current_pos)
+	local veh_fwd = self:GetForward()
+	local fwd_len = math.sqrt(veh_fwd.x^2 + veh_fwd.y^2)
+	if fwd_len < 0.001 then
+		return current_pos, current_pos
+	end
+	local fx = veh_fwd.x / fwd_len
+	local fy = veh_fwd.y / fwd_len
+	-- Right vector in XY plane
+	local rx = -fy
+	local ry =  fx
+	local half_fwd = self.collision_check_front_distance   -- center to front face
+	local half_wid = self.collision_check_side_distance    -- center to side face
+	local front_left = Vector4.new(
+		current_pos.x + fx*half_fwd - rx*half_wid,
+		current_pos.y + fy*half_fwd - ry*half_wid,
+		current_pos.z, 1)
+	local front_right = Vector4.new(
+		current_pos.x + fx*half_fwd + rx*half_wid,
+		current_pos.y + fy*half_fwd + ry*half_wid,
+		current_pos.z, 1)
+	return front_left, front_right
+end
+
+--- 3D Tangent Bug main navigation function
+--- Returns normalized Vector4 movement direction for this tick
+function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
+	if not current_pos or not dest_dir_vec then
+		return Vector4.new(1, 0, 0, 0)
+	end
+
+	-- Normalize destination direction
+	local dest_len = math.sqrt(dest_dir_vec.x^2 + dest_dir_vec.y^2 + dest_dir_vec.z^2)
+	if dest_len < 0.001 then return Vector4.new(1, 0, 0, 0) end
+	local dest_dir = Vector4.new(
+		dest_dir_vec.x / dest_len,
+		dest_dir_vec.y / dest_len,
+		dest_dir_vec.z / dest_len, 0)
+
+	-- Stuck detection: accumulate time when not moving
+	if self.tangent_last_pos then
+		local moved = math.sqrt(
+			(current_pos.x - self.tangent_last_pos.x)^2 +
+			(current_pos.y - self.tangent_last_pos.y)^2 +
+			(current_pos.z - self.tangent_last_pos.z)^2)
+		if moved < 0.2 then
+			self.tangent_stuck_timer = self.tangent_stuck_timer + DAV.time_resolution
+		else
+			self.tangent_stuck_timer = 0
+			self.tangent_stuck_escape_time = 0  -- Reset escape if moving
+		end
+	end
+	self.tangent_last_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
+
+	-- Stuck escape: ascend vertically for tangent_stuck_escape_dur seconds
+	if self.tangent_stuck_timer >= self.tangent_stuck_threshold then
+		if self.tangent_stuck_escape_time == 0 then
+			self.tangent_stuck_escape_time = current_time
+			self.log_obj:Record(LogLevel.Warning, string.format(
+				"TangentBug: STUCK (%.1fs without movement) - ascending to escape",
+				self.tangent_stuck_timer))
+		end
+		if current_time - self.tangent_stuck_escape_time < self.tangent_stuck_escape_dur then
+			return Vector4.new(0, 0, 1, 0)  -- Pure upward escape
+		else
+			-- Escape finished: reset and resume DIRECT mode
+			self.tangent_stuck_timer = 0
+			self.tangent_stuck_escape_time = 0
+			self.tangent_mode = "DIRECT"
+			self.log_obj:Record(LogLevel.Info, "TangentBug: stuck escape complete, resuming DIRECT")
+		end
+	end
+
+	-- Speed-proportional detection distance: faster = look further ahead
+	-- At 10m/s → 25m, at 25m/s → 50m, at 48m/s → 96m
+	local detect_dist = math.max(25.0, self.autopilot_speed * 2.0)
+	-- enter_dist: must be large enough to brake/turn in time
+	-- rule of thumb: speed * 1.0 second, minimum 15m
+	local enter_dist = math.max(15.0, self.autopilot_speed * 1.0)
+	-- exit_dist: hysteresis = enter + 10m, so we don't toggle rapidly
+	local exit_dist = enter_dist + 12.0
+
+	-- Forward fan detection: 5 rays in a 20° cone around dest_dir
+	-- This covers vehicle width and slight approach angles
+	local fwd_dist, hit_normal = self:RaycastFanMin(current_pos, dest_dir, detect_dist, 20, 4)
+
+	-- Check all 4 corners of the vehicle rectangle (horizontal) moving in dest_dir
+	-- Use detect_dist (not enter_dist) so obstacle-free corners reach the cap value
+	-- and don't falsely drag effective_fwd_dist down to enter_dist.
+	local rear_left,  rear_right  = self:GetRearCornerPositions(current_pos)
+	local front_left, front_right = self:GetFrontCornerPositions(current_pos)
+	local corner_range = detect_dist  -- must match center ray range to avoid false clamp
+	local rear_left_dist   = self:RaycastDist(rear_left,   dest_dir, corner_range)
+	local rear_right_dist  = self:RaycastDist(rear_right,  dest_dir, corner_range)
+	local front_left_dist  = self:RaycastDist(front_left,  dest_dir, corner_range)
+	local front_right_dist = self:RaycastDist(front_right, dest_dir, corner_range)
+	-- Effective forward distance is the worst of center + all 4 corners
+	local effective_fwd_dist = math.min(fwd_dist, rear_left_dist, rear_right_dist, front_left_dist, front_right_dist)
+
+	-- Speed reduction based on proximity: slow down well before the obstacle
+	-- At 2× enter_dist → full speed. At enter_dist → 40% speed.
+	local proximity_ratio = effective_fwd_dist / (enter_dist * 2.0)
+	if proximity_ratio < 1.0 then
+		self.auto_speed_reduce_rate = math.max(0.2, proximity_ratio * 0.6 + 0.2)
+	else
+		self.auto_speed_reduce_rate = 0.7  -- normal cruising rate
+	end
+
+	-- === DIRECT mode: fly straight toward goal ===
+	if self.tangent_mode == "DIRECT" then
+		if effective_fwd_dist > enter_dist then
+			-- Path is clear: continue straight
+			return dest_dir
+		end
+		-- Obstacle detected: estimate face normal from hit rays
+		if hit_normal then
+			self.tangent_obstacle_normal = hit_normal
+		else
+			self.tangent_obstacle_normal = Vector4.new(-dest_dir.x, -dest_dir.y, -dest_dir.z, 0)
+		end
+		self.tangent_mode = "BOUNDARY"
+		self.tangent_mode_start_time = current_time
+		self.tangent_boundary_dir = nil
+		self.tangent_entry_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"TangentBug: DIRECT->BOUNDARY (eff=%.1fm [fwd=%.1fm FL=%.1fm FR=%.1fm RL=%.1fm RR=%.1fm], enter=%.1fm)",
+			effective_fwd_dist, fwd_dist, front_left_dist, front_right_dist, rear_left_dist, rear_right_dist, enter_dist))
+	end
+
+	-- === BOUNDARY mode: follow obstacle surface ===
+	-- Keep updating the obstacle normal from real-time ray data
+	if hit_normal then
+		self.tangent_obstacle_normal = hit_normal
+	end
+
+	-- Timeout guard: reset to DIRECT if stuck in boundary too long
+	if current_time - self.tangent_mode_start_time > self.tangent_boundary_timeout then
+		self.tangent_mode = "DIRECT"
+		self.tangent_boundary_dir = nil
+		self.log_obj:Record(LogLevel.Warning, string.format(
+			"TangentBug: BOUNDARY timeout (%.0fs) -> DIRECT",
+			self.tangent_boundary_timeout))
+		return dest_dir
+	end
+
+	-- Exit condition: forward path is clear AND we have moved past the obstacle
+	-- Requires both:
+	--   1. fwd_dist > exit_dist  (obstacle no longer directly ahead)
+	--   2. moved >= enter_dist   (have actually navigated around, not just turned sideways)
+	if fwd_dist > exit_dist then
+		local moved_from_entry = 0
+		if self.tangent_entry_pos then
+			local dx = current_pos.x - self.tangent_entry_pos.x
+			local dy = current_pos.y - self.tangent_entry_pos.y
+			local dz = current_pos.z - self.tangent_entry_pos.z
+			moved_from_entry = math.sqrt(dx*dx + dy*dy + dz*dz)
+		end
+		if moved_from_entry >= enter_dist then
+			self.tangent_mode = "DIRECT"
+			self.tangent_entry_pos = nil
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"TangentBug: BOUNDARY->DIRECT (fwd=%.1fm, moved=%.1fm >= %.1fm)",
+				fwd_dist, moved_from_entry, enter_dist))
+			return dest_dir
+		else
+			self.log_obj:Record(LogLevel.Debug, string.format(
+				"TangentBug: fwd clear but not past obstacle yet (moved=%.1fm / %.1fm needed)",
+				moved_from_entry, enter_dist))
+		end
+	end
+
+	-- Find best passable direction along obstacle boundary toward goal
+	local best_dir = self:FindBestBoundaryDir(current_pos, dest_dir, self.tangent_obstacle_normal)
+	if best_dir then
+		-- Verify the chosen boundary direction is clear for center AND rear corners.
+		-- Front corners are excluded: when hugging an obstacle they already sit beside
+		-- the wall, so a side-ward boundary ray from them always returns a short dist.
+		-- Rear corners catch the tail-swing hazard which is the real concern here.
+		local boundary_clearance  = self:RaycastDist(current_pos, best_dir, 10.0)
+		local rear_left_boundary  = self:RaycastDist(rear_left,   best_dir, 8.0)
+		local rear_right_boundary = self:RaycastDist(rear_right,  best_dir, 8.0)
+		local min_clearance = math.min(boundary_clearance, rear_left_boundary, rear_right_boundary)
+		if min_clearance < 5.0 then
+			self.log_obj:Record(LogLevel.Warning, string.format(
+				"TangentBug: boundary dir blocked (ctr=%.1fm RL=%.1fm RR=%.1fm), seeking alternative",
+				boundary_clearance, rear_left_boundary, rear_right_boundary))
+			-- Fall through to keep previous or escape
+		else
+			self.tangent_boundary_dir = best_dir
+			self.log_obj:Record(LogLevel.Debug, string.format(
+				"TangentBug: BOUNDARY dir=(%.2f,%.2f,%.2f) fwd=%.1fm min_clear=%.1fm",
+				best_dir.x, best_dir.y, best_dir.z, fwd_dist, min_clearance))
+			return best_dir
+		end
+	end
+
+	-- All boundary candidates blocked: keep previous direction or escape upward
+	if self.tangent_boundary_dir then
+		-- Verify previous dir is still safe
+		local prev_clearance = self:RaycastDist(current_pos, self.tangent_boundary_dir, 8.0)
+		if prev_clearance > 4.0 then
+			self.log_obj:Record(LogLevel.Warning, "TangentBug: all new candidates blocked, keeping previous boundary dir")
+			return self.tangent_boundary_dir
+		end
+	end
+
+	-- Last resort: pure upward
+	self.log_obj:Record(LogLevel.Warning, "TangentBug: no valid direction found, ascending")
+	return Vector4.new(0, 0, 1, 0)
 end
 
 --- Save learning data to JSON file
