@@ -228,6 +228,20 @@ function AV:New(core_obj)
 	obj.tangent_stuck_escape_time = 0     -- Timestamp when stuck-escape ascent started (0 = not escaping)
 	obj.tangent_stuck_escape_dur = 3.0    -- Seconds to ascend vertically during stuck escape
 	obj.tangent_entry_pos = nil           -- Position where BOUNDARY mode was entered (for progress check)
+	obj.tangent_direct_start_pos = nil    -- Position when DIRECT mode began (for cooldown after BOUNDARY)
+	obj.tangent_direct_cooldown_dist = 20.0 -- Must travel this far in DIRECT before re-entering BOUNDARY
+
+	-- 3D Obstacle Map: records confirmed obstacle positions across flights
+	obj.obstacle_map          = {}          -- key = "cx_cy_cz", value = {count=N}
+	obj.obstacle_cell_size    = 12.0        -- Grid cell size in meters (≈ vehicle length)
+	obj.obstacle_map_path     = "Data/obstacle_map.json"
+	obj.obstacle_min_hits     = 2           -- Min confirmed hits before a cell is "known obstacle"
+	obj.route_save_path       = "Data/last_route.json"  -- Last A* route for visualization
+
+	-- Obstacle map recording (toggled from debug menu)
+	obj.is_obstacle_map_recording  = false   -- When true, scan rays during ANY driving (not just autopilot)
+	obj.obstacle_record_interval   = 0.2     -- Seconds between scan ticks during recording
+	obj.obstacle_record_range      = 35.0    -- Raycast range during scan (m)
 
 	-- Yaw smoothing
 	obj.yaw_target_smoothed = nil         -- Smoothed yaw target angle (degrees), nil = not initialized
@@ -1125,6 +1139,7 @@ function AV:AutoPilot()
 	self.tangent_stuck_timer = 0
 	self.tangent_stuck_escape_time = 0
 	self.tangent_entry_pos = nil
+	self.tangent_direct_start_pos = nil
 	-- Yaw smoothing reset
 	self.yaw_target_smoothed = nil
 
@@ -1136,6 +1151,8 @@ function AV:AutoPilot()
 	self.current_route_index = 1
 	self.last_route_plan_time = os.clock()
 	self.altitude_adjusted_destination = altitude_adjusted_destination
+	-- Save route for external visualization
+	self:SaveLastRoute(self.current_global_route, current_position, altitude_adjusted_destination)
 
 	-- autopilot loop
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
@@ -1161,21 +1178,71 @@ function AV:AutoPilot()
 		
 		-- NEW: Update sector visit
 		self:UpdateSectorVisit(current_position)
-		
-		-- Calculate destination vector (local variable)
-		local dest_dir_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
+
+		-- Distance to final destination.
+		-- For arrival check, Z is clipped (being above target is OK):
+		-- horizontal proximity is enough to trigger landing.
+		local ddx = destination_position.x - current_position.x
+		local ddy = destination_position.y - current_position.y
+		local ddz = destination_position.z - current_position.z
+		local horiz_to_final = math.sqrt(ddx*ddx + ddy*ddy)
+		local dist_to_final_arr = math.sqrt(ddx*ddx + ddy*ddy + (ddz < 0 and 0 or ddz*ddz))
+
+		-- === A* Route Waypoint Following ===
+		-- Advance waypoint index when vehicle reaches current waypoint.
+		-- This makes the vehicle actually fly along the A*-planned route
+		-- instead of heading straight to the final destination.
+		-- NOTE: advance threshold uses HORIZONTAL distance only, because dest_dir_vector.z
+		-- is clipped to 0 when target is below → vehicle can't descend to waypoint Z,
+		-- so 3D distance would never reach the threshold even when horizontally arrived.
+		local nav_target = destination_position  -- fallback: aim at final dest
+		if #self.current_global_route > 0 and horiz_to_final > self.sector_size * 1.5 then
+			local advance_thr = self.sector_size * 0.9  -- ~22 m for sector_size=25
+			while self.current_route_index <= #self.current_global_route do
+				local wp_key = self.current_global_route[self.current_route_index]
+				local wp_pos = self:SectorKeyToPosition(wp_key)
+				if wp_pos then
+					local wdx = current_position.x - wp_pos.x
+					local wdy = current_position.y - wp_pos.y
+					local horiz_to_wp = math.sqrt(wdx*wdx + wdy*wdy)  -- horizontal only
+					if horiz_to_wp < advance_thr then
+						self.log_obj:Record(LogLevel.Debug, string.format(
+							"Route: waypoint %d/%d reached (%s), advancing",
+							self.current_route_index, #self.current_global_route, wp_key))
+						self.current_route_index = self.current_route_index + 1
+					else
+						nav_target = wp_pos  -- aim at this waypoint
+						break
+					end
+				else
+					self.current_route_index = self.current_route_index + 1
+				end
+			end
+			-- All waypoints passed → aim directly at final destination
+			if self.current_route_index > #self.current_global_route then
+				nav_target = destination_position
+			end
+		end
+
+		-- Calculate destination vector toward current nav target (A* waypoint or final dest)
+		local dest_dir_vector = Vector4.new(
+			nav_target.x - current_position.x,
+			nav_target.y - current_position.y,
+			nav_target.z - current_position.z, 1)
 		if self.autopilot_is_only_horizontal then
 			dest_dir_vector.z = 0
 		elseif dest_dir_vector.z < 0 then
 			dest_dir_vector.z = 0
 		end
+		-- dest_dir_vector_norm: distance to current nav target (waypoint or final dest)
 		self.dest_dir_vector_norm = Vector4.Length(dest_dir_vector)
 
 		-- Update exception area bypass status based on distance to destination
 		self:UpdateExceptionAreaBypass()
 
-		-- check destination
-		if self.dest_dir_vector_norm < self.destination_range then
+		-- check destination: use horizontal + upward-only Z so that being above target
+		-- at flight altitude doesn't prevent arrival detection
+		if dist_to_final_arr < self.destination_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:AutoLanding(current_position.z - destination_position.z + self.destination_z_offset)
@@ -2283,8 +2350,9 @@ function AV:InitializeSectorSystem()
 		-- Initialize spherical ray pattern for local avoidance
 		self:GenerateSphericalRayPattern()
 		
-		-- Load sector database
+		-- Load sector database and obstacle map
 		self:LoadSectorData()
+		self:LoadObstacleMap()
 		
 		local sector_count = 0
 		if self.sector_database.sectors then
@@ -2587,6 +2655,7 @@ function AV:CheckForStall(current_position, current_time)
 				self.current_global_route = self:PlanGlobalRoute(start_pos, target_dest)
 				self.current_route_index = 1
 				self.last_route_plan_time = current_time
+				self:SaveLastRoute(self.current_global_route, current_position, target_dest)
 				self.log_obj:Record(LogLevel.Info, "Route replanned to avoid stalled sector")
 			end
 			
@@ -2700,7 +2769,31 @@ function AV:GetSectorMovementCost(from_key, to_key)
 		end
 	end
 	
-	return base_cost * accessibility_penalty
+	-- Obstacle map penalty: check all obstacle cells that overlap this sector
+	-- sector_size=25m, cell_size=12m → ~2×2×2 cells per sector; sample 8 quadrant points
+	local obstacle_penalty = 1.0
+	if next(self.obstacle_map) then
+		local cs  = self.obstacle_cell_size
+		local ss  = self.sector_size
+		local max_hits = 0
+		for _, fx in ipairs({0.2, 0.5, 0.8}) do
+			for _, fy in ipairs({0.2, 0.5, 0.8}) do
+				for _, fz in ipairs({0.25, 0.75}) do
+					local wx = (tx + fx) * ss
+					local wy = (ty + fy) * ss
+					local wz = (tz + fz) * ss
+					local ckey = math.floor(wx/cs) .. "_" .. math.floor(wy/cs) .. "_" .. math.floor(wz/cs)
+					local cell = self.obstacle_map[ckey]
+					if cell and cell.count > max_hits then max_hits = cell.count end
+				end
+			end
+		end
+		if max_hits >= self.obstacle_min_hits then
+			obstacle_penalty = 1.0 + math.min(max_hits / 2.0, 5.0)  -- 2 hits → 2×, 12+ hits → 6×
+		end
+	end
+
+	return base_cost * accessibility_penalty * obstacle_penalty
 end
 
 --- Plan global route using A* algorithm
@@ -2847,6 +2940,45 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 	end
 	
 	return self:PlanStraightLineRoute(start_pos, end_pos)
+end
+
+--- Save the last planned A* route to JSON for external visualization.
+---@param route table List of sector keys ("sx_sy_sz")
+---@param start_pos Vector4 Actual start world position
+---@param end_pos Vector4 Actual end world position
+function AV:SaveLastRoute(route, start_pos, end_pos)
+	if not route or #route == 0 then return end
+	local ok, err = pcall(function()
+		-- Build waypoint list: store both the key and the world-space centre
+		local waypoints = {}
+		for i, key in ipairs(route) do
+			local wpos = self:SectorKeyToPosition(key)
+			waypoints[i] = {
+				key = key,
+				wx  = wpos and wpos.x or 0,
+				wy  = wpos and wpos.y or 0,
+				wz  = wpos and wpos.z or 0,
+			}
+		end
+		local data = {
+			version     = 1,
+			sector_size = self.sector_size,
+			timestamp   = os.time(),
+			start_pos   = {x = start_pos.x, y = start_pos.y, z = start_pos.z},
+			end_pos     = {x = end_pos.x,   y = end_pos.y,   z = end_pos.z},
+			waypoints   = waypoints,
+		}
+		local file = io.open(self.route_save_path, "w")
+		if file then
+			file:write(json.encode(data))
+			file:close()
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"Route saved: %d waypoints -> %s", #route, self.route_save_path))
+		end
+	end)
+	if not ok then
+		self.log_obj:Record(LogLevel.Warning, "SaveLastRoute failed: " .. tostring(err))
+	end
 end
 
 --- Plan straight-line route as fallback
@@ -3681,8 +3813,9 @@ end
 --- Consolidate short-term memory into long-term memory (call on flight end)
 --- NOTE: This function is deprecated. Sector navigation system handles persistence automatically.
 function AV:ConsolidateMemory()
-	-- Save sector data when flight ends
+	-- Save sector data and obstacle map when flight ends
 	self:SaveSectorData()
+	self:SaveObstacleMap()
 	
 	if self.log_obj then
 		self.log_obj:Record(LogLevel.Info, "Flight completed, sector data saved")
@@ -3722,11 +3855,11 @@ function AV:RaycastFanMin(from_pos, center_dir, max_dist, half_angle_deg, n_extr
 			cos_a*center_dir.y + sin_a*(cp*b1y + sp*b2y),
 			cos_a*center_dir.z + sin_a*(cp*b1z + sp*b2z), 0)
 	end
-	local min_dist = max_dist
+	local all_dists = {}
 	local blocked_nx, blocked_ny, blocked_nz, blocked_count = 0, 0, 0, 0
 	for _, d in ipairs(dirs) do
 		local dist = self:RaycastDist(from_pos, d, max_dist)
-		if dist < min_dist then min_dist = dist end
+		all_dists[#all_dists+1] = dist
 		if dist < max_dist * 0.98 then
 			-- Accumulate inward normals of hit rays
 			blocked_nx = blocked_nx - d.x
@@ -3735,6 +3868,11 @@ function AV:RaycastFanMin(from_pos, center_dir, max_dist, half_angle_deg, n_extr
 			blocked_count = blocked_count + 1
 		end
 	end
+	-- Use the 2nd-minimum distance: at least 2 rays must be blocked before
+	-- reporting a short distance back to the caller.  A single ray clipping a
+	-- thin pillar or building edge won't falsely shrink the returned distance.
+	table.sort(all_dists)
+	local effective_dist = all_dists[2] or all_dists[1] or max_dist
 	local avg_normal = nil
 	if blocked_count > 0 then
 		local nl = math.sqrt(blocked_nx*blocked_nx + blocked_ny*blocked_ny + blocked_nz*blocked_nz)
@@ -3742,7 +3880,7 @@ function AV:RaycastFanMin(from_pos, center_dir, max_dist, half_angle_deg, n_extr
 			avg_normal = Vector4.new(blocked_nx/nl, blocked_ny/nl, blocked_nz/nl, 0)
 		end
 	end
-	return min_dist, avg_normal
+	return effective_dist, avg_normal
 end
 
 --- 3D Tangent Bug: single directional raycast
@@ -3761,13 +3899,13 @@ function AV:RaycastDist(from_pos, dir_normalized, max_dist)
 				local dx = result.position.x - from_pos.x
 				local dy = result.position.y - from_pos.y
 				local dz = result.position.z - from_pos.z
-				return math.sqrt(dx*dx + dy*dy + dz*dz)
+				return math.sqrt(dx*dx + dy*dy + dz*dz), result.position
 			else
-				return max_dist * 0.9
+				return max_dist * 0.9, nil
 			end
 		end
 	end
-	return max_dist
+	return max_dist, nil
 end
 
 --- 3D Tangent Bug: generate N directions evenly spaced in plane perpendicular to obstacle_normal
@@ -3812,36 +3950,193 @@ end
 --- Returns best normalized Vector4, or nil if all blocked
 function AV:FindBestBoundaryDir(current_pos, dest_dir, obstacle_normal)
 	local n = 16             -- candidate directions
-	local min_clear = 12.0   -- minimum clearance (m) to be considered passable
 	local ray_range = 35.0   -- raycast range for candidates
 	local candidates = self:GeneratePerpDirs(obstacle_normal, n)
-	local best_dir = nil
-	local best_score = -math.huge
+
+	-- Pre-compute blended directions: push AWAY from obstacle (+normal, not -normal)
+	-- obstacle_normal points from obstacle toward vehicle (outward), so adding it
+	-- nudges each candidate away from the wall to avoid hugging.
+	local blended_dirs = {}
 	for _, dir in ipairs(candidates) do
-		-- Blend slightly away from the obstacle (avoid hugging it)
-		local bx = dir.x - obstacle_normal.x * 0.3
-		local by = dir.y - obstacle_normal.y * 0.3
-		local bz = dir.z - obstacle_normal.z * 0.3
+		local bx = dir.x + obstacle_normal.x * 0.3
+		local by = dir.y + obstacle_normal.y * 0.3
+		local bz = dir.z + obstacle_normal.z * 0.3
 		local blen = math.sqrt(bx*bx + by*by + bz*bz)
-		local blended
 		if blen > 0.001 then
-			blended = Vector4.new(bx/blen, by/blen, bz/blen, 0)
+			blended_dirs[#blended_dirs+1] = Vector4.new(bx/blen, by/blen, bz/blen, 0)
 		else
-			blended = dir
+			blended_dirs[#blended_dirs+1] = dir
 		end
-		local dist = self:RaycastDist(current_pos, blended, ray_range)
-		if dist >= min_clear then
-			-- Score = goal progress component + small clearance bonus
-			local goal_dot = blended.x * dest_dir.x + blended.y * dest_dir.y + blended.z * dest_dir.z
-			local clearance_bonus = math.min(dist / ray_range, 1.0) * 0.2
-			local score = goal_dot + clearance_bonus
-			if score > best_score then
-				best_score = score
-				best_dir = blended
+	end
+
+	-- Try progressively relaxed clearance thresholds to avoid returning nil
+	-- in tight spaces (narrow passages, concave geometry).
+	local thresholds = {12.0, 8.0, 4.0}
+	for _, min_clear in ipairs(thresholds) do
+		local best_dir = nil
+		local best_score = -math.huge
+		for _, blended in ipairs(blended_dirs) do
+			local dist = self:RaycastDist(current_pos, blended, ray_range)
+			if dist >= min_clear then
+				local goal_dot = blended.x * dest_dir.x + blended.y * dest_dir.y + blended.z * dest_dir.z
+				local clearance_bonus = math.min(dist / ray_range, 1.0) * 0.2
+				local density_penalty = self:GetObstacleDensityAlongRay(current_pos, blended, ray_range) * 0.3
+				local score = goal_dot + clearance_bonus - density_penalty
+				if score > best_score then
+					best_score = score
+					best_dir = blended
+				end
+			end
+		end
+		if best_dir then
+			return best_dir
+		end
+	end
+	return nil
+end
+
+--- ============================================================================
+--- Obstacle Map Functions
+--- ============================================================================
+
+--- Record a confirmed obstacle hit position into the obstacle map grid
+function AV:RecordObstacleHit(hit_pos)
+	if not hit_pos then return end
+	local cs = self.obstacle_cell_size
+	local cx = math.floor(hit_pos.x / cs)
+	local cy = math.floor(hit_pos.y / cs)
+	local cz = math.floor(hit_pos.z / cs)
+	local key = cx .. "_" .. cy .. "_" .. cz
+	if not self.obstacle_map[key] then
+		self.obstacle_map[key] = {count = 0}
+	end
+	self.obstacle_map[key].count = self.obstacle_map[key].count + 1
+end
+
+--- Get maximum obstacle cell hit count along a ray (normalized 0-1, 5 hits = 1.0)
+function AV:GetObstacleDensityAlongRay(from_pos, dir, max_dist)
+	local cs = self.obstacle_cell_size
+	local steps = math.max(1, math.floor(max_dist / cs))
+	local max_count = 0
+	for i = 1, steps do
+		local d = i * cs
+		local key = math.floor((from_pos.x + dir.x*d)/cs) .. "_"
+				 .. math.floor((from_pos.y + dir.y*d)/cs) .. "_"
+				 .. math.floor((from_pos.z + dir.z*d)/cs)
+		local cell = self.obstacle_map[key]
+		if cell and cell.count > max_count then max_count = cell.count end
+	end
+	return math.min(max_count / 5.0, 1.0)
+end
+
+--- Save obstacle map to JSON file (only cells with >= obstacle_min_hits, capped at 5000)
+function AV:SaveObstacleMap()
+	local ok, err = pcall(function()
+		local cells = {}
+		for k, v in pairs(self.obstacle_map) do
+			if v.count >= self.obstacle_min_hits then
+				cells[#cells+1] = {key=k, count=v.count}
+			end
+		end
+		table.sort(cells, function(a,b) return a.count > b.count end)
+		local save_cells = {}
+		for i = 1, math.min(#cells, 5000) do
+			save_cells[cells[i].key] = cells[i].count
+		end
+		local file = io.open(self.obstacle_map_path, "w")
+		if file then
+			file:write(json.encode({version=1, cell_size=self.obstacle_cell_size, cells=save_cells}))
+			file:close()
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"Obstacle map saved: %d confirmed cells", #cells))
+		end
+	end)
+	if not ok then
+		self.log_obj:Record(LogLevel.Warning, "SaveObstacleMap failed: " .. tostring(err))
+	end
+end
+
+--- Load obstacle map from JSON file
+function AV:LoadObstacleMap()
+	local ok, err = pcall(function()
+		local file = io.open(self.obstacle_map_path, "r")
+		if not file then return end
+		local raw = file:read("*all")
+		file:close()
+		if not raw or raw == "" then return end
+		local data = json.decode(raw)
+		if not (data and data.version == 1 and data.cells) then return end
+		self.obstacle_cell_size = data.cell_size or 12.0
+		self.obstacle_map = {}
+		local n = 0
+		for k, count in pairs(data.cells) do
+			self.obstacle_map[k] = {count = count}
+			n = n + 1
+		end
+		self.log_obj:Record(LogLevel.Info, string.format("Obstacle map loaded: %d cells", n))
+	end)
+	if not ok then
+		self.log_obj:Record(LogLevel.Warning, "LoadObstacleMap failed: " .. tostring(err))
+	end
+end
+
+--- ============================================================================
+--- Obstacle Map Recording (runs during any driving when enabled via debug menu)
+--- ============================================================================
+
+--- Cast rays in 16 fixed world-space directions and record hits in obstacle map.
+--- Called by the recording Cron timer started via StartObstacleRecording().
+function AV:RecordObstacleScan()
+	if self.entity_id == nil then return end
+	local pos = self:GetPosition()
+	if pos == nil then return end
+
+	-- 16 horizontal directions (every 22.5°) + up + down  = 18 rays per tick
+	local range = self.obstacle_record_range
+	local dirs = {}
+	for i = 0, 7 do
+		local a = math.rad(i * 45)
+		dirs[#dirs+1] = {x = math.cos(a), y = math.sin(a), z =  0}
+		dirs[#dirs+1] = {x = math.cos(a), y = math.sin(a), z =  0.5}  -- angled up
+		dirs[#dirs+1] = {x = math.cos(a), y = math.sin(a), z = -0.3}  -- angled down
+	end
+	dirs[#dirs+1] = {x = 0, y = 0, z =  1}  -- straight up
+	dirs[#dirs+1] = {x = 0, y = 0, z = -1}  -- straight down
+
+	for _, d in ipairs(dirs) do
+		local len = math.sqrt(d.x*d.x + d.y*d.y + d.z*d.z)
+		if len > 0.001 then
+			local nd = Vector4.new(d.x/len, d.y/len, d.z/len, 0)
+			local dist, hit = self:RaycastDist(pos, nd, range)
+			-- Only record if NOT at max range (i.e., something was actually hit)
+			if dist < range - 0.5 and hit then
+				self:RecordObstacleHit(hit)
 			end
 		end
 	end
-	return best_dir
+end
+
+--- Start continuous obstacle recording (independent of autopilot).
+--- Registers a Cron timer; subsequent calls while already running are no-ops.
+function AV:StartObstacleRecording()
+	if self.is_obstacle_map_recording then return end
+	self.is_obstacle_map_recording = true
+	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STARTED")
+	Cron.Every(self.obstacle_record_interval, function(timer)
+		if not self.is_obstacle_map_recording then
+			Cron.Halt(timer)
+			return
+		end
+		self:RecordObstacleScan()
+	end)
+end
+
+--- Stop continuous obstacle recording and persist the map.
+function AV:StopObstacleRecording()
+	if not self.is_obstacle_map_recording then return end
+	self.is_obstacle_map_recording = false
+	self:SaveObstacleMap()
+	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STOPPED and saved")
 end
 
 --- Get approximate rear-left and rear-right corner positions of the vehicle
@@ -3946,35 +4241,46 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 	end
 
 	-- Speed-proportional detection distance: faster = look further ahead
-	-- At 10m/s → 25m, at 25m/s → 50m, at 48m/s → 96m
-	local detect_dist = math.max(25.0, self.autopilot_speed * 2.0)
-	-- enter_dist: must be large enough to brake/turn in time
-	-- rule of thumb: speed * 1.0 second, minimum 15m
-	local enter_dist = math.max(15.0, self.autopilot_speed * 1.0)
-	-- exit_dist: hysteresis = enter + 10m, so we don't toggle rapidly
-	local exit_dist = enter_dist + 12.0
+	-- At 10m/s → 20m, at 25m/s → 50m, at 48m/s → 96m
+	local detect_dist = math.max(20.0, self.autopilot_speed * 2.0)
+	-- enter_dist: trigger BOUNDARY when obstacle closer than this.
+	-- Reduced to speed*0.6 (was *1.0) so A*-selected corridors are not
+	-- prematurely blocked.  Still ≥10m minimum for low-speed safety.
+	local enter_dist = math.max(10.0, self.autopilot_speed * 0.6)
+	-- exit_dist: hysteresis = enter + 8m
+	local exit_dist = enter_dist + 8.0
 
 	-- Forward fan detection: 5 rays in a 20° cone around dest_dir
 	-- This covers vehicle width and slight approach angles
 	local fwd_dist, hit_normal = self:RaycastFanMin(current_pos, dest_dir, detect_dist, 20, 4)
 
-	-- Check all 4 corners of the vehicle rectangle (horizontal) moving in dest_dir
-	-- Use detect_dist (not enter_dist) so obstacle-free corners reach the cap value
-	-- and don't falsely drag effective_fwd_dist down to enter_dist.
+	-- Check rear corners of the vehicle rectangle moving in dest_dir.
+	-- Front corners are intentionally excluded from DIRECT triggering:
+	-- they are already offset forward+sideways, so flying parallel to building walls
+	-- always returns ~enter_dist from them, causing constant false BOUNDARY entries in corridors.
+	-- Rear corners are still needed to catch tail-swing clips during turns.
+	-- Front corners are only used later for BOUNDARY validation (see below).
 	local rear_left,  rear_right  = self:GetRearCornerPositions(current_pos)
 	local front_left, front_right = self:GetFrontCornerPositions(current_pos)
-	local corner_range = detect_dist  -- must match center ray range to avoid false clamp
-	local rear_left_dist   = self:RaycastDist(rear_left,   dest_dir, corner_range)
-	local rear_right_dist  = self:RaycastDist(rear_right,  dest_dir, corner_range)
-	local front_left_dist  = self:RaycastDist(front_left,  dest_dir, corner_range)
-	local front_right_dist = self:RaycastDist(front_right, dest_dir, corner_range)
-	-- Effective forward distance is the worst of center + all 4 corners
-	local effective_fwd_dist = math.min(fwd_dist, rear_left_dist, rear_right_dist, front_left_dist, front_right_dist)
+	local rear_left_dist  = self:RaycastDist(rear_left,  dest_dir, detect_dist)
+	local rear_right_dist = self:RaycastDist(rear_right, dest_dir, detect_dist)
+	-- For log reporting + body-clear check, record front corner distances too
+	local front_left_dist  = self:RaycastDist(front_left,  dest_dir, detect_dist)
+	local front_right_dist = self:RaycastDist(front_right, dest_dir, detect_dist)
+	-- Effective forward distance: center fan + rear corners only
+	local effective_fwd_dist = math.min(fwd_dist, rear_left_dist, rear_right_dist)
 
-	-- Speed reduction based on proximity: slow down well before the obstacle
-	-- At 2× enter_dist → full speed. At enter_dist → 40% speed.
+	-- Body-clear check: if ALL 4 corners are beyond enter_dist, the vehicle body can
+	-- physically pass through even if the center fan ray clips something (e.g. a thin
+	-- pillar, building edge, or terrain artifact only in the exact forward direction).
+	-- In that case we skip BOUNDARY entry entirely to prevent false-positive stalls.
+	local body_clear = (front_left_dist  > enter_dist and front_right_dist > enter_dist and
+	                    rear_left_dist   > enter_dist and rear_right_dist  > enter_dist)
+
+	-- Speed reduction based on proximity: slow down well before the obstacle.
+	-- Only apply if body is actually threatened (not body_clear).
 	local proximity_ratio = effective_fwd_dist / (enter_dist * 2.0)
-	if proximity_ratio < 1.0 then
+	if not body_clear and proximity_ratio < 1.0 then
 		self.auto_speed_reduce_rate = math.max(0.2, proximity_ratio * 0.6 + 0.2)
 	else
 		self.auto_speed_reduce_rate = 0.7  -- normal cruising rate
@@ -3982,23 +4288,56 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 
 	-- === DIRECT mode: fly straight toward goal ===
 	if self.tangent_mode == "DIRECT" then
+		-- Cooldown: after exiting BOUNDARY, require tangent_direct_cooldown_dist of travel
+		-- before allowing BOUNDARY re-entry (prevents rapid oscillation on same obstacle).
+		-- An emergency override skips cooldown only when imminent collision is detected.
+		local direct_traveled = math.huge  -- infinity = no cooldown if start_pos not set
+		if self.tangent_direct_start_pos then
+			local dx = current_pos.x - self.tangent_direct_start_pos.x
+			local dy = current_pos.y - self.tangent_direct_start_pos.y
+			local dz = current_pos.z - self.tangent_direct_start_pos.z
+			direct_traveled = math.sqrt(dx*dx + dy*dy + dz*dz)
+		end
+		local in_cooldown   = direct_traveled < self.tangent_direct_cooldown_dist
+		local emergency_thr = enter_dist * 0.4  -- ~7-10 m: imminent collision threshold
+
 		if effective_fwd_dist > enter_dist then
 			-- Path is clear: continue straight
 			return dest_dir
+		elseif body_clear then
+			-- Center fan clips something but all 4 corners are clear:
+			-- the vehicle body can physically pass → ignore the false-positive hit.
+			self.log_obj:Record(LogLevel.Debug, string.format(
+				"TangentBug: DIRECT body-clear skip (fwd=%.1fm < enter=%.1fm but all corners OK)",
+				fwd_dist, enter_dist))
+			return dest_dir
+		elseif in_cooldown and effective_fwd_dist > emergency_thr then
+			-- Not an emergency and we just left BOUNDARY: suppress re-entry
+			self.log_obj:Record(LogLevel.Debug, string.format(
+				"TangentBug: DIRECT cooldown (trav=%.1fm/%.1fm, eff=%.1fm > emer=%.1fm)",
+				direct_traveled, self.tangent_direct_cooldown_dist, effective_fwd_dist, emergency_thr))
+			return dest_dir
 		end
-		-- Obstacle detected: estimate face normal from hit rays
+		-- Obstacle detected (or emergency): estimate face normal from hit rays
 		if hit_normal then
 			self.tangent_obstacle_normal = hit_normal
 		else
 			self.tangent_obstacle_normal = Vector4.new(-dest_dir.x, -dest_dir.y, -dest_dir.z, 0)
 		end
+		-- Record the estimated obstacle hit position in the 3D obstacle map
+		self:RecordObstacleHit(Vector4.new(
+			current_pos.x + dest_dir.x * effective_fwd_dist,
+			current_pos.y + dest_dir.y * effective_fwd_dist,
+			current_pos.z + dest_dir.z * effective_fwd_dist, 1))
 		self.tangent_mode = "BOUNDARY"
 		self.tangent_mode_start_time = current_time
 		self.tangent_boundary_dir = nil
 		self.tangent_entry_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
+		self.tangent_direct_start_pos = nil  -- cooldown resets; re-armed on BOUNDARY->DIRECT
 		self.log_obj:Record(LogLevel.Info, string.format(
-			"TangentBug: DIRECT->BOUNDARY (eff=%.1fm [fwd=%.1fm FL=%.1fm FR=%.1fm RL=%.1fm RR=%.1fm], enter=%.1fm)",
-			effective_fwd_dist, fwd_dist, front_left_dist, front_right_dist, rear_left_dist, rear_right_dist, enter_dist))
+			"TangentBug: DIRECT->BOUNDARY (eff=%.1fm [fwd=%.1fm FL=%.1fm FR=%.1fm RL=%.1fm RR=%.1fm], enter=%.1fm, cooldown=%s)",
+			effective_fwd_dist, fwd_dist, front_left_dist, front_right_dist, rear_left_dist, rear_right_dist, enter_dist,
+			in_cooldown and "BYPASSED(emergency)" or "n/a"))
 	end
 
 	-- === BOUNDARY mode: follow obstacle surface ===
@@ -4032,8 +4371,10 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 		if moved_from_entry >= enter_dist then
 			self.tangent_mode = "DIRECT"
 			self.tangent_entry_pos = nil
+			-- Arm the re-entry cooldown from this position
+			self.tangent_direct_start_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
 			self.log_obj:Record(LogLevel.Info, string.format(
-				"TangentBug: BOUNDARY->DIRECT (fwd=%.1fm, moved=%.1fm >= %.1fm)",
+				"TangentBug: BOUNDARY->DIRECT (fwd=%.1fm, moved=%.1fm >= %.1fm, cooldown armed)",
 				fwd_dist, moved_from_entry, enter_dist))
 			return dest_dir
 		else

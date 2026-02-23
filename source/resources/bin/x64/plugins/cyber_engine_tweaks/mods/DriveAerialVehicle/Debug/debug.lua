@@ -24,6 +24,7 @@ function Debug:New(core_obj)
     obj.is_im_gui_auto_pilot_exception_area = false
     obj.is_im_gui_check_setting_param = false
     obj.is_im_gui_sector_danger_scanner = false
+    obj.is_im_gui_obstacle_map = false
     obj.selected_sound = "100_call_vehicle"
     obj.fade_time = 1.5
     obj.exception_area_entity_list = {}
@@ -56,6 +57,7 @@ function Debug:ImGuiMain()
     self:ImGuiAutoPilotExceptionArea()
     self:ImGuiCheckSettingParam()
     self:ImGuiSectorDangerScanner()
+    self:ImGuiObstacleMap()
     self:ImGuiExcuteFunction()
 
     ImGui.End()
@@ -840,6 +842,86 @@ function Debug:ImGuiSectorDangerScanner()
             end
         end
     end
+end
+
+function Debug:ImGuiObstacleMap()
+    self.is_im_gui_obstacle_map = ImGui.Checkbox("[ImGui] 3D Obstacle Map", self.is_im_gui_obstacle_map)
+    if not self.is_im_gui_obstacle_map then return end
+
+    local av_obj = self.core_obj.av_obj
+    if not av_obj then
+        ImGui.Text("AV object not available")
+        return
+    end
+
+    ImGui.Text("=== 3D Obstacle Map ===")
+    ImGui.Text("Records raycast hits during ANY driving (manual or autopilot).")
+    ImGui.Text("Data is used by A* route planner to avoid known obstacle areas.")
+    ImGui.Separator()
+
+    -- Stats
+    local cell_count = 0
+    local confirmed_count = 0
+    for _, v in pairs(av_obj.obstacle_map) do
+        cell_count = cell_count + 1
+        if v.count >= av_obj.obstacle_min_hits then
+            confirmed_count = confirmed_count + 1
+        end
+    end
+    ImGui.Text(string.format("Total cells tracked : %d", cell_count))
+    ImGui.Text(string.format("Confirmed obstacles : %d  (hits >= %d)",
+        confirmed_count, av_obj.obstacle_min_hits))
+    ImGui.Text(string.format("Cell size           : %.0f m", av_obj.obstacle_cell_size))
+    ImGui.Text(string.format("Record range        : %.0f m", av_obj.obstacle_record_range))
+    ImGui.Text(string.format("Record interval     : %.2f s", av_obj.obstacle_record_interval))
+    ImGui.Separator()
+
+    -- Recording toggle
+    if av_obj.is_obstacle_map_recording then
+        ImGui.PushStyleColor(ImGuiCol.Button, 0.7, 0.1, 0.1, 1.0)
+        if ImGui.Button("STOP Recording") then
+            av_obj:StopObstacleRecording()
+        end
+        ImGui.PopStyleColor(1)
+        ImGui.SameLine()
+        ImGui.Text("<< Recording active >>")
+    else
+        ImGui.PushStyleColor(ImGuiCol.Button, 0.1, 0.5, 0.1, 1.0)
+        if ImGui.Button("START Recording") then
+            av_obj:StartObstacleRecording()
+        end
+        ImGui.PopStyleColor(1)
+    end
+    ImGui.Separator()
+
+    -- Min hits slider
+    local changed
+    av_obj.obstacle_min_hits, changed = ImGui.SliderInt(
+        "Min hits (confirmed)", av_obj.obstacle_min_hits, 1, 10)
+    av_obj.obstacle_record_range, changed = ImGui.SliderFloat(
+        "Record range (m)", av_obj.obstacle_record_range, 10.0, 60.0)
+    ImGui.Separator()
+
+    -- Save / Load / Clear
+    if ImGui.Button("Save Obstacle Map") then
+        av_obj:SaveObstacleMap()
+        print("Obstacle map saved to " .. av_obj.obstacle_map_path)
+    end
+    ImGui.SameLine()
+    if ImGui.Button("Load Obstacle Map") then
+        av_obj:LoadObstacleMap()
+        print("Obstacle map loaded from " .. av_obj.obstacle_map_path)
+    end
+    ImGui.SameLine()
+    if ImGui.Button("Clear Map") then
+        av_obj.obstacle_map = {}
+        print("Obstacle map cleared (not saved)")
+    end
+
+    ImGui.Separator()
+    ImGui.TextDisabled("Tip: drive around the city with recording ON.")
+    ImGui.TextDisabled("A* autopilot will avoid confirmed obstacle sectors.")
+    ImGui.TextDisabled("Use Tools/visualize_obstacle_map.py to view 3D map.")
 end
 
 function Debug:ImGuiExcuteFunction()
