@@ -154,46 +154,11 @@ function AV:New(core_obj)
 
 	-- === NEW: Sector-Based Navigation System ===
 	-- Global route planning (sector-based)
-	obj.sector_size = 25                          -- Sector size: 25m x 25m x 25m
-	obj.sector_database = {
-		version = 4,                               -- Version 4: Connectivity-based system (26-direction passability)
-		sector_size = 25,
-		total_flights = 0,
-		sectors = {},                              -- Hash map: key = "x_y_z", value = {connections = {"dx_dy_dz" = boolean}}
-		max_sectors = 10000,
-		save_interval = 300,
-		database_path = "Data/sector_danger_map.json",
-		last_save_time = 0,
-	}
+	obj.sector_size = 20                          -- Sector size: 20m x 20m x 20m
 	obj.current_global_route = {}                 -- Current planned route (list of sector coordinates)
 	obj.current_route_index = 1                   -- Current position in route
 	obj.route_replan_interval = 10                -- Replan route every N seconds
 	obj.last_route_plan_time = 0
-	
-	-- Stall detection for dynamic blocking (temporary, until destination reached)
-	obj.stall_detection_enabled = false           -- Disabled: no automatic stall detection
-	obj.stall_position_history = {}               -- Last N positions for stall detection
-	obj.stall_history_size = 30                   -- Number of positions to track (3 seconds at 10Hz)
-	obj.stall_distance_threshold = 5.0            -- If traveled < 5m in 3 seconds, consider stalled
-	obj.stall_check_interval = 3.0                -- Check every 3 seconds
-	obj.last_stall_check_time = 0
-	obj.temp_blocked_sectors = {}                 -- Temporarily blocked sectors (cleared on destination arrival)
-	obj.stall_escape_until = 0                    -- Timestamp until which emergency escape maneuver is active
-
-	-- Retreat behavior when blocked
-	obj.is_retreating = false                     -- Currently retreating to previous sector
-	obj.retreat_target_position = nil             -- Target position for retreat (previous sector)
-	obj.retreat_start_time = 0                    -- When retreat started
-	obj.retreat_arrival_threshold = 3.0           -- Distance to consider arrived at retreat target (meters) - high precision for connection accuracy
-	obj.last_retreat_check_time = 0
-	obj.retreat_check_cooldown = 0.5              -- Cooldown between retreat checks (seconds)
-	obj.sustained_repulsion_start_time = nil      -- When sustained repulsion started (nil = not active)
-	obj.sustained_repulsion_trigger = 0.3         -- Repulsion threshold to start sustained-repulsion timer
-	obj.sustained_repulsion_duration = 3.0        -- Seconds of sustained repulsion before triggering retreat
-	obj.collision_proximity_threshold = 8.0       -- Distance (m) at which retreat triggers immediately
-	obj.sustained_repulsion_start_time = nil      -- When sustained repulsion started (nil = not in sustained repulsion)
-	obj.sustained_repulsion_trigger = 0.3         -- Repulsion threshold to start sustained-repulsion timer
-	obj.sustained_repulsion_duration = 3.0        -- Seconds of sustained repulsion before triggering retreat
 
 	-- Local avoidance (spherical raycast)
 	obj.local_avoidance_enabled = true
@@ -233,9 +198,9 @@ function AV:New(core_obj)
 
 	-- 3D Obstacle Map: records confirmed obstacle positions across flights
 	obj.obstacle_map          = {}          -- key = "cx_cy_cz", value = {count=N}
-	obj.obstacle_cell_size    = 12.0        -- Grid cell size in meters (≈ vehicle length)
-	obj.obstacle_map_path     = "Data/obstacle_map.json"
-	obj.obstacle_min_hits     = 2           -- Min confirmed hits before a cell is "known obstacle"
+	obj.obstacle_cell_size    = 10.0        -- Grid cell size in meters (≈ vehicle length)
+	obj.obstacle_map_path     = "Data/obstacle_map.dat"
+	obj.obstacle_min_hits     = 1           -- Min hits before a cell is "known obstacle" (1 = any single hit counts)
 	obj.route_save_path       = "Data/last_route.json"  -- Last A* route for visualization
 
 	-- Obstacle map recording (toggled from debug menu)
@@ -1175,9 +1140,6 @@ function AV:AutoPilot()
 
 		-- set destination vector
 		current_position = self:GetPosition()
-		
-		-- NEW: Update sector visit
-		self:UpdateSectorVisit(current_position)
 
 		-- Distance to final destination.
 		-- For arrival check, Z is clipped (being above target is OK):
@@ -1197,7 +1159,7 @@ function AV:AutoPilot()
 		-- so 3D distance would never reach the threshold even when horizontally arrived.
 		local nav_target = destination_position  -- fallback: aim at final dest
 		if #self.current_global_route > 0 and horiz_to_final > self.sector_size * 1.5 then
-			local advance_thr = self.sector_size * 0.9  -- ~22 m for sector_size=25
+			local advance_thr = self.sector_size * 0.9  -- ~18 m for sector_size=20
 			while self.current_route_index <= #self.current_global_route do
 				local wp_key = self.current_global_route[self.current_route_index]
 				local wp_pos = self:SectorKeyToPosition(wp_key)
@@ -1246,9 +1208,6 @@ function AV:AutoPilot()
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:AutoLanding(current_position.z - destination_position.z + self.destination_z_offset)
-			-- Clear temporary blocked sectors on arrival
-			self.temp_blocked_sectors = {}
-			self.log_obj:Record(LogLevel.Debug, "Temporary blocked sectors cleared")
 			Cron.Halt(timer)
 			return
 		end
@@ -2350,20 +2309,10 @@ function AV:InitializeSectorSystem()
 		-- Initialize spherical ray pattern for local avoidance
 		self:GenerateSphericalRayPattern()
 		
-		-- Load sector database and obstacle map
-		self:LoadSectorData()
+		-- Load obstacle map
 		self:LoadObstacleMap()
 		
-		local sector_count = 0
-		if self.sector_database.sectors then
-			for _ in pairs(self.sector_database.sectors) do
-				sector_count = sector_count + 1
-			end
-		end
-		
-		self.log_obj:Record(LogLevel.Info, string.format(
-			"Sector navigation system initialized: %d sectors loaded, %d total flights",
-			sector_count, self.sector_database.total_flights or 0))
+		self.log_obj:Record(LogLevel.Info, "Sector navigation system initialized")
 	end)
 	
 	if not success then
@@ -2425,244 +2374,13 @@ function AV:SectorKeyToPosition(sector_key)
 	)
 end
 
---- Get or create sector data
----@param sector_key string Sector key
----@return table Sector data
-function AV:GetOrCreateSector(sector_key)
-	if not self.sector_database.sectors[sector_key] then
-		self.sector_database.sectors[sector_key] = {
-			key = sector_key,
-			static_collision_count = 0,    -- Pre-scanned obstacle count (static danger map)
-			is_accessible = nil,           -- Whether sector is reachable (nil = unknown, true/false)
-		}
-	end
-	return self.sector_database.sectors[sector_key]
-end
-
---- Scan sector for danger (called during pre-scanning mode)
---- Teleports vehicle to sector center and casts rays to detect obstacles
+--- Scan sector for danger
+--- NOTE: sector_database removed; function stubbed out. Use obstacle_map for route cost.
 ---@param sector_key string Sector key to scan
----@return number Number of obstacle hits detected
+---@return number Always 0
 function AV:ScanSectorDanger(sector_key)
-	if not sector_key then 
-		self.log_obj:Record(LogLevel.Warning, "ScanSectorDanger: No sector_key provided")
-		return 0 
-	end
-	
-	-- Ensure collision filters initialized
-	if not self.weak_collision_filters or #self.weak_collision_filters == 0 then
-		self.weak_collision_filters = {"Static", "Terrain"}
-	end
-	
-	-- Convert sector key to world position (center of sector)
-	local center_pos = self:SectorKeyToPosition(sector_key)
-	if not center_pos then 
-		self.log_obj:Record(LogLevel.Warning, "ScanSectorDanger: Could not convert sector_key to position")
-		return 0 
-	end
-	
-	-- Teleport vehicle to sector center for accurate scanning
-	if not self.entity_id then 
-		self.log_obj:Record(LogLevel.Warning, "ScanSectorDanger: No entity_id")
-		return 0 
-	end
-	local vehicle = Game.FindEntityByID(self.entity_id)
-	if not vehicle then 
-		self.log_obj:Record(LogLevel.Warning, "ScanSectorDanger: Vehicle entity not found")
-		return 0 
-	end
-	
-	Game.GetTeleportationFacility():Teleport(vehicle, center_pos, EulerAngles.new(0, 0, 0))
-	local actual_pos = vehicle:GetWorldPosition()
-	
-	-- Parse current sector coordinates
-	local sx, sy, sz = sector_key:match("([^_]+)_([^_]+)_([^_]+)")
-	if not sx then return 0 end
-	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
-	
-	-- Define 26 directional offsets (3x3x3 - center)
-	local offsets = {
-		-- 6 cardinal directions
-		{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
-		-- 12 edge neighbors
-		{1, 1, 0}, {1, -1, 0}, {-1, 1, 0}, {-1, -1, 0},
-		{1, 0, 1}, {1, 0, -1}, {-1, 0, 1}, {-1, 0, -1},
-		{0, 1, 1}, {0, 1, -1}, {0, -1, 1}, {0, -1, -1},
-		-- 8 corner neighbors
-		{1, 1, 1}, {1, 1, -1}, {1, -1, 1}, {1, -1, -1},
-		{-1, 1, 1}, {-1, 1, -1}, {-1, -1, 1}, {-1, -1, -1},
-	}
-	
-	-- Initialize connections table for this sector
-	local connections = {}
-	local passable_count = 0
-	local blocked_count = 0
-	
-	-- Scan each direction
-	for _, offset in ipairs(offsets) do
-		local dx, dy, dz = offset[1], offset[2], offset[3]
-		local direction_key = string.format("%d_%d_%d", dx, dy, dz)
-		
-		-- Calculate target sector center position
-		local target_sector_pos = Vector4.new(
-			actual_pos.x + dx * self.sector_size,
-			actual_pos.y + dy * self.sector_size,
-			actual_pos.z + dz * self.sector_size, 1)
-		
-		-- Raycast from current sector center to target sector center
-		local is_passable = true
-		for _, filter in ipairs(self.weak_collision_filters) do
-			local hit_success, hit_result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(
-				actual_pos, target_sector_pos, filter, false, false)
-			
-			if hit_success then
-				is_passable = false
-				blocked_count = blocked_count + 1
-				break
-			end
-		end
-		
-		if is_passable then
-			passable_count = passable_count + 1
-		end
-		
-		connections[direction_key] = is_passable
-	end
-	
-	-- Store connections in sector database
-	if not self.sector_database.sectors[sector_key] then
-		self.sector_database.sectors[sector_key] = {}
-	end
-	self.sector_database.sectors[sector_key].connections = connections
-	
-	-- Log scan result
-	self.log_obj:Record(LogLevel.Debug, string.format(
-		"Sector %s scan: %d passable, %d blocked out of 26 directions",
-		sector_key, passable_count, blocked_count))
-	
-	return passable_count
-end
-
---- Update sector visit
----@param position Vector4 Current position
-function AV:UpdateSectorVisit(position)
-	if not position then return end
-	
-	local sector_key = self:PositionToSectorKey(position)
-	if not sector_key then return end
-	
-	local sector = self:GetOrCreateSector(sector_key)
-	
-	-- Mark as accessible since we successfully entered it
-	if sector.is_accessible == nil then
-		sector.is_accessible = true
-	end
-end
-
---- Check for vehicle stall and permanently block problematic sectors
----@param current_position Vector4 Current vehicle position
----@param current_time number Current timestamp
-function AV:CheckForStall(current_position, current_time)
-	if not current_position then return end
-	
-	-- Add current position to history
-	table.insert(self.stall_position_history, {
-		position = current_position,
-		time = current_time
-	})
-	
-	-- Keep only recent history
-	while #self.stall_position_history > self.stall_history_size do
-		table.remove(self.stall_position_history, 1)
-	end
-	
-	-- Check if enough time has passed since last stall check
-	if current_time - self.last_stall_check_time < self.stall_check_interval then
-		return
-	end
-	self.last_stall_check_time = current_time
-	
-	-- Need sufficient history to detect stall
-	if #self.stall_position_history < self.stall_history_size then
-		return
-	end
-	
-	-- Calculate distance traveled over history period
-	local oldest_pos = self.stall_position_history[1].position
-	local distance_traveled = math.sqrt(
-		math.pow(current_position.x - oldest_pos.x, 2) +
-		math.pow(current_position.y - oldest_pos.y, 2) +
-		math.pow(current_position.z - oldest_pos.z, 2)
-	)
-	
-	-- If barely moved, vehicle is stalled
-	if distance_traveled < self.stall_distance_threshold then
-		local current_sector_key = self:PositionToSectorKey(current_position)
-		if current_sector_key then
-			-- Temporarily block this sector (until destination reached)
-			self.temp_blocked_sectors[current_sector_key] = true
-			
-			self.log_obj:Record(LogLevel.Warning, string.format(
-				"Stall detected! Temporarily blocking sector %s (traveled %.1fm in %.1fs)",
-				current_sector_key, distance_traveled, self.stall_check_interval))
-			
-			-- Force route replan FROM NEIGHBORING SECTOR to avoid blocked sector
-			local target_dest = self.altitude_adjusted_destination or self.destination_position
-			if target_dest then
-				-- Find best neighbor sector to start route from
-				local neighbors = self:GetNeighborSectors(current_sector_key)
-				local best_neighbor = nil
-				local best_score = math.huge
-				
-				for _, neighbor_key in ipairs(neighbors) do
-					-- Skip if neighbor is also blocked
-					if not self.temp_blocked_sectors[neighbor_key] then
-						local neighbor_pos = self:SectorKeyToPosition(neighbor_key)
-						if neighbor_pos then
-							-- Calculate distance to destination
-							local dist_to_dest = math.sqrt(
-								math.pow(target_dest.x - neighbor_pos.x, 2) +
-								math.pow(target_dest.y - neighbor_pos.y, 2) +
-								math.pow(target_dest.z - neighbor_pos.z, 2)
-							)
-							
-							-- Consider danger level from sector database
-							local sector_data = self.sector_database.sectors[neighbor_key]
-							local danger = sector_data and sector_data.static_collision_count or 0
-							
-							-- Score: distance + danger penalty
-							local score = dist_to_dest + (danger * 10)
-							
-							if score < best_score then
-								best_score = score
-								best_neighbor = neighbor_key
-							end
-						end
-					end
-				end
-				
-				-- Plan route from best neighbor (or current position if all blocked)
-				local start_pos = current_position
-				if best_neighbor then
-					start_pos = self:SectorKeyToPosition(best_neighbor)
-					self.log_obj:Record(LogLevel.Info, string.format(
-						"Planning route from neighbor sector %s (avoiding blocked %s)",
-						best_neighbor, current_sector_key))
-				else
-					self.log_obj:Record(LogLevel.Warning, "All neighbor sectors blocked, planning from current position")
-				end
-				
-				self.current_global_route = self:PlanGlobalRoute(start_pos, target_dest)
-				self.current_route_index = 1
-				self.last_route_plan_time = current_time
-				self:SaveLastRoute(self.current_global_route, current_position, target_dest)
-				self.log_obj:Record(LogLevel.Info, "Route replanned to avoid stalled sector")
-			end
-			
-			-- Clear position history to reset stall detection
-			self.stall_position_history = {}
-		end
-	end
+	self.log_obj:Record(LogLevel.Info, "ScanSectorDanger: sector_database removed, use obstacle_map for cost")
+	return 0
 end
 
 --- Get neighbor sector keys (26 directions: 6 cardinal + 12 edge + 8 corner)
@@ -2739,43 +2457,17 @@ function AV:GetSectorMovementCost(from_key, to_key)
 	if tz <= 0 then
 		return base_cost * 10000000.0
 	end
-	
-	-- Check connectivity (version 4)
-	local from_sector = self.sector_database.sectors[from_key]
-	if from_sector and from_sector.connections then
-		local direction_key = string.format("%d_%d_%d", dx, dy, dz)
-		local is_passable = from_sector.connections[direction_key]
-		
-		if is_passable == false then
-			-- Explicitly blocked by scan data: hard block
-			return base_cost * 10000000.0
-		end
-		-- is_passable == true OR nil (no data): treat as passable, use normal cost
-	end
-	-- Sector has no data at all: treat all connections as valid (passable)
-	
-	-- Check temporarily blocked sectors (from stall detection)
-	if self.temp_blocked_sectors[to_key] then
-		return base_cost * 1000000.0
-	end
-	
-	-- Check accessibility of destination sector
-	local to_sector = self.sector_database.sectors[to_key]
-	local accessibility_penalty = 1.0
-	
-	if to_sector then
-		if to_sector.is_accessible == false then
-			accessibility_penalty = accessibility_penalty * 100.0
-		end
-	end
-	
+
 	-- Obstacle map penalty: check all obstacle cells that overlap this sector
-	-- sector_size=25m, cell_size=12m → ~2×2×2 cells per sector; sample 8 quadrant points
+	-- sector_size=20m, cell_size=10m → ~2×2×2 cells per sector; sample 8 quadrant points
 	local obstacle_penalty = 1.0
 	if next(self.obstacle_map) then
 		local cs  = self.obstacle_cell_size
 		local ss  = self.sector_size
 		local max_hits = 0
+		local clear_count   = 0   -- confirmed clear (count == 0)
+		local unknown_count = 0   -- never scanned (nil)
+		local total_sampled = 0
 		for _, fx in ipairs({0.2, 0.5, 0.8}) do
 			for _, fy in ipairs({0.2, 0.5, 0.8}) do
 				for _, fz in ipairs({0.25, 0.75}) do
@@ -2784,16 +2476,33 @@ function AV:GetSectorMovementCost(from_key, to_key)
 					local wz = (tz + fz) * ss
 					local ckey = math.floor(wx/cs) .. "_" .. math.floor(wy/cs) .. "_" .. math.floor(wz/cs)
 					local cell = self.obstacle_map[ckey]
-					if cell and cell.count > max_hits then max_hits = cell.count end
+					total_sampled = total_sampled + 1
+					if cell then
+						if cell.count > max_hits then max_hits = cell.count end
+						if cell.count == 0 then clear_count = clear_count + 1 end
+					else
+						unknown_count = unknown_count + 1
+					end
 				end
 			end
 		end
 		if max_hits >= self.obstacle_min_hits then
-			obstacle_penalty = 1.0 + math.min(max_hits / 2.0, 5.0)  -- 2 hits → 2×, 12+ hits → 6×
+			-- Confirmed obstacle cells: increase cost
+			obstacle_penalty = 1.0 + math.min(max_hits / 2.0, 5.0)  -- 1 hit → 1.5×, 12+ hits → 6×
+		elseif clear_count > 0 then
+			-- At least one confirmed-clear cell: cost reduction proportional to clear ratio.
+			-- Mixed (some clear + some unknown) gets a partial discount only.
+			local clear_ratio = clear_count / total_sampled
+			obstacle_penalty = 1.0 - 0.2 * clear_ratio  -- 0.80 – 1.00 range
+		elseif unknown_count > 0 then
+			-- Fully unknown sector: penalize to prefer known-safe corridors.
+			-- unknown_ratio=1.0 → 1.5×, partial unknown → 1.0–1.5×
+			local unknown_ratio = unknown_count / total_sampled
+			obstacle_penalty = 1.0 + 0.5 * unknown_ratio
 		end
 	end
 
-	return base_cost * accessibility_penalty * obstacle_penalty
+	return base_cost * obstacle_penalty
 end
 
 --- Plan global route using A* algorithm
@@ -2929,16 +2638,6 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 		"A* pathfinding failed after %d iterations, using straight line fallback (start=%s, end=%s, open=%d, closed=%d)",
 		iterations, start_key, end_key, open_count, closed_count))
 	
-	-- Log temp blocked sectors for debugging
-	local blocked_list = {}
-	for key, _ in pairs(self.temp_blocked_sectors) do
-		table.insert(blocked_list, key)
-	end
-	if #blocked_list > 0 then
-		self.log_obj:Record(LogLevel.Warning, string.format(
-			"Currently blocked sectors: %s", table.concat(blocked_list, ", ")))
-	end
-	
 	return self:PlanStraightLineRoute(start_pos, end_pos)
 end
 
@@ -3006,9 +2705,6 @@ function AV:PlanStraightLineRoute(start_pos, end_pos)
 	local distance = Vector4.Length(direction)
 	local step_count = math.ceil(distance / self.sector_size)
 	
-	local skipped_count = 0
-	local total_count = 0
-	
 	if step_count > 0 then
 		direction = Vector4.Normalize(direction)
 		
@@ -3021,35 +2717,22 @@ function AV:PlanStraightLineRoute(start_pos, end_pos)
 				1
 			)
 			local sector_key = self:PositionToSectorKey(intermediate_pos)
-			total_count = total_count + 1
 			if sector_key then
-				-- Skip temporarily blocked sectors in fallback route
-				if not self.temp_blocked_sectors[sector_key] then
-					-- Avoid duplicate consecutive keys
-					if #route == 0 or route[#route] ~= sector_key then
-						table.insert(route, sector_key)
-					end
-				else
-					skipped_count = skipped_count + 1
-					self.log_obj:Record(LogLevel.Debug, string.format(
-						"Skipping blocked sector %s in fallback route", sector_key))
+				-- Avoid duplicate consecutive keys
+				if #route == 0 or route[#route] ~= sector_key then
+					table.insert(route, sector_key)
 				end
 			end
 		end
 	end
 	
-	-- If all sectors were blocked, at least include start and end
 	if #route == 0 then
-		if not self.temp_blocked_sectors[start_key] then
-			table.insert(route, start_key)
-		end
+		table.insert(route, start_key)
 		table.insert(route, end_key)
-		self.log_obj:Record(LogLevel.Warning, "All fallback route sectors were blocked, using start/end only")
 	end
 	
 	self.log_obj:Record(LogLevel.Info, string.format(
-		"Fallback route generated: %d sectors (skipped %d blocked out of %d total)",
-		#route, skipped_count, total_count))
+		"Fallback route generated: %d sectors", #route))
 	
 	return route
 end
@@ -3189,59 +2872,6 @@ function AV:CalculateLocalRepulsion(current_pos, dest_dir)
 	end
 	
 	return combined_vector, repulsion_magnitude, ray_hit_count, repulsion_vector, min_obstacle_distance
-end
-
---- Save sector database to file
-function AV:SaveSectorData()
-	local success, error_msg = pcall(function()
-		local file_path = self.sector_database.database_path
-		local json_data = json.encode(self.sector_database or {})
-		local file = io.open(file_path, "w")
-		
-		if file then
-			file:write(json_data)
-			file:close()
-			self.log_obj:Record(LogLevel.Info, "Sector database saved successfully")
-			self.sector_database.last_save_time = os.time()
-		else
-			self.log_obj:Record(LogLevel.Error, "Failed to open file for writing: " .. file_path)
-		end
-	end)
-	
-	if not success then
-		self.log_obj:Record(LogLevel.Error, "Failed to save sector data: " .. tostring(error_msg))
-	end
-end
-
---- Load sector database from file
-function AV:LoadSectorData()
-	local success, error_msg = pcall(function()
-		local file_path = self.sector_database.database_path
-		local file = io.open(file_path, "r")
-		
-		if file then
-			local json_data = file:read("*all")
-			file:close()
-			
-			if json_data and json_data ~= "" then
-				local loaded_data = json.decode(json_data)
-				if loaded_data and loaded_data.version == 4 then
-					self.sector_database.sectors = loaded_data.sectors or {}
-					self.log_obj:Record(LogLevel.Info, "Sector connectivity map loaded successfully (version 4)")
-				else
-					self.log_obj:Record(LogLevel.Warning, string.format(
-						"Sector database version mismatch (expected 4, got %s), starting fresh. Delete old sector_danger_map.json to rescan.",
-						tostring(loaded_data and loaded_data.version or "none")))
-				end
-			else
-				self.log_obj:Record(LogLevel.Info, "No existing sector danger map found, starting fresh")
-			end
-		end
-	end)
-	
-	if not success then
-		self.log_obj:Record(LogLevel.Warning, "Failed to load sector data: " .. tostring(error_msg))
-	end
 end
 
 --- ============================================================================
@@ -3813,12 +3443,11 @@ end
 --- Consolidate short-term memory into long-term memory (call on flight end)
 --- NOTE: This function is deprecated. Sector navigation system handles persistence automatically.
 function AV:ConsolidateMemory()
-	-- Save sector data and obstacle map when flight ends
-	self:SaveSectorData()
+	-- Save obstacle map when flight ends
 	self:SaveObstacleMap()
 	
 	if self.log_obj then
-		self.log_obj:Record(LogLevel.Info, "Flight completed, sector data saved")
+		self.log_obj:Record(LogLevel.Info, "Flight completed, obstacle map saved")
 	end
 end
 
@@ -4000,17 +3629,51 @@ end
 --- ============================================================================
 
 --- Record a confirmed obstacle hit position into the obstacle map grid
-function AV:RecordObstacleHit(hit_pos)
+function AV:RecordObstacleHit(hit_pos, ray_dir)
 	if not hit_pos then return end
 	local cs = self.obstacle_cell_size
 	local cx = math.floor(hit_pos.x / cs)
 	local cy = math.floor(hit_pos.y / cs)
 	local cz = math.floor(hit_pos.z / cs)
+	-- Center cell: increment count normally
 	local key = cx .. "_" .. cy .. "_" .. cz
 	if not self.obstacle_map[key] then
 		self.obstacle_map[key] = {count = 0}
 	end
 	self.obstacle_map[key].count = self.obstacle_map[key].count + 1
+	-- Propagate count=1 to neighboring cells ONLY in the ray direction.
+	-- For each of the 26 neighbors, compute dot(offset, ray_dir).
+	-- If dot > 0 (neighbor is in the forward half of the ray), it may be
+	-- inside the obstacle that was just hit → record as count=1.
+	-- Rule: only write if existing count < 1 (never overwrite stronger evidence).
+	if ray_dir then
+		local rx = ray_dir.x or 0
+		local ry = ray_dir.y or 0
+		local rz = ray_dir.z or 0
+		local rlen = math.sqrt(rx*rx + ry*ry + rz*rz)
+		if rlen > 0.001 then
+			rx, ry, rz = rx/rlen, ry/rlen, rz/rlen
+			for dx = -1, 1 do
+				for dy = -1, 1 do
+					for dz = -1, 1 do
+						if not (dx == 0 and dy == 0 and dz == 0) then
+							-- Positive dot = offset is in the ray's forward direction
+							local dot = dx*rx + dy*ry + dz*rz
+							if dot > 0 then
+								local nkey = (cx+dx) .. "_" .. (cy+dy) .. "_" .. (cz+dz)
+								local existing = self.obstacle_map[nkey]
+								if not existing then
+									self.obstacle_map[nkey] = {count = 1}
+								elseif existing.count < 1 then
+									existing.count = 1
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
 end
 
 --- Get maximum obstacle cell hit count along a ray (normalized 0-1, 5 hits = 1.0)
@@ -4024,31 +3687,42 @@ function AV:GetObstacleDensityAlongRay(from_pos, dir, max_dist)
 				 .. math.floor((from_pos.y + dir.y*d)/cs) .. "_"
 				 .. math.floor((from_pos.z + dir.z*d)/cs)
 		local cell = self.obstacle_map[key]
-		if cell and cell.count > max_count then max_count = cell.count end
+		if cell then
+			if cell.count > max_count then max_count = cell.count end
+		else
+			-- Unrecorded cell: treat as moderate risk (count=1.5 equivalent).
+			-- This nudges boundary direction selection toward known-safe paths.
+			if 1.5 > max_count then max_count = 1.5 end
+		end
 	end
 	return math.min(max_count / 5.0, 1.0)
 end
 
---- Save obstacle map to JSON file (only cells with >= obstacle_min_hits, capped at 5000)
+--- Save obstacle map to compact text file (.dat).
+--- Format: header line + one line per cell "cx cy cz count".
+--- No count caps: all hit cells and clear cells are saved.
+--- This is significantly faster than JSON for large maps.
 function AV:SaveObstacleMap()
 	local ok, err = pcall(function()
-		local cells = {}
+		-- Build lines table (much faster than string concatenation)
+		local lines = {"DAV_OBMAP v2 cell_size=" .. tostring(self.obstacle_cell_size)}
+		local n_hit, n_clear = 0, 0
 		for k, v in pairs(self.obstacle_map) do
-			if v.count >= self.obstacle_min_hits then
-				cells[#cells+1] = {key=k, count=v.count}
+			-- k = "cx_cy_cz", replace underscores with spaces for compact storage
+			lines[#lines+1] = k:gsub("_", " ") .. " " .. v.count
+			if v.count == 0 then
+				n_clear = n_clear + 1
+			else
+				n_hit = n_hit + 1
 			end
-		end
-		table.sort(cells, function(a,b) return a.count > b.count end)
-		local save_cells = {}
-		for i = 1, math.min(#cells, 5000) do
-			save_cells[cells[i].key] = cells[i].count
 		end
 		local file = io.open(self.obstacle_map_path, "w")
 		if file then
-			file:write(json.encode({version=1, cell_size=self.obstacle_cell_size, cells=save_cells}))
+			file:write(table.concat(lines, "\n"))
 			file:close()
 			self.log_obj:Record(LogLevel.Info, string.format(
-				"Obstacle map saved: %d confirmed cells", #cells))
+				"Obstacle map saved: %d hit cells, %d clear cells (total %d)",
+				n_hit, n_clear, n_hit + n_clear))
 		end
 	end)
 	if not ok then
@@ -4056,21 +3730,26 @@ function AV:SaveObstacleMap()
 	end
 end
 
---- Load obstacle map from JSON file
+--- Load obstacle map from .dat file (compact text format).
 function AV:LoadObstacleMap()
 	local ok, err = pcall(function()
 		local file = io.open(self.obstacle_map_path, "r")
 		if not file then return end
+		-- Read compact .dat format
 		local raw = file:read("*all")
 		file:close()
 		if not raw or raw == "" then return end
-		local data = json.decode(raw)
-		if not (data and data.version == 1 and data.cells) then return end
-		self.obstacle_cell_size = data.cell_size or 12.0
+		local cs = raw:match("^DAV_OBMAP v2 cell_size=([%d%.]+)")
+		if not cs then
+			self.log_obj:Record(LogLevel.Warning, "LoadObstacleMap: unrecognised .dat header")
+			return
+		end
+		self.obstacle_cell_size = tonumber(cs) or 10.0
 		self.obstacle_map = {}
 		local n = 0
-		for k, count in pairs(data.cells) do
-			self.obstacle_map[k] = {count = count}
+		-- Each data line: "cx cy cz count" (integer cell coords, may be negative)
+		for cx, cy, cz, count in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
+			self.obstacle_map[cx .. "_" .. cy .. "_" .. cz] = {count = tonumber(count)}
 			n = n + 1
 		end
 		self.log_obj:Record(LogLevel.Info, string.format("Obstacle map loaded: %d cells", n))
@@ -4110,9 +3789,30 @@ function AV:RecordObstacleScan()
 			local dist, hit = self:RaycastDist(pos, nd, range)
 			-- Only record if NOT at max range (i.e., something was actually hit)
 			if dist < range - 0.5 and hit then
-				self:RecordObstacleHit(hit)
+				self:RecordObstacleHit(hit, nd)
+			else
+				-- Ray cleared: mark traversed cells as confirmed clear (count = 0).
+				-- Walk first 2 cell-widths along the ray; never overwrite a hit cell.
+				local cs = self.obstacle_cell_size
+				for step = 1, 2 do
+					local d_val = step * cs
+					if d_val < range - cs then
+						local ck = math.floor((pos.x + nd.x*d_val)/cs) .. "_" ..
+								   math.floor((pos.y + nd.y*d_val)/cs) .. "_" ..
+								   math.floor((pos.z + nd.z*d_val)/cs)
+						if not self.obstacle_map[ck] then
+							self.obstacle_map[ck] = {count = 0}
+						end
+					end
+				end
 			end
 		end
+	end
+	-- Also mark the cell the vehicle is currently occupying as confirmed clear.
+	local cs = self.obstacle_cell_size
+	local cur_key = math.floor(pos.x/cs) .. "_" .. math.floor(pos.y/cs) .. "_" .. math.floor(pos.z/cs)
+	if not self.obstacle_map[cur_key] then
+		self.obstacle_map[cur_key] = {count = 0}
 	end
 end
 
@@ -4120,8 +3820,10 @@ end
 --- Registers a Cron timer; subsequent calls while already running are no-ops.
 function AV:StartObstacleRecording()
 	if self.is_obstacle_map_recording then return end
+	-- Merge with any previously saved data so new scans accumulate on top
+	self:LoadObstacleMap()
 	self.is_obstacle_map_recording = true
-	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STARTED")
+	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STARTED (merged with saved map)")
 	Cron.Every(self.obstacle_record_interval, function(timer)
 		if not self.is_obstacle_map_recording then
 			Cron.Halt(timer)
@@ -4278,8 +3980,11 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 	                    rear_left_dist   > enter_dist and rear_right_dist  > enter_dist)
 
 	-- Speed reduction based on proximity: slow down well before the obstacle.
-	-- Only apply if body is actually threatened (not body_clear).
-	local proximity_ratio = effective_fwd_dist / (enter_dist * 2.0)
+	-- In BOUNDARY mode, use only fwd_dist (center fan in dest_dir) for speed control.
+	-- Using effective_fwd_dist (which includes rear corners) in BOUNDARY mode causes
+	-- permanent speed reduction because rear corners face the wall being followed.
+	local speed_dist = (self.tangent_mode == "BOUNDARY") and fwd_dist or effective_fwd_dist
+	local proximity_ratio = speed_dist / (enter_dist * 2.0)
 	if not body_clear and proximity_ratio < 1.0 then
 		self.auto_speed_reduce_rate = math.max(0.2, proximity_ratio * 0.6 + 0.2)
 	else
@@ -4328,7 +4033,7 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 		self:RecordObstacleHit(Vector4.new(
 			current_pos.x + dest_dir.x * effective_fwd_dist,
 			current_pos.y + dest_dir.y * effective_fwd_dist,
-			current_pos.z + dest_dir.z * effective_fwd_dist, 1))
+			current_pos.z + dest_dir.z * effective_fwd_dist, 1), dest_dir)
 		self.tangent_mode = "BOUNDARY"
 		self.tangent_mode_start_time = current_time
 		self.tangent_boundary_dir = nil
@@ -4360,28 +4065,31 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 	-- Requires both:
 	--   1. fwd_dist > exit_dist  (obstacle no longer directly ahead)
 	--   2. moved >= enter_dist   (have actually navigated around, not just turned sideways)
-	if fwd_dist > exit_dist then
-		local moved_from_entry = 0
-		if self.tangent_entry_pos then
-			local dx = current_pos.x - self.tangent_entry_pos.x
-			local dy = current_pos.y - self.tangent_entry_pos.y
-			local dz = current_pos.z - self.tangent_entry_pos.z
-			moved_from_entry = math.sqrt(dx*dx + dy*dy + dz*dz)
-		end
-		if moved_from_entry >= enter_dist then
-			self.tangent_mode = "DIRECT"
-			self.tangent_entry_pos = nil
-			-- Arm the re-entry cooldown from this position
-			self.tangent_direct_start_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
-			self.log_obj:Record(LogLevel.Info, string.format(
-				"TangentBug: BOUNDARY->DIRECT (fwd=%.1fm, moved=%.1fm >= %.1fm, cooldown armed)",
-				fwd_dist, moved_from_entry, enter_dist))
-			return dest_dir
-		else
-			self.log_obj:Record(LogLevel.Debug, string.format(
-				"TangentBug: fwd clear but not past obstacle yet (moved=%.1fm / %.1fm needed)",
-				moved_from_entry, enter_dist))
-		end
+	-- Fallback: if moved a lot (>= enter_dist*3) and fwd is at least marginally clear
+	-- (> enter_dist), exit regardless of exit_dist.  This handles large buildings where
+	-- fwd_dist in dest_dir never reaches exit_dist even after a full boundary circuit.
+	local moved_from_entry = 0
+	if self.tangent_entry_pos then
+		local dx = current_pos.x - self.tangent_entry_pos.x
+		local dy = current_pos.y - self.tangent_entry_pos.y
+		local dz = current_pos.z - self.tangent_entry_pos.z
+		moved_from_entry = math.sqrt(dx*dx + dy*dy + dz*dz)
+	end
+	local normal_exit   = fwd_dist > exit_dist   and moved_from_entry >= enter_dist
+	local fallback_exit = fwd_dist > enter_dist  and moved_from_entry >= enter_dist * 3
+	if normal_exit or fallback_exit then
+		self.tangent_mode = "DIRECT"
+		self.tangent_entry_pos = nil
+		-- Arm the re-entry cooldown from this position
+		self.tangent_direct_start_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"TangentBug: BOUNDARY->DIRECT (%s, fwd=%.1fm, moved=%.1fm, cooldown armed)",
+			fallback_exit and "fallback" or "normal", fwd_dist, moved_from_entry))
+		return dest_dir
+	else
+		self.log_obj:Record(LogLevel.Debug, string.format(
+			"TangentBug: still in BOUNDARY (fwd=%.1fm exit=%.1fm, moved=%.1fm/%.1fm)",
+			fwd_dist, exit_dist, moved_from_entry, enter_dist))
 	end
 
 	-- Find best passable direction along obstacle boundary toward goal
@@ -4425,17 +4133,15 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 end
 
 --- Save learning data to JSON file
---- NOTE: This function is deprecated. Use SaveSectorData() instead.
+--- NOTE: This function is deprecated.
 function AV:SaveLearningData()
 	-- Legacy function - no longer used
-	-- Sector navigation data is saved automatically
 end
 
 --- Load learning data from JSON file
---- NOTE: This function is deprecated. Use LoadSectorData() instead.
+--- NOTE: This function is deprecated.
 function AV:LoadLearningData()
 	-- Legacy function - no longer used
-	-- Sector navigation data is loaded automatically
 end
 
 return AV

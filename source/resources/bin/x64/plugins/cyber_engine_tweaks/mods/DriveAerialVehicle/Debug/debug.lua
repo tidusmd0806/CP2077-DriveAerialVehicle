@@ -697,12 +697,6 @@ function Debug:ImGuiSectorDangerScanner()
         ImGui.Text("Scan rays: 32 per sector, distance: " .. tostring(av_obj.scan_ray_distance) .. "m")
         ImGui.Text("Local avoidance ray distance: " .. tostring(av_obj.local_ray_distance) .. "m")
         
-        local sector_count = 0
-        if av_obj.sector_database and av_obj.sector_database.sectors then
-            for _ in pairs(av_obj.sector_database.sectors) do
-                sector_count = sector_count + 1
-            end
-        end
         local temp_blocked_count = 0
         if av_obj.temp_blocked_sectors then
             for _ in pairs(av_obj.temp_blocked_sectors) do
@@ -710,7 +704,6 @@ function Debug:ImGuiSectorDangerScanner()
             end
         end
         
-        ImGui.Text("Loaded sectors: " .. tostring(sector_count))
         ImGui.Text("Temp blocked sectors: " .. tostring(temp_blocked_count))
         ImGui.Separator()
         
@@ -806,18 +799,9 @@ function Debug:ImGuiSectorDangerScanner()
                         local sector_key = av_obj.scan_sector_list[av_obj.scan_current_sector_index]
                         
                         if sector_key then
-                            -- Skip if sector already has connection data
-                            local sector_data = av_obj.sector_database.sectors[sector_key]
-                            if sector_data and sector_data.connections then
-                                print(string.format("Sector %s: skipped (already scanned)", sector_key))
-                            else
-                                local passable_count = av_obj:ScanSectorDanger(sector_key)
-                                -- Note: Connections are now stored automatically in ScanSectorDanger
-                                
-                                if passable_count < 26 then
-                                    print(string.format("Sector %s: %d/26 directions passable", sector_key, passable_count))
-                                end
-                            end
+                            -- sector_database removed; ScanSectorDanger is a stub
+                            local passable_count = av_obj:ScanSectorDanger(sector_key)
+                            print(string.format("Sector %s: ScanSectorDanger stubbed (use obstacle_map)", sector_key))
                         end
                     end)
                 end
@@ -825,14 +809,14 @@ function Debug:ImGuiSectorDangerScanner()
             
             ImGui.Separator()
             if ImGui.Button("Save Danger Map to JSON") then
-                av_obj:SaveSectorData()
-                print("Sector danger map saved!")
+                av_obj:SaveObstacleMap()
+                print("Obstacle map saved!")
             end
             
             ImGui.SameLine()
             if ImGui.Button("Load Danger Map from JSON") then
-                av_obj:LoadSectorData()
-                print("Sector danger map loaded!")
+                av_obj:LoadObstacleMap()
+                print("Obstacle map loaded!")
             end
             
             ImGui.Separator()

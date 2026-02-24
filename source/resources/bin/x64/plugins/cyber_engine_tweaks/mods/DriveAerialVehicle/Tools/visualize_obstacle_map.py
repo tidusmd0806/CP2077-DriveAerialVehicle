@@ -3,7 +3,7 @@ visualize_obstacle_map.py
 =========================
 DriveAerialVehicle mod - 3D Obstacle Map + A* Route Visualizer
 
-Reads Data/obstacle_map.json, Data/last_route.json, and optionally
+Reads Data/obstacle_map.dat (or legacy .json), Data/last_route.json, and optionally
 Data/sector_danger_map.json, then renders an interactive 3D view so
 developers can see:
   - Recorded obstacle positions (coloured by hit count)
@@ -16,8 +16,8 @@ Usage
 
 Options
 -------
-  --data   PATH   Path to obstacle_map.json
-                  (default: ../Data/obstacle_map.json)
+  --data   PATH   Path to obstacle_map.dat  (or legacy .json)
+                  (default: ../Data/obstacle_map.dat)
   --route  PATH   Path to last_route.json
                   (default: ../Data/last_route.json)
   --sector PATH   Path to sector_danger_map.json  (optional overlay)
@@ -33,11 +33,12 @@ Requirements
   pip install matplotlib             # for matplotlib backend
   pip install plotly kaleido         # for plotly backend (kaleido for --out)
 
-JSON format expected
+File format expected
 --------------------
-  obstacle_map.json:
-    { "version": 1, "cell_size": 12.0,
-      "cells": { "cx_cy_cz": <hit_count>, ... } }
+  obstacle_map.dat:
+    Line 1 : "DAV_OBMAP v2 cell_size=<float>"
+    Lines 2+: "<cx> <cy> <cz> <count>"  (integer cell coords, may be negative)
+    hit cells (count>=1) and clear cells (count=0) both saved, no caps.
 
   last_route.json (written by mod on each autopilot start):
     { "version": 1, "sector_size": 25,
@@ -61,21 +62,29 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_OBSTACLE_PATH = SCRIPT_DIR / ".." / "Data" / "obstacle_map.json"
+DEFAULT_OBSTACLE_PATH = SCRIPT_DIR / ".." / "Data" / "obstacle_map.dat"
 DEFAULT_ROUTE_PATH    = SCRIPT_DIR / ".." / "Data" / "last_route.json"
 DEFAULT_SECTOR_PATH   = SCRIPT_DIR / ".." / "Data" / "sector_danger_map.json"
 
 
 def load_obstacle_map(path: Path):
-    """Return (cell_size, cells_dict) where cells_dict = {"cx_cy_cz": count}."""
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    """Return (cell_size, cells_dict) where cells_dict = {"cx_cy_cz": count}.
 
-    if data.get("version") != 1:
-        print(f"[WARNING] Unexpected obstacle_map version: {data.get('version')}", file=sys.stderr)
-
-    cell_size = float(data.get("cell_size", 12.0))
-    cells     = data.get("cells", {})
+    Reads compact .dat format (DAV_OBMAP v2 header).
+    """
+    import re
+    content = path.read_text(encoding="utf-8")
+    m = re.search(r"cell_size=([\d.]+)", content.split("\n", 1)[0])
+    cell_size = float(m.group(1)) if m else 10.0
+    cells: dict = {}
+    for line in content.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) == 4:
+            try:
+                cx, cy, cz, cnt = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+                cells[f"{cx}_{cy}_{cz}"] = cnt
+            except ValueError:
+                pass
     return cell_size, cells
 
 
@@ -131,13 +140,18 @@ def load_route(path: Path):
 
 def parse_cells(cells: dict, cell_size: float, min_hits: int):
     """
-    Convert the cell dict to arrays of (wx, wy, wz, count).
+    Convert the cell dict to two sets of arrays.
+
+    Returns
+    -------
+    (xs, ys, zs, counts)  – obstacle cells (count >= min_hits)
+    (cxs, cys, czs)       – confirmed-clear cells (count == 0)
+
     World position of each cell centre = (ci + 0.5) * cell_size.
     """
     xs, ys, zs, counts = [], [], [], []
+    cxs, cys, czs = [], [], []  # confirmed-clear cells
     for key, count in cells.items():
-        if count < min_hits:
-            continue
         parts = key.split("_")
         if len(parts) != 3:
             continue
@@ -145,11 +159,19 @@ def parse_cells(cells: dict, cell_size: float, min_hits: int):
             cx, cy, cz = int(parts[0]), int(parts[1]), int(parts[2])
         except ValueError:
             continue
-        xs.append((cx + 0.5) * cell_size)
-        ys.append((cy + 0.5) * cell_size)
-        zs.append((cz + 0.5) * cell_size)
-        counts.append(count)
-    return xs, ys, zs, counts
+        wx = (cx + 0.5) * cell_size
+        wy = (cy + 0.5) * cell_size
+        wz = (cz + 0.5) * cell_size
+        if count == 0:
+            cxs.append(wx)
+            cys.append(wy)
+            czs.append(wz)
+        elif count >= min_hits:
+            xs.append(wx)
+            ys.append(wy)
+            zs.append(wz)
+            counts.append(count)
+    return xs, ys, zs, counts, cxs, cys, czs
 
 
 def parse_blocked_sectors(sectors: dict, sector_size: float):
@@ -179,7 +201,7 @@ def parse_blocked_sectors(sectors: dict, sector_size: float):
 # Matplotlib backend
 # ---------------------------------------------------------------------------
 
-def render_matplotlib(xs, ys, zs, counts, bxs, bys, bzs, route, cap_count, out_path):
+def render_matplotlib(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, cap_count, out_path, show_clear=True):
     import matplotlib.pyplot as plt
     import matplotlib.cm as cm
     import matplotlib.colors as mcolors
@@ -189,6 +211,11 @@ def render_matplotlib(xs, ys, zs, counts, bxs, bys, bzs, route, cap_count, out_p
     ax  = fig.add_subplot(111, projection="3d")
     ax.set_facecolor("#1a1a2e")
     fig.patch.set_facecolor("#1a1a2e")
+
+    # --- confirmed-clear cells (count == 0) ---
+    if show_clear and cxs:
+        ax.scatter(cxs, cys, czs, c="#00e5b0", marker=".", s=6, alpha=0.25,
+                   label=f"Confirmed clear ({len(cxs)})")
 
     # --- obstacle cells ---
     if xs:
@@ -260,15 +287,18 @@ def render_matplotlib(xs, ys, zs, counts, bxs, bys, bzs, route, cap_count, out_p
         stats = (
             f"Cells shown : {len(xs)}\n"
             f"Max hits    : {max(counts)}\n"
-            f"Mean hits   : {sum(counts)/len(counts):.1f}"
+            f"Mean hits   : {sum(counts)/len(counts):.1f}\n"
+            f"Clear cells : {len(cxs)}"
         )
+    elif cxs:
+        stats = f"Clear cells : {len(cxs)}\nNo obstacle cells yet"
     elif route and route["xs"]:
         stats = f"Route waypoints: {len(route['xs'])}"
     else:
         stats = "No obstacle data"
-        ax.text2D(0.01, 0.01, stats, transform=ax.transAxes,
-                  color="lightgray", fontsize=9, va="bottom",
-                  bbox=dict(facecolor="#22223b", alpha=0.7, edgecolor="none"))
+    ax.text2D(0.01, 0.01, stats, transform=ax.transAxes,
+              color="lightgray", fontsize=9, va="bottom",
+              bbox=dict(facecolor="#22223b", alpha=0.7, edgecolor="none"))
 
     plt.tight_layout()
     if out_path:
@@ -283,7 +313,7 @@ def render_matplotlib(xs, ys, zs, counts, bxs, bys, bzs, route, cap_count, out_p
 # Plotly backend (interactive HTML)
 # ---------------------------------------------------------------------------
 
-def render_plotly(xs, ys, zs, counts, bxs, bys, bzs, route, cap_count, out_path):
+def render_plotly(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, cap_count, out_path, show_clear=True):
     try:
         import plotly.graph_objects as go
     except ImportError:
@@ -291,6 +321,21 @@ def render_plotly(xs, ys, zs, counts, bxs, bys, bzs, route, cap_count, out_path)
         sys.exit(1)
 
     traces = []
+
+    # --- confirmed-clear cells (count == 0) ---
+    if show_clear and cxs:
+        traces.append(go.Scatter3d(
+            x=cxs, y=cys, z=czs,
+            mode="markers",
+            name=f"Confirmed clear ({len(cxs)})",
+            marker=dict(size=2, color="#00e5b0", opacity=0.25, symbol="circle"),
+            hovertemplate=(
+                "X: %{x:.0f} m<br>"
+                "Y: %{y:.0f} m<br>"
+                "Z: %{z:.0f} m<br>"
+                "Hits: 0 (confirmed clear)<extra></extra>"
+            )
+        ))
 
     if xs:
         cap = cap_count or max(counts)
@@ -423,7 +468,7 @@ def main():
     )
     parser.add_argument(
         "--data", type=Path, default=DEFAULT_OBSTACLE_PATH,
-        help="Path to obstacle_map.json"
+        help="Path to obstacle_map.dat (or legacy .json)"
     )
     parser.add_argument(
         "--route", type=Path, default=DEFAULT_ROUTE_PATH,
@@ -453,22 +498,32 @@ def main():
         "--no-obstacles", action="store_true",
         help="Hide obstacle cells (show route + sector data only)"
     )
+    parser.add_argument(
+        "--no-clear", action="store_true",
+        help="Hide confirmed-clear (hit=0) cells"
+    )
     args = parser.parse_args()
 
     # --- Load obstacle map ---
     xs, ys, zs, counts = [], [], [], []
+    cxs, cys, czs = [], [], []  # confirmed-clear cells
     data_path = args.data.resolve()
-    if args.no_obstacles:
-        print("Obstacle display skipped (--no-obstacles)")
+    if args.no_obstacles and args.no_clear:
+        print("Obstacle display skipped (--no-obstacles --no-clear)")
     elif not data_path.exists():
-        print(f"[INFO] obstacle_map.json not found: {data_path}")
+        print(f"[INFO] obstacle_map.dat not found: {data_path}")
         print("  Enable recording from the debug menu, drive around, then save.")
     else:
         print(f"Loading obstacle map : {data_path}")
         cell_size, cells = load_obstacle_map(data_path)
         print(f"  Total cells in file : {len(cells)}")
-        xs, ys, zs, counts = parse_cells(cells, cell_size, args.min)
-        print(f"  Cells after min={args.min} filter : {len(xs)}")
+        xs, ys, zs, counts, cxs, cys, czs = parse_cells(cells, cell_size, args.min)
+        if args.no_obstacles:
+            xs, ys, zs, counts = [], [], [], []
+        if args.no_clear:
+            cxs, cys, czs = [], [], []
+        print(f"  Obstacle cells (min={args.min}) : {len(xs)}")
+        print(f"  Confirmed-clear cells (hit=0) : {len(cxs)}")
 
     # --- Load A* route ---
     route_path = args.route.resolve()
@@ -494,7 +549,7 @@ def main():
         if bxs:
             print(f"  Blocked sectors    : {len(bxs)}")
 
-    if not xs and not bxs and (route is None or not route["xs"]):
+    if not xs and not cxs and not bxs and (route is None or not route["xs"]):
         print("[WARNING] Nothing to plot.  Collect some data first.")
         sys.exit(0)
 
@@ -508,11 +563,12 @@ def main():
         sys.exit(1)
 
     print(f"Rendering with {engine} …")
+    show_clear = not args.no_clear
 
     if engine == "plotly":
-        render_plotly(xs, ys, zs, counts, bxs, bys, bzs, route, args.max, args.out)
+        render_plotly(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, args.max, args.out, show_clear)
     else:
-        render_matplotlib(xs, ys, zs, counts, bxs, bys, bzs, route, args.max, args.out)
+        render_matplotlib(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, args.max, args.out, show_clear)
 
 
 if __name__ == "__main__":
