@@ -27,7 +27,6 @@ function AV:New(core_obj)
 	obj.up_timeout = 350
 	obj.down_speed = -5.0
 	-- autopiolt
-	obj.profile_path = "Data/autopilot_profile.json"
 	obj.destination_range = 3
 	obj.destination_z_offset = 10
 	obj.autopilot_angle_restore_rate = 0.005
@@ -66,7 +65,6 @@ function AV:New(core_obj)
 	obj.is_spawning = false
 	obj.is_combat = false
 	-- autopiolt
-	obj.autopilot_profile = nil
 	obj.mappin_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.autopilot_speed = 1
@@ -159,6 +157,7 @@ function AV:New(core_obj)
 	obj.current_route_index = 1                   -- Current position in route
 	obj.route_replan_interval = 10                -- Replan route every N seconds
 	obj.last_route_plan_time = 0
+	obj.astar_is_partial_route = false            -- True when last A* hit iteration limit (partial route)
 
 	-- Local avoidance (spherical raycast)
 	obj.local_avoidance_enabled = true
@@ -188,11 +187,12 @@ function AV:New(core_obj)
 	obj.tangent_mode_start_time = 0       -- When BOUNDARY mode started (for timeout)
 	obj.tangent_boundary_timeout = 30.0   -- Max seconds in BOUNDARY before reset to DIRECT
 	obj.tangent_last_pos = nil            -- Position last tick (for stuck detection)
-	obj.tangent_stuck_timer = 0           -- Accumulated seconds without significant movement
-	obj.tangent_stuck_threshold = 5.0     -- Seconds without movement = stuck
+	obj.tangent_stuck_timer = 0           -- Accumulated seconds of receding from destination
+	obj.tangent_stuck_threshold = 5.0     -- Seconds receding from dest in BOUNDARY = stuck
 	obj.tangent_stuck_escape_time = 0     -- Timestamp when stuck-escape ascent started (0 = not escaping)
-	obj.tangent_stuck_escape_dur = 3.0    -- Seconds to ascend vertically during stuck escape
-	obj.tangent_entry_pos = nil           -- Position where BOUNDARY mode was entered (for progress check)
+	obj.tangent_stuck_escape_dur = 3.0    -- (unused) kept for reference
+	obj.tangent_net_check_dist = nil      -- Distance to dest at last stuck-check interval
+	obj.tangent_net_check_time = 0        -- Time of last stuck-check interval
 	obj.tangent_direct_start_pos = nil    -- Position when DIRECT mode began (for cooldown after BOUNDARY)
 	obj.tangent_direct_cooldown_dist = 20.0 -- Must travel this far in DIRECT before re-entering BOUNDARY
 
@@ -207,6 +207,19 @@ function AV:New(core_obj)
 	obj.is_obstacle_map_recording  = false   -- When true, scan rays during ANY driving (not just autopilot)
 	obj.obstacle_record_interval   = 0.2     -- Seconds between scan ticks during recording
 	obj.obstacle_record_range      = 35.0    -- Raycast range during scan (m)
+
+	-- Autopilot navigation phases
+	-- "start_local" : start is in unknown sector → TangentBug + scanning toward nearest known sector
+	-- "astar"       : follow A* route directly (no TangentBug)
+	-- "final_local" : destination was unknown → TangentBug + scanning for final approach
+	obj.autopilot_phase           = "astar"   -- current navigation phase
+	obj.autopilot_local_target    = nil        -- intermediate target for start_local / final_local phases
+	obj.autopilot_dest_is_unknown = false      -- true when final destination is in unknown sector
+	obj.autopilot_exploring_mode  = false      -- legacy alias (kept for compatibility)
+	obj.autopilot_scan_dirty_count    = 0      -- scan ticks since last batch save
+	obj.autopilot_scan_dirty_threshold = 150   -- save every 150 ticks (~30s at 0.2s/tick)
+	obj.autopilot_scan_save_interval  = 120.0  -- also force-save every 120 seconds
+	obj.autopilot_scan_last_save_time = 0
 
 	-- Yaw smoothing
 	obj.yaw_target_smoothed = nil         -- Smoothed yaw target angle (degrees), nil = not initialized
@@ -290,17 +303,8 @@ function AV:Init()
 	self.minimum_distance_to_ground = self.all_models[index].minimum_distance_to_ground
 	self.flight_mode = self.all_models[DAV.model_index].flight_mode
 
-	-- read autopilot profile
-	local speed_level = DAV.user_setting_table.autopilot_speed_level
-	self.autopilot_profile = Utils:ReadJson(self.profile_path)
-	self.autopilot_speed = self.autopilot_profile[speed_level].speed
-	self.autopilot_acceleration = self.autopilot_profile[speed_level].acceleration
-	self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
-	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
-	self.autopilot_searching_range = self.autopilot_profile[speed_level].searching_range
-	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
-	self.autopilot_min_speed_rate = self.autopilot_profile[speed_level].min_speed_rate
-	self.autopilot_is_only_horizontal = self.autopilot_profile[speed_level].is_only_horizontal
+	-- Apply autopilot speed from user settings
+	self:ApplyAutopilotSpeed()
 	self.autopilot_exception_area_list = Utils:ReadJson(self.exception_area_path)
 	self.collision_check_side_distance = self.all_models[index].collision_check_side_distance
 	self.collision_check_front_distance = self.all_models[index].collision_check_front_distance or self.collision_check_side_distance
@@ -835,6 +839,11 @@ function AV:Mount()
 		self.is_crystal_dome = true
 	end
 
+	-- Auto-start obstacle map recording if the setting is enabled
+	if DAV.user_setting_table.is_enable_scan_during_autopilot then
+		self:StartObstacleRecording()
+	end
+
 	return true
 end
 
@@ -874,6 +883,9 @@ function AV:Unmount()
 			if not self:IsPlayerIn() then
 				self.log_obj:Record(LogLevel.Info, "Unmounted")
 				
+				-- Stop obstacle recording and save on true unmount
+				self:StopObstacleRecording()
+
 				-- Consolidate learning data before unmounting
 				if self.short_term_memory and 
 				   self.short_term_memory.path_history and 
@@ -1100,20 +1112,79 @@ function AV:AutoPilot()
 	self.tangent_mode = "DIRECT"
 	self.tangent_obstacle_normal = nil
 	self.tangent_boundary_dir = nil
-	self.tangent_last_pos = nil
 	self.tangent_stuck_timer = 0
 	self.tangent_stuck_escape_time = 0
+	self.tangent_stuck_abort = false
+	self.tangent_stuck_needs_replan = false
+	self.tangent_net_check_dist = nil
+	self.tangent_net_check_time = 0
 	self.tangent_entry_pos = nil
 	self.tangent_direct_start_pos = nil
 	-- Yaw smoothing reset
 	self.yaw_target_smoothed = nil
 
-	-- NEW: Initialize sector navigation system
+	--- NEW: Initialize sector navigation system
 	self:InitializeSectorSystem()
-	
-	-- NEW: Plan initial global route with altitude-adjusted destination
-	self.current_global_route = self:PlanGlobalRoute(current_position, altitude_adjusted_destination)
-	self.current_route_index = 1
+
+	-- Determine navigation phases based on start/destination knowledge
+	local ap_start_known = self:IsSectorAreaKnown(current_position)
+	local ap_dest_known  = self:IsSectorAreaKnown(altitude_adjusted_destination)
+	self.autopilot_scan_dirty_count    = 0
+	self.autopilot_scan_last_save_time = os.clock()
+	self.autopilot_dest_is_unknown     = not ap_dest_known
+
+	if not ap_start_known then
+		-- Phase start_local: start is in unknown sector.
+		-- Navigate to nearest known sector using TangentBug + scanning, then switch to A*.
+		local nearest, dist = self:FindNearestKnownSectorPos(current_position)
+		if nearest then
+			self.autopilot_phase        = "start_local"
+			self.autopilot_local_target = nearest
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"AutoPilot [start_local]: start in UNKNOWN sector — navigating to nearest known sector (%.0fm away)",
+				dist))
+		else
+			-- No known sectors at all: navigate entire route with local avoidance
+			self.autopilot_phase        = "final_local"
+			self.autopilot_local_target = altitude_adjusted_destination
+			self.log_obj:Record(LogLevel.Info,
+				"AutoPilot [final_local]: no known sectors exist — full local avoidance mode")
+		end
+		self.current_global_route = {}
+		self.current_route_index  = 1
+	else
+		-- Phase astar: start is in known sector — plan A* route.
+		-- If destination is unknown, route to nearest known sector near dest, then final_local.
+		self.autopilot_phase        = "astar"
+		self.autopilot_local_target = nil
+		local astar_dest = altitude_adjusted_destination
+		if not ap_dest_known then
+			local nearest, dist = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+			if nearest then
+				astar_dest = nearest
+				self.log_obj:Record(LogLevel.Info, string.format(
+					"AutoPilot [astar]: destination UNKNOWN — A* routes to nearest known (%.1f, %.1f, %.1f, %.0fm away), then local avoidance",
+					astar_dest.x, astar_dest.y, astar_dest.z, dist))
+			else
+				-- No known sectors: fallback to full local avoidance
+				self.autopilot_phase        = "final_local"
+				self.autopilot_local_target = altitude_adjusted_destination
+				self.log_obj:Record(LogLevel.Info,
+					"AutoPilot [final_local]: no known sectors — full local avoidance mode")
+			end
+		else
+			self.log_obj:Record(LogLevel.Info,
+				"AutoPilot [astar]: start and destination both in KNOWN sectors — pure A* navigation")
+		end
+		if self.autopilot_phase == "astar" then
+			self.current_global_route = self:PlanGlobalRoute(current_position, astar_dest)
+			self.current_route_index  = 1
+		else
+			-- final_local fallback
+			self.current_global_route = {}
+			self.current_route_index  = 1
+		end
+	end
 	self.last_route_plan_time = os.clock()
 	self.altitude_adjusted_destination = altitude_adjusted_destination
 	-- Save route for external visualization
@@ -1133,6 +1204,7 @@ function AV:AutoPilot()
 			return
 		elseif self:IsCollision() then
 			self.log_obj:Record(LogLevel.Info, "Collision Detected")
+			self:RecordDirectCollision()
 			self:InterruptAutoPilot()
 			Cron.Halt(timer)
 			return
@@ -1140,6 +1212,36 @@ function AV:AutoPilot()
 
 		-- set destination vector
 		current_position = self:GetPosition()
+		local current_time = os.clock()
+
+		-- === Phase management ===
+		-- Transition: start_local → astar when vehicle enters a known sector
+		if self.autopilot_phase == "start_local" and self:IsSectorAreaKnown(current_position) then
+			if self.autopilot_scan_dirty_count > 0 then
+				self:SaveObstacleMap()
+				self.autopilot_scan_dirty_count = 0
+			end
+			self.autopilot_phase        = "astar"
+			self.autopilot_local_target = nil
+			local astar_dest = altitude_adjusted_destination
+			if self.autopilot_dest_is_unknown then
+				local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+				if nearest then astar_dest = nearest end
+			end
+			self.current_global_route = self:PlanGlobalRoute(current_position, astar_dest)
+			self.current_route_index  = 1
+			self:SaveLastRoute(self.current_global_route, current_position, altitude_adjusted_destination)
+			self.tangent_mode              = "DIRECT"
+			self.tangent_stuck_timer       = 0
+			self.tangent_stuck_escape_time = 0
+			self.tangent_net_check_dist    = nil
+			self.tangent_net_check_time    = 0
+			self.log_obj:Record(LogLevel.Info, "AutoPilot [start_local→astar]: entered known sector, A* route planned")
+		end
+
+		-- Scanning: handled entirely by StartObstacleRecording()'s Cron timer.
+		-- No per-tick scanning here; the Cron fires every obstacle_record_interval seconds
+		-- regardless of driving mode.
 
 		-- Distance to final destination.
 		-- For arrival check, Z is clipped (being above target is OK):
@@ -1154,9 +1256,8 @@ function AV:AutoPilot()
 		-- Advance waypoint index when vehicle reaches current waypoint.
 		-- This makes the vehicle actually fly along the A*-planned route
 		-- instead of heading straight to the final destination.
-		-- NOTE: advance threshold uses HORIZONTAL distance only, because dest_dir_vector.z
-		-- is clipped to 0 when target is below → vehicle can't descend to waypoint Z,
-		-- so 3D distance would never reach the threshold even when horizontally arrived.
+		-- NOTE: advance threshold uses HORIZONTAL distance only to avoid premature
+		-- advancement when the vehicle is still climbing/descending to the waypoint Z.
 		local nav_target = destination_position  -- fallback: aim at final dest
 		if #self.current_global_route > 0 and horiz_to_final > self.sector_size * 1.5 then
 			local advance_thr = self.sector_size * 0.9  -- ~18 m for sector_size=20
@@ -1183,7 +1284,44 @@ function AV:AutoPilot()
 			-- All waypoints passed → aim directly at final destination
 			if self.current_route_index > #self.current_global_route then
 				nav_target = destination_position
+				-- Partial route exhausted: replan A* from current position toward destination
+				if self.astar_is_partial_route
+				   and horiz_to_final > self.sector_size * 2
+				   and (os.clock() - self.last_route_plan_time) > 3.0 then
+					local replan_dest = altitude_adjusted_destination
+					if self.autopilot_dest_is_unknown then
+						local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+						if nearest then replan_dest = nearest end
+					end
+					self.current_global_route = self:PlanGlobalRoute(current_position, replan_dest)
+					self.current_route_index  = 1
+					self.last_route_plan_time = os.clock()
+					self:SaveLastRoute(self.current_global_route, current_position, altitude_adjusted_destination)
+					self.log_obj:Record(LogLevel.Info, string.format(
+						"A* partial route exhausted — replanning from current pos (%d new waypoints, horiz_to_final=%.0fm)",
+						#self.current_global_route, horiz_to_final))
+				end
 			end
+		end
+
+		-- start_local: override nav_target to the nearest known sector (local intermediate target)
+		if self.autopilot_phase == "start_local" and self.autopilot_local_target then
+			nav_target = self.autopilot_local_target
+		end
+
+		-- Phase transition: astar → final_local when A* route exhausted and destination is unknown
+		if self.autopilot_phase == "astar"
+		   and self.autopilot_dest_is_unknown
+		   and self.current_route_index > #self.current_global_route
+		   and horiz_to_final > self.sector_size then
+			self.autopilot_phase           = "final_local"
+			self.tangent_mode              = "DIRECT"
+			self.tangent_stuck_timer       = 0
+			self.tangent_stuck_escape_time = 0
+			self.tangent_net_check_dist    = nil
+			self.tangent_net_check_time    = 0
+			self.log_obj:Record(LogLevel.Info,
+				"AutoPilot [astar→final_local]: A* route complete, switching to local avoidance for final leg")
 		end
 
 		-- Calculate destination vector toward current nav target (A* waypoint or final dest)
@@ -1192,8 +1330,6 @@ function AV:AutoPilot()
 			nav_target.y - current_position.y,
 			nav_target.z - current_position.z, 1)
 		if self.autopilot_is_only_horizontal then
-			dest_dir_vector.z = 0
-		elseif dest_dir_vector.z < 0 then
 			dest_dir_vector.z = 0
 		end
 		-- dest_dir_vector_norm: distance to current nav target (waypoint or final dest)
@@ -1212,9 +1348,59 @@ function AV:AutoPilot()
 			return
 		end
 
-		-- 3D Tangent Bug Navigation
-		local current_time = os.clock()
-		local navigation_vector = self:TangentBugNavigate(current_position, dest_dir_vector, current_time)
+		-- Navigation: A* phase follows waypoints directly (no local avoidance).
+		-- Local phases (start_local / final_local) use TangentBug.
+		local navigation_vector
+		if self.autopilot_phase == "astar" then
+			-- Pure A* waypoint following
+			local dv_len = Vector4.Length(dest_dir_vector)
+			if dv_len > 0.001 then
+				navigation_vector = Vector4.new(
+					dest_dir_vector.x / dv_len,
+					dest_dir_vector.y / dv_len,
+					dest_dir_vector.z / dv_len, 0)
+			else
+				navigation_vector = dest_dir_vector
+			end
+			self.auto_speed_reduce_rate = 0.7
+		else
+			-- Local avoidance phase
+			navigation_vector = self:TangentBugNavigate(current_position, dest_dir_vector, current_time)
+		end
+
+		-- TangentBug の stuck escape フラグを処理
+		if self.tangent_stuck_abort then
+			self.tangent_stuck_abort       = false
+			self.tangent_stuck_timer       = 0
+			self.tangent_stuck_escape_time = 0
+			self.log_obj:Record(LogLevel.Warning, "AutoPilot: aborting due to stuck escape failure")
+			self:InterruptAutoPilot()
+			Cron.Halt(timer)
+			return
+		end
+		if self.tangent_stuck_needs_replan then
+			self.tangent_stuck_needs_replan = false
+			self.tangent_net_check_dist     = nil  -- reset stuck baseline after replan
+			self.tangent_net_check_time     = 0
+			-- After escaping stuck, switch to A* if current position is now in known territory
+			if self:IsSectorAreaKnown(current_position) then
+				self.autopilot_phase        = "astar"
+				self.autopilot_local_target = nil
+				local astar_dest = altitude_adjusted_destination
+				if self.autopilot_dest_is_unknown then
+					local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+					if nearest then astar_dest = nearest end
+				end
+				self.current_global_route = self:PlanGlobalRoute(current_position, astar_dest)
+				self.current_route_index  = 1
+				self:SaveLastRoute(self.current_global_route, current_position, altitude_adjusted_destination)
+				self.log_obj:Record(LogLevel.Info, "AutoPilot: stuck escape complete — switched to A*")
+			else
+				self.current_global_route = {}
+				self.current_route_index  = 1
+				self.log_obj:Record(LogLevel.Info, "AutoPilot: stuck escape complete, continuing local avoidance")
+			end
+		end
 
 		-- Set direction vector for movement
 		self.search_range = self.autopilot_searching_range
@@ -1454,6 +1640,7 @@ function AV:AutoLeaving(dist_vector, height)
 			return
 		elseif self:IsCollision() then
 			self.log_obj:Record(LogLevel.Info, "Collision Detected")
+			self:RecordDirectCollision()
 			self:InterruptAutoPilot()
 			self.is_leaving = false
 			Cron.Halt(timer)
@@ -1485,6 +1672,7 @@ function AV:AutoLeaving(dist_vector, height)
 					return
 				elseif self:IsCollision() then
 					self.log_obj:Record(LogLevel.Info, "Collision Detected")
+					self:RecordDirectCollision()
 					self:InterruptAutoPilot()
 					self.is_leaving = false
 					Cron.Halt(timer)
@@ -1627,17 +1815,27 @@ function AV:IsFailedAutoPilot()
 	return is_failture_auto_pilot
 end
 
---- Reload Autopilot Profile from settings file.
+--- Apply autopilot parameters derived from user_setting_table.autopilot_speed.
+function AV:ApplyAutopilotSpeed()
+	-- Clamp to valid range (5-50). Old saves may have values outside this range.
+	local speed = math.min(50, math.max(5, DAV.user_setting_table.autopilot_speed or 25))
+	self.autopilot_speed            = speed
+	-- Acceleration: 1.0 at 10 m/s → 3.0 at 48 m/s (linear)
+	self.autopilot_acceleration     = math.max(1.0, speed * 0.063)
+	-- Turn speed: 0.010 at 10 m/s → 0.030 at 48 m/s (linear)
+	self.autopilot_turn_speed       = 0.01 + math.max(0, speed - 10) * 0.000526
+	-- Leaving height: 20 m minimum, scales with speed
+	self.autopilot_leaving_height   = math.max(20, speed * 2.0)
+	-- Fixed search params
+	self.autopilot_searching_range  = 96
+	self.autopilot_searching_step   = math.max(5, math.floor(speed / 5))
+	self.autopilot_min_speed_rate   = 0.4
+	self.autopilot_is_only_horizontal = false
+end
+
+--- Reload autopilot settings (called from UI settings callback).
 function AV:ReloadAutopilotProfile()
-	local speed_level = DAV.user_setting_table.autopilot_speed_level
-	self.autopilot_speed = self.autopilot_profile[speed_level].speed
-	self.autopilot_acceleration = self.autopilot_profile[speed_level].acceleration
-	self.autopilot_turn_speed = self.autopilot_profile[speed_level].turn_speed
-	self.autopilot_leaving_height = self.autopilot_profile[speed_level].leaving_height
-	self.autopilot_searching_range = self.autopilot_profile[speed_level].searching_range
-	self.autopilot_searching_step = self.autopilot_profile[speed_level].searching_step
-	self.autopilot_min_speed_rate = self.autopilot_profile[speed_level].min_speed_rate
-	self.autopilot_is_only_horizontal = self.autopilot_profile[speed_level].is_only_horizontal
+	self:ApplyAutopilotSpeed()
 end
 
 --- Toggle radio ON or next radioStation.
@@ -2303,6 +2501,76 @@ end
 --- NEW: Sector-Based Navigation System
 --- ============================================================================
 
+--- Check if the sector containing position has any obstacle_map data (known territory).
+--- Returns true if at least one cell in this sector exists in obstacle_map.
+---@param position Vector4 World position
+---@return boolean
+function AV:IsSectorAreaKnown(position)
+	if not position then return false end
+	local cs = self.obstacle_cell_size
+	local ss = self.sector_size
+	local tx = math.floor(position.x / ss)
+	local ty = math.floor(position.y / ss)
+	local tz = math.floor(position.z / ss)
+	-- Sample 8 corner cells of this sector (2×2×2)
+	for _, fx in ipairs({0.2, 0.8}) do
+		for _, fy in ipairs({0.2, 0.8}) do
+			for _, fz in ipairs({0.2, 0.8}) do
+				local ckey = math.floor((tx+fx)*ss/cs) .. "_"
+						  .. math.floor((ty+fy)*ss/cs) .. "_"
+						  .. math.floor((tz+fz)*ss/cs)
+				if self.obstacle_map[ckey] ~= nil then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
+--- Find the position of the nearest known sector to a given world position.
+--- Iterates over all scanned obstacle cells, converts them to sectors, and returns
+--- the sector centre closest to target_pos.
+---@param target_pos Vector4 Reference world position
+---@return Vector4|nil nearest_pos  Centre of nearest known sector (nil if map is empty)
+---@return number      best_dist    Distance to that sector (math.huge if none found)
+function AV:FindNearestKnownSectorPos(target_pos)
+	if not target_pos then return nil, math.huge end
+	local ss = self.sector_size
+	local cs = self.obstacle_cell_size
+	local best_pos  = nil
+	local best_dist = math.huge
+	local seen = {}
+	for ckey, _ in pairs(self.obstacle_map) do
+		local cx, cy, cz = ckey:match("([^_]+)_([^_]+)_([^_]+)")
+		if cx then
+			cx, cy, cz = tonumber(cx), tonumber(cy), tonumber(cz)
+			-- World position of cell centre
+			local wx = (cx + 0.5) * cs
+			local wy = (cy + 0.5) * cs
+			local wz = (cz + 0.5) * cs
+			-- Sector index that cell belongs to
+			local sx = math.floor(wx / ss)
+			local sy = math.floor(wy / ss)
+			local sz = math.floor(wz / ss)
+			local skey = sx .. "_" .. sy .. "_" .. sz
+			if not seen[skey] and sz > 0 then  -- skip underground sectors
+				seen[skey] = true
+				local spos = Vector4.new((sx + 0.5)*ss, (sy + 0.5)*ss, (sz + 0.5)*ss, 1)
+				local dx = spos.x - target_pos.x
+				local dy = spos.y - target_pos.y
+				local dz = spos.z - target_pos.z
+				local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+				if dist < best_dist then
+					best_dist = dist
+					best_pos  = spos
+				end
+			end
+		end
+	end
+	return best_pos, best_dist
+end
+
 --- Initialize Sector Navigation System
 function AV:InitializeSectorSystem()
 	local success, error_msg = pcall(function()
@@ -2395,13 +2663,20 @@ function AV:GetNeighborSectors(sector_key)
 	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
 	
 	local neighbors = {}
-	-- 6 cardinal directions only: all equal distance (1 sector = 25m)
+	-- 6 cardinal directions + 4 horizontal (XY) diagonals
+	-- Diagonal base cost = sqrt(2) ≈ 1.414 via GetSectorMovementCost Euclidean formula
 	local offsets = {
-		{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
+		-- Cardinal
+		{ 1,  0,  0}, {-1,  0,  0},
+		{ 0,  1,  0}, { 0, -1,  0},
+		{ 0,  0,  1}, { 0,  0, -1},
+		-- Horizontal diagonals (XY plane)
+		{ 1,  1,  0}, { 1, -1,  0},
+		{-1,  1,  0}, {-1, -1,  0},
 	}
 	
 	for _, offset in ipairs(offsets) do
-		local neighbor_key = string.format("%d_%d_%d", 
+		local neighbor_key = string.format("%d_%d_%d",
 			sx + offset[1], sy + offset[2], sz + offset[3])
 		table.insert(neighbors, neighbor_key)
 	end
@@ -2412,28 +2687,28 @@ end
 --- Calculate heuristic (estimated cost) from sector to goal
 ---@param sector_key string Current sector key
 ---@param goal_key string Goal sector key
----@return number Estimated cost (weighted Euclidean distance)
+---@return number Estimated cost (3D Euclidean distance)
 function AV:CalculateHeuristic(sector_key, goal_key)
 	if not sector_key or not goal_key then return 9999 end
-	
+
 	local sx, sy, sz = sector_key:match("([^_]+)_([^_]+)_([^_]+)")
 	local gx, gy, gz = goal_key:match("([^_]+)_([^_]+)_([^_]+)")
-	
+
 	if not sx or not gx then return 9999 end
-	
+
 	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
 	gx, gy, gz = tonumber(gx), tonumber(gy), tonumber(gz)
-	
+
 	local dx = gx - sx
 	local dy = gy - sy
 	local dz = gz - sz
-	
-	-- Manhattan distance: admissible heuristic for 6-direction grid
-	-- Each step costs exactly 1.0, so Manhattan = minimum possible moves → finds optimal path
-	return math.abs(dx) + math.abs(dy) + math.abs(dz)
+
+	-- 3D Euclidean distance: admissible heuristic for 10-direction grid
+	-- (6 cardinal + 4 XY diagonals). Each cardinal costs 1.0, each diagonal costs √2,
+	-- so 3D Euclidean never overestimates → A* finds optimal path.
+	return math.sqrt(dx*dx + dy*dy + dz*dz)
 end
 
---- Get movement cost between two adjacent sectors
 ---@param from_key string Source sector key
 ---@param to_key string Destination sector key
 ---@return number Movement cost (distance + accessibility penalty + connectivity check)
@@ -2459,48 +2734,71 @@ function AV:GetSectorMovementCost(from_key, to_key)
 	end
 
 	-- Obstacle map penalty: check all obstacle cells that overlap this sector
-	-- sector_size=20m, cell_size=10m → ~2×2×2 cells per sector; sample 8 quadrant points
+	-- sector_size=20m, cell_size=10m → ~2×2×2 cells per sector; sample 18 points
 	local obstacle_penalty = 1.0
-	if next(self.obstacle_map) then
-		local cs  = self.obstacle_cell_size
-		local ss  = self.sector_size
-		local max_hits = 0
-		local clear_count   = 0   -- confirmed clear (count == 0)
-		local unknown_count = 0   -- never scanned (nil)
-		local total_sampled = 0
-		for _, fx in ipairs({0.2, 0.5, 0.8}) do
-			for _, fy in ipairs({0.2, 0.5, 0.8}) do
-				for _, fz in ipairs({0.25, 0.75}) do
-					local wx = (tx + fx) * ss
-					local wy = (ty + fy) * ss
-					local wz = (tz + fz) * ss
-					local ckey = math.floor(wx/cs) .. "_" .. math.floor(wy/cs) .. "_" .. math.floor(wz/cs)
-					local cell = self.obstacle_map[ckey]
-					total_sampled = total_sampled + 1
-					if cell then
-						if cell.count > max_hits then max_hits = cell.count end
-						if cell.count == 0 then clear_count = clear_count + 1 end
-					else
-						unknown_count = unknown_count + 1
-					end
+	local cs  = self.obstacle_cell_size
+	local ss  = self.sector_size
+	local max_hits = 0
+	local clear_count   = 0   -- confirmed clear (count == 0)
+	local unknown_count = 0   -- never scanned (nil)
+	local total_sampled = 0
+	for _, sfx in ipairs({0.2, 0.5, 0.8}) do
+		for _, sfy in ipairs({0.2, 0.5, 0.8}) do
+			for _, sfz in ipairs({0.25, 0.75}) do
+				local wx = (tx + sfx) * ss
+				local wy = (ty + sfy) * ss
+				local wz = (tz + sfz) * ss
+				local ckey = math.floor(wx/cs) .. "_" .. math.floor(wy/cs) .. "_" .. math.floor(wz/cs)
+				local cell = self.obstacle_map[ckey]
+				total_sampled = total_sampled + 1
+				if cell then
+					if cell.count > max_hits then max_hits = cell.count end
+					if cell.count == 0 then clear_count = clear_count + 1 end
+				else
+					unknown_count = unknown_count + 1
 				end
 			end
 		end
-		if max_hits >= self.obstacle_min_hits then
-			-- Confirmed obstacle cells: increase cost
-			obstacle_penalty = 1.0 + math.min(max_hits / 2.0, 5.0)  -- 1 hit → 1.5×, 12+ hits → 6×
-		elseif clear_count > 0 then
-			-- At least one confirmed-clear cell: cost reduction proportional to clear ratio.
-			-- Mixed (some clear + some unknown) gets a partial discount only.
-			local clear_ratio = clear_count / total_sampled
-			obstacle_penalty = 1.0 - 0.2 * clear_ratio  -- 0.80 – 1.00 range
-		elseif unknown_count > 0 then
-			-- Fully unknown sector: penalize to prefer known-safe corridors.
-			-- unknown_ratio=1.0 → 1.5×, partial unknown → 1.0–1.5×
-			local unknown_ratio = unknown_count / total_sampled
-			obstacle_penalty = 1.0 + 0.5 * unknown_ratio
+	end
+	-- Exception area: AABB overlap test against the entire sector box.
+	-- This catches cases where sample points might all fall outside a small area.
+	if not self.is_exception_area_bypassed and max_hits < 1000 then
+		local sx_min = tx * ss
+		local sx_max = (tx + 1) * ss
+		local sy_min = ty * ss
+		local sy_max = (ty + 1) * ss
+		local sz_min = tz * ss
+		local sz_max = (tz + 1) * ss
+		for _, area in ipairs(self.autopilot_exception_area_list) do
+			if sx_max > area.min_x and sx_min < area.max_x
+			   and sy_max > area.min_y and sy_min < area.max_y
+			   and sz_max > area.min_z and sz_min < area.max_z then
+				max_hits = 1000
+				break
+			end
 		end
 	end
+
+	-- Unknown cells get a virtual 50-hit penalty (proportional to their fraction).
+	-- Fully unknown sector: effective 50 hits → 26× cost.
+	-- This ensures sectors with a few real hits (1-5 hits, 1.5–3.5×) are always
+	-- preferred over unexplored sectors (50 hits → 26×).
+	local unknown_ratio = unknown_count / total_sampled
+	local unknown_virtual_hits = unknown_ratio * 50
+	local effective_max_hits = math.max(max_hits, unknown_virtual_hits)
+
+	if effective_max_hits >= self.obstacle_min_hits then
+		-- Confirmed or virtual obstacle hits: scale cost by hit count.
+		-- 1 real hit        → 1.5×
+		-- 50 virtual hits   → 26×  (fully unscanned sector)
+		-- 1000 direct hit   → 501× (essentially impassable)
+		obstacle_penalty = 1.0 + math.min(effective_max_hits / 2.0, 500.0)
+	elseif unknown_count == 0 then
+		-- All sampled cells are confirmed clear: reward this sector
+		local clear_ratio = clear_count / total_sampled
+		obstacle_penalty = 1.0 - 0.2 * clear_ratio  -- 0.80 – 1.00×
+	end
+	-- (else: effective_max_hits < obstacle_min_hits and some unknown → negligible, penalty=1.0)
 
 	return base_cost * obstacle_penalty
 end
@@ -2513,14 +2811,27 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 	if not start_pos or not end_pos then
 		return {}
 	end
-	
+
+	-- If the destination is inside an exception area (and bypass is not active),
+	-- raise its Z to just above the area's ceiling so A* targets a flyable position.
+	if not self.is_exception_area_bypassed then
+		local is_ea, _, ea_max_z = self:IsInExceptionArea(end_pos)
+		if is_ea then
+			local margin = self.sector_size or 20
+			end_pos = {x = end_pos.x, y = end_pos.y, z = ea_max_z + margin, w = end_pos.w}
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"A* goal inside exception area — raised Z to %.1f (ea_max_z=%.1f + margin=%.1f)",
+				end_pos.z, ea_max_z, margin))
+		end
+	end
+
 	local start_key = self:PositionToSectorKey(start_pos)
-	local end_key = self:PositionToSectorKey(end_pos)
-	
+	local end_key   = self:PositionToSectorKey(end_pos)
+
 	if not start_key or not end_key then
 		return {}
 	end
-	
+
 	-- Same sector, no need for pathfinding
 	if start_key == end_key then
 		return {start_key}
@@ -2568,7 +2879,8 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 				table.insert(route, 1, path_node)  -- Insert at beginning
 				path_node = came_from[path_node]
 			end
-			
+
+			self.astar_is_partial_route = false  -- complete route
 			self.log_obj:Record(LogLevel.Info, string.format(
 				"A* route planned: %d sectors, %d iterations from %s to %s",
 				#route, iterations, start_key, end_key))
@@ -2584,17 +2896,18 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 		local neighbors = self:GetNeighborSectors(current)
 		for _, neighbor in ipairs(neighbors) do
 			if not closed_set[neighbor] then
-				local tentative_g = (g_score[current] or math.huge) + 
-					self:GetSectorMovementCost(current, neighbor)
-				
-				local existing_g = g_score[neighbor] or math.huge
-				
-				if tentative_g < existing_g then
-					-- Found a better path to this neighbor
-					came_from[neighbor] = current
-					g_score[neighbor] = tentative_g
-					f_score[neighbor] = tentative_g + self:CalculateHeuristic(neighbor, end_key)
-					open_set[neighbor] = true
+				local move_cost = self:GetSectorMovementCost(current, neighbor)
+				-- Skip completely unknown sectors (cost >= 1e8 means impassable)
+				if move_cost < 1e8 then
+					local tentative_g = (g_score[current] or math.huge) + move_cost
+					local existing_g = g_score[neighbor] or math.huge
+					if tentative_g < existing_g then
+						-- Found a better path to this neighbor
+						came_from[neighbor] = current
+						g_score[neighbor] = tentative_g
+						f_score[neighbor] = tentative_g + self:CalculateHeuristic(neighbor, end_key)
+						open_set[neighbor] = true
+					end
 				end
 			end
 		end
@@ -2626,6 +2939,7 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 			path_node = came_from[path_node]
 		end
 		
+		self.astar_is_partial_route = true  -- hit iteration limit
 		self.log_obj:Record(LogLevel.Warning, string.format(
 			"A* incomplete after %d iterations, using partial route to closest explored node: %d sectors (distance to goal: %.1f)",
 			iterations, #partial_route, best_distance * self.sector_size))
@@ -2633,12 +2947,13 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 		return partial_route
 	end
 	
-	-- If no better path found, use straight line fallback
+	-- No valid path found through known sectors — return empty route.
+	-- Caller will fly directly toward destination without waypoint guidance.
+	self.astar_is_partial_route = true  -- also treat no-path as partial (will retry)
 	self.log_obj:Record(LogLevel.Warning, string.format(
-		"A* pathfinding failed after %d iterations, using straight line fallback (start=%s, end=%s, open=%d, closed=%d)",
+		"A* pathfinding failed after %d iterations — no path through known sectors (start=%s, end=%s, open=%d, closed=%d)",
 		iterations, start_key, end_key, open_count, closed_count))
-	
-	return self:PlanStraightLineRoute(start_pos, end_pos)
+	return {}
 end
 
 --- Save the last planned A* route to JSON for external visualization.
@@ -3441,11 +3756,12 @@ function AV:EvaluateDirectionWithLookahead(direction, current_pos)
 end
 
 --- Consolidate short-term memory into long-term memory (call on flight end)
---- NOTE: This function is deprecated. Sector navigation system handles persistence automatically.
 function AV:ConsolidateMemory()
-	-- Save obstacle map when flight ends
+	-- Save current in-memory map to disk.
+	-- NOTE: do NOT stop recording here; recording runs for the entire time the
+	-- player is in the vehicle (including after autopilot ends / is interrupted).
+	-- StopObstacleRecording() is called exclusively from the Unmount handler.
 	self:SaveObstacleMap()
-	
 	if self.log_obj then
 		self.log_obj:Record(LogLevel.Info, "Flight completed, obstacle map saved")
 	end
@@ -3535,6 +3851,46 @@ function AV:RaycastDist(from_pos, dir_normalized, max_dist)
 		end
 	end
 	return max_dist, nil
+end
+
+--- Returns the distance along a ray until it enters any exception area (AABB slab test).
+--- Respects is_exception_area_bypassed: returns max_dist when bypass is active.
+--- Returns max_dist when no exception area is hit within the given range.
+---@param from_pos Vector4 ray origin
+---@param dir_normalized Vector4 unit direction
+---@param max_dist number maximum distance to check
+---@return number distance to nearest exception area entry
+function AV:ExceptionAreaRayDist(from_pos, dir_normalized, max_dist)
+	if self.is_exception_area_bypassed then return max_dist end
+	if not from_pos or not dir_normalized then return max_dist end
+	local best = max_dist
+	for _, area in ipairs(self.autopilot_exception_area_list) do
+		-- AABB slab intersection test
+		local tmin, tmax = -math.huge, math.huge
+		local axes = {
+			{from_pos.x, dir_normalized.x, area.min_x, area.max_x},
+			{from_pos.y, dir_normalized.y, area.min_y, area.max_y},
+			{from_pos.z, dir_normalized.z, area.min_z, area.max_z},
+		}
+		for _, ax in ipairs(axes) do
+			local o, d, lo, hi = ax[1], ax[2], ax[3], ax[4]
+			if math.abs(d) < 1e-9 then
+				-- Ray parallel to slab: miss if origin is outside
+				if o < lo or o > hi then tmin = math.huge end
+			else
+				local t1 = (lo - o) / d
+				local t2 = (hi - o) / d
+				if t1 > t2 then t1, t2 = t2, t1 end
+				tmin = math.max(tmin, t1)
+				tmax = math.min(tmax, t2)
+			end
+		end
+		if tmax >= tmin and tmin <= max_dist and tmax >= 0 then
+			local entry = math.max(0.0, tmin)
+			if entry < best then best = entry end
+		end
+	end
+	return best
 end
 
 --- 3D Tangent Bug: generate N directions evenly spaced in plane perpendicular to obstacle_normal
@@ -3635,7 +3991,7 @@ function AV:RecordObstacleHit(hit_pos, ray_dir)
 	local cx = math.floor(hit_pos.x / cs)
 	local cy = math.floor(hit_pos.y / cs)
 	local cz = math.floor(hit_pos.z / cs)
-	-- Center cell: increment count normally
+	-- Center cell: ray-detected hit → increment count (propagated obstacle evidence).
 	local key = cx .. "_" .. cy .. "_" .. cz
 	if not self.obstacle_map[key] then
 		self.obstacle_map[key] = {count = 0}
@@ -3676,6 +4032,33 @@ function AV:RecordObstacleHit(hit_pos, ray_dir)
 	end
 end
 
+--- Record a PHYSICAL collision (IsCollision() == true) into the obstacle map.
+--- The cell the vehicle occupied at the moment of impact is marked with count=1000,
+--- which is treated as essentially impassable by A* cost and ray density.
+--- Unlike RecordObstacleHit (ray-based), no neighbour propagation is done here.
+function AV:RecordDirectCollision()
+	local pos = self:GetPosition()
+	if not pos then return end
+	local cs = self.obstacle_cell_size
+	local cx = math.floor(pos.x / cs)
+	local cy = math.floor(pos.y / cs)
+	local cz = math.floor(pos.z / cs)
+	local key = cx .. "_" .. cy .. "_" .. cz
+	if not self.obstacle_map[key] then
+		self.obstacle_map[key] = {count = 0}
+	end
+	if self.obstacle_map[key].count < 1000 then
+		self.obstacle_map[key].count = 1000
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"Direct collision recorded at cell (%d,%d,%d) pos=(%.1f,%.1f,%.1f)",
+			cx, cy, cz, pos.x, pos.y, pos.z))
+		-- Immediately persist so the 1000 is never lost even if ConsolidateMemory
+		-- is skipped (e.g. the Cron timer fires again before the autopilot is fully
+		-- interrupted, or the game session ends unexpectedly).
+		self:SaveObstacleMap()
+	end
+end
+
 --- Get maximum obstacle cell hit count along a ray (normalized 0-1, 5 hits = 1.0)
 function AV:GetObstacleDensityAlongRay(from_pos, dir, max_dist)
 	local cs = self.obstacle_cell_size
@@ -3703,6 +4086,14 @@ end
 --- No count caps: all hit cells and clear cells are saved.
 --- This is significantly faster than JSON for large maps.
 function AV:SaveObstacleMap()
+	-- Never overwrite an existing file with an empty map.
+	-- An empty obstacle_map means LoadObstacleMap was never called this session,
+	-- so writing it would destroy previously accumulated data.
+	if next(self.obstacle_map) == nil then
+		self.log_obj:Record(LogLevel.Warning, "SaveObstacleMap skipped: in-memory map is empty (file not loaded this session)")
+		return
+	end
+
 	local ok, err = pcall(function()
 		-- Build lines table (much faster than string concatenation)
 		local lines = {"DAV_OBMAP v2 cell_size=" .. tostring(self.obstacle_cell_size)}
@@ -3716,9 +4107,22 @@ function AV:SaveObstacleMap()
 				n_hit = n_hit + 1
 			end
 		end
+		local content = table.concat(lines, "\n")
+
+		-- Backup previous file before overwriting
+		local bak_path = self.obstacle_map_path .. ".bak"
+		local src = io.open(self.obstacle_map_path, "r")
+		if src then
+			local bak_data = src:read("*all")
+			src:close()
+			local bak = io.open(bak_path, "w")
+			if bak then bak:write(bak_data) ; bak:close() end
+		end
+
+		-- Direct write (os.rename cannot overwrite on Windows, so write directly)
 		local file = io.open(self.obstacle_map_path, "w")
 		if file then
-			file:write(table.concat(lines, "\n"))
+			file:write(content)
 			file:close()
 			self.log_obj:Record(LogLevel.Info, string.format(
 				"Obstacle map saved: %d hit cells, %d clear cells (total %d)",
@@ -3731,9 +4135,20 @@ function AV:SaveObstacleMap()
 end
 
 --- Load obstacle map from .dat file (compact text format).
+--- MERGE mode: existing in-memory entries are kept; disk entries that don't
+--- exist in memory yet are added. This prevents accidentally wiping
+--- data that was added during this session before a Load is called.
 function AV:LoadObstacleMap()
 	local ok, err = pcall(function()
-		local file = io.open(self.obstacle_map_path, "r")
+		local path = self.obstacle_map_path
+		local file = io.open(path, "r")
+		-- If main file is missing or empty, try the backup.
+		if not file then
+			file = io.open(path .. ".bak", "r")
+			if file then
+				self.log_obj:Record(LogLevel.Warning, "LoadObstacleMap: main file missing, loading from .bak")
+			end
+		end
 		if not file then return end
 		-- Read compact .dat format
 		local raw = file:read("*all")
@@ -3745,14 +4160,19 @@ function AV:LoadObstacleMap()
 			return
 		end
 		self.obstacle_cell_size = tonumber(cs) or 10.0
-		self.obstacle_map = {}
+		-- Merge: add disk entries into existing in-memory map.
+		-- For cells already in memory, keep the higher count.
 		local n = 0
-		-- Each data line: "cx cy cz count" (integer cell coords, may be negative)
 		for cx, cy, cz, count in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-			self.obstacle_map[cx .. "_" .. cy .. "_" .. cz] = {count = tonumber(count)}
+			local key  = cx .. "_" .. cy .. "_" .. cz
+			local cnt  = tonumber(count)
+			local existing = self.obstacle_map[key]
+			if not existing or existing.count < cnt then
+				self.obstacle_map[key] = {count = cnt}
+			end
 			n = n + 1
 		end
-		self.log_obj:Record(LogLevel.Info, string.format("Obstacle map loaded: %d cells", n))
+		self.log_obj:Record(LogLevel.Info, string.format("Obstacle map loaded/merged: %d cells from disk", n))
 	end)
 	if not ok then
 		self.log_obj:Record(LogLevel.Warning, "LoadObstacleMap failed: " .. tostring(err))
@@ -3787,8 +4207,12 @@ function AV:RecordObstacleScan()
 		if len > 0.001 then
 			local nd = Vector4.new(d.x/len, d.y/len, d.z/len, 0)
 			local dist, hit = self:RaycastDist(pos, nd, range)
-			-- Only record if NOT at max range (i.e., something was actually hit)
-			if dist < range - 0.5 and hit then
+			-- Direct physical contact: ray hit within one cell → vehicle is touching the obstacle.
+			-- Record as count=1000 (actual collision, not just proximity evidence).
+			if dist < self.obstacle_cell_size and hit then
+				self:RecordDirectCollision()
+			-- Normal ray hit: something detected ahead → accumulate count via RecordObstacleHit.
+			elseif dist < range - 0.5 and hit then
 				self:RecordObstacleHit(hit, nd)
 			else
 				-- Ray cleared: mark traversed cells as confirmed clear (count = 0).
@@ -3824,12 +4248,27 @@ function AV:StartObstacleRecording()
 	self:LoadObstacleMap()
 	self.is_obstacle_map_recording = true
 	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STARTED (merged with saved map)")
+	local scan_count = 0
 	Cron.Every(self.obstacle_record_interval, function(timer)
 		if not self.is_obstacle_map_recording then
 			Cron.Halt(timer)
 			return
 		end
+		-- Poll physical collision on every scan tick.
+		-- IsOnGround() (= IsCollision()) is not an event; it must be called actively.
+		-- This is the only always-running Cron while the player is in the vehicle,
+		-- so it is the authoritative place to catch collisions regardless of autopilot phase.
+		if self:IsCollision() then
+			self:RecordDirectCollision()
+		end
 		self:RecordObstacleScan()
+		scan_count = scan_count + 1
+		-- Periodic save every ~30 s (150 ticks × 0.2 s) to protect against crashes
+		if scan_count >= self.autopilot_scan_dirty_threshold then
+			scan_count = 0
+			self:SaveObstacleMap()
+			self.log_obj:Record(LogLevel.Info, "Obstacle map periodic save during recording")
+		end
 	end)
 end
 
@@ -3908,38 +4347,101 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 		dest_dir_vec.y / dest_len,
 		dest_dir_vec.z / dest_len, 0)
 
-	-- Stuck detection: accumulate time when not moving
-	if self.tangent_last_pos then
-		local moved = math.sqrt(
-			(current_pos.x - self.tangent_last_pos.x)^2 +
-			(current_pos.y - self.tangent_last_pos.y)^2 +
-			(current_pos.z - self.tangent_last_pos.z)^2)
-		if moved < 0.2 then
-			self.tangent_stuck_timer = self.tangent_stuck_timer + DAV.time_resolution
-		else
-			self.tangent_stuck_timer = 0
-			self.tangent_stuck_escape_time = 0  -- Reset escape if moving
-		end
-	end
-	self.tangent_last_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
+	-- Stuck detection: 2秒ごとに目的地への前進量を計測
+	-- 「2秒で2m以上近づかなかった」なら累積。「2秒で10m以上近づいた」なら完全リセット。
+	-- モード(DIRECT/BOUNDARY)を問わず貯まるため、BOUNDARYタイムアウトでDIRECTに
+	-- 戻っても累積がリセットされず、永久ループを防止できる。
+	local stuck_check_interval = 2.0
+	local stuck_progress_threshold = -2.0   -- 2秒で2m近づかなければ "不十分"
+	local stuck_reset_threshold    = -10.0  -- 2秒で10m近づいた場合のみ完全リセット
+	if self.tangent_net_check_dist == nil then
+		self.tangent_net_check_dist = dest_len
+		self.tangent_net_check_time = current_time
+	elseif current_time - self.tangent_net_check_time >= stuck_check_interval then
+		local dist_change = dest_len - self.tangent_net_check_dist  -- 正=遠ざかる, 負=近づく
 
-	-- Stuck escape: ascend vertically for tangent_stuck_escape_dur seconds
+		if dist_change <= stuck_reset_threshold then
+			-- 十分な前進 (2秒で10m超) → stuck状態を完全リセット
+			if self.tangent_stuck_timer > 0 then
+				self.log_obj:Record(LogLevel.Debug, string.format(
+					"StuckDetect: good progress %.1fm, resetting stuck timer (was %.0fs)",
+					-dist_change, self.tangent_stuck_timer))
+			end
+			self.tangent_stuck_timer       = 0
+			self.tangent_stuck_escape_time = 0
+		elseif dist_change > stuck_progress_threshold then
+			-- 前進不十分 (receding or < 2m closer) → stuck累積
+			self.tangent_stuck_timer = self.tangent_stuck_timer + stuck_check_interval
+			self.log_obj:Record(LogLevel.Debug, string.format(
+				"StuckDetect: insufficient progress %.1fm (mode=%s, dist=%.1fm), stuck=%.0fs/%.0fs",
+				dist_change, self.tangent_mode, dest_len, self.tangent_stuck_timer, self.tangent_stuck_threshold))
+		end
+		-- -10m < dist_change <= -2m: 軽い前進はカウントも累積もしない（中立）
+
+		self.tangent_net_check_dist = dest_len
+		self.tangent_net_check_time = current_time
+	end
+
+	-- Stuck escape: ascend until upward is clear, then replan route
 	if self.tangent_stuck_timer >= self.tangent_stuck_threshold then
+		local up_dir       = Vector4.new(0, 0, 1, 0)
+		local up_check_dist = 15.0  -- 15m 上方向の障害物チェック距離
+		local up_dist      = self:RaycastDist(current_pos, up_dir, up_check_dist)
+		local up_clear     = (up_dist >= up_check_dist - 0.5)
+
 		if self.tangent_stuck_escape_time == 0 then
+			-- stuck 初回: まず上方向が塞がれていないか確認
+			if not up_clear then
+				self.log_obj:Record(LogLevel.Warning, string.format(
+					"TangentBug: STUCK (%.1fs) and upward blocked (%.1fm) - aborting autopilot",
+					self.tangent_stuck_timer, up_dist))
+				self.tangent_stuck_abort = true
+				return dest_dir
+			end
+			-- 上方向が空いている → 上昇脱出開始
 			self.tangent_stuck_escape_time = current_time
 			self.log_obj:Record(LogLevel.Warning, string.format(
-				"TangentBug: STUCK (%.1fs without movement) - ascending to escape",
+				"TangentBug: STUCK (%.1fs) - ascending until forward path clears",
 				self.tangent_stuck_timer))
 		end
-		if current_time - self.tangent_stuck_escape_time < self.tangent_stuck_escape_dur then
-			return Vector4.new(0, 0, 1, 0)  -- Pure upward escape
-		else
-			-- Escape finished: reset and resume DIRECT mode
-			self.tangent_stuck_timer = 0
-			self.tangent_stuck_escape_time = 0
-			self.tangent_mode = "DIRECT"
-			self.log_obj:Record(LogLevel.Info, "TangentBug: stuck escape complete, resuming DIRECT")
+
+		-- 上昇中: 新たに天井が出現した場合は自動操縦中止
+		if not up_clear then
+			self.log_obj:Record(LogLevel.Warning, string.format(
+				"TangentBug: obstacle detected above during escape (%.1fm) - aborting autopilot",
+				up_dist))
+			self.tangent_stuck_abort = true
+			return dest_dir
 		end
+
+		-- 前方向のクリアランスを確認: clear になったら脱出完了
+		local fwd_check_dist = math.max(20.0, self.autopilot_speed * 1.5)
+		local fwd_dist_check = self:RaycastDist(current_pos, dest_dir, fwd_check_dist)
+		local escape_elapsed = current_time - self.tangent_stuck_escape_time
+
+		-- 最低 1 秒上昇してから、前方が 70% 以上クリアなら脱出完了
+		if escape_elapsed > 1.0 and fwd_dist_check > fwd_check_dist * 0.7 then
+			self.tangent_stuck_timer        = 0
+			self.tangent_stuck_escape_time  = 0
+			self.tangent_mode               = "DIRECT"
+			self.tangent_stuck_needs_replan = true
+			self.tangent_net_check_dist     = nil  -- reset baseline after escape to avoid stale dist
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"TangentBug: escape complete after %.1fs - forward clear (%.1fm), replanning route",
+				escape_elapsed, fwd_dist_check))
+			return dest_dir  -- AutoPilot ループでルート再計画を処理
+		end
+
+		-- 安全タイムアウト: 20 秒上昇しても前方がクリアにならなければ中止
+		if escape_elapsed > 20.0 then
+			self.log_obj:Record(LogLevel.Warning, "TangentBug: escape timeout (20s) - aborting autopilot")
+			self.tangent_stuck_abort = true
+			return dest_dir
+		end
+
+		-- まだ上昇中: 上昇速度を確保（直前の障害物近接値が残らないよう上書き）
+		self.auto_speed_reduce_rate = 0.5
+		return Vector4.new(0, 0, 1, 0)
 	end
 
 	-- Speed-proportional detection distance: faster = look further ahead
@@ -3971,6 +4473,25 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 	local front_right_dist = self:RaycastDist(front_right, dest_dir, detect_dist)
 	-- Effective forward distance: center fan + rear corners only
 	local effective_fwd_dist = math.min(fwd_dist, rear_left_dist, rear_right_dist)
+
+	-- Treat exception area boundaries as virtual walls for TangentBug obstacle avoidance.
+	-- ExceptionAreaRayDist respects is_exception_area_bypassed (returns detect_dist when bypassed).
+	local ea_center_dist  = self:ExceptionAreaRayDist(current_pos, dest_dir, detect_dist)
+	local ea_rl_dist      = self:ExceptionAreaRayDist(rear_left,   dest_dir, detect_dist)
+	local ea_rr_dist      = self:ExceptionAreaRayDist(rear_right,  dest_dir, detect_dist)
+	local ea_fl_dist      = self:ExceptionAreaRayDist(front_left,  dest_dir, detect_dist)
+	local ea_fr_dist      = self:ExceptionAreaRayDist(front_right, dest_dir, detect_dist)
+	if ea_center_dist < fwd_dist then
+		fwd_dist   = ea_center_dist
+		hit_normal = nil  -- no surface normal from exception area boundary
+		self.log_obj:Record(LogLevel.Debug, string.format(
+			"TangentBug: exception area boundary %.1fm ahead (center)", ea_center_dist))
+	end
+	rear_left_dist   = math.min(rear_left_dist,   ea_rl_dist)
+	rear_right_dist  = math.min(rear_right_dist,  ea_rr_dist)
+	front_left_dist  = math.min(front_left_dist,  ea_fl_dist)
+	front_right_dist = math.min(front_right_dist, ea_fr_dist)
+	effective_fwd_dist = math.min(fwd_dist, rear_left_dist, rear_right_dist)
 
 	-- Body-clear check: if ALL 4 corners are beyond enter_dist, the vehicle body can
 	-- physically pass through even if the center fan ray clips something (e.g. a thin
@@ -4075,21 +4596,29 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 		local dz = current_pos.z - self.tangent_entry_pos.z
 		moved_from_entry = math.sqrt(dx*dx + dy*dy + dz*dz)
 	end
-	local normal_exit   = fwd_dist > exit_dist   and moved_from_entry >= enter_dist
-	local fallback_exit = fwd_dist > enter_dist  and moved_from_entry >= enter_dist * 3
+	-- Side clearance check: front corners must not be dangerously close to the obstacle.
+	-- Without this, the vehicle exits BOUNDARY while still hugging the wall (FL/FR ~1m),
+	-- turns toward dest in DIRECT, immediately faces the same wall → emergency re-entry loop.
+	-- Threshold: same as emergency_thr in DIRECT (enter_dist * 0.4), rounded up to 6m minimum.
+	local side_thr  = math.max(6.0, enter_dist * 0.4)
+	local side_clear = (front_left_dist > side_thr and front_right_dist > side_thr)
+	local normal_exit   = fwd_dist > exit_dist   and moved_from_entry >= enter_dist  and side_clear
+	local fallback_exit = fwd_dist > enter_dist  and moved_from_entry >= enter_dist * 3 and side_clear
 	if normal_exit or fallback_exit then
 		self.tangent_mode = "DIRECT"
 		self.tangent_entry_pos = nil
 		-- Arm the re-entry cooldown from this position
 		self.tangent_direct_start_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
 		self.log_obj:Record(LogLevel.Info, string.format(
-			"TangentBug: BOUNDARY->DIRECT (%s, fwd=%.1fm, moved=%.1fm, cooldown armed)",
-			fallback_exit and "fallback" or "normal", fwd_dist, moved_from_entry))
+			"TangentBug: BOUNDARY->DIRECT (%s, fwd=%.1fm, moved=%.1fm, FL=%.1fm FR=%.1fm, cooldown armed)",
+			fallback_exit and "fallback" or "normal", fwd_dist, moved_from_entry,
+			front_left_dist, front_right_dist))
 		return dest_dir
 	else
 		self.log_obj:Record(LogLevel.Debug, string.format(
-			"TangentBug: still in BOUNDARY (fwd=%.1fm exit=%.1fm, moved=%.1fm/%.1fm)",
-			fwd_dist, exit_dist, moved_from_entry, enter_dist))
+			"TangentBug: still in BOUNDARY (fwd=%.1fm exit=%.1fm, moved=%.1fm/%.1fm, FL=%.1fm FR=%.1fm side_thr=%.1fm)",
+			fwd_dist, exit_dist, moved_from_entry, enter_dist,
+			front_left_dist, front_right_dist, side_thr))
 	end
 
 	-- Find best passable direction along obstacle boundary toward goal

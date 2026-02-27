@@ -297,26 +297,30 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
-	local autopilot_speed_level_list = {DAV.core_obj:GetTranslationText("native_settings_general_speed_slow"), DAV.core_obj:GetTranslationText("native_settings_general_speed_normal"), DAV.core_obj:GetTranslationText("native_settings_general_speed_fast")}
-	local selected_index
-	if DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Slow then
-		selected_index = 1
-	elseif DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Normal then
-		selected_index = 2
-	elseif DAV.user_setting_table.autopilot_speed_level == Def.AutopilotSpeedLevel.Fast then
-		selected_index = 3
-	end
-	option_table = DAV.NativeSettings.addSelectorString("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_autopilot_speed"), DAV.core_obj:GetTranslationText("native_settings_general_autopilot_speed_description"), autopilot_speed_level_list, selected_index, 2, function(index)
+	-- UI: 10-100 (step 10) → internal: 5-50 (step 5, ×0.5)
+	option_table = DAV.NativeSettings.addRangeInt("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_autopilot_speed"), DAV.core_obj:GetTranslationText("native_settings_general_autopilot_speed_description"), 10, 100, 10, (DAV.user_setting_table.autopilot_speed or 25) * 2, 50, function(value)
 		if not DAV.core_obj.av_obj.is_auto_pilot then
-			if index == 1 then
-				DAV.user_setting_table.autopilot_speed_level = Def.AutopilotSpeedLevel.Slow
-			elseif index == 2 then
-				DAV.user_setting_table.autopilot_speed_level = Def.AutopilotSpeedLevel.Normal
-			elseif index == 3 then
-				DAV.user_setting_table.autopilot_speed_level = Def.AutopilotSpeedLevel.Fast
-			end
+			DAV.user_setting_table.autopilot_speed = value / 2
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			DAV.core_obj.av_obj:ReloadAutopilotProfile()
+		end
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+
+	option_table = DAV.NativeSettings.addSwitch("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_scan_during_autopilot"), DAV.core_obj:GetTranslationText("native_settings_general_scan_during_autopilot_description"), DAV.user_setting_table.is_enable_scan_during_autopilot, true, function(state)
+		DAV.user_setting_table.is_enable_scan_during_autopilot = state
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		if state then
+			-- Start recording immediately if vehicle is currently active
+			if DAV.core_obj.av_obj.entity_id ~= nil then
+				DAV.core_obj.av_obj:StartObstacleRecording()
+			end
+		else
+			-- Stop recording in all cases
+			DAV.core_obj.av_obj:StopObstacleRecording()
 		end
 		Cron.After(self.delay_updating_native_settings, function()
 			self:UpdateNativeSettingsPage()

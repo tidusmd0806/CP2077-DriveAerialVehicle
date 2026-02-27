@@ -392,17 +392,14 @@ function Debug:ImGuiAutoPilotStatus()
 end
 
 function Debug:ImGuiChangeAutoPilotSetting()
-    self.is_im_gui_change_auto_setting = ImGui.Checkbox("[ImGui] Change AP Profile", self.is_im_gui_change_auto_setting)
+    self.is_im_gui_change_auto_setting = ImGui.Checkbox("[ImGui] AP Settings", self.is_im_gui_change_auto_setting)
     if self.is_im_gui_change_auto_setting then
-        if ImGui.Button("Update Profile") then
-            DAV.core_obj.av_obj.autopilot_profile = Utils:ReadJson(DAV.core_obj.av_obj.profile_path)
-            DAV.core_obj.av_obj:ReloadAutopilotProfile()
-        end
-        ImGui.Text("Level : " .. DAV.user_setting_table.autopilot_speed_level)
-        ImGui.Text("Speed : " .. DAV.core_obj.av_obj.autopilot_speed .. ", Acceleration : " .. DAV.core_obj.av_obj.autopilot_acceleration)
-        ImGui.Text("Search Range : " .. DAV.core_obj.av_obj.autopilot_searching_range .. ", Search Step : " .. DAV.core_obj.av_obj.autopilot_searching_step)
-        ImGui.Text("Min Speed Rate : " .. DAV.core_obj.av_obj.autopilot_min_speed_rate .. ", Turn Speed : " .. DAV.core_obj.av_obj.autopilot_turn_speed)
-        ImGui.Text("Leaving Height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", Only Horizontal : " .. tostring(DAV.core_obj.av_obj.autopilot_is_only_horizontal))
+        local av = DAV.core_obj.av_obj
+        ImGui.Text("Speed setting : " .. (DAV.user_setting_table.autopilot_speed or 25) .. " m/s")
+        ImGui.Text("Speed : " .. av.autopilot_speed .. ", Acceleration : " .. string.format("%.2f", av.autopilot_acceleration))
+        ImGui.Text("Search Range : " .. av.autopilot_searching_range .. ", Search Step : " .. av.autopilot_searching_step)
+        ImGui.Text("Min Speed Rate : " .. av.autopilot_min_speed_rate .. ", Turn Speed : " .. string.format("%.4f", av.autopilot_turn_speed))
+        ImGui.Text("Leaving Height : " .. av.autopilot_leaving_height)
     end
 end
 
@@ -860,11 +857,13 @@ function Debug:ImGuiObstacleMap()
     ImGui.Text(string.format("Record interval     : %.2f s", av_obj.obstacle_record_interval))
     ImGui.Separator()
 
-    -- Recording toggle
+    -- Recording toggle (synced with NativeSettings is_enable_scan_during_autopilot)
     if av_obj.is_obstacle_map_recording then
         ImGui.PushStyleColor(ImGuiCol.Button, 0.7, 0.1, 0.1, 1.0)
         if ImGui.Button("STOP Recording") then
             av_obj:StopObstacleRecording()
+            DAV.user_setting_table.is_enable_scan_during_autopilot = false
+            Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
         end
         ImGui.PopStyleColor(1)
         ImGui.SameLine()
@@ -873,6 +872,8 @@ function Debug:ImGuiObstacleMap()
         ImGui.PushStyleColor(ImGuiCol.Button, 0.1, 0.5, 0.1, 1.0)
         if ImGui.Button("START Recording") then
             av_obj:StartObstacleRecording()
+            DAV.user_setting_table.is_enable_scan_during_autopilot = true
+            Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
         end
         ImGui.PopStyleColor(1)
     end

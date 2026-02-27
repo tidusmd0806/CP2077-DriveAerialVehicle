@@ -107,7 +107,8 @@ DAV.user_setting_table = {
     mappin_history = {},
     autopilot_selected_index = 0,
     favorite_location_list = DAV.default_favorite_location_table,
-    autopilot_speed_level = Def.AutopilotSpeedLevel.Normal,
+    autopilot_speed = 25,  -- Autopilot speed in m/s (5-50)
+    is_enable_scan_during_autopilot = true,  -- Scan and update obstacle map during autopilot
     is_enable_history = true,
     --- general
     language_index = 1,

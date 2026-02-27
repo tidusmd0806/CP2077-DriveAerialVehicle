@@ -62,9 +62,10 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_OBSTACLE_PATH = SCRIPT_DIR / ".." / "Data" / "obstacle_map.dat"
-DEFAULT_ROUTE_PATH    = SCRIPT_DIR / ".." / "Data" / "last_route.json"
-DEFAULT_SECTOR_PATH   = SCRIPT_DIR / ".." / "Data" / "sector_danger_map.json"
+DEFAULT_OBSTACLE_PATH        = SCRIPT_DIR / ".." / "Data" / "obstacle_map.dat"
+DEFAULT_ROUTE_PATH           = SCRIPT_DIR / ".." / "Data" / "last_route.json"
+DEFAULT_SECTOR_PATH          = SCRIPT_DIR / ".." / "Data" / "sector_danger_map.json"
+DEFAULT_EXCEPTION_AREA_PATH  = SCRIPT_DIR / ".." / "Data" / "autopilot_exception_area.json"
 
 
 def load_obstacle_map(path: Path):
@@ -97,6 +98,17 @@ def load_sector_map(path: Path):
     sector_size = float(data.get("sector_size", 25.0))
     sectors     = data.get("sectors", {})
     return sector_size, sectors
+
+
+def load_exception_areas(path: Path):
+    """Load autopilot_exception_area.json.
+    Returns list of dicts with keys: tag, min_x/max_x, min_y/max_y, min_z/max_z.
+    Returns [] if file is missing.
+    """
+    if not path.exists():
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def load_route(path: Path):
@@ -140,16 +152,18 @@ def load_route(path: Path):
 
 def parse_cells(cells: dict, cell_size: float, min_hits: int):
     """
-    Convert the cell dict to two sets of arrays.
+    Convert the cell dict to arrays split by category.
 
     Returns
     -------
-    (xs, ys, zs, counts)  – obstacle cells (count >= min_hits)
-    (cxs, cys, czs)       – confirmed-clear cells (count == 0)
+    (xs, ys, zs, counts)                – propagated obstacle cells (min_hits <= count < 1000)
+    (hxs, hys, hzs)                     – direct-collision cells (count >= 1000)
+    (cxs, cys, czs)                     – confirmed-clear cells (count == 0)
 
     World position of each cell centre = (ci + 0.5) * cell_size.
     """
     xs, ys, zs, counts = [], [], [], []
+    hxs, hys, hzs = [], [], []  # direct-hit cells (count >= 1000)
     cxs, cys, czs = [], [], []  # confirmed-clear cells
     for key, count in cells.items():
         parts = key.split("_")
@@ -166,12 +180,16 @@ def parse_cells(cells: dict, cell_size: float, min_hits: int):
             cxs.append(wx)
             cys.append(wy)
             czs.append(wz)
+        elif count >= 1000:
+            hxs.append(wx)
+            hys.append(wy)
+            hzs.append(wz)
         elif count >= min_hits:
             xs.append(wx)
             ys.append(wy)
             zs.append(wz)
             counts.append(count)
-    return xs, ys, zs, counts, cxs, cys, czs
+    return xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs
 
 
 def parse_blocked_sectors(sectors: dict, sector_size: float):
@@ -201,94 +219,212 @@ def parse_blocked_sectors(sectors: dict, sector_size: float):
 # Matplotlib backend
 # ---------------------------------------------------------------------------
 
-def render_matplotlib(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, cap_count, out_path, show_clear=True):
+# Distinct colours cycled for exception areas
+_EA_COLORS = [
+    "#ff8c00", "#ff4dcb", "#00ccff", "#88ff44",
+    "#ff6655", "#ffcc00", "#cc44ff", "#00ff88",
+    "#ff3355", "#5599ff", "#ffaa44", "#44ffcc",
+]
+
+
+def render_matplotlib(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys, bzs, route, cap_count, out_path, show_clear=True, exception_areas=None):
     import matplotlib.pyplot as plt
     import matplotlib.cm as cm
     import matplotlib.colors as mcolors
     import numpy as np
 
-    fig = plt.figure(figsize=(14, 10))
-    ax  = fig.add_subplot(111, projection="3d")
-    ax.set_facecolor("#1a1a2e")
-    fig.patch.set_facecolor("#1a1a2e")
+    BG = "#0d0d1a"
+    PANEL_BG = "#12122a"
+    fig = plt.figure(figsize=(18, 9))
+    fig.patch.set_facecolor(BG)
 
-    # --- confirmed-clear cells (count == 0) ---
-    if show_clear and cxs:
-        ax.scatter(cxs, cys, czs, c="#00e5b0", marker=".", s=6, alpha=0.25,
-                   label=f"Confirmed clear ({len(cxs)})")
+    # Left: 3-D perspective  |  Right: 2-D top-down (XY)
+    ax3d = fig.add_subplot(1, 2, 1, projection="3d")
+    ax2d = fig.add_subplot(1, 2, 2)
+    for ax in (ax3d,):
+        ax.set_facecolor(PANEL_BG)
+    ax2d.set_facecolor(PANEL_BG)
 
-    # --- obstacle cells ---
-    if xs:
-        cap = cap_count or max(counts)
-        norm = mcolors.Normalize(vmin=1, vmax=cap)
-        cmap = cm.get_cmap("plasma")
-        colours = [cmap(norm(min(c, cap))) for c in counts]
-        sizes   = [max(10, min(60, c * 3)) for c in counts]
+    # ---- helper: log-normalised colour mapping ----
+    # count 1 → yellow-green, 10 → orange, 100 → red-purple  (plasma log)
+    def _log_norm(vals, cap):
+        """Return LogNorm and LogNorm-normalised values clamped to [1, cap]."""
+        lo = 1
+        hi = max(cap, lo + 1)
+        return mcolors.LogNorm(vmin=lo, vmax=hi)
 
-        sc = ax.scatter(xs, ys, zs, c=counts, cmap="plasma",
-                        vmin=1, vmax=cap,
-                        s=sizes, alpha=0.75, depthshade=True,
-                        label=f"Obstacle cells ({len(xs)})")
+    # ---- shared draw helper ----
+    def _draw_obstacles(ax, is_3d):
+        scatter_kw = dict(depthshade=True) if is_3d else {}
 
-        cb = fig.colorbar(sc, ax=ax, pad=0.12, shrink=0.7)
-        cb.set_label("Hit count", color="white")
-        cb.ax.yaxis.set_tick_params(color="white")
-        plt.setp(plt.getp(cb.ax.axes, "yticklabels"), color="white")
+        # confirmed-clear
+        if show_clear and cxs:
+            kw = dict(c="#00e5b0", marker=".", s=4, alpha=0.18,
+                      label=f"Clear ({len(cxs)})")
+            if is_3d:
+                ax.scatter(cxs, cys, czs, **kw)
+            else:
+                ax.scatter(cxs, cys, **kw)
 
-    # --- blocked sectors overlay ---
+        # propagated obstacle cells (1 ≤ count < 1000)
+        if xs:
+            cap = cap_count or max(counts)
+            norm = _log_norm(counts, cap)
+            cmap = cm.get_cmap("plasma")
+            col  = [cmap(norm(min(c, cap))) for c in counts]
+            sz   = [max(8, min(40, c * 4)) for c in counts]
+            sc   = None
+            kw   = dict(c=counts, cmap="plasma",
+                        norm=norm, s=sz, alpha=0.80,
+                        label=f"Obstacles ({len(xs)})", **scatter_kw)
+            if is_3d:
+                sc = ax.scatter(xs, ys, zs, **kw)
+            else:
+                sc = ax.scatter(xs, ys, **kw)
+            return sc  # return for colorbar
+        return None
+
+    sc3 = _draw_obstacles(ax3d, is_3d=True)
+    sc2 = _draw_obstacles(ax2d, is_3d=False)
+
+    # direct-collision cells (count ≥ 1000) → bright red, larger
+    if hxs:
+        kw_hit = dict(c="#ff2244", marker="s", s=18, alpha=0.90,
+                      label=f"Direct hit ({len(hxs)})")
+        ax3d.scatter(hxs, hys, hzs, **kw_hit)
+        ax2d.scatter(hxs, hys, **kw_hit)
+
+    # blocked sectors
     if bxs:
-        ax.scatter(bxs, bys, bzs, c="cyan", marker="^", s=40, alpha=0.4,
-                   label=f"Blocked sectors ({len(bxs)})")
+        kw_blk = dict(c="cyan", marker="^", s=35, alpha=0.35,
+                      label=f"Blocked sectors ({len(bxs)})")
+        ax3d.scatter(bxs, bys, bzs, **kw_blk)
+        ax2d.scatter(bxs, bys, **kw_blk)
 
-    # Styling
-    ax.set_xlabel("X (m)", color="white")
-    ax.set_ylabel("Y (m)", color="white")
-    ax.set_zlabel("Z (m)", color="white")
-    ax.set_title("DriveAerialVehicle – 3D Obstacle Map", color="white", pad=15)
-    ax.tick_params(colors="white")
-    ax.xaxis.pane.set_edgecolor("gray")
-    ax.yaxis.pane.set_edgecolor("gray")
-    ax.zaxis.pane.set_edgecolor("gray")
-    ax.xaxis.pane.fill = False
-    ax.yaxis.pane.fill = False
-    ax.zaxis.pane.fill = False
+    # ---- exception areas ----
+    if exception_areas:
+        import matplotlib.patches as mpatches
+        _BOX_EDGES = [
+            (0,1),(1,2),(2,3),(3,0),   # bottom face
+            (4,5),(5,6),(6,7),(7,4),   # top face
+            (0,4),(1,5),(2,6),(3,7),   # verticals
+        ]
+        for idx, ea in enumerate(exception_areas):
+            col = _EA_COLORS[idx % len(_EA_COLORS)]
+            x1, x2 = ea["min_x"], ea["max_x"]
+            y1, y2 = ea["min_y"], ea["max_y"]
+            z1, z2 = ea["min_z"], ea["max_z"]
+            tag = ea.get("tag", f"area_{idx}")
+            # 2-D rectangle (XY top-down)
+            rect = mpatches.Rectangle(
+                (x1, y1), x2 - x1, y2 - y1,
+                linewidth=1.2, edgecolor=col,
+                facecolor=col, alpha=0.10,
+                label=f"EA: {tag}",
+            )
+            ax2d.add_patch(rect)
+            ax2d.text((x1+x2)/2, (y1+y2)/2,
+                      tag.replace("_", "\n"),
+                      color=col, fontsize=5.5, ha="center", va="center", alpha=0.90,
+                      bbox=dict(facecolor="#0d0d1a", alpha=0.55,
+                                edgecolor="none", pad=1.5))
+            # 3-D wireframe box
+            vx = [x1,x2,x2,x1, x1,x2,x2,x1]
+            vy = [y1,y1,y2,y2, y1,y1,y2,y2]
+            vz = [z1,z1,z1,z1, z2,z2,z2,z2]
+            for a, b in _BOX_EDGES:
+                ax3d.plot3D([vx[a],vx[b]], [vy[a],vy[b]], [vz[a],vz[b]],
+                            color=col, linewidth=0.9, alpha=0.55)
+            ax3d.text((x1+x2)/2, (y1+y2)/2, z2,
+                      tag, color=col, fontsize=5, alpha=0.75)
 
-    legend = ax.legend(loc="upper left", facecolor="#22223b", labelcolor="white",
-                       framealpha=0.8)
-
-    # --- A* route ---
+    # A* route
     if route and route["xs"]:
         rx, ry, rz = route["xs"], route["ys"], route["zs"]
-        # Route line
-        ax.plot(rx, ry, rz, color="yellow", linewidth=2.0, alpha=0.9,
-                label=f"A* route ({len(rx)} sectors)")
-        # Waypoint dots
-        ax.scatter(rx, ry, rz, color="yellow", s=20, alpha=0.7, zorder=5)
-        # Start marker
-        sp = route["start_pos"]
-        ax.scatter([sp[0]], [sp[1]], [sp[2]], color="lime", s=120, marker="^",
-                   zorder=6, label="Start (actual)")
-        ax.text(sp[0], sp[1], sp[2], "  START", color="lime", fontsize=8)
-        # Goal marker
-        ep = route["end_pos"]
-        ax.scatter([ep[0]], [ep[1]], [ep[2]], color="red", s=120, marker="*",
-                   zorder=6, label="Goal (actual)")
-        ax.text(ep[0], ep[1], ep[2], "  GOAL", color="red", fontsize=8)
-        # Waypoint index labels (every 5th to avoid clutter)
-        for i, (lx, ly, lz, lbl) in enumerate(
-                zip(rx, ry, rz, route["labels"])):
-            if i % 5 == 0:
-                ax.text(lx, ly, lz, f" {i}", color="lightyellow",
-                        fontsize=6, alpha=0.8)
+        lbl = f"A* route ({len(rx)} wpts)"
 
-    legend = ax.legend(loc="upper left", facecolor="#22223b", labelcolor="white",
-                       framealpha=0.8)
-    if counts:
+        ax3d.plot(rx, ry, rz, color="#ffe55c", lw=2, alpha=0.9, label=lbl)
+        ax3d.scatter(rx, ry, rz, color="#ffe55c", s=14, alpha=0.7)
+        ax2d.plot(rx, ry, color="#ffe55c", lw=2, alpha=0.9, label=lbl)
+        ax2d.scatter(rx, ry, color="#ffe55c", s=14, alpha=0.7)
+
+        sp = route["start_pos"]
+        ep = route["end_pos"]
+        for ax in (ax3d, ax2d):
+            is3 = hasattr(ax, "scatter") and hasattr(ax, "set_zlabel")
+            def _pos3(p): return ([p[0]], [p[1]], [p[2]]) if is3 else ([p[0]], [p[1]])
+            pass
+
+        # Start
+        ax3d.scatter([sp[0]], [sp[1]], [sp[2]], color="#44ff88", s=140,
+                     marker="^", zorder=6, label="Start")
+        ax3d.text(sp[0], sp[1], sp[2], "  START", color="#44ff88", fontsize=8)
+        ax2d.scatter([sp[0]], [sp[1]], color="#44ff88", s=140, marker="^",
+                     zorder=6, label="Start")
+        ax2d.annotate("START", (sp[0], sp[1]), color="#44ff88", fontsize=8,
+                      xytext=(5, 5), textcoords="offset points")
+        # Goal
+        ax3d.scatter([ep[0]], [ep[1]], [ep[2]], color="#ff5555", s=160,
+                     marker="*", zorder=6, label="Goal")
+        ax3d.text(ep[0], ep[1], ep[2], "  GOAL", color="#ff5555", fontsize=8)
+        ax2d.scatter([ep[0]], [ep[1]], color="#ff5555", s=160, marker="*",
+                     zorder=6, label="Goal")
+        ax2d.annotate("GOAL", (ep[0], ep[1]), color="#ff5555", fontsize=8,
+                      xytext=(5, 5), textcoords="offset points")
+
+        # Waypoint index labels every 5th
+        for i, (lx, ly, lz, lb) in enumerate(zip(rx, ry, rz, route["labels"])):
+            if i % 5 == 0:
+                ax3d.text(lx, ly, lz, f" {i}", color="#ffe88a", fontsize=5.5, alpha=0.8)
+                ax2d.annotate(str(i), (lx, ly), color="#ffe88a", fontsize=5.5,
+                              alpha=0.8, xytext=(2, 2), textcoords="offset points")
+
+    # ---- 3D styling ----
+    for pane in (ax3d.xaxis.pane, ax3d.yaxis.pane, ax3d.zaxis.pane):
+        pane.fill = False
+        pane.set_edgecolor("#444466")
+    ax3d.set_xlabel("X (m)", color="#aaaacc", fontsize=9)
+    ax3d.set_ylabel("Y (m)", color="#aaaacc", fontsize=9)
+    ax3d.set_zlabel("Z (m)", color="#aaaacc", fontsize=9)
+    ax3d.tick_params(colors="#888899", labelsize=7)
+    ax3d.set_title("3D View (perspective)", color="#ccccee", pad=10, fontsize=11)
+    # Isometric-ish initial angle
+    ax3d.view_init(elev=30, azim=-60)
+
+    # ---- 2D styling ----
+    ax2d.set_aspect("equal", adjustable="datalim")
+    ax2d.set_xlabel("X (m)", color="#aaaacc", fontsize=9)
+    ax2d.set_ylabel("Y (m)", color="#aaaacc", fontsize=9)
+    ax2d.tick_params(colors="#888899", labelsize=7)
+    ax2d.set_title("Top-down View (XY)", color="#ccccee", pad=10, fontsize=11)
+    ax2d.grid(True, color="#2a2a4a", linewidth=0.5)
+    for spine in ax2d.spines.values():
+        spine.set_edgecolor("#444466")
+
+    # ---- colourbar (log scale) ----
+    if sc3 is not None and counts:
+        cap = cap_count or max(counts)
+        cb = fig.colorbar(sc3, ax=[ax3d, ax2d], pad=0.02, shrink=0.55,
+                          orientation="vertical", fraction=0.02)
+        cb.set_label("Hit count (log scale)", color="#ccccee", fontsize=9)
+        cb.ax.yaxis.set_tick_params(color="#888899")
+        plt.setp(plt.getp(cb.ax.axes, "yticklabels"), color="#ccccee", fontsize=7)
+
+    # ---- legend ----
+    leg_kw = dict(facecolor="#1e1e38", labelcolor="#ddddee",
+                  framealpha=0.85, fontsize=8)
+    ax3d.legend(loc="upper left", **leg_kw)
+    ax2d.legend(loc="upper left", **leg_kw)
+
+    # ---- stats box ----
+    total_obs = len(xs) + len(hxs)
+    if total_obs:
+        all_c = counts + [1000] * len(hxs)
         stats = (
-            f"Cells shown : {len(xs)}\n"
-            f"Max hits    : {max(counts)}\n"
-            f"Mean hits   : {sum(counts)/len(counts):.1f}\n"
-            f"Clear cells : {len(cxs)}"
+            f"Propagated cells : {len(xs)}\n"
+            f"Direct-hit cells : {len(hxs)}  (count=1000)\n"
+            f"Clear cells      : {len(cxs)}\n"
+            f"Max hits (prop.) : {max(counts) if counts else 0}"
         )
     elif cxs:
         stats = f"Clear cells : {len(cxs)}\nNo obstacle cells yet"
@@ -296,10 +432,13 @@ def render_matplotlib(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, c
         stats = f"Route waypoints: {len(route['xs'])}"
     else:
         stats = "No obstacle data"
-    ax.text2D(0.01, 0.01, stats, transform=ax.transAxes,
-              color="lightgray", fontsize=9, va="bottom",
-              bbox=dict(facecolor="#22223b", alpha=0.7, edgecolor="none"))
+    ax2d.text(0.01, 0.01, stats, transform=ax2d.transAxes,
+              color="#bbbbcc", fontsize=8, va="bottom", family="monospace",
+              bbox=dict(facecolor="#1a1a30", alpha=0.8, edgecolor="#444466",
+                        boxstyle="round,pad=0.4"))
 
+    fig.suptitle("DriveAerialVehicle – Obstacle Map",
+                 color="#eeeeff", fontsize=13, y=1.01)
     plt.tight_layout()
     if out_path:
         plt.savefig(out_path, dpi=150, bbox_inches="tight",
@@ -313,70 +452,137 @@ def render_matplotlib(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, c
 # Plotly backend (interactive HTML)
 # ---------------------------------------------------------------------------
 
-def render_plotly(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, cap_count, out_path, show_clear=True):
+def render_plotly(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys, bzs, route, cap_count, out_path, show_clear=True, exception_areas=None):
     try:
         import plotly.graph_objects as go
+        import numpy as np
     except ImportError:
         print("plotly not installed.  Run: pip install plotly", file=sys.stderr)
         sys.exit(1)
 
+    import math
+
+    BG      = "#0d0d1a"
+    GRID_C  = "#2a2a4a"
+    AXIS_BG = "#111126"
+
     traces = []
 
-    # --- confirmed-clear cells (count == 0) ---
+    # ---- confirmed-clear cells ----
     if show_clear and cxs:
         traces.append(go.Scatter3d(
             x=cxs, y=cys, z=czs,
             mode="markers",
-            name=f"Confirmed clear ({len(cxs)})",
-            marker=dict(size=2, color="#00e5b0", opacity=0.25, symbol="circle"),
-            hovertemplate=(
-                "X: %{x:.0f} m<br>"
-                "Y: %{y:.0f} m<br>"
-                "Z: %{z:.0f} m<br>"
-                "Hits: 0 (confirmed clear)<extra></extra>"
-            )
+            name=f"Clear ({len(cxs)})",
+            marker=dict(size=1.5, color="#00e5b0", opacity=0.20, symbol="circle"),
+            hovertemplate="X: %{x:.0f}<br>Y: %{y:.0f}<br>Z: %{z:.0f}<br>Hits: 0<extra>clear</extra>"
         ))
 
+    # ---- propagated obstacle cells (log colour scale) ----
     if xs:
         cap = cap_count or max(counts)
+        # Log-transform for colour: log10(count), range [0, log10(cap)]
+        log_c = [math.log10(max(c, 1)) for c in counts]
+        log_cap = max(math.log10(max(cap, 2)), 0.01)
+        sizes = [max(2, min(10, math.log10(max(c, 1)) * 3 + 2)) for c in counts]
         traces.append(go.Scatter3d(
             x=xs, y=ys, z=zs,
             mode="markers",
-            name=f"Obstacle cells ({len(xs)})",
+            name=f"Obstacles ({len(xs)})",
             marker=dict(
-                size=[max(2, min(10, c * 0.6)) for c in counts],
-                color=counts,
-                colorscale="Plasma",
-                cmin=1, cmax=cap,
-                opacity=0.8,
-                colorbar=dict(title="Hit count")
+                size=sizes,
+                color=log_c,
+                colorscale=[
+                    [0.0,  "#440154"],  # count ~1  (purple)
+                    [0.3,  "#31688e"],  # count ~2
+                    [0.55, "#35b779"],  # count ~4
+                    [0.75, "#fde725"],  # count ~10
+                    [1.0,  "#ff4444"],  # count ~cap
+                ],
+                cmin=0, cmax=log_cap,
+                opacity=0.82,
+                colorbar=dict(
+                    title=dict(text="Hit count", font=dict(color="#ccccee")),
+                    tickmode="array",
+                    tickvals=[math.log10(v) for v in [1, 2, 5, 10, 50, 100, 500]
+                              if math.log10(v) <= log_cap],
+                    ticktext=[str(v) for v in [1, 2, 5, 10, 50, 100, 500]
+                              if math.log10(v) <= log_cap],
+                    tickfont=dict(color="#ccccee"),
+                    x=1.02,
+                    thickness=14,
+                )
             ),
             hovertemplate=(
                 "X: %{x:.0f} m<br>"
                 "Y: %{y:.0f} m<br>"
                 "Z: %{z:.0f} m<br>"
-                "Hits: %{marker.color}<extra></extra>"
-            )
+                "Hits: %{text}<extra>obstacle</extra>"
+            ),
+            text=[str(c) for c in counts],
         ))
 
+    # ---- direct-collision cells (count ≥ 1000) → bright red ----
+    if hxs:
+        traces.append(go.Scatter3d(
+            x=hxs, y=hys, z=hzs,
+            mode="markers",
+            name=f"Direct hit ({len(hxs)})",
+            marker=dict(size=3, color="#ff2244", opacity=0.92, symbol="square"),
+            hovertemplate="X: %{x:.0f}<br>Y: %{y:.0f}<br>Z: %{z:.0f}<br>Hits: 1000<extra>direct collision</extra>"
+        ))
+
+    # ---- blocked sectors ----
     if bxs:
         traces.append(go.Scatter3d(
             x=bxs, y=bys, z=bzs,
             mode="markers",
             name=f"Blocked sectors ({len(bxs)})",
-            marker=dict(size=4, color="cyan", opacity=0.35, symbol="diamond")
+            marker=dict(size=4, color="cyan", opacity=0.30, symbol="diamond")
         ))
 
-    # --- A* route ---
+    # ---- exception areas (semi-transparent AABB boxes) ----
+    if exception_areas:
+        # Mesh3d vertex / face index layout for a box
+        # Vertices: 0=(x1,y1,z1) 1=(x2,y1,z1) 2=(x2,y2,z1) 3=(x1,y2,z1)
+        #           4=(x1,y1,z2) 5=(x2,y1,z2) 6=(x2,y2,z2) 7=(x1,y2,z2)
+        BOX_I = [0, 0,  4, 4,  0, 0,  2, 2,  0, 0,  1, 1]
+        BOX_J = [1, 2,  5, 6,  1, 5,  3, 7,  3, 7,  2, 6]
+        BOX_K = [2, 3,  6, 7,  5, 4,  7, 6,  7, 4,  6, 5]
+        for idx, ea in enumerate(exception_areas):
+            col = _EA_COLORS[idx % len(_EA_COLORS)]
+            x1, x2 = ea["min_x"], ea["max_x"]
+            y1, y2 = ea["min_y"], ea["max_y"]
+            z1, z2 = ea["min_z"], ea["max_z"]
+            tag = ea.get("tag", f"area_{idx}")
+            vx = [x1,x2,x2,x1, x1,x2,x2,x1]
+            vy = [y1,y1,y2,y2, y1,y1,y2,y2]
+            vz = [z1,z1,z1,z1, z2,z2,z2,z2]
+            traces.append(go.Mesh3d(
+                x=vx, y=vy, z=vz,
+                i=BOX_I, j=BOX_J, k=BOX_K,
+                opacity=0.12,
+                color=col,
+                name=f"EA: {tag}",
+                showlegend=True,
+                flatshading=True,
+                hovertemplate=(
+                    f"<b>Exception Area</b>: {tag}<br>"
+                    f"X: [{x1}, {x2}]<br>"
+                    f"Y: [{y1}, {y2}]<br>"
+                    f"Z: [{z1}, {z2}]<extra></extra>"
+                ),
+            ))
+
+    # ---- A* route ----
     if route and route["xs"]:
         rx, ry, rz = route["xs"], route["ys"], route["zs"]
-        # Route line
         traces.append(go.Scatter3d(
             x=rx, y=ry, z=rz,
             mode="lines+markers",
-            name=f"A* route ({len(rx)} sectors)",
-            line=dict(color="yellow", width=5),
-            marker=dict(size=3, color="yellow", opacity=0.8),
+            name=f"A* route ({len(rx)} wpts)",
+            line=dict(color="#ffe55c", width=5),
+            marker=dict(size=3, color="#ffe55c", opacity=0.85),
             hovertemplate=(
                 "Sector: %{text}<br>"
                 "X: %{x:.0f} m<br>Y: %{y:.0f} m<br>Z: %{z:.0f} m"
@@ -384,57 +590,111 @@ def render_plotly(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, cap_c
             ),
             text=route["labels"],
         ))
-        # Start marker
         sp = route["start_pos"]
+        ep = route["end_pos"]
         traces.append(go.Scatter3d(
             x=[sp[0]], y=[sp[1]], z=[sp[2]],
             mode="markers+text",
-            name="Start (actual)",
-            marker=dict(size=12, color="lime", symbol="diamond"),
-            text=["START"], textfont=dict(color="lime", size=12),
+            name="Start",
+            marker=dict(size=13, color="#44ff88", symbol="diamond"),
+            text=["START"], textfont=dict(color="#44ff88", size=12),
             textposition="top center",
             hovertemplate=f"START<br>X:{sp[0]:.1f} Y:{sp[1]:.1f} Z:{sp[2]:.1f}<extra></extra>"
         ))
-        # Goal marker
-        ep = route["end_pos"]
         traces.append(go.Scatter3d(
             x=[ep[0]], y=[ep[1]], z=[ep[2]],
             mode="markers+text",
-            name="Goal (actual)",
-            marker=dict(size=14, color="red", symbol="x"),
-            text=["GOAL"], textfont=dict(color="red", size=12),
+            name="Goal",
+            marker=dict(size=14, color="#ff5555", symbol="x"),
+            text=["GOAL"], textfont=dict(color="#ff5555", size=12),
             textposition="top center",
             hovertemplate=f"GOAL<br>X:{ep[0]:.1f} Y:{ep[1]:.1f} Z:{ep[2]:.1f}<extra></extra>"
         ))
 
+    # ---- layout ----
+    axis_style = dict(
+        backgroundcolor=AXIS_BG,
+        gridcolor=GRID_C,
+        showbackground=True,
+        zerolinecolor="#444466",
+        tickfont=dict(color="#aaaacc", size=10),
+    )
+
+    # Compute Z range for slider (if we have any data)
+    all_zs = list(zs) + list(hzs) + list(czs)
+    if route and route["zs"]: all_zs += route["zs"]
+    z_min = min(all_zs) if all_zs else 0
+    z_max = max(all_zs) if all_zs else 100
+
     layout = go.Layout(
         title=dict(
             text="DriveAerialVehicle – 3D Obstacle Map",
-            font=dict(color="white")
+            font=dict(color="#eeeeff", size=16),
+            x=0.5,
         ),
         scene=dict(
-            xaxis=dict(title="X (m)", backgroundcolor="#0d0d1a",
-                       gridcolor="gray", showbackground=True),
-            yaxis=dict(title="Y (m)", backgroundcolor="#0d0d1a",
-                       gridcolor="gray", showbackground=True),
-            zaxis=dict(title="Z (m)", backgroundcolor="#0d0d1a",
-                       gridcolor="gray", showbackground=True),
-            aspectmode="data"
+            xaxis=dict(title="X (m)", **axis_style),
+            yaxis=dict(title="Y (m)", **axis_style),
+            zaxis=dict(title="Z (m)", **axis_style),
+            aspectmode="data",
+            camera=dict(
+                eye=dict(x=1.4, y=-1.6, z=1.0),
+                up=dict(x=0, y=0, z=1),
+            ),
+            bgcolor=AXIS_BG,
         ),
-        paper_bgcolor="#1a1a2e",
-        plot_bgcolor="#1a1a2e",
-        font=dict(color="white"),
-        legend=dict(bgcolor="#22223b", bordercolor="gray")
+        paper_bgcolor=BG,
+        plot_bgcolor=BG,
+        font=dict(color="#ddddee"),
+        legend=dict(
+            bgcolor="#1a1a38",
+            bordercolor="#444466",
+            borderwidth=1,
+            font=dict(size=11)
+        ),
+        margin=dict(l=0, r=60, t=50, b=0),
     )
 
     fig = go.Figure(data=traces, layout=layout)
 
+    # ---- Z height filter slider ----
+    if all_zs and (z_max - z_min) > 1:
+        import numpy as np
+        n_steps = min(20, int(z_max - z_min) + 1)
+        z_levels = np.linspace(z_min, z_max, n_steps)
+        steps = []
+        for zl in z_levels:
+            # Update visibility: show cells with z >= zl
+            # We can't filter individual points in Scatter3d steps easily,
+            # so we annotate the step label only (full filtering needs dash/widget)
+            steps.append(dict(
+                method="relayout",
+                args=[{"scene.zaxis.range": [zl, z_max]}],
+                label=f"{zl:.0f} m",
+            ))
+        fig.update_layout(
+            sliders=[dict(
+                active=0,
+                steps=steps,
+                currentvalue=dict(
+                    prefix="Z ≥ ",
+                    font=dict(color="#ccccee"),
+                ),
+                len=0.55,
+                x=0.22,
+                y=0.0,
+                bgcolor="#1a1a38",
+                bordercolor="#444466",
+                font=dict(color="#aaaacc"),
+                tickcolor="#666688",
+            )]
+        )
+
     if out_path:
         try:
-            fig.write_image(str(out_path), width=1400, height=900)
+            fig.write_image(str(out_path), width=1600, height=900)
             print(f"Saved to {out_path}")
         except Exception as e:
-            # Fall back to HTML
             html_path = Path(str(out_path)).with_suffix(".html")
             fig.write_html(str(html_path))
             print(f"Image export failed ({e}); saved HTML to {html_path}")
@@ -502,10 +762,20 @@ def main():
         "--no-clear", action="store_true",
         help="Hide confirmed-clear (hit=0) cells"
     )
+    parser.add_argument(
+        "--exception", type=Path, default=DEFAULT_EXCEPTION_AREA_PATH,
+        metavar="FILE",
+        help="Path to autopilot_exception_area.json  (default: ../Data/autopilot_exception_area.json)"
+    )
+    parser.add_argument(
+        "--no-exception", action="store_true",
+        help="Hide exception area boxes"
+    )
     args = parser.parse_args()
 
     # --- Load obstacle map ---
     xs, ys, zs, counts = [], [], [], []
+    hxs, hys, hzs = [], [], []  # direct-collision cells (count >= 1000)
     cxs, cys, czs = [], [], []  # confirmed-clear cells
     data_path = args.data.resolve()
     if args.no_obstacles and args.no_clear:
@@ -517,13 +787,15 @@ def main():
         print(f"Loading obstacle map : {data_path}")
         cell_size, cells = load_obstacle_map(data_path)
         print(f"  Total cells in file : {len(cells)}")
-        xs, ys, zs, counts, cxs, cys, czs = parse_cells(cells, cell_size, args.min)
+        xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs = parse_cells(cells, cell_size, args.min)
         if args.no_obstacles:
             xs, ys, zs, counts = [], [], [], []
+            hxs, hys, hzs = [], [], []
         if args.no_clear:
             cxs, cys, czs = [], [], []
-        print(f"  Obstacle cells (min={args.min}) : {len(xs)}")
-        print(f"  Confirmed-clear cells (hit=0) : {len(cxs)}")
+        print(f"  Propagated obstacle cells (min={args.min}) : {len(xs)}")
+        print(f"  Direct-collision cells (count>=1000)       : {len(hxs)}")
+        print(f"  Confirmed-clear cells (hit=0)              : {len(cxs)}")
 
     # --- Load A* route ---
     route_path = args.route.resolve()
@@ -539,6 +811,17 @@ def main():
         print(f"[INFO] last_route.json not found ({route_path}).")
         print("  Start autopilot once to generate it.")
 
+    # --- Load exception areas ---
+    exception_areas = []
+    if not args.no_exception:
+        ea_path = args.exception.resolve()
+        if ea_path.exists():
+            print(f"Loading exception areas: {ea_path}")
+            exception_areas = load_exception_areas(ea_path)
+            print(f"  Exception areas      : {len(exception_areas)}")
+        else:
+            print(f"[INFO] autopilot_exception_area.json not found ({ea_path}). Skipping.")
+
     # --- Load sector map ---
     sector_path = args.sector.resolve()
     bxs, bys, bzs = [], [], []
@@ -549,7 +832,7 @@ def main():
         if bxs:
             print(f"  Blocked sectors    : {len(bxs)}")
 
-    if not xs and not cxs and not bxs and (route is None or not route["xs"]):
+    if not xs and not hxs and not cxs and not bxs and (route is None or not route["xs"]):
         print("[WARNING] Nothing to plot.  Collect some data first.")
         sys.exit(0)
 
@@ -566,9 +849,9 @@ def main():
     show_clear = not args.no_clear
 
     if engine == "plotly":
-        render_plotly(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, args.max, args.out, show_clear)
+        render_plotly(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys, bzs, route, args.max, args.out, show_clear, exception_areas)
     else:
-        render_matplotlib(xs, ys, zs, counts, cxs, cys, czs, bxs, bys, bzs, route, args.max, args.out, show_clear)
+        render_matplotlib(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys, bzs, route, args.max, args.out, show_clear, exception_areas)
 
 
 if __name__ == "__main__":
