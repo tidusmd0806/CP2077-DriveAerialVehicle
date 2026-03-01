@@ -328,6 +328,11 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
+	option_table = DAV.NativeSettings.addButton("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_merge_obstacle_map"), DAV.core_obj:GetTranslationText("native_settings_general_merge_obstacle_map_description"), DAV.core_obj:GetTranslationText("native_settings_general_merge_obstacle_map_button_description"), 45, function()
+		DAV.core_obj.av_obj:MergeObstacleMapToSingleFile()
+	end)
+	table.insert(self.option_table_list, option_table)
+
 	option_table = DAV.NativeSettings.addSwitch("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_destruction"), DAV.core_obj:GetTranslationText("native_settings_general_destruction_description"), DAV.user_setting_table.is_enable_destruction, true, function(state)
 		DAV.user_setting_table.is_enable_destruction = state
 		DAV.core_obj:SetDestructibility(state)

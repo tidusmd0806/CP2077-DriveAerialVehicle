@@ -3,8 +3,9 @@ visualize_obstacle_map.py
 =========================
 DriveAerialVehicle mod - 3D Obstacle Map + A* Route Visualizer
 
-Reads Data/obstacle_map.dat (or legacy .json), Data/last_route.json, and optionally
-Data/sector_danger_map.json, then renders an interactive 3D view so
+Reads chunked obstacle map files from Data/map/,
+Data/last_route.json, and optionally Data/sector_danger_map.json,
+then renders an interactive 3D view so
 developers can see:
   - Recorded obstacle positions (coloured by hit count)
   - The last A* route (yellow line with start/goal markers)
@@ -16,8 +17,8 @@ Usage
 
 Options
 -------
-  --data   PATH   Path to obstacle_map.dat  (or legacy .json)
-                  (default: ../Data/obstacle_map.dat)
+  --data   PATH   Path to Data/map/ directory containing chunk_*.dat files
+                  (default: ../Data/map)
   --route  PATH   Path to last_route.json
                   (default: ../Data/last_route.json)
   --sector PATH   Path to sector_danger_map.json  (optional overlay)
@@ -35,10 +36,10 @@ Requirements
 
 File format expected
 --------------------
-  obstacle_map.dat:
-    Line 1 : "DAV_OBMAP v2 cell_size=<float>"
+  Data/map/chunk_{X}_{Y}.dat  (v3 format):
+    Line 1 : "DAV_OBMAP v3 cell_size=<float>"
     Lines 2+: "<cx> <cy> <cz> <count>"  (integer cell coords, may be negative)
-    hit cells (count>=1) and clear cells (count=0) both saved, no caps.
+    Each file covers a 500m×500m XY region (50 cells per side).
 
   last_route.json (written by mod on each autopilot start):
     { "version": 1, "sector_size": 25,
@@ -62,31 +63,45 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_OBSTACLE_PATH        = SCRIPT_DIR / ".." / "Data" / "obstacle_map.dat"
+DEFAULT_MAP_DIR              = SCRIPT_DIR / ".." / "Data" / "map"
 DEFAULT_ROUTE_PATH           = SCRIPT_DIR / ".." / "Data" / "last_route.json"
 DEFAULT_SECTOR_PATH          = SCRIPT_DIR / ".." / "Data" / "sector_danger_map.json"
 DEFAULT_EXCEPTION_AREA_PATH  = SCRIPT_DIR / ".." / "Data" / "autopilot_exception_area.json"
 
 
-def load_obstacle_map(path: Path):
-    """Return (cell_size, cells_dict) where cells_dict = {"cx_cy_cz": count}.
-
-    Reads compact .dat format (DAV_OBMAP v2 header).
-    """
+def _parse_dat_content(content: str, cells: dict):
+    """Parse DAV_OBMAP v2/v3 content into cells dict. Returns cell_size."""
     import re
-    content = path.read_text(encoding="utf-8")
     m = re.search(r"cell_size=([\d.]+)", content.split("\n", 1)[0])
     cell_size = float(m.group(1)) if m else 10.0
-    cells: dict = {}
     for line in content.splitlines()[1:]:
         parts = line.split()
         if len(parts) == 4:
             try:
                 cx, cy, cz, cnt = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
-                cells[f"{cx}_{cy}_{cz}"] = cnt
+                key = f"{cx}_{cy}_{cz}"
+                # Merge: keep higher count (same logic as Lua LoadObstacleMap)
+                if key not in cells or cells[key] < cnt:
+                    cells[key] = cnt
             except ValueError:
                 pass
+    return cell_size
+
+
+def load_obstacle_map_chunked(map_dir: Path):
+    """Load all chunk_*.dat files from the map directory.
+
+    Returns (cell_size, cells_dict) where cells_dict = {"cx_cy_cz": count}.
+    """
+    cells: dict = {}
+    cell_size = 10.0
+    chunk_files = sorted(map_dir.glob("chunk_*.dat"))
+    for chunk_path in chunk_files:
+        content = chunk_path.read_text(encoding="utf-8")
+        if content.startswith("DAV_OBMAP"):
+            cell_size = _parse_dat_content(content, cells)
     return cell_size, cells
+
 
 
 def load_sector_map(path: Path):
@@ -727,8 +742,8 @@ def main():
         description="Visualize the DriveAerialVehicle 3D obstacle map and A* route."
     )
     parser.add_argument(
-        "--data", type=Path, default=DEFAULT_OBSTACLE_PATH,
-        help="Path to obstacle_map.dat (or legacy .json)"
+        "--data", type=Path, default=None,
+        help="Path to Data/map/ directory containing chunk_*.dat files (default: ../Data/map)"
     )
     parser.add_argument(
         "--route", type=Path, default=DEFAULT_ROUTE_PATH,
@@ -777,25 +792,32 @@ def main():
     xs, ys, zs, counts = [], [], [], []
     hxs, hys, hzs = [], [], []  # direct-collision cells (count >= 1000)
     cxs, cys, czs = [], [], []  # confirmed-clear cells
-    data_path = args.data.resolve()
+
+    # Determine data source: explicit --data, or default Data/map/ directory
+    data_path = (args.data.resolve() if args.data is not None
+                 else DEFAULT_MAP_DIR.resolve())
+
     if args.no_obstacles and args.no_clear:
         print("Obstacle display skipped (--no-obstacles --no-clear)")
-    elif not data_path.exists():
-        print(f"[INFO] obstacle_map.dat not found: {data_path}")
-        print("  Enable recording from the debug menu, drive around, then save.")
     else:
-        print(f"Loading obstacle map : {data_path}")
-        cell_size, cells = load_obstacle_map(data_path)
-        print(f"  Total cells in file : {len(cells)}")
-        xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs = parse_cells(cells, cell_size, args.min)
-        if args.no_obstacles:
-            xs, ys, zs, counts = [], [], [], []
-            hxs, hys, hzs = [], [], []
-        if args.no_clear:
-            cxs, cys, czs = [], [], []
-        print(f"  Propagated obstacle cells (min={args.min}) : {len(xs)}")
-        print(f"  Direct-collision cells (count>=1000)       : {len(hxs)}")
-        print(f"  Confirmed-clear cells (hit=0)              : {len(cxs)}")
+        chunk_files = list(data_path.glob("chunk_*.dat")) if data_path.is_dir() else []
+        if not chunk_files:
+            print(f"[INFO] No chunk files found in: {data_path}")
+            print("  Enable recording from the debug menu, drive around, then save.")
+        else:
+            print(f"Loading chunked obstacle map: {data_path}")
+            print(f"  Chunk files found  : {len(chunk_files)}")
+            cell_size, cells = load_obstacle_map_chunked(data_path)
+            print(f"  Total cells loaded : {len(cells)}")
+            xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs = parse_cells(cells, cell_size, args.min)
+            if args.no_obstacles:
+                xs, ys, zs, counts = [], [], [], []
+                hxs, hys, hzs = [], [], []
+            if args.no_clear:
+                cxs, cys, czs = [], [], []
+            print(f"  Propagated obstacle cells (min={args.min}) : {len(xs)}")
+            print(f"  Direct-collision cells (count>=1000)       : {len(hxs)}")
+            print(f"  Confirmed-clear cells (hit=0)              : {len(cxs)}")
 
     # --- Load A* route ---
     route_path = args.route.resolve()

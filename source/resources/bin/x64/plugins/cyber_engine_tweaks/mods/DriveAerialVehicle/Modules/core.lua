@@ -125,6 +125,9 @@ function Core:Init()
     self.av_obj = AV:New(self)
     self.av_obj:Init()
 
+    -- Restore favorite destination from saved settings on startup
+    self:RestoreFavoriteDestination()
+
     self.event_obj = Event:New()
     self.event_obj:Init(self.av_obj)
 
@@ -144,6 +147,8 @@ function Core:Reset()
     self.av_obj = AV:New(self)
     self.av_obj:Init()
     self.event_obj:Init(self.av_obj)
+    -- Restore favorite destination for the new AV object
+    self:RestoreFavoriteDestination()
     -- Reset Custom Mappin
     self.current_custom_mappin_position = Vector4.Zero()
 end
@@ -1123,6 +1128,27 @@ function Core:SetDestinationMappin()
         self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
         self.ft_index_nearest_mappin, self.ft_to_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
     end
+end
+
+--- Restore favorite destination from saved settings (called on startup).
+--- If autopilot_selected_index > 0, find the corresponding favorite and set it.
+function Core:RestoreFavoriteDestination()
+    local selected_index = DAV.user_setting_table.autopilot_selected_index
+    if selected_index == nil or selected_index <= 0 then
+        return
+    end
+    local favorite_list = DAV.user_setting_table.favorite_location_list
+    if favorite_list == nil or favorite_list[selected_index] == nil then
+        return
+    end
+    local pos = favorite_list[selected_index].pos
+    if pos == nil then
+        return
+    end
+    self:SetFavoriteMappin(pos)
+    self.log_obj:Record(LogLevel.Info, string.format(
+        "Restored favorite destination #%d: (%.1f, %.1f, %.1f)",
+        selected_index, pos.x or 0, pos.y or 0, pos.z or 0))
 end
 
 --- Set favorite mappin.

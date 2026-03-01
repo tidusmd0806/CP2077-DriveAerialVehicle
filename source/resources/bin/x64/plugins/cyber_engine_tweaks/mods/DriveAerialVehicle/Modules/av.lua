@@ -199,7 +199,12 @@ function AV:New(core_obj)
 	-- 3D Obstacle Map: records confirmed obstacle positions across flights
 	obj.obstacle_map          = {}          -- key = "cx_cy_cz", value = {count=N}
 	obj.obstacle_cell_size    = 10.0        -- Grid cell size in meters (≈ vehicle length)
-	obj.obstacle_map_path     = "Data/obstacle_map.dat"
+	obj.obstacle_map_path     = "Data/obstacle_map.dat"  -- Legacy path (for migration)
+	obj.obstacle_map_dir      = "Data/map"               -- Chunked storage directory
+	obj.obstacle_map_chunk_cells = 50                     -- Cells per chunk side (50×10m = 500m)
+	obj.obstacle_map_dirty_chunks = {}                    -- chunk_key -> true (needs saving)
+	obj.obstacle_map_chunk_index  = {}                    -- chunk_key -> {cell_key -> true}
+	obj.obstacle_map_dir_ok    = false                    -- Directory existence verified
 	obj.obstacle_min_hits     = 1           -- Min hits before a cell is "known obstacle" (1 = any single hit counts)
 	obj.route_save_path       = "Data/last_route.json"  -- Last A* route for visualization
 
@@ -1054,6 +1059,11 @@ function AV:AutoPilot()
 		destination_position = self.mappin_destination_position
 		self.log_obj:Record(LogLevel.Info, "AutoPilot to Mappin Destination")
 	else
+		if self.favorite_destination_position:IsZero() then
+			self.log_obj:Record(LogLevel.Debug, "No Favorite Destination", "StartAutoPilot")
+			self:InterruptAutoPilot()
+			return false
+		end
 		destination_position = self.favorite_destination_position
 		self.log_obj:Record(LogLevel.Info, "AutoPilot to Favorite Destination")
 	end
@@ -1081,11 +1091,24 @@ function AV:AutoPilot()
 	-- Use the HIGHER of flight altitude or actual destination altitude
 	-- This prevents downward bias while maintaining safe flight altitude
 	local adjusted_z = math.max(destination_position.z, target_altitude)
-	
+
+	-- If destination is inside an exception area, fly to ea_max_z + 30 m instead.
+	-- The vehicle will descend to the actual destination during AutoLanding.
+	local ea_landing_extra_height = 0  -- extra descent needed for EA overshoot
+	local is_dest_in_ea, dest_ea_tag, dest_ea_max_z = self:IsInExceptionArea(destination_position)
+	if is_dest_in_ea then
+		local ea_fly_z = dest_ea_max_z + 30
+		ea_landing_extra_height = ea_fly_z - destination_position.z
+		adjusted_z = math.max(adjusted_z, ea_fly_z)
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"Destination inside exception area '%s' — overfly at Z=%.1f (ea_max_z=%.1f + 30), will descend %.1fm on landing",
+			dest_ea_tag, ea_fly_z, dest_ea_max_z, ea_landing_extra_height))
+	end
+
 	local altitude_adjusted_destination = Vector4.new(
 		destination_position.x,
 		destination_position.y,
-		adjusted_z,  -- Use higher altitude (either flight altitude or destination)
+		adjusted_z,  -- Use higher altitude (either flight altitude or destination or EA overshoot)
 		1
 	)
 	self.target_flight_altitude = target_altitude
@@ -1159,18 +1182,29 @@ function AV:AutoPilot()
 		self.autopilot_local_target = nil
 		local astar_dest = altitude_adjusted_destination
 		if not ap_dest_known then
-			local nearest, dist = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
-			if nearest then
-				astar_dest = nearest
+			-- When destination is inside an exception area the altitude_adjusted_destination
+			-- is already at ea_max_z + 30.  That high-altitude sector typically has no
+			-- obstacle_map data, but A* can still reach it from a neighbouring known sector.
+			-- Do NOT redirect to a nearest-known ground sector — that loses the EA Z lift
+			-- and the route would end at ground level inside the EA.
+			if is_dest_in_ea then
 				self.log_obj:Record(LogLevel.Info, string.format(
-					"AutoPilot [astar]: destination UNKNOWN — A* routes to nearest known (%.1f, %.1f, %.1f, %.0fm away), then local avoidance",
-					astar_dest.x, astar_dest.y, astar_dest.z, dist))
+					"AutoPilot [astar]: destination UNKNOWN but inside EA — keeping EA overfly target (%.1f, %.1f, %.1f)",
+					astar_dest.x, astar_dest.y, astar_dest.z))
 			else
-				-- No known sectors: fallback to full local avoidance
-				self.autopilot_phase        = "final_local"
-				self.autopilot_local_target = altitude_adjusted_destination
-				self.log_obj:Record(LogLevel.Info,
-					"AutoPilot [final_local]: no known sectors — full local avoidance mode")
+				local nearest, dist = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+				if nearest then
+					astar_dest = nearest
+					self.log_obj:Record(LogLevel.Info, string.format(
+						"AutoPilot [astar]: destination UNKNOWN — A* routes to nearest known (%.1f, %.1f, %.1f, %.0fm away), then local avoidance",
+						astar_dest.x, astar_dest.y, astar_dest.z, dist))
+				else
+					-- No known sectors: fallback to full local avoidance
+					self.autopilot_phase        = "final_local"
+					self.autopilot_local_target = altitude_adjusted_destination
+					self.log_obj:Record(LogLevel.Info,
+						"AutoPilot [final_local]: no known sectors — full local avoidance mode")
+				end
 			end
 		else
 			self.log_obj:Record(LogLevel.Info,
@@ -1243,12 +1277,12 @@ function AV:AutoPilot()
 		-- No per-tick scanning here; the Cron fires every obstacle_record_interval seconds
 		-- regardless of driving mode.
 
-		-- Distance to final destination.
-		-- For arrival check, Z is clipped (being above target is OK):
-		-- horizontal proximity is enough to trigger landing.
-		local ddx = destination_position.x - current_position.x
-		local ddy = destination_position.y - current_position.y
-		local ddz = destination_position.z - current_position.z
+		-- Distance to final fly-to point (altitude_adjusted_destination).
+		-- When destination is inside an exception area the fly-to point is above
+		-- the EA; landing will handle the final descent.
+		local ddx = altitude_adjusted_destination.x - current_position.x
+		local ddy = altitude_adjusted_destination.y - current_position.y
+		local ddz = altitude_adjusted_destination.z - current_position.z
 		local horiz_to_final = math.sqrt(ddx*ddx + ddy*ddy)
 		local dist_to_final_arr = math.sqrt(ddx*ddx + ddy*ddy + (ddz < 0 and 0 or ddz*ddz))
 
@@ -1258,9 +1292,10 @@ function AV:AutoPilot()
 		-- instead of heading straight to the final destination.
 		-- NOTE: advance threshold uses HORIZONTAL distance only to avoid premature
 		-- advancement when the vehicle is still climbing/descending to the waypoint Z.
-		local nav_target = destination_position  -- fallback: aim at final dest
+		local nav_target = altitude_adjusted_destination  -- fallback: aim at flight-altitude dest
 		if #self.current_global_route > 0 and horiz_to_final > self.sector_size * 1.5 then
-			local advance_thr = self.sector_size * 0.9  -- ~18 m for sector_size=20
+			local advance_thr   = self.sector_size * 0.9   -- ~18 m: advance to next waypoint
+			local lookahead_dist = self.sector_size * 2.0  -- ~40 m: start blending toward next WP
 			while self.current_route_index <= #self.current_global_route do
 				local wp_key = self.current_global_route[self.current_route_index]
 				local wp_pos = self:SectorKeyToPosition(wp_key)
@@ -1274,16 +1309,32 @@ function AV:AutoPilot()
 							self.current_route_index, #self.current_global_route, wp_key))
 						self.current_route_index = self.current_route_index + 1
 					else
-						nav_target = wp_pos  -- aim at this waypoint
+						-- Lookahead blending: when approaching a waypoint, smoothly blend
+						-- nav_target toward the *next* waypoint to avoid sharp corners.
+						nav_target = wp_pos
+						if horiz_to_wp < lookahead_dist and self.current_route_index < #self.current_global_route then
+							local next_key = self.current_global_route[self.current_route_index + 1]
+							local next_pos = self:SectorKeyToPosition(next_key)
+							if next_pos then
+								-- blend=0 when far (aim at current WP), blend=1 when near advance_thr (aim at next WP)
+								local blend = (1.0 - (horiz_to_wp - advance_thr) / (lookahead_dist - advance_thr))
+								blend = math.max(0.0, math.min(1.0, blend))
+								nav_target = Vector4.new(
+									wp_pos.x + (next_pos.x - wp_pos.x) * blend,
+									wp_pos.y + (next_pos.y - wp_pos.y) * blend,
+									wp_pos.z + (next_pos.z - wp_pos.z) * blend,
+									1)
+							end
+						end
 						break
 					end
 				else
 					self.current_route_index = self.current_route_index + 1
 				end
 			end
-			-- All waypoints passed → aim directly at final destination
+			-- All waypoints passed → aim directly at flight-altitude destination
 			if self.current_route_index > #self.current_global_route then
-				nav_target = destination_position
+				nav_target = altitude_adjusted_destination
 				-- Partial route exhausted: replan A* from current position toward destination
 				if self.astar_is_partial_route
 				   and horiz_to_final > self.sector_size * 2
@@ -1343,7 +1394,13 @@ function AV:AutoPilot()
 		if dist_to_final_arr < self.destination_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
-			self:AutoLanding(current_position.z - destination_position.z + self.destination_z_offset)
+			-- Landing height: distance from current Z to the ORIGINAL ground destination,
+			-- including any extra altitude added for exception area overshoot.
+			local landing_height = current_position.z - destination_position.z + self.destination_z_offset
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"Landing: current_z=%.1f, dest_z=%.1f, ea_extra=%.1f, landing_height=%.1f",
+				current_position.z, destination_position.z, ea_landing_extra_height, landing_height))
+			self:AutoLanding(landing_height, destination_position.z)
 			Cron.Halt(timer)
 			return
 		end
@@ -1722,9 +1779,10 @@ end
 
 --- Excute Landing when auto pilot is on.
 --- @param height number height to start landing
-function AV:AutoLanding(height)
+--- @param target_z number|nil target altitude (destination Z); if provided, stop descending at this Z
+function AV:AutoLanding(height, target_z)
 	local down_time_count = ((height / self.autopilot_speed) / DAV.time_resolution) * 1.8
-	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing Start :" .. tostring(down_time_count) .. "s, " .. tostring(height) .. "m")
+	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing Start :" .. tostring(down_time_count) .. "s, " .. tostring(height) .. "m" .. (target_z and string.format(", target_z=%.1f", target_z) or ""))
 	self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -0.5))
 	self.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
@@ -1756,6 +1814,16 @@ function AV:AutoLanding(height)
 
 		if timer.tick == 1 then
 			self.engine_obj:SetFluctuationVelocityParams(self.autopilot_acceleration, self.autopilot_speed)
+		elseif target_z and self:GetPosition().z <= target_z + self.minimum_distance_to_ground then
+			-- Reached destination altitude — stop here even if physical ground is lower
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"AutoPilot Success: reached destination altitude (current_z=%.1f, target_z=%.1f)",
+				self:GetPosition().z, target_z))
+			self.is_landed = true
+			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+			self:SuccessAutoPilot()
+			Cron.Halt(timer)
 		elseif timer.tick > down_time_count then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for timeout")
 			self.is_landed = true
@@ -2140,6 +2208,34 @@ function AV:IsInExceptionArea(position)
         end
     end
     return false, "None", 0
+end
+
+--- Check if position is near (within 1 sector margin of) any exception area
+--- and below its ceiling. Returns the required climb altitude, or nil.
+---@param position Vector4 World position to check
+---@return number|nil ceiling  Required altitude (ea_max_z + 30), nil if not near any EA
+---@return string|nil tag      Tag of the relevant EA
+function AV:GetNearbyExceptionAreaCeiling(position)
+    local margin = self.sector_size  -- 1 sector distance (~20 m)
+    local max_ceiling = nil
+    local best_tag = nil
+    for _, area in ipairs(self.autopilot_exception_area_list) do
+        -- Horizontal proximity: within margin of EA AABB in XY
+        -- Also require Z to be within vertical range: not below the EA's floor.
+        -- This prevents the climb from triggering when the vehicle is passing *under* the EA.
+        if position.x >= area.min_x - margin and position.x <= area.max_x + margin
+           and position.y >= area.min_y - margin and position.y <= area.max_y + margin
+           and position.z >= area.min_z - margin then
+            local ceiling = area.max_z + 30
+            if position.z < ceiling - 5 then
+                if not max_ceiling or ceiling > max_ceiling then
+                    max_ceiling = ceiling
+                    best_tag = area.tag
+                end
+            end
+        end
+    end
+    return max_ceiling, best_tag
 end
 
 --- Get Exit Position Vector
@@ -2713,34 +2809,64 @@ end
 ---@param to_key string Destination sector key
 ---@return number Movement cost (distance + accessibility penalty + connectivity check)
 function AV:GetSectorMovementCost(from_key, to_key)
-	-- Base cost is the distance between sectors
+	-- Base cost depends only on the direction offset (from→to), not sector content.
+	-- Penalty depends only on the *destination* sector (to_key), so we cache it.
 	local fx, fy, fz = from_key:match("([^_]+)_([^_]+)_([^_]+)")
 	local tx, ty, tz = to_key:match("([^_]+)_([^_]+)_([^_]+)")
-	
+
 	if not fx or not tx then return 1.0 end
-	
+
 	fx, fy, fz = tonumber(fx), tonumber(fy), tonumber(fz)
 	tx, ty, tz = tonumber(tx), tonumber(ty), tonumber(tz)
-	
+
 	local dx = tx - fx
 	local dy = ty - fy
 	local dz = tz - fz
-	
 	local base_cost = math.sqrt(dx*dx + dy*dy + dz*dz)
-	
+
+	-- Penalty cache: computed once per unique destination sector per A* run.
+	-- Cache is initialised in PlanGlobalRoute and cleared afterwards.
+	if self.sector_penalty_cache then
+		local cached = self.sector_penalty_cache[to_key]
+		if cached then
+			return base_cost * cached
+		end
+	end
+
+	-- ==== Penalty computation (runs once per unique to_key) ====
+
 	-- CRITICAL: Block underground sectors (Z <= 0)
 	if tz <= 0 then
+		if self.sector_penalty_cache then self.sector_penalty_cache[to_key] = 10000000.0 end
 		return base_cost * 10000000.0
 	end
 
-	-- Obstacle map penalty: check all obstacle cells that overlap this sector
-	-- sector_size=20m, cell_size=10m → ~2×2×2 cells per sector; sample 18 points
-	local obstacle_penalty = 1.0
-	local cs  = self.obstacle_cell_size
-	local ss  = self.sector_size
+	local cs = self.obstacle_cell_size
+	local ss = self.sector_size
+
+	-- Exception area: AABB overlap test (3D) — impassable in A*.
+	do
+		local sx_min = tx * ss
+		local sx_max = (tx + 1) * ss
+		local sy_min = ty * ss
+		local sy_max = (ty + 1) * ss
+		local sz_min = tz * ss
+		local sz_max = (tz + 1) * ss
+		for _, area in ipairs(self.autopilot_exception_area_list) do
+			if sx_max > area.min_x and sx_min < area.max_x
+			   and sy_max > area.min_y and sy_min < area.max_y
+			   and sz_max > area.min_z and sz_min < area.max_z then
+				if self.sector_penalty_cache then self.sector_penalty_cache[to_key] = 10000000.0 end
+				return base_cost * 10000000.0
+			end
+		end
+	end
+
+	-- Obstacle map penalty: sample 18 cells overlapping this sector.
+	-- sector_size=20m, cell_size=10m → ~2×2×2 cells per sector.
 	local max_hits = 0
-	local clear_count   = 0   -- confirmed clear (count == 0)
-	local unknown_count = 0   -- never scanned (nil)
+	local clear_count   = 0
+	local unknown_count = 0
 	local total_sampled = 0
 	for _, sfx in ipairs({0.2, 0.5, 0.8}) do
 		for _, sfy in ipairs({0.2, 0.5, 0.8}) do
@@ -2760,45 +2886,24 @@ function AV:GetSectorMovementCost(from_key, to_key)
 			end
 		end
 	end
-	-- Exception area: AABB overlap test against the entire sector box.
-	-- This catches cases where sample points might all fall outside a small area.
-	if not self.is_exception_area_bypassed and max_hits < 1000 then
-		local sx_min = tx * ss
-		local sx_max = (tx + 1) * ss
-		local sy_min = ty * ss
-		local sy_max = (ty + 1) * ss
-		local sz_min = tz * ss
-		local sz_max = (tz + 1) * ss
-		for _, area in ipairs(self.autopilot_exception_area_list) do
-			if sx_max > area.min_x and sx_min < area.max_x
-			   and sy_max > area.min_y and sy_min < area.max_y
-			   and sz_max > area.min_z and sz_min < area.max_z then
-				max_hits = 1000
-				break
-			end
-		end
-	end
 
 	-- Unknown cells get a virtual 50-hit penalty (proportional to their fraction).
-	-- Fully unknown sector: effective 50 hits → 26× cost.
-	-- This ensures sectors with a few real hits (1-5 hits, 1.5–3.5×) are always
-	-- preferred over unexplored sectors (50 hits → 26×).
+	local obstacle_penalty = 1.0
 	local unknown_ratio = unknown_count / total_sampled
 	local unknown_virtual_hits = unknown_ratio * 50
 	local effective_max_hits = math.max(max_hits, unknown_virtual_hits)
 
 	if effective_max_hits >= self.obstacle_min_hits then
-		-- Confirmed or virtual obstacle hits: scale cost by hit count.
-		-- 1 real hit        → 1.5×
-		-- 50 virtual hits   → 26×  (fully unscanned sector)
-		-- 1000 direct hit   → 501× (essentially impassable)
 		obstacle_penalty = 1.0 + math.min(effective_max_hits / 2.0, 500.0)
 	elseif unknown_count == 0 then
-		-- All sampled cells are confirmed clear: reward this sector
 		local clear_ratio = clear_count / total_sampled
-		obstacle_penalty = 1.0 - 0.2 * clear_ratio  -- 0.80 – 1.00×
+		obstacle_penalty = 1.0 - 0.2 * clear_ratio
 	end
-	-- (else: effective_max_hits < obstacle_min_hits and some unknown → negligible, penalty=1.0)
+
+	-- Store in cache for reuse within this A* run
+	if self.sector_penalty_cache then
+		self.sector_penalty_cache[to_key] = obstacle_penalty
+	end
 
 	return base_cost * obstacle_penalty
 end
@@ -2812,16 +2917,23 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 		return {}
 	end
 
-	-- If the destination is inside an exception area (and bypass is not active),
-	-- raise its Z to just above the area's ceiling so A* targets a flyable position.
-	if not self.is_exception_area_bypassed then
+	-- Initialize per-run sector penalty cache.
+	-- GetSectorMovementCost will populate it on first visit; subsequent calls to the
+	-- same destination sector reuse the cached value, avoiding repeated obstacle_map
+	-- lookups and EA AABB checks (which total ~900k ops in a 5000-iteration run).
+	self.sector_penalty_cache = {}
+
+	-- If the destination is inside an exception area, ALWAYS raise its Z to just
+	-- above the area's ceiling so A* targets a flyable position.
+	-- This is independent of the runtime bypass flag.
+	do
 		local is_ea, _, ea_max_z = self:IsInExceptionArea(end_pos)
 		if is_ea then
-			local margin = self.sector_size or 20
+			local margin = 30
 			end_pos = {x = end_pos.x, y = end_pos.y, z = ea_max_z + margin, w = end_pos.w}
 			self.log_obj:Record(LogLevel.Info, string.format(
-				"A* goal inside exception area — raised Z to %.1f (ea_max_z=%.1f + margin=%.1f)",
-				end_pos.z, ea_max_z, margin))
+				"A* goal inside exception area — raised Z to %.1f (ea_max_z=%.1f + 30m)",
+				end_pos.z, ea_max_z))
 		end
 	end
 
@@ -2882,9 +2994,10 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 
 			self.astar_is_partial_route = false  -- complete route
 			self.log_obj:Record(LogLevel.Info, string.format(
-				"A* route planned: %d sectors, %d iterations from %s to %s",
-				#route, iterations, start_key, end_key))
-			
+				"A* route planned: %d sectors, %d iterations from %s to %s (cache_entries=%d)",
+				#route, iterations, start_key, end_key,
+				self.sector_penalty_cache and (function() local n=0; for _ in pairs(self.sector_penalty_cache) do n=n+1 end; return n end)() or 0))
+			self.sector_penalty_cache = nil
 			return route
 		end
 		
@@ -2897,8 +3010,10 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 		for _, neighbor in ipairs(neighbors) do
 			if not closed_set[neighbor] then
 				local move_cost = self:GetSectorMovementCost(current, neighbor)
-				-- Skip completely unknown sectors (cost >= 1e8 means impassable)
-				if move_cost < 1e8 then
+				-- Skip impassable sectors (underground / exception area).
+				-- Impassable returns base_cost * 1e7 ≈ 1e7 – 1.4e7.
+				-- Max legitimate cost ≈ base_cost * 501 ≈ 709, so 1e5 is safe.
+				if move_cost < 1e5 then
 					local tentative_g = (g_score[current] or math.huge) + move_cost
 					local existing_g = g_score[neighbor] or math.huge
 					if tentative_g < existing_g then
@@ -2943,16 +3058,17 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 		self.log_obj:Record(LogLevel.Warning, string.format(
 			"A* incomplete after %d iterations, using partial route to closest explored node: %d sectors (distance to goal: %.1f)",
 			iterations, #partial_route, best_distance * self.sector_size))
-		
+		self.sector_penalty_cache = nil
 		return partial_route
 	end
-	
+
 	-- No valid path found through known sectors — return empty route.
 	-- Caller will fly directly toward destination without waypoint guidance.
 	self.astar_is_partial_route = true  -- also treat no-path as partial (will retry)
 	self.log_obj:Record(LogLevel.Warning, string.format(
 		"A* pathfinding failed after %d iterations — no path through known sectors (start=%s, end=%s, open=%d, closed=%d)",
 		iterations, start_key, end_key, open_count, closed_count))
+	self.sector_penalty_cache = nil
 	return {}
 end
 
@@ -3996,7 +4112,11 @@ function AV:RecordObstacleHit(hit_pos, ray_dir)
 	if not self.obstacle_map[key] then
 		self.obstacle_map[key] = {count = 0}
 	end
-	self.obstacle_map[key].count = self.obstacle_map[key].count + 1
+	-- Never overwrite a direct-collision marker (count >= 1000)
+	if self.obstacle_map[key].count < 1000 then
+		self.obstacle_map[key].count = self.obstacle_map[key].count + 1
+	end
+	self:MarkCellDirty(key)
 	-- Propagate count=1 to neighboring cells ONLY in the ray direction.
 	-- For each of the 26 neighbors, compute dot(offset, ray_dir).
 	-- If dot > 0 (neighbor is in the forward half of the ray), it may be
@@ -4020,8 +4140,10 @@ function AV:RecordObstacleHit(hit_pos, ray_dir)
 								local existing = self.obstacle_map[nkey]
 								if not existing then
 									self.obstacle_map[nkey] = {count = 1}
+									self:MarkCellDirty(nkey)
 								elseif existing.count < 1 then
 									existing.count = 1
+									self:MarkCellDirty(nkey)
 								end
 							end
 						end
@@ -4052,11 +4174,8 @@ function AV:RecordDirectCollision()
 		self.log_obj:Record(LogLevel.Info, string.format(
 			"Direct collision recorded at cell (%d,%d,%d) pos=(%.1f,%.1f,%.1f)",
 			cx, cy, cz, pos.x, pos.y, pos.z))
-		-- Immediately persist so the 1000 is never lost even if ConsolidateMemory
-		-- is skipped (e.g. the Cron timer fires again before the autopilot is fully
-		-- interrupted, or the game session ends unexpectedly).
-		self:SaveObstacleMap()
 	end
+	self:MarkCellDirty(key)
 end
 
 --- Get maximum obstacle cell hit count along a ray (normalized 0-1, 5 hits = 1.0)
@@ -4081,52 +4200,160 @@ function AV:GetObstacleDensityAlongRay(from_pos, dir, max_dist)
 	return math.min(max_count / 5.0, 1.0)
 end
 
---- Save obstacle map to compact text file (.dat).
---- Format: header line + one line per cell "cx cy cz count".
---- No count caps: all hit cells and clear cells are saved.
---- This is significantly faster than JSON for large maps.
-function AV:SaveObstacleMap()
-	-- Never overwrite an existing file with an empty map.
-	-- An empty obstacle_map means LoadObstacleMap was never called this session,
-	-- so writing it would destroy previously accumulated data.
-	if next(self.obstacle_map) == nil then
-		self.log_obj:Record(LogLevel.Warning, "SaveObstacleMap skipped: in-memory map is empty (file not loaded this session)")
-		return
+--- Convert cell key "cx_cy_cz" to chunk key "chunkX_chunkY" (XY-based 500m chunks).
+---@param cell_key string Cell key in format "cx_cy_cz"
+---@return string|nil chunk_key e.g. "-4_2" (500m region in world space)
+function AV:CellKeyToChunkKey(cell_key)
+	local cx, cy = cell_key:match("^(-?%d+)_(-?%d+)")
+	if not cx then return nil end
+	local cc = self.obstacle_map_chunk_cells
+	return math.floor(tonumber(cx) / cc) .. "_" .. math.floor(tonumber(cy) / cc)
+end
+
+--- Mark the chunk containing a cell as dirty (needs saving on next SaveObstacleMap).
+--- Also registers the cell in the chunk index for efficient per-chunk iteration.
+---@param cell_key string Cell key "cx_cy_cz"
+function AV:MarkCellDirty(cell_key)
+	local ck = self:CellKeyToChunkKey(cell_key)
+	if not ck then return end
+	self.obstacle_map_dirty_chunks[ck] = true
+	if not self.obstacle_map_chunk_index[ck] then
+		self.obstacle_map_chunk_index[ck] = {}
+	end
+	self.obstacle_map_chunk_index[ck][cell_key] = true
+end
+
+--- Register a cell in the chunk index WITHOUT marking dirty (used during load).
+---@param cell_key string Cell key "cx_cy_cz"
+function AV:RegisterCellInChunkIndex(cell_key)
+	local ck = self:CellKeyToChunkKey(cell_key)
+	if not ck then return end
+	if not self.obstacle_map_chunk_index[ck] then
+		self.obstacle_map_chunk_index[ck] = {}
+	end
+	self.obstacle_map_chunk_index[ck][cell_key] = true
+end
+
+--- Ensure the Data/map directory exists for chunked storage.
+---@return boolean success
+function AV:EnsureMapDirectory()
+	if self.obstacle_map_dir_ok then return true end
+	-- Try writing a test file to check if directory exists
+	local test_path = self.obstacle_map_dir .. "/.dirtest"
+	local f = io.open(test_path, "w")
+	if f then
+		f:close()
+		os.remove(test_path)
+		self.obstacle_map_dir_ok = true
+		return true
+	end
+	-- Attempt to create the directory
+	local dir_win = self.obstacle_map_dir:gsub("/", "\\")
+	os.execute('mkdir "' .. dir_win .. '" 2>nul')
+	f = io.open(test_path, "w")
+	if f then
+		f:close()
+		os.remove(test_path)
+		self.obstacle_map_dir_ok = true
+		self.log_obj:Record(LogLevel.Info, "Created map directory: " .. self.obstacle_map_dir)
+		return true
+	end
+	self.log_obj:Record(LogLevel.Error, "Failed to create map directory: " .. self.obstacle_map_dir)
+	return false
+end
+
+--- Migrate legacy single-file obstacle_map.dat to chunked format in Data/map/.
+--- Called automatically by LoadObstacleMap on first load.
+function AV:MigrateOldObstacleMap()
+	local old_path = self.obstacle_map_path
+	local file = io.open(old_path, "r")
+	if not file then
+		-- Also try .bak
+		file = io.open(old_path .. ".bak", "r")
+		if not file then return false end
+		self.log_obj:Record(LogLevel.Info, "Migrating from backup obstacle_map.dat.bak")
 	end
 
+	self.log_obj:Record(LogLevel.Info, "Migrating legacy obstacle_map.dat to chunked format...")
+	local raw = file:read("*all")
+	file:close()
+	if not raw or raw == "" then return false end
+
+	local cs = raw:match("^DAV_OBMAP v2 cell_size=([%d%.]+)")
+	if not cs then
+		self.log_obj:Record(LogLevel.Warning, "MigrateOldObstacleMap: unrecognized header, skipping")
+		return false
+	end
+	self.obstacle_cell_size = tonumber(cs) or 10.0
+
+	local n = 0
+	for cx, cy, cz, count in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
+		local key = cx .. "_" .. cy .. "_" .. cz
+		local cnt = tonumber(count)
+		self.obstacle_map[key] = {count = cnt}
+		-- Build chunk index and mark all chunks dirty for initial save
+		self:MarkCellDirty(key)
+		n = n + 1
+	end
+
+	-- Save all chunks in new format
+	self:SaveObstacleMap()
+
+	-- Rename old files so they won't be re-migrated
+	os.rename(old_path, old_path .. ".migrated")
+	os.rename(old_path .. ".bak", old_path .. ".bak.migrated")
+
+	self.log_obj:Record(LogLevel.Info, string.format(
+		"Migration complete: %d cells -> chunked files in %s. Old file renamed to .migrated",
+		n, self.obstacle_map_dir))
+	return true
+end
+
+--- Save obstacle map to chunked files in Data/map/.
+--- Only dirty chunks are written. Each chunk file covers a 500m×500m XY region.
+--- File naming: chunk_{chunkX}_{chunkY}.dat (e.g. chunk_-4_2.dat = world [-2000,-1500)×[1000,1500))
+function AV:SaveObstacleMap()
+	if next(self.obstacle_map) == nil then
+		self.log_obj:Record(LogLevel.Warning, "SaveObstacleMap skipped: in-memory map is empty")
+		return
+	end
+	if next(self.obstacle_map_dirty_chunks) == nil then
+		self.log_obj:Record(LogLevel.Debug, "SaveObstacleMap skipped: no dirty chunks")
+		return
+	end
+	if not self:EnsureMapDirectory() then return end
+
 	local ok, err = pcall(function()
-		-- Build lines table (much faster than string concatenation)
-		local lines = {"DAV_OBMAP v2 cell_size=" .. tostring(self.obstacle_cell_size)}
-		local n_hit, n_clear = 0, 0
-		for k, v in pairs(self.obstacle_map) do
-			-- k = "cx_cy_cz", replace underscores with spaces for compact storage
-			lines[#lines+1] = k:gsub("_", " ") .. " " .. v.count
-			if v.count == 0 then
-				n_clear = n_clear + 1
-			else
-				n_hit = n_hit + 1
+		local n_saved = 0
+		local n_cells = 0
+		for ck, _ in pairs(self.obstacle_map_dirty_chunks) do
+			local cell_set = self.obstacle_map_chunk_index[ck]
+			if cell_set then
+				local lines = {"DAV_OBMAP v3 cell_size=" .. tostring(self.obstacle_cell_size)}
+				local count = 0
+				for cell_key, _ in pairs(cell_set) do
+					local v = self.obstacle_map[cell_key]
+					if v then
+						lines[#lines+1] = cell_key:gsub("_", " ") .. " " .. v.count
+						count = count + 1
+					end
+				end
+				if count > 0 then
+					local path = self.obstacle_map_dir .. "/chunk_" .. ck .. ".dat"
+					local file = io.open(path, "w")
+					if file then
+						file:write(table.concat(lines, "\n"))
+						file:close()
+						n_saved = n_saved + 1
+						n_cells = n_cells + count
+					end
+				end
 			end
 		end
-		local content = table.concat(lines, "\n")
-
-		-- Backup previous file before overwriting
-		local bak_path = self.obstacle_map_path .. ".bak"
-		local src = io.open(self.obstacle_map_path, "r")
-		if src then
-			local bak_data = src:read("*all")
-			src:close()
-			local bak = io.open(bak_path, "w")
-			if bak then bak:write(bak_data) ; bak:close() end
-		end
-
-		-- Direct write (os.rename cannot overwrite on Windows, so write directly)
-		local file = io.open(self.obstacle_map_path, "w")
-		if file then
-			file:write(content)
-			file:close()
+		self.obstacle_map_dirty_chunks = {}
+		if n_saved > 0 then
 			self.log_obj:Record(LogLevel.Info, string.format(
-				"Obstacle map saved: %d hit cells, %d clear cells (total %d)",
-				n_hit, n_clear, n_hit + n_clear))
+				"Obstacle map saved: %d chunks, %d cells written", n_saved, n_cells))
 		end
 	end)
 	if not ok then
@@ -4134,49 +4361,133 @@ function AV:SaveObstacleMap()
 	end
 end
 
---- Load obstacle map from .dat file (compact text format).
+--- Load obstacle map from chunked files in Data/map/.
+--- On first call, migrates legacy obstacle_map.dat if present.
+--- Uses directory enumeration (dir /b) to discover only existing chunk files,
+--- avoiding the overhead of probing all coordinate combinations.
 --- MERGE mode: existing in-memory entries are kept; disk entries that don't
---- exist in memory yet are added. This prevents accidentally wiping
---- data that was added during this session before a Load is called.
+--- exist in memory yet are added.
 function AV:LoadObstacleMap()
-	local ok, err = pcall(function()
-		local path = self.obstacle_map_path
+	-- First, try to migrate legacy single-file format
+	self:MigrateOldObstacleMap()
+
+	-- Shared helper: parse and load one chunk file into obstacle_map.
+	-- Returns number of cells loaded (0 if file missing or invalid).
+	local function load_chunk_file(path)
 		local file = io.open(path, "r")
-		-- If main file is missing or empty, try the backup.
-		if not file then
-			file = io.open(path .. ".bak", "r")
-			if file then
-				self.log_obj:Record(LogLevel.Warning, "LoadObstacleMap: main file missing, loading from .bak")
-			end
-		end
-		if not file then return end
-		-- Read compact .dat format
+		if not file then return 0 end
 		local raw = file:read("*all")
 		file:close()
-		if not raw or raw == "" then return end
-		local cs = raw:match("^DAV_OBMAP v2 cell_size=([%d%.]+)")
-		if not cs then
-			self.log_obj:Record(LogLevel.Warning, "LoadObstacleMap: unrecognised .dat header")
-			return
-		end
+		if not raw or raw == "" then return 0 end
+		local cs = raw:match("^DAV_OBMAP v3 cell_size=([%d%.]+)")
+		if not cs then return 0 end
 		self.obstacle_cell_size = tonumber(cs) or 10.0
-		-- Merge: add disk entries into existing in-memory map.
-		-- For cells already in memory, keep the higher count.
 		local n = 0
-		for cx, cy, cz, count in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-			local key  = cx .. "_" .. cy .. "_" .. cz
-			local cnt  = tonumber(count)
+		for cellx, celly, cellz, count in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
+			local key = cellx .. "_" .. celly .. "_" .. cellz
+			local cnt = tonumber(count)
 			local existing = self.obstacle_map[key]
 			if not existing or existing.count < cnt then
 				self.obstacle_map[key] = {count = cnt}
 			end
+			self:RegisterCellInChunkIndex(key)
 			n = n + 1
 		end
-		self.log_obj:Record(LogLevel.Info, string.format("Obstacle map loaded/merged: %d cells from disk", n))
+		return n
+	end
+
+	local ok, err = pcall(function()
+		local total_cells  = 0
+		local total_chunks = 0
+		local used_enum    = false
+
+		-- ==== Primary: enumerate via dir /b (no coordinate probing) ====
+		-- Lists only files that actually exist → zero wasted io.open() calls.
+		if io.popen then
+			local dir_win = self.obstacle_map_dir:gsub("/", "\\")
+			local pipe = io.popen('dir /b "' .. dir_win .. '\\chunk_*.dat" 2>nul')
+			if pipe then
+				for filename in pipe:lines() do
+					local cx, cy = filename:match("^chunk_(-?%d+)_(-?%d+)%.dat$")
+					if cx and cy then
+						local path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".dat"
+						local n = load_chunk_file(path)
+						if n > 0 then
+							total_cells  = total_cells  + n
+							total_chunks = total_chunks + 1
+						end
+					end
+				end
+				pipe:close()
+				used_enum = true
+			end
+		end
+
+		-- ==== Fallback: coordinate probe loop (if io.popen unavailable) ====
+		-- Night City fits within [-10, 10]; 441 probes vs the old 1681.
+		if not used_enum then
+			for cx = -10, 10 do
+				for cy = -10, 10 do
+					local path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".dat"
+					local n = load_chunk_file(path)
+					if n > 0 then
+						total_cells  = total_cells  + n
+						total_chunks = total_chunks + 1
+					end
+				end
+			end
+		end
+
+		if total_cells > 0 then
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"Obstacle map loaded: %d cells from %d chunk files (%s)",
+				total_cells, total_chunks, used_enum and "enum" or "probe"))
+		end
 	end)
 	if not ok then
 		self.log_obj:Record(LogLevel.Warning, "LoadObstacleMap failed: " .. tostring(err))
 	end
+end
+
+--- Merge all chunk files (and any in-memory data) into a single file for fast loading.
+--- Creates Data/obstacle_map_merged.dat in the same v3 format as chunk files.
+--- Call this from the settings UI button. Next game launch will use the merged file.
+---@return boolean success
+function AV:MergeObstacleMapToSingleFile()
+	-- Ensure in-memory map is populated (load chunks if needed)
+	if next(self.obstacle_map) == nil then
+		self.log_obj:Record(LogLevel.Info, "MergeObstacleMap: loading chunks into memory first")
+		self:LoadObstacleMap()
+	end
+	if next(self.obstacle_map) == nil then
+		self.log_obj:Record(LogLevel.Warning, "MergeObstacleMap: no obstacle data found")
+		return false
+	end
+
+	local merged_path = "Data/obstacle_map_merged.dat"
+	local ok, err = pcall(function()
+		local lines = {"DAV_OBMAP v3 cell_size=" .. tostring(self.obstacle_cell_size)}
+		local count = 0
+		for cell_key, v in pairs(self.obstacle_map) do
+			-- cell_key is "cx_cy_cz"; space-delimited for the parser
+			lines[#lines+1] = cell_key:gsub("_", " ") .. " " .. v.count
+			count = count + 1
+		end
+		local file = io.open(merged_path, "w")
+		if file then
+			file:write(table.concat(lines, "\n"))
+			file:close()
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"Obstacle map merged: %d cells written to %s", count, merged_path))
+		else
+			error("failed to open " .. merged_path .. " for writing")
+		end
+	end)
+	if not ok then
+		self.log_obj:Record(LogLevel.Warning, "MergeObstacleMapToSingleFile failed: " .. tostring(err))
+		return false
+	end
+	return true
 end
 
 --- ============================================================================
@@ -4226,6 +4537,7 @@ function AV:RecordObstacleScan()
 								   math.floor((pos.z + nd.z*d_val)/cs)
 						if not self.obstacle_map[ck] then
 							self.obstacle_map[ck] = {count = 0}
+							self:MarkCellDirty(ck)
 						end
 					end
 				end
@@ -4237,6 +4549,7 @@ function AV:RecordObstacleScan()
 	local cur_key = math.floor(pos.x/cs) .. "_" .. math.floor(pos.y/cs) .. "_" .. math.floor(pos.z/cs)
 	if not self.obstacle_map[cur_key] then
 		self.obstacle_map[cur_key] = {count = 0}
+		self:MarkCellDirty(cur_key)
 	end
 end
 
