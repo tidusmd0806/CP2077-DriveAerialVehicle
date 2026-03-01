@@ -80,6 +80,7 @@ function AV:New(core_obj)
 	obj.is_search_start_swing_reverse = false
 	obj.initial_destination_length = 1
 	obj.dest_dir_vector_norm = 1
+	obj.dest_remaining_to_final = 1
 	obj.pre_speed_list = {x = 0, y = 0, z = 0}
 	obj.autopilot_exception_area_list = {}
 	obj.collision_check_side_distance = 2.5
@@ -157,7 +158,8 @@ function AV:New(core_obj)
 	obj.current_route_index = 1                   -- Current position in route
 	obj.route_replan_interval = 10                -- Replan route every N seconds
 	obj.last_route_plan_time = 0
-	obj.astar_is_partial_route = false            -- True when last A* hit iteration limit (partial route)
+	obj.astar_is_partial_route = false
+	obj.astar_tangent_recheck_time = 0       -- last time astar_tangent recheck was performed            -- True when last A* hit iteration limit (partial route)
 
 	-- Local avoidance (spherical raycast)
 	obj.local_avoidance_enabled = true
@@ -1155,6 +1157,7 @@ function AV:AutoPilot()
 	self.autopilot_scan_dirty_count    = 0
 	self.autopilot_scan_last_save_time = os.clock()
 	self.autopilot_dest_is_unknown     = not ap_dest_known
+	self.astar_tangent_recheck_time    = 0
 
 	if not ap_start_known then
 		-- Phase start_local: start is in unknown sector.
@@ -1251,10 +1254,8 @@ function AV:AutoPilot()
 		-- === Phase management ===
 		-- Transition: start_local → astar when vehicle enters a known sector
 		if self.autopilot_phase == "start_local" and self:IsSectorAreaKnown(current_position) then
-			if self.autopilot_scan_dirty_count > 0 then
-				self:SaveObstacleMap()
-				self.autopilot_scan_dirty_count = 0
-			end
+			-- Save suppressed during autopilot to avoid I/O stutter affecting A* route.
+			self.autopilot_scan_dirty_count = 0
 			self.autopilot_phase        = "astar"
 			self.autopilot_local_target = nil
 			local astar_dest = altitude_adjusted_destination
@@ -1285,6 +1286,8 @@ function AV:AutoPilot()
 		local ddz = altitude_adjusted_destination.z - current_position.z
 		local horiz_to_final = math.sqrt(ddx*ddx + ddy*ddy)
 		local dist_to_final_arr = math.sqrt(ddx*ddx + ddy*ddy + (ddz < 0 and 0 or ddz*ddz))
+		-- Always track distance to final destination (not current A* waypoint) for HUD display
+		self.dest_remaining_to_final = horiz_to_final
 
 		-- === A* Route Waypoint Following ===
 		-- Advance waypoint index when vehicle reaches current waypoint.
@@ -1296,17 +1299,31 @@ function AV:AutoPilot()
 		if #self.current_global_route > 0 and horiz_to_final > self.sector_size * 1.5 then
 			local advance_thr   = self.sector_size * 0.9   -- ~18 m: advance to next waypoint
 			local lookahead_dist = self.sector_size * 2.0  -- ~40 m: start blending toward next WP
+			-- Compute horizontal velocity direction (for "passed waypoint" detection)
+			local vel = self.engine_obj.direction_velocity
+			local vel_hx, vel_hy = vel.x, vel.y
+			local vel_hlen = math.sqrt(vel_hx*vel_hx + vel_hy*vel_hy)
 			while self.current_route_index <= #self.current_global_route do
 				local wp_key = self.current_global_route[self.current_route_index]
 				local wp_pos = self:SectorKeyToPosition(wp_key)
 				if wp_pos then
-					local wdx = current_position.x - wp_pos.x
-					local wdy = current_position.y - wp_pos.y
+					local wdx = current_position.x - wp_pos.x  -- vec: wp → vehicle (X)
+					local wdy = current_position.y - wp_pos.y  -- vec: wp → vehicle (Y)
 					local horiz_to_wp = math.sqrt(wdx*wdx + wdy*wdy)  -- horizontal only
-					if horiz_to_wp < advance_thr then
+					-- "Passed" detection: dot product of (vehicle→wp) with velocity < 0
+					-- means the waypoint is now behind or perpendicular to the heading.
+					-- This fires when the vehicle turns away from the WP at a sharp corner.
+					local passed_wp = false
+					if horiz_to_wp < lookahead_dist and vel_hlen > 1.0 then
+						-- vehicle→wp = (-wdx, -wdy); dot with velocity direction
+						local dot_toward = (-wdx * vel_hx + (-wdy) * vel_hy) / vel_hlen
+						passed_wp = (dot_toward < -0.3 * horiz_to_wp)  -- WP clearly behind us
+					end
+					if horiz_to_wp < advance_thr or passed_wp then
 						self.log_obj:Record(LogLevel.Debug, string.format(
-							"Route: waypoint %d/%d reached (%s), advancing",
-							self.current_route_index, #self.current_global_route, wp_key))
+							"Route: waypoint %d/%d reached (%s, dist=%.1fm, passed=%s), advancing",
+							self.current_route_index, #self.current_global_route, wp_key,
+							horiz_to_wp, tostring(passed_wp)))
 						self.current_route_index = self.current_route_index + 1
 					else
 						-- Lookahead blending: when approaching a waypoint, smoothly blend
@@ -1335,23 +1352,139 @@ function AV:AutoPilot()
 			-- All waypoints passed → aim directly at flight-altitude destination
 			if self.current_route_index > #self.current_global_route then
 				nav_target = altitude_adjusted_destination
-				-- Partial route exhausted: replan A* from current position toward destination
+				-- Partial route exhausted: replan A* from current position.
+				-- Only continue A* if new route brings us >= 50m closer to destination.
+				-- Otherwise switch to TangentBug (astar_tangent phase).
 				if self.astar_is_partial_route
-				   and horiz_to_final > self.sector_size * 2
-				   and (os.clock() - self.last_route_plan_time) > 3.0 then
+				   and horiz_to_final > self.sector_size * 2 then
 					local replan_dest = altitude_adjusted_destination
 					if self.autopilot_dest_is_unknown then
 						local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
 						if nearest then replan_dest = nearest end
 					end
-					self.current_global_route = self:PlanGlobalRoute(current_position, replan_dest)
-					self.current_route_index  = 1
+					local new_route = self:PlanGlobalRoute(current_position, replan_dest)
 					self.last_route_plan_time = os.clock()
-					self:SaveLastRoute(self.current_global_route, current_position, altitude_adjusted_destination)
-					self.log_obj:Record(LogLevel.Info, string.format(
-						"A* partial route exhausted — replanning from current pos (%d new waypoints, horiz_to_final=%.0fm)",
-						#self.current_global_route, horiz_to_final))
+					-- Measure progress: how much closer does new route's terminal get us?
+					local dist_gained = 0
+					if #new_route > 0 then
+						local last_wp_pos = self:SectorKeyToPosition(new_route[#new_route])
+						if last_wp_pos then
+							local ldx = replan_dest.x - last_wp_pos.x
+							local ldy = replan_dest.y - last_wp_pos.y
+							dist_gained = horiz_to_final - math.sqrt(ldx*ldx + ldy*ldy)
+						end
+					end
+					if dist_gained >= 50 then
+						-- New route makes meaningful progress → stay in A* phase
+						self.current_global_route = new_route
+						self.current_route_index  = 1
+						self:SaveLastRoute(new_route, current_position, altitude_adjusted_destination)
+						self.log_obj:Record(LogLevel.Info, string.format(
+							"A* partial replan: %d waypoints, gained %.0fm (horiz_to_final=%.0fm)",
+							#new_route, dist_gained, horiz_to_final))
+					else
+						-- Route makes no significant progress → fall back to TangentBug
+						self.autopilot_phase           = "astar_tangent"
+						self.astar_tangent_recheck_time = os.clock()
+						self.current_global_route      = {}
+						self.current_route_index       = 1
+						self.tangent_mode              = "DIRECT"
+						self.tangent_stuck_timer       = 0
+						self.tangent_stuck_escape_time = 0
+						self.tangent_net_check_dist    = nil
+						self.tangent_net_check_time    = 0
+						self.log_obj:Record(LogLevel.Info, string.format(
+							"A* partial replan gained only %.0fm (<50m) — switching to TangentBug (horiz_to_final=%.0fm)",
+							dist_gained, horiz_to_final))
+					end
 				end
+			end
+		end
+
+		-- Empty-route retry: A* previously returned {} (no viable path found within iteration limit).
+		-- Apply same 50m-progress check: if new route doesn't advance us, switch to astar_tangent.
+		-- 1s cooldown prevents per-tick A* thrashing when route stays empty.
+		if self.astar_is_partial_route
+		   and #self.current_global_route == 0
+		   and horiz_to_final > self.sector_size * 2
+		   and self.autopilot_phase == "astar"
+		   and (os.clock() - self.last_route_plan_time) > 1.0 then
+			local replan_dest = altitude_adjusted_destination
+			if self.autopilot_dest_is_unknown then
+				local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+				if nearest then replan_dest = nearest end
+			end
+			local new_route = self:PlanGlobalRoute(current_position, replan_dest)
+			self.last_route_plan_time = os.clock()
+			local dist_gained = 0
+			if #new_route > 0 then
+				local last_wp_pos = self:SectorKeyToPosition(new_route[#new_route])
+				if last_wp_pos then
+					local ldx = replan_dest.x - last_wp_pos.x
+					local ldy = replan_dest.y - last_wp_pos.y
+					dist_gained = horiz_to_final - math.sqrt(ldx*ldx + ldy*ldy)
+				end
+			end
+			if dist_gained >= 50 then
+				self.current_global_route = new_route
+				self.current_route_index  = 1
+				self.log_obj:Record(LogLevel.Info, string.format(
+					"A* empty-route retry: %d waypoints, gained %.0fm",
+					#new_route, dist_gained))
+			else
+				self.autopilot_phase           = "astar_tangent"
+				self.astar_tangent_recheck_time = os.clock()
+				self.current_global_route      = {}
+				self.current_route_index       = 1
+				self.tangent_mode              = "DIRECT"
+				self.tangent_stuck_timer       = 0
+				self.tangent_stuck_escape_time = 0
+				self.tangent_net_check_dist    = nil
+				self.tangent_net_check_time    = 0
+				self.log_obj:Record(LogLevel.Info, string.format(
+					"A* empty-route retry: no progress (gained=%.0fm) — switching to TangentBug",
+					dist_gained))
+			end
+		end
+
+		-- === astar_tangent phase: TangentBug fallback while A* can't make progress ===
+		-- Every 3s, if current sector is known, replan A* and resume if progress >= 50m.
+		if self.autopilot_phase == "astar_tangent"
+		   and horiz_to_final > self.sector_size * 2
+		   and (os.clock() - self.astar_tangent_recheck_time) > 3.0 then
+			self.astar_tangent_recheck_time = os.clock()
+			if self:IsSectorAreaKnown(current_position) then
+				local replan_dest = altitude_adjusted_destination
+				if self.autopilot_dest_is_unknown then
+					local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+					if nearest then replan_dest = nearest end
+				end
+				local new_route = self:PlanGlobalRoute(current_position, replan_dest)
+				self.last_route_plan_time = os.clock()
+				local dist_gained = 0
+				if #new_route > 0 then
+					local last_wp_pos = self:SectorKeyToPosition(new_route[#new_route])
+					if last_wp_pos then
+						local ldx = replan_dest.x - last_wp_pos.x
+						local ldy = replan_dest.y - last_wp_pos.y
+						dist_gained = horiz_to_final - math.sqrt(ldx*ldx + ldy*ldy)
+					end
+				end
+				if dist_gained >= 50 then
+					self.autopilot_phase      = "astar"
+					self.current_global_route = new_route
+					self.current_route_index  = 1
+					self.log_obj:Record(LogLevel.Info, string.format(
+						"astar_tangent → astar: replan gained %.0fm (%d waypoints)",
+						dist_gained, #new_route))
+				else
+					self.log_obj:Record(LogLevel.Info, string.format(
+						"astar_tangent recheck: gained only %.0fm (<50m), continue TangentBug",
+						dist_gained))
+				end
+			else
+				self.log_obj:Record(LogLevel.Debug,
+					"astar_tangent recheck: current sector unknown, continue TangentBug")
 			end
 		end
 
@@ -1407,8 +1540,10 @@ function AV:AutoPilot()
 
 		-- Navigation: A* phase follows waypoints directly (no local avoidance).
 		-- Local phases (start_local / final_local) use TangentBug.
+		-- Exception: when A* returned an empty route (no path found within iteration limit),
+		-- use TangentBug to avoid obstacles while waiting for the next A* retry (every 5 s).
 		local navigation_vector
-		if self.autopilot_phase == "astar" then
+		if self.autopilot_phase == "astar" and #self.current_global_route > 0 then
 			-- Pure A* waypoint following
 			local dv_len = Vector4.Length(dest_dir_vector)
 			if dv_len > 0.001 then
@@ -1421,7 +1556,7 @@ function AV:AutoPilot()
 			end
 			self.auto_speed_reduce_rate = 0.7
 		else
-			-- Local avoidance phase
+			-- Local avoidance phase (or A* empty-route fallback)
 			navigation_vector = self:TangentBugNavigate(current_position, dest_dir_vector, current_time)
 		end
 
@@ -1861,7 +1996,11 @@ function AV:SuccessAutoPilot()
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = false
 	self.core_obj:SetAutoPilotHistory()
-	
+	-- Release per-flight caches to prevent memory accumulation.
+	self.iswall_cache           = {}
+	self.safe_streak_count      = 0
+	self.current_global_route   = {}
+	self.sector_penalty_cache   = nil
 	-- Consolidate learning data
 	self:ConsolidateMemory()
 end
@@ -1870,7 +2009,11 @@ end
 function AV:InterruptAutoPilot()
 	self.is_auto_pilot = false
 	self.is_failture_auto_pilot = true
-	
+	-- Release per-flight caches to prevent memory accumulation.
+	self.iswall_cache           = {}
+	self.safe_streak_count      = 0
+	self.current_global_route   = {}
+	self.sector_penalty_cache   = nil
 	-- Consolidate learning data (failures are important for learning)
 	self:ConsolidateMemory()
 end
@@ -2210,34 +2353,6 @@ function AV:IsInExceptionArea(position)
     return false, "None", 0
 end
 
---- Check if position is near (within 1 sector margin of) any exception area
---- and below its ceiling. Returns the required climb altitude, or nil.
----@param position Vector4 World position to check
----@return number|nil ceiling  Required altitude (ea_max_z + 30), nil if not near any EA
----@return string|nil tag      Tag of the relevant EA
-function AV:GetNearbyExceptionAreaCeiling(position)
-    local margin = self.sector_size  -- 1 sector distance (~20 m)
-    local max_ceiling = nil
-    local best_tag = nil
-    for _, area in ipairs(self.autopilot_exception_area_list) do
-        -- Horizontal proximity: within margin of EA AABB in XY
-        -- Also require Z to be within vertical range: not below the EA's floor.
-        -- This prevents the climb from triggering when the vehicle is passing *under* the EA.
-        if position.x >= area.min_x - margin and position.x <= area.max_x + margin
-           and position.y >= area.min_y - margin and position.y <= area.max_y + margin
-           and position.z >= area.min_z - margin then
-            local ceiling = area.max_z + 30
-            if position.z < ceiling - 5 then
-                if not max_ceiling or ceiling > max_ceiling then
-                    max_ceiling = ceiling
-                    best_tag = area.tag
-                end
-            end
-        end
-    end
-    return max_ceiling, best_tag
-end
-
 --- Get Exit Position Vector
 ---@return Vector4
 function AV:GetExitPosition()
@@ -2347,6 +2462,14 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 		self.last_cache_time = current_time
 	end
 
+	-- Evict cache when it grows too large to prevent memory accumulation.
+	-- 500 entries covers ~30s of normal flight; older entries are already stale.
+	if self.iswall_cache_size and self.iswall_cache_size > 500 then
+		self.iswall_cache      = {}
+		self.iswall_cache_size = 0
+		self.safe_streak_count = 0
+	end
+
 	-- Cache hit check
 	local cached_result = self.iswall_cache[cache_key]
 	if cached_result and (current_time - cached_result.timestamp) < 200 then  -- within 200ms
@@ -2405,6 +2528,9 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 				self.safe_streak_count = 0  -- Reset
 				self.log_obj:Record(LogLevel.Trace, "Simple check - Wall Detected: " .. filter)
 				-- Save to cache
+				if not self.iswall_cache[cache_key] then
+					self.iswall_cache_size = (self.iswall_cache_size or 0) + 1
+				end
 				self.iswall_cache[cache_key] = {
 					result = true,
 					search_vec = search_vec,
@@ -2418,6 +2544,9 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 		self.safe_streak_count = self.safe_streak_count + 1
 		self.log_obj:Record(LogLevel.Trace, "Simple check - Safe (streak: " .. self.safe_streak_count .. ")")
 		-- Save to cache
+		if not self.iswall_cache[cache_key] then
+			self.iswall_cache_size = (self.iswall_cache_size or 0) + 1
+		end
 		self.iswall_cache[cache_key] = {
 			result = false,
 			search_vec = search_vec,
@@ -2507,6 +2636,9 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 		-- Rear point (along vehicle's backward direction)  
 		if check_collision_at_point(0, -rear_distance) then
 			self.safe_streak_count = 0
+			if not self.iswall_cache[cache_key] then
+				self.iswall_cache_size = (self.iswall_cache_size or 0) + 1
+			end
 			self.iswall_cache[cache_key] = {
 				result = true,
 				search_vec = search_vec,
@@ -2539,6 +2671,9 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 		for _, point in ipairs(front_points) do
 			if check_collision_at_point(point[1], point[2], point[3]) then
 				self.safe_streak_count = 0
+				if not self.iswall_cache[cache_key] then
+					self.iswall_cache_size = (self.iswall_cache_size or 0) + 1
+				end
 				self.iswall_cache[cache_key] = {
 					result = true,
 					search_vec = search_vec,
@@ -2552,6 +2687,9 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 		-- Phase 3: Rear point check
 		if check_collision_at_point(0, -rear_distance, 0) then
 			self.safe_streak_count = 0
+			if not self.iswall_cache[cache_key] then
+				self.iswall_cache_size = (self.iswall_cache_size or 0) + 1
+			end
 			self.iswall_cache[cache_key] = {
 				result = true,
 				search_vec = search_vec,
@@ -2569,6 +2707,9 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 			self.safe_streak_count = 0  -- Reset streak on exception area detection
 			self.log_obj:Record(LogLevel.Trace, "Here is Exception Area: " .. tag)
 			-- Save to cache
+			if not self.iswall_cache[cache_key] then
+				self.iswall_cache_size = (self.iswall_cache_size or 0) + 1
+			end
 			self.iswall_cache[cache_key] = {
 				result = true,
 				search_vec = search_vec,
@@ -2583,6 +2724,9 @@ function AV:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception
 	self.safe_streak_count = self.safe_streak_count + 1
 
 	-- Save to cache
+	if not self.iswall_cache[cache_key] then
+		self.iswall_cache_size = (self.iswall_cache_size or 0) + 1
+	end
 	self.iswall_cache[cache_key] = {
 		result = false,
 		search_vec = search_vec,
@@ -2961,7 +3105,7 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 	g_score[start_key] = 0
 	f_score[start_key] = self:CalculateHeuristic(start_key, end_key)
 	
-	local max_iterations = 5000  -- Increased limit for larger maps
+	local max_iterations = math.max(100, (DAV.user_setting_table.astar_calculation_precision or 20) * 50)
 	local iterations = 0
 	
 	while next(open_set) ~= nil and iterations < max_iterations do
@@ -4449,47 +4593,6 @@ function AV:LoadObstacleMap()
 	end
 end
 
---- Merge all chunk files (and any in-memory data) into a single file for fast loading.
---- Creates Data/obstacle_map_merged.dat in the same v3 format as chunk files.
---- Call this from the settings UI button. Next game launch will use the merged file.
----@return boolean success
-function AV:MergeObstacleMapToSingleFile()
-	-- Ensure in-memory map is populated (load chunks if needed)
-	if next(self.obstacle_map) == nil then
-		self.log_obj:Record(LogLevel.Info, "MergeObstacleMap: loading chunks into memory first")
-		self:LoadObstacleMap()
-	end
-	if next(self.obstacle_map) == nil then
-		self.log_obj:Record(LogLevel.Warning, "MergeObstacleMap: no obstacle data found")
-		return false
-	end
-
-	local merged_path = "Data/obstacle_map_merged.dat"
-	local ok, err = pcall(function()
-		local lines = {"DAV_OBMAP v3 cell_size=" .. tostring(self.obstacle_cell_size)}
-		local count = 0
-		for cell_key, v in pairs(self.obstacle_map) do
-			-- cell_key is "cx_cy_cz"; space-delimited for the parser
-			lines[#lines+1] = cell_key:gsub("_", " ") .. " " .. v.count
-			count = count + 1
-		end
-		local file = io.open(merged_path, "w")
-		if file then
-			file:write(table.concat(lines, "\n"))
-			file:close()
-			self.log_obj:Record(LogLevel.Info, string.format(
-				"Obstacle map merged: %d cells written to %s", count, merged_path))
-		else
-			error("failed to open " .. merged_path .. " for writing")
-		end
-	end)
-	if not ok then
-		self.log_obj:Record(LogLevel.Warning, "MergeObstacleMapToSingleFile failed: " .. tostring(err))
-		return false
-	end
-	return true
-end
-
 --- ============================================================================
 --- Obstacle Map Recording (runs during any driving when enabled via debug menu)
 --- ============================================================================
@@ -4576,11 +4679,17 @@ function AV:StartObstacleRecording()
 		end
 		self:RecordObstacleScan()
 		scan_count = scan_count + 1
-		-- Periodic save every ~30 s (150 ticks × 0.2 s) to protect against crashes
+		-- Periodic save every ~30 s (150 ticks × 0.2 s) to protect against crashes.
+		-- Skipped during autopilot: I/O stutter could affect A* route decisions.
+		-- Data is saved on flight end via ConsolidateMemory().
 		if scan_count >= self.autopilot_scan_dirty_threshold then
 			scan_count = 0
-			self:SaveObstacleMap()
-			self.log_obj:Record(LogLevel.Info, "Obstacle map periodic save during recording")
+			if not self.is_auto_pilot then
+				self:SaveObstacleMap()
+				self.log_obj:Record(LogLevel.Info, "Obstacle map periodic save during recording")
+			else
+				self.log_obj:Record(LogLevel.Debug, "Obstacle map periodic save skipped (autopilot active)")
+			end
 		end
 	end)
 end

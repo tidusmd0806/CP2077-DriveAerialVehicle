@@ -408,7 +408,7 @@ function Event:CheckHUD()
         self.hud_obj:ToggleOriginalMPHDisplay(true)
         self.hud_obj:EnableManualMeter(true, true)
         local initial_length = math.floor(self.av_obj.initial_destination_length)
-        local current_length = math.floor(self.av_obj.dest_dir_vector_norm)
+        local current_length = math.floor(self.av_obj.dest_remaining_to_final)
         self.hud_obj:SetSpeedMeterValue(current_length)
         self.hud_obj:SetRPMMeterValue(math.floor(10 * (1 - current_length / initial_length) + 1))
     else

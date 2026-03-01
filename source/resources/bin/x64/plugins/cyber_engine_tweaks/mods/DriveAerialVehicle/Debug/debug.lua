@@ -23,7 +23,6 @@ function Debug:New(core_obj)
     obj.is_im_gui_auto_pilot_info = false
     obj.is_im_gui_auto_pilot_exception_area = false
     obj.is_im_gui_check_setting_param = false
-    obj.is_im_gui_sector_danger_scanner = false
     obj.is_im_gui_obstacle_map = false
     obj.selected_sound = "100_call_vehicle"
     obj.fade_time = 1.5
@@ -56,7 +55,6 @@ function Debug:ImGuiMain()
     self:ImGuiAutoPilotInfo()
     self:ImGuiAutoPilotExceptionArea()
     self:ImGuiCheckSettingParam()
-    self:ImGuiSectorDangerScanner()
     self:ImGuiObstacleMap()
     self:ImGuiExcuteFunction()
 
@@ -677,154 +675,6 @@ function Debug:ImGuiCheckSettingParam()
     end
 end
 
-function Debug:ImGuiSectorDangerScanner()
-    self.is_im_gui_sector_danger_scanner = ImGui.Checkbox("[ImGui] Sector Danger Scanner", self.is_im_gui_sector_danger_scanner)
-    if self.is_im_gui_sector_danger_scanner then
-        ImGui.Text("=== Sector Danger Map Scanner ===")
-        ImGui.Text("Pre-scan sectors to build static danger map")
-        ImGui.Separator()
-        
-        local av_obj = self.core_obj.av_obj
-        if not av_obj then
-            ImGui.Text("AV object not available")
-            return
-        end
-        
-        ImGui.Text("Sector size: " .. tostring(av_obj.sector_size) .. "m")
-        ImGui.Text("Scan rays: 32 per sector, distance: " .. tostring(av_obj.scan_ray_distance) .. "m")
-        ImGui.Text("Local avoidance ray distance: " .. tostring(av_obj.local_ray_distance) .. "m")
-        
-        local temp_blocked_count = 0
-        if av_obj.temp_blocked_sectors then
-            for _ in pairs(av_obj.temp_blocked_sectors) do
-                temp_blocked_count = temp_blocked_count + 1
-            end
-        end
-        
-        ImGui.Text("Temp blocked sectors: " .. tostring(temp_blocked_count))
-        ImGui.Separator()
-        
-        -- Scan range input
-        if not self.scan_range_x then self.scan_range_x = 10 end
-        if not self.scan_range_y then self.scan_range_y = 10 end
-        if not self.scan_range_z then self.scan_range_z = 5 end
-        
-        self.scan_range_x, changed = ImGui.InputInt("Range X (sectors)", self.scan_range_x, 1, 10)
-        self.scan_range_y, changed = ImGui.InputInt("Range Y (sectors)", self.scan_range_y, 1, 10)
-        self.scan_range_z, changed = ImGui.InputInt("Range Z (sectors)", self.scan_range_z, 1, 10)
-        
-        -- Calculate sector count: (2*range+1) for X/Y, Z from 1 to range (absolute)
-        local total_sectors = (2 * self.scan_range_x + 1) * (2 * self.scan_range_y + 1) * self.scan_range_z
-        ImGui.Text("Total sectors to scan: " .. tostring(total_sectors))
-        
-        if av_obj.scanning_mode then
-            ImGui.Text("Status: SCANNING...")
-            ImGui.Text(string.format("Progress: %d / %d (%.1f%%)", 
-                av_obj.scan_current_sector_index, 
-                av_obj.scan_total_sectors,
-                (av_obj.scan_current_sector_index / av_obj.scan_total_sectors) * 100))
-            
-            if ImGui.Button("Stop Scanning") then
-                av_obj.scanning_mode = false
-                av_obj.scan_current_sector_index = 0
-                av_obj.scan_sector_list = {}
-            end
-        else
-            if ImGui.Button("Start Scanning from Current Position") then
-                local player_pos = Game.GetPlayer():GetWorldPosition()
-                local center_sector_key = av_obj:PositionToSectorKey(player_pos)
-                
-                if center_sector_key then
-                    -- Generate all sectors to scan
-                    local cx, cy, cz = center_sector_key:match("([^_]+)_([^_]+)_([^_]+)")
-                    cx, cy, cz = tonumber(cx), tonumber(cy), tonumber(cz)
-                    
-                    local all_sectors = {}
-                    for x = cx - self.scan_range_x, cx + self.scan_range_x do
-                        for y = cy - self.scan_range_y, cy + self.scan_range_y do
-                            -- Z from sector 1 to specified range (independent of current position)
-                            for z = 1, self.scan_range_z do
-                                table.insert(all_sectors, {x = x, y = y, z = z})
-                            end
-                        end
-                    end
-                    
-                    -- Sort by nearest neighbor (greedy algorithm to minimize teleport distance)
-                    local sorted_sectors = {}
-                    local current_x, current_y, current_z = cx, cy, cz
-                    
-                    while #all_sectors > 0 do
-                        local nearest_index = 1
-                        local nearest_dist = math.huge
-                        
-                        -- Find nearest unvisited sector
-                        for i, s in ipairs(all_sectors) do
-                            local dist = math.sqrt((s.x - current_x)^2 + (s.y - current_y)^2 + (s.z - current_z)^2)
-                            if dist < nearest_dist then
-                                nearest_dist = dist
-                                nearest_index = i
-                            end
-                        end
-                        
-                        -- Add nearest sector to sorted list
-                        local nearest = table.remove(all_sectors, nearest_index)
-                        table.insert(sorted_sectors, string.format("%d_%d_%d", nearest.x, nearest.y, nearest.z))
-                        
-                        -- Update current position
-                        current_x, current_y, current_z = nearest.x, nearest.y, nearest.z
-                    end
-                    
-                    av_obj.scan_sector_list = sorted_sectors
-                    
-                    av_obj.scan_total_sectors = #av_obj.scan_sector_list
-                    av_obj.scan_current_sector_index = 0
-                    av_obj.scanning_mode = true
-                    
-                    -- Start scanning with Cron
-                    Cron.Every(0.5, {tick=1}, function(timer)
-                        if not av_obj.scanning_mode or av_obj.scan_current_sector_index >= av_obj.scan_total_sectors then
-                            Cron.Halt(timer)
-                            if av_obj.scanning_mode then
-                                av_obj.scanning_mode = false
-                                av_obj:SaveSectorData()
-                                print("Sector scanning complete! Data saved.")
-                            end
-                            return
-                        end
-                        
-                        av_obj.scan_current_sector_index = av_obj.scan_current_sector_index + 1
-                        local sector_key = av_obj.scan_sector_list[av_obj.scan_current_sector_index]
-                        
-                        if sector_key then
-                            -- sector_database removed; ScanSectorDanger is a stub
-                            local passable_count = av_obj:ScanSectorDanger(sector_key)
-                            print(string.format("Sector %s: ScanSectorDanger stubbed (use obstacle_map)", sector_key))
-                        end
-                    end)
-                end
-            end
-            
-            ImGui.Separator()
-            if ImGui.Button("Save Danger Map to JSON") then
-                av_obj:SaveObstacleMap()
-                print("Obstacle map saved!")
-            end
-            
-            ImGui.SameLine()
-            if ImGui.Button("Load Danger Map from JSON") then
-                av_obj:LoadObstacleMap()
-                print("Obstacle map loaded!")
-            end
-            
-            ImGui.Separator()
-            if ImGui.Button("Clear Temp Blocked Sectors") then
-                av_obj.temp_blocked_sectors = {}
-                print("Temporary blocked sectors cleared!")
-            end
-        end
-    end
-end
-
 function Debug:ImGuiObstacleMap()
     self.is_im_gui_obstacle_map = ImGui.Checkbox("[ImGui] 3D Obstacle Map", self.is_im_gui_obstacle_map)
     if not self.is_im_gui_obstacle_map then return end
@@ -885,24 +735,6 @@ function Debug:ImGuiObstacleMap()
         "Min hits (confirmed)", av_obj.obstacle_min_hits, 1, 10)
     av_obj.obstacle_record_range, changed = ImGui.SliderFloat(
         "Record range (m)", av_obj.obstacle_record_range, 10.0, 60.0)
-    ImGui.Separator()
-
-    -- Save / Load / Clear
-    if ImGui.Button("Save Obstacle Map") then
-        av_obj:SaveObstacleMap()
-        print("Obstacle map saved to " .. av_obj.obstacle_map_path)
-    end
-    ImGui.SameLine()
-    if ImGui.Button("Load Obstacle Map") then
-        av_obj:LoadObstacleMap()
-        print("Obstacle map loaded from " .. av_obj.obstacle_map_path)
-    end
-    ImGui.SameLine()
-    if ImGui.Button("Clear Map") then
-        av_obj.obstacle_map = {}
-        print("Obstacle map cleared (not saved)")
-    end
-
     ImGui.Separator()
     ImGui.TextDisabled("Tip: drive around the city with recording ON.")
     ImGui.TextDisabled("A* autopilot will avoid confirmed obstacle sectors.")

@@ -63,24 +63,6 @@
         "max_z" : 330 
     },
     {
-        "tag" : "watson_south_1",
-        "min_x" : -1880,
-        "max_x" : -1520,
-        "min_y" : 1090,
-        "max_y" : 1190,
-        "min_z" : 60,
-        "max_z" : 310 
-    },
-    {
-        "tag" : "watson_south_2",
-        "min_x" : -1780,
-        "max_x" : -1520,
-        "min_y" : 1190,
-        "max_y" : 1730,
-        "min_z" : 60,
-        "max_z" : 310 
-    },
-    {
         "tag" : "city_center_1",
         "min_x" : -1290,
         "max_x" : -1080,

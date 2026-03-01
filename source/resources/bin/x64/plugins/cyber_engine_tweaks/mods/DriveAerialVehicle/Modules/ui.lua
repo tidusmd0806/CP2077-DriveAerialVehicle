@@ -310,6 +310,15 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
+	option_table = DAV.NativeSettings.addRangeInt("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_astar_calculation_precision"), DAV.core_obj:GetTranslationText("native_settings_general_astar_calculation_precision_description"), 1, 100, 1, DAV.user_setting_table.astar_calculation_precision or 20, 20, function(value)
+		DAV.user_setting_table.astar_calculation_precision = value
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+
 	option_table = DAV.NativeSettings.addSwitch("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_scan_during_autopilot"), DAV.core_obj:GetTranslationText("native_settings_general_scan_during_autopilot_description"), DAV.user_setting_table.is_enable_scan_during_autopilot, true, function(state)
 		DAV.user_setting_table.is_enable_scan_during_autopilot = state
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
@@ -325,11 +334,6 @@ function UI:CreateNativeSettingsPage()
 		Cron.After(self.delay_updating_native_settings, function()
 			self:UpdateNativeSettingsPage()
 		end)
-	end)
-	table.insert(self.option_table_list, option_table)
-
-	option_table = DAV.NativeSettings.addButton("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_merge_obstacle_map"), DAV.core_obj:GetTranslationText("native_settings_general_merge_obstacle_map_description"), DAV.core_obj:GetTranslationText("native_settings_general_merge_obstacle_map_button_description"), 45, function()
-		DAV.core_obj.av_obj:MergeObstacleMapToSingleFile()
 	end)
 	table.insert(self.option_table_list, option_table)
 
