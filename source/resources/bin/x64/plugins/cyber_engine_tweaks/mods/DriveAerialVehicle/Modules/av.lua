@@ -1448,10 +1448,10 @@ function AV:AutoPilot()
 		end
 
 		-- === astar_tangent phase: TangentBug fallback while A* can't make progress ===
-		-- Every 3s, if current sector is known, replan A* and resume if progress >= 50m.
+		-- Every 5s, if current sector is known, replan A* and resume if progress >= 50m.
 		if self.autopilot_phase == "astar_tangent"
 		   and horiz_to_final > self.sector_size * 2
-		   and (os.clock() - self.astar_tangent_recheck_time) > 3.0 then
+		   and (os.clock() - self.astar_tangent_recheck_time) > 5.0 then
 			self.astar_tangent_recheck_time = os.clock()
 			if self:IsSectorAreaKnown(current_position) then
 				local replan_dest = altitude_adjusted_destination
@@ -2863,6 +2863,25 @@ function AV:PositionToSectorKey(position)
 	return string.format("%d_%d_%d", sx, sy, sz)
 end
 
+--- Parse sector key "sx_sy_sz" to integer coordinates.
+--- Uses self.astar_coord_cache when available (populated during A* run) to avoid
+--- repeated regex parsing of the same keys within a single pathfinding call.
+---@param key string Sector key
+---@return number|nil, number|nil, number|nil sx, sy, sz
+function AV:ParseSectorKey(key)
+	if self.astar_coord_cache then
+		local c = self.astar_coord_cache[key]
+		if c then return c[1], c[2], c[3] end
+	end
+	local sx, sy, sz = key:match("([^_]+)_([^_]+)_([^_]+)")
+	if not sx then return nil, nil, nil end
+	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
+	if self.astar_coord_cache then
+		self.astar_coord_cache[key] = {sx, sy, sz}
+	end
+	return sx, sy, sz
+end
+
 --- Get sector center position from key
 ---@param sector_key string Sector key "x_y_z"
 ---@return Vector4|nil Sector center position
@@ -2896,11 +2915,9 @@ end
 ---@return table List of neighbor sector keys
 function AV:GetNeighborSectors(sector_key)
 	if not sector_key then return {} end
-	
-	local sx, sy, sz = sector_key:match("([^_]+)_([^_]+)_([^_]+)")
+
+	local sx, sy, sz = self:ParseSectorKey(sector_key)
 	if not sx then return {} end
-	
-	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
 	
 	local neighbors = {}
 	-- 6 cardinal directions + 4 horizontal (XY) diagonals
@@ -2931,13 +2948,10 @@ end
 function AV:CalculateHeuristic(sector_key, goal_key)
 	if not sector_key or not goal_key then return 9999 end
 
-	local sx, sy, sz = sector_key:match("([^_]+)_([^_]+)_([^_]+)")
-	local gx, gy, gz = goal_key:match("([^_]+)_([^_]+)_([^_]+)")
+	local sx, sy, sz = self:ParseSectorKey(sector_key)
+	local gx, gy, gz = self:ParseSectorKey(goal_key)
 
 	if not sx or not gx then return 9999 end
-
-	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
-	gx, gy, gz = tonumber(gx), tonumber(gy), tonumber(gz)
 
 	local dx = gx - sx
 	local dy = gy - sy
@@ -2955,13 +2969,10 @@ end
 function AV:GetSectorMovementCost(from_key, to_key)
 	-- Base cost depends only on the direction offset (from→to), not sector content.
 	-- Penalty depends only on the *destination* sector (to_key), so we cache it.
-	local fx, fy, fz = from_key:match("([^_]+)_([^_]+)_([^_]+)")
-	local tx, ty, tz = to_key:match("([^_]+)_([^_]+)_([^_]+)")
+	local fx, fy, fz = self:ParseSectorKey(from_key)
+	local tx, ty, tz = self:ParseSectorKey(to_key)
 
 	if not fx or not tx then return 1.0 end
-
-	fx, fy, fz = tonumber(fx), tonumber(fy), tonumber(fz)
-	tx, ty, tz = tonumber(tx), tonumber(ty), tonumber(tz)
 
 	local dx = tx - fx
 	local dy = ty - fy
@@ -3061,11 +3072,11 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 		return {}
 	end
 
-	-- Initialize per-run sector penalty cache.
-	-- GetSectorMovementCost will populate it on first visit; subsequent calls to the
-	-- same destination sector reuse the cached value, avoiding repeated obstacle_map
-	-- lookups and EA AABB checks (which total ~900k ops in a 5000-iteration run).
+	-- Initialize per-run caches.
+	-- sector_penalty_cache: avoids repeated obstacle_map lookups for the same destination sector.
+	-- astar_coord_cache: avoids repeated regex parsing of the same sector key strings.
 	self.sector_penalty_cache = {}
+	self.astar_coord_cache    = {}
 
 	-- If the destination is inside an exception area, ALWAYS raise its Z to just
 	-- above the area's ceiling so A* targets a flyable position.
@@ -3093,126 +3104,160 @@ function AV:PlanGlobalRoute(start_pos, end_pos)
 		return {start_key}
 	end
 	
-	-- A* Algorithm with optimized settings
-	local open_set = {}  -- Nodes to be evaluated
-	local closed_set = {}  -- Nodes already evaluated
-	local came_from = {}  -- For path reconstruction
-	local g_score = {}  -- Cost from start to node
-	local f_score = {}  -- Estimated total cost (g + h)
-	
+	-- A* with min-heap open set (O(n log n) vs O(n²) linear scan)
+	-- and per-run coord cache (O(1) key parsing vs O(n) regex each call).
+	-- Lazy-deletion heap: duplicate entries are pushed on f-score improvement;
+	-- stale pops (already closed, or superseded) are skipped without counting
+	-- against the iteration budget.
+	local heap_keys   = {}
+	local heap_scores = {}
+	local heap_size   = 0
+
+	local function heap_push(key, score)
+		heap_size = heap_size + 1
+		heap_keys[heap_size]   = key
+		heap_scores[heap_size] = score
+		local i = heap_size
+		while i > 1 do
+			local p = math.floor(i / 2)
+			if heap_scores[p] > heap_scores[i] then
+				heap_keys[i],   heap_keys[p]   = heap_keys[p],   heap_keys[i]
+				heap_scores[i], heap_scores[p] = heap_scores[p], heap_scores[i]
+				i = p
+			else break end
+		end
+	end
+
+	local function heap_pop()
+		if heap_size == 0 then return nil, math.huge end
+		local tk, ts = heap_keys[1], heap_scores[1]
+		heap_keys[1]          = heap_keys[heap_size]
+		heap_scores[1]        = heap_scores[heap_size]
+		heap_keys[heap_size]  = nil
+		heap_scores[heap_size]= nil
+		heap_size = heap_size - 1
+		local i = 1
+		while true do
+			local s = i
+			local l, r = 2*i, 2*i+1
+			if l <= heap_size and heap_scores[l] < heap_scores[s] then s = l end
+			if r <= heap_size and heap_scores[r] < heap_scores[s] then s = r end
+			if s == i then break end
+			heap_keys[i], heap_keys[s]     = heap_keys[s],     heap_keys[i]
+			heap_scores[i], heap_scores[s] = heap_scores[s], heap_scores[i]
+			i = s
+		end
+		return tk, ts
+	end
+
+	local closed_set = {}
+	local came_from  = {}
+	local g_score    = {}
+	local f_score    = {}
+
+	-- Track best-explored node inline to avoid a second pass through closed_set on failure
+	local best_partial_node = nil
+	local best_partial_dist = math.huge
+
 	-- Initialize start node
-	open_set[start_key] = true
 	g_score[start_key] = 0
-	f_score[start_key] = self:CalculateHeuristic(start_key, end_key)
-	
-	local max_iterations = math.max(100, (DAV.user_setting_table.astar_calculation_precision or 20) * 50)
+	local start_h = self:CalculateHeuristic(start_key, end_key)
+	f_score[start_key] = start_h
+	heap_push(start_key, start_h)
+
+	local max_iterations = math.max(200, (DAV.user_setting_table.astar_calculation_precision or 50) * 200)
 	local iterations = 0
-	
-	while next(open_set) ~= nil and iterations < max_iterations do
-		iterations = iterations + 1
-		
-		-- Find node in open_set with lowest f_score
-		local current = nil
-		local lowest_f = math.huge
-		for key, _ in pairs(open_set) do
-			local f = f_score[key] or math.huge
-			if f < lowest_f then
-				lowest_f = f
-				current = key
-			end
-		end
-		
-		if not current then
-			break
-		end
-		
-		-- Goal reached
-		if current == end_key then
-			-- Reconstruct path
-			local route = {}
-			local path_node = current
-			while path_node do
-				table.insert(route, 1, path_node)  -- Insert at beginning
-				path_node = came_from[path_node]
+
+	while heap_size > 0 and iterations < max_iterations do
+		local current, popped_f = heap_pop()
+		if not current then break end
+
+		-- Skip stale heap entries (lazy deletion):
+		-- a node is stale if already closed, or if a better path was found
+		-- after this entry was pushed (f_score decreased).
+		if closed_set[current] or popped_f > (f_score[current] or math.huge) + 0.001 then
+			-- stale: do not count against iteration budget
+		else
+			iterations = iterations + 1
+
+			-- Goal reached
+			if current == end_key then
+				local route = {}
+				local path_node = current
+				while path_node do
+					table.insert(route, 1, path_node)
+					path_node = came_from[path_node]
+				end
+				self.astar_is_partial_route = false
+				self.log_obj:Record(LogLevel.Info, string.format(
+					"A* route planned: %d sectors, %d iterations from %s to %s (penalty_cache=%d coord_cache=%d)",
+					#route, iterations, start_key, end_key,
+					(function() local n=0; for _ in pairs(self.sector_penalty_cache) do n=n+1 end; return n end)(),
+					(function() local n=0; for _ in pairs(self.astar_coord_cache) do n=n+1 end; return n end)()))
+				self.sector_penalty_cache = nil
+				self.astar_coord_cache    = nil
+				return route
 			end
 
-			self.astar_is_partial_route = false  -- complete route
-			self.log_obj:Record(LogLevel.Info, string.format(
-				"A* route planned: %d sectors, %d iterations from %s to %s (cache_entries=%d)",
-				#route, iterations, start_key, end_key,
-				self.sector_penalty_cache and (function() local n=0; for _ in pairs(self.sector_penalty_cache) do n=n+1 end; return n end)() or 0))
-			self.sector_penalty_cache = nil
-			return route
-		end
-		
-		-- Move current from open to closed
-		open_set[current] = nil
-		closed_set[current] = true
-		
-		-- Evaluate neighbors (6 cardinal directions: ±X, ±Y, ±Z)
-		local neighbors = self:GetNeighborSectors(current)
-		for _, neighbor in ipairs(neighbors) do
-			if not closed_set[neighbor] then
-				local move_cost = self:GetSectorMovementCost(current, neighbor)
-				-- Skip impassable sectors (underground / exception area).
-				-- Impassable returns base_cost * 1e7 ≈ 1e7 – 1.4e7.
-				-- Max legitimate cost ≈ base_cost * 501 ≈ 709, so 1e5 is safe.
-				if move_cost < 1e5 then
-					local tentative_g = (g_score[current] or math.huge) + move_cost
-					local existing_g = g_score[neighbor] or math.huge
-					if tentative_g < existing_g then
-						-- Found a better path to this neighbor
-						came_from[neighbor] = current
-						g_score[neighbor] = tentative_g
-						f_score[neighbor] = tentative_g + self:CalculateHeuristic(neighbor, end_key)
-						open_set[neighbor] = true
+			closed_set[current] = true
+
+			-- Update best partial node (closest to goal among explored nodes)
+			local h_cur = self:CalculateHeuristic(current, end_key)
+			if h_cur < best_partial_dist then
+				best_partial_dist = h_cur
+				best_partial_node = current
+			end
+
+			-- Evaluate neighbors
+			local neighbors = self:GetNeighborSectors(current)
+			for _, neighbor in ipairs(neighbors) do
+				if not closed_set[neighbor] then
+					local move_cost = self:GetSectorMovementCost(current, neighbor)
+					-- Skip impassable sectors (underground / exception area).
+					-- Impassable returns base_cost * 1e7; max legitimate cost ≈ 709, so 1e5 is safe.
+					if move_cost < 1e5 then
+						local tentative_g = (g_score[current] or math.huge) + move_cost
+						if tentative_g < (g_score[neighbor] or math.huge) then
+							came_from[neighbor] = current
+							g_score[neighbor]   = tentative_g
+							local new_f = tentative_g + self:CalculateHeuristic(neighbor, end_key)
+							f_score[neighbor] = new_f
+							heap_push(neighbor, new_f)
+						end
 					end
 				end
 			end
 		end
 	end
-	
-	-- No path found within iteration limit - return best partial path (local optimum)
-	local open_count = 0
+
+	-- No path found within iteration limit.
+	local open_count   = heap_size
 	local closed_count = 0
-	for _ in pairs(open_set) do open_count = open_count + 1 end
 	for _ in pairs(closed_set) do closed_count = closed_count + 1 end
-	
-	-- Find closest node to goal from explored nodes
-	local best_node = nil
-	local best_distance = math.huge
-	for node_key, _ in pairs(closed_set) do
-		local heuristic_distance = self:CalculateHeuristic(node_key, end_key)
-		if heuristic_distance < best_distance then
-			best_distance = heuristic_distance
-			best_node = node_key
-		end
-	end
-	
-	-- If found a better node than start, reconstruct path to it (local optimum)
-	if best_node and best_node ~= start_key then
+
+	if best_partial_node and best_partial_node ~= start_key then
 		local partial_route = {}
-		local path_node = best_node
+		local path_node = best_partial_node
 		while path_node do
 			table.insert(partial_route, 1, path_node)
 			path_node = came_from[path_node]
 		end
-		
-		self.astar_is_partial_route = true  -- hit iteration limit
+		self.astar_is_partial_route = true
 		self.log_obj:Record(LogLevel.Warning, string.format(
 			"A* incomplete after %d iterations, using partial route to closest explored node: %d sectors (distance to goal: %.1f)",
-			iterations, #partial_route, best_distance * self.sector_size))
+			iterations, #partial_route, best_partial_dist * self.sector_size))
 		self.sector_penalty_cache = nil
+		self.astar_coord_cache    = nil
 		return partial_route
 	end
 
-	-- No valid path found through known sectors — return empty route.
-	-- Caller will fly directly toward destination without waypoint guidance.
-	self.astar_is_partial_route = true  -- also treat no-path as partial (will retry)
+	-- No valid path found through known sectors.
+	self.astar_is_partial_route = true
 	self.log_obj:Record(LogLevel.Warning, string.format(
 		"A* pathfinding failed after %d iterations — no path through known sectors (start=%s, end=%s, open=%d, closed=%d)",
 		iterations, start_key, end_key, open_count, closed_count))
 	self.sector_penalty_cache = nil
+	self.astar_coord_cache    = nil
 	return {}
 end
 
@@ -4866,221 +4911,111 @@ function AV:TangentBugNavigate(current_pos, dest_dir_vec, current_time)
 		return Vector4.new(0, 0, 1, 0)
 	end
 
-	-- Speed-proportional detection distance: faster = look further ahead
-	-- At 10m/s → 20m, at 25m/s → 50m, at 48m/s → 96m
+	-- === Repulsion-field navigation ===
+	-- Detect radius: faster → look farther ahead
 	local detect_dist = math.max(20.0, self.autopilot_speed * 2.0)
-	-- enter_dist: trigger BOUNDARY when obstacle closer than this.
-	-- Reduced to speed*0.6 (was *1.0) so A*-selected corridors are not
-	-- prematurely blocked.  Still ≥10m minimum for low-speed safety.
-	local enter_dist = math.max(10.0, self.autopilot_speed * 0.6)
-	-- exit_dist: hysteresis = enter + 8m
-	local exit_dist = enter_dist + 8.0
+	-- Collect repulsion forces from spherical ray scan
+	local rep_x, rep_y, rep_z, min_fwd_dist = self:CollectSphericalRepulsion(current_pos, dest_dir, detect_dist)
+	local rep_mag = math.sqrt(rep_x*rep_x + rep_y*rep_y + rep_z*rep_z)
 
-	-- Forward fan detection: 5 rays in a 20° cone around dest_dir
-	-- This covers vehicle width and slight approach angles
-	local fwd_dist, hit_normal = self:RaycastFanMin(current_pos, dest_dir, detect_dist, 20, 4)
-
-	-- Check rear corners of the vehicle rectangle moving in dest_dir.
-	-- Front corners are intentionally excluded from DIRECT triggering:
-	-- they are already offset forward+sideways, so flying parallel to building walls
-	-- always returns ~enter_dist from them, causing constant false BOUNDARY entries in corridors.
-	-- Rear corners are still needed to catch tail-swing clips during turns.
-	-- Front corners are only used later for BOUNDARY validation (see below).
-	local rear_left,  rear_right  = self:GetRearCornerPositions(current_pos)
-	local front_left, front_right = self:GetFrontCornerPositions(current_pos)
-	local rear_left_dist  = self:RaycastDist(rear_left,  dest_dir, detect_dist)
-	local rear_right_dist = self:RaycastDist(rear_right, dest_dir, detect_dist)
-	-- For log reporting + body-clear check, record front corner distances too
-	local front_left_dist  = self:RaycastDist(front_left,  dest_dir, detect_dist)
-	local front_right_dist = self:RaycastDist(front_right, dest_dir, detect_dist)
-	-- Effective forward distance: center fan + rear corners only
-	local effective_fwd_dist = math.min(fwd_dist, rear_left_dist, rear_right_dist)
-
-	-- Treat exception area boundaries as virtual walls for TangentBug obstacle avoidance.
-	-- ExceptionAreaRayDist respects is_exception_area_bypassed (returns detect_dist when bypassed).
-	local ea_center_dist  = self:ExceptionAreaRayDist(current_pos, dest_dir, detect_dist)
-	local ea_rl_dist      = self:ExceptionAreaRayDist(rear_left,   dest_dir, detect_dist)
-	local ea_rr_dist      = self:ExceptionAreaRayDist(rear_right,  dest_dir, detect_dist)
-	local ea_fl_dist      = self:ExceptionAreaRayDist(front_left,  dest_dir, detect_dist)
-	local ea_fr_dist      = self:ExceptionAreaRayDist(front_right, dest_dir, detect_dist)
-	if ea_center_dist < fwd_dist then
-		fwd_dist   = ea_center_dist
-		hit_normal = nil  -- no surface normal from exception area boundary
-		self.log_obj:Record(LogLevel.Debug, string.format(
-			"TangentBug: exception area boundary %.1fm ahead (center)", ea_center_dist))
-	end
-	rear_left_dist   = math.min(rear_left_dist,   ea_rl_dist)
-	rear_right_dist  = math.min(rear_right_dist,  ea_rr_dist)
-	front_left_dist  = math.min(front_left_dist,  ea_fl_dist)
-	front_right_dist = math.min(front_right_dist, ea_fr_dist)
-	effective_fwd_dist = math.min(fwd_dist, rear_left_dist, rear_right_dist)
-
-	-- Body-clear check: if ALL 4 corners are beyond enter_dist, the vehicle body can
-	-- physically pass through even if the center fan ray clips something (e.g. a thin
-	-- pillar, building edge, or terrain artifact only in the exact forward direction).
-	-- In that case we skip BOUNDARY entry entirely to prevent false-positive stalls.
-	local body_clear = (front_left_dist  > enter_dist and front_right_dist > enter_dist and
-	                    rear_left_dist   > enter_dist and rear_right_dist  > enter_dist)
-
-	-- Speed reduction based on proximity: slow down well before the obstacle.
-	-- In BOUNDARY mode, use only fwd_dist (center fan in dest_dir) for speed control.
-	-- Using effective_fwd_dist (which includes rear corners) in BOUNDARY mode causes
-	-- permanent speed reduction because rear corners face the wall being followed.
-	local speed_dist = (self.tangent_mode == "BOUNDARY") and fwd_dist or effective_fwd_dist
-	local proximity_ratio = speed_dist / (enter_dist * 2.0)
-	if not body_clear and proximity_ratio < 1.0 then
-		self.auto_speed_reduce_rate = math.max(0.2, proximity_ratio * 0.6 + 0.2)
+	-- Speed reduction: proportional to nearest forward obstacle
+	local proximity = math.min(min_fwd_dist, detect_dist) / detect_dist
+	if proximity < 0.5 then
+		self.auto_speed_reduce_rate = math.max(0.2, proximity * 0.8 + 0.2)
 	else
-		self.auto_speed_reduce_rate = 0.7  -- normal cruising rate
+		self.auto_speed_reduce_rate = 0.7
 	end
 
-	-- === DIRECT mode: fly straight toward goal ===
-	if self.tangent_mode == "DIRECT" then
-		-- Cooldown: after exiting BOUNDARY, require tangent_direct_cooldown_dist of travel
-		-- before allowing BOUNDARY re-entry (prevents rapid oscillation on same obstacle).
-		-- An emergency override skips cooldown only when imminent collision is detected.
-		local direct_traveled = math.huge  -- infinity = no cooldown if start_pos not set
-		if self.tangent_direct_start_pos then
-			local dx = current_pos.x - self.tangent_direct_start_pos.x
-			local dy = current_pos.y - self.tangent_direct_start_pos.y
-			local dz = current_pos.z - self.tangent_direct_start_pos.z
-			direct_traveled = math.sqrt(dx*dx + dy*dy + dz*dz)
-		end
-		local in_cooldown   = direct_traveled < self.tangent_direct_cooldown_dist
-		local emergency_thr = enter_dist * 0.4  -- ~7-10 m: imminent collision threshold
-
-		if effective_fwd_dist > enter_dist then
-			-- Path is clear: continue straight
-			return dest_dir
-		elseif body_clear then
-			-- Center fan clips something but all 4 corners are clear:
-			-- the vehicle body can physically pass → ignore the false-positive hit.
-			self.log_obj:Record(LogLevel.Debug, string.format(
-				"TangentBug: DIRECT body-clear skip (fwd=%.1fm < enter=%.1fm but all corners OK)",
-				fwd_dist, enter_dist))
-			return dest_dir
-		elseif in_cooldown and effective_fwd_dist > emergency_thr then
-			-- Not an emergency and we just left BOUNDARY: suppress re-entry
-			self.log_obj:Record(LogLevel.Debug, string.format(
-				"TangentBug: DIRECT cooldown (trav=%.1fm/%.1fm, eff=%.1fm > emer=%.1fm)",
-				direct_traveled, self.tangent_direct_cooldown_dist, effective_fwd_dist, emergency_thr))
-			return dest_dir
-		end
-		-- Obstacle detected (or emergency): estimate face normal from hit rays
-		if hit_normal then
-			self.tangent_obstacle_normal = hit_normal
-		else
-			self.tangent_obstacle_normal = Vector4.new(-dest_dir.x, -dest_dir.y, -dest_dir.z, 0)
-		end
-		-- Record the estimated obstacle hit position in the 3D obstacle map
-		self:RecordObstacleHit(Vector4.new(
-			current_pos.x + dest_dir.x * effective_fwd_dist,
-			current_pos.y + dest_dir.y * effective_fwd_dist,
-			current_pos.z + dest_dir.z * effective_fwd_dist, 1), dest_dir)
-		self.tangent_mode = "BOUNDARY"
-		self.tangent_mode_start_time = current_time
-		self.tangent_boundary_dir = nil
-		self.tangent_entry_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
-		self.tangent_direct_start_pos = nil  -- cooldown resets; re-armed on BOUNDARY->DIRECT
-		self.log_obj:Record(LogLevel.Info, string.format(
-			"TangentBug: DIRECT->BOUNDARY (eff=%.1fm [fwd=%.1fm FL=%.1fm FR=%.1fm RL=%.1fm RR=%.1fm], enter=%.1fm, cooldown=%s)",
-			effective_fwd_dist, fwd_dist, front_left_dist, front_right_dist, rear_left_dist, rear_right_dist, enter_dist,
-			in_cooldown and "BYPASSED(emergency)" or "n/a"))
-	end
-
-	-- === BOUNDARY mode: follow obstacle surface ===
-	-- Keep updating the obstacle normal from real-time ray data
-	if hit_normal then
-		self.tangent_obstacle_normal = hit_normal
-	end
-
-	-- Timeout guard: reset to DIRECT if stuck in boundary too long
-	if current_time - self.tangent_mode_start_time > self.tangent_boundary_timeout then
-		self.tangent_mode = "DIRECT"
-		self.tangent_boundary_dir = nil
-		self.log_obj:Record(LogLevel.Warning, string.format(
-			"TangentBug: BOUNDARY timeout (%.0fs) -> DIRECT",
-			self.tangent_boundary_timeout))
-		return dest_dir
-	end
-
-	-- Exit condition: forward path is clear AND we have moved past the obstacle
-	-- Requires both:
-	--   1. fwd_dist > exit_dist  (obstacle no longer directly ahead)
-	--   2. moved >= enter_dist   (have actually navigated around, not just turned sideways)
-	-- Fallback: if moved a lot (>= enter_dist*3) and fwd is at least marginally clear
-	-- (> enter_dist), exit regardless of exit_dist.  This handles large buildings where
-	-- fwd_dist in dest_dir never reaches exit_dist even after a full boundary circuit.
-	local moved_from_entry = 0
-	if self.tangent_entry_pos then
-		local dx = current_pos.x - self.tangent_entry_pos.x
-		local dy = current_pos.y - self.tangent_entry_pos.y
-		local dz = current_pos.z - self.tangent_entry_pos.z
-		moved_from_entry = math.sqrt(dx*dx + dy*dy + dz*dz)
-	end
-	-- Side clearance check: front corners must not be dangerously close to the obstacle.
-	-- Without this, the vehicle exits BOUNDARY while still hugging the wall (FL/FR ~1m),
-	-- turns toward dest in DIRECT, immediately faces the same wall → emergency re-entry loop.
-	-- Threshold: same as emergency_thr in DIRECT (enter_dist * 0.4), rounded up to 6m minimum.
-	local side_thr  = math.max(6.0, enter_dist * 0.4)
-	local side_clear = (front_left_dist > side_thr and front_right_dist > side_thr)
-	local normal_exit   = fwd_dist > exit_dist   and moved_from_entry >= enter_dist  and side_clear
-	local fallback_exit = fwd_dist > enter_dist  and moved_from_entry >= enter_dist * 3 and side_clear
-	if normal_exit or fallback_exit then
-		self.tangent_mode = "DIRECT"
-		self.tangent_entry_pos = nil
-		-- Arm the re-entry cooldown from this position
-		self.tangent_direct_start_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
-		self.log_obj:Record(LogLevel.Info, string.format(
-			"TangentBug: BOUNDARY->DIRECT (%s, fwd=%.1fm, moved=%.1fm, FL=%.1fm FR=%.1fm, cooldown armed)",
-			fallback_exit and "fallback" or "normal", fwd_dist, moved_from_entry,
-			front_left_dist, front_right_dist))
-		return dest_dir
-	else
+	if rep_mag > 0.3 then
 		self.log_obj:Record(LogLevel.Debug, string.format(
-			"TangentBug: still in BOUNDARY (fwd=%.1fm exit=%.1fm, moved=%.1fm/%.1fm, FL=%.1fm FR=%.1fm side_thr=%.1fm)",
-			fwd_dist, exit_dist, moved_from_entry, enter_dist,
-			front_left_dist, front_right_dist, side_thr))
+			"TangentBug: repulsion=(%.2f,%.2f,%.2f) mag=%.2f fwd_min=%.1fm",
+			rep_x, rep_y, rep_z, rep_mag, min_fwd_dist))
 	end
 
-	-- Find best passable direction along obstacle boundary toward goal
-	local best_dir = self:FindBestBoundaryDir(current_pos, dest_dir, self.tangent_obstacle_normal)
-	if best_dir then
-		-- Verify the chosen boundary direction is clear for center AND rear corners.
-		-- Front corners are excluded: when hugging an obstacle they already sit beside
-		-- the wall, so a side-ward boundary ray from them always returns a short dist.
-		-- Rear corners catch the tail-swing hazard which is the real concern here.
-		local boundary_clearance  = self:RaycastDist(current_pos, best_dir, 10.0)
-		local rear_left_boundary  = self:RaycastDist(rear_left,   best_dir, 8.0)
-		local rear_right_boundary = self:RaycastDist(rear_right,  best_dir, 8.0)
-		local min_clearance = math.min(boundary_clearance, rear_left_boundary, rear_right_boundary)
-		if min_clearance < 5.0 then
-			self.log_obj:Record(LogLevel.Warning, string.format(
-				"TangentBug: boundary dir blocked (ctr=%.1fm RL=%.1fm RR=%.1fm), seeking alternative",
-				boundary_clearance, rear_left_boundary, rear_right_boundary))
-			-- Fall through to keep previous or escape
+	-- Combine goal attraction (weight 1.5) + repulsion forces
+	local goal_weight = 1.5
+	local nav_x = dest_dir.x * goal_weight + rep_x
+	local nav_y = dest_dir.y * goal_weight + rep_y
+	local nav_z = dest_dir.z * goal_weight + rep_z
+	local nav_len = math.sqrt(nav_x*nav_x + nav_y*nav_y + nav_z*nav_z)
+	if nav_len < 0.001 then return dest_dir end
+	return Vector4.new(nav_x/nav_len, nav_y/nav_len, nav_z/nav_len, 0)
+end
+
+--- Spherical repulsion force collector for potential-field obstacle avoidance.
+--- Casts 24 rays (8 azimuths × 3 elevations) in a forward-biased sphere.
+--- Returns rep_x, rep_y, rep_z (aggregate repulsion vector) and min_fwd_dist
+--- (closest hit distance in the forward hemisphere, for speed control).
+function AV:CollectSphericalRepulsion(from_pos, forward_dir, detect_dist)
+	-- Build orthonormal basis (forward, right, up)
+	local fx, fy, fz = forward_dir.x, forward_dir.y, forward_dir.z
+	local rx, ry, rz
+	if math.abs(fz) < 0.9 then
+		local hlen = math.sqrt(fx*fx + fy*fy)
+		if hlen > 0.001 then
+			rx, ry, rz = -fy/hlen, fx/hlen, 0
 		else
-			self.tangent_boundary_dir = best_dir
-			self.log_obj:Record(LogLevel.Debug, string.format(
-				"TangentBug: BOUNDARY dir=(%.2f,%.2f,%.2f) fwd=%.1fm min_clear=%.1fm",
-				best_dir.x, best_dir.y, best_dir.z, fwd_dist, min_clearance))
-			return best_dir
+			rx, ry, rz = 1, 0, 0
+		end
+	else
+		rx, ry, rz = 1, 0, 0
+	end
+	-- up = right × forward
+	local ux = ry*fz - rz*fy
+	local uy = rz*fx - rx*fz
+	local uz = rx*fy - ry*fx
+
+	-- 8 azimuths (0°, 45°, ..., 315°) × 3 elevations (0°, +30°, -30°) = 24 rays
+	local az_step   = math.pi / 4
+	local elevations = { 0, math.pi / 6, -math.pi / 6 }
+	local rep_x, rep_y, rep_z = 0, 0, 0
+	local min_fwd_dist = detect_dist
+
+	for i = 0, 7 do
+		local az = i * az_step
+		local cos_az, sin_az = math.cos(az), math.sin(az)
+		for _, el in ipairs(elevations) do
+			local cos_el, sin_el = math.cos(el), math.sin(el)
+			-- World-space direction: cos_el*(cos_az*fwd + sin_az*right) + sin_el*up
+			local dx = cos_el * (cos_az * fx + sin_az * rx) + sin_el * ux
+			local dy = cos_el * (cos_az * fy + sin_az * ry) + sin_el * uy
+			local dz = cos_el * (cos_az * fz + sin_az * rz) + sin_el * uz
+			local dlen = math.sqrt(dx*dx + dy*dy + dz*dz)
+			if dlen > 0.001 then
+				dx, dy, dz = dx / dlen, dy / dlen, dz / dlen
+				local end_pos = Vector4.new(
+					from_pos.x + dx * detect_dist,
+					from_pos.y + dy * detect_dist,
+					from_pos.z + dz * detect_dist, 1)
+				for _, filter in ipairs(self.weak_collision_filters) do
+					local hit, result = Game.GetSpatialQueriesSystem():SyncRaycastByCollisionGroup(
+						from_pos, end_pos, filter, false, false)
+					if hit and result and result.position then
+						-- Vector from vehicle to hit point
+						local hx = result.position.x - from_pos.x
+						local hy = result.position.y - from_pos.y
+						local hz = result.position.z - from_pos.z
+						local hit_dist = math.sqrt(hx*hx + hy*hy + hz*hz)
+						if hit_dist > 0.001 then
+							-- Track closest forward hit for speed control
+							local fwd_dot = (hx/hit_dist)*fx + (hy/hit_dist)*fy + (hz/hit_dist)*fz
+							if fwd_dot > 0.5 then
+								min_fwd_dist = math.min(min_fwd_dist, hit_dist)
+							end
+							-- Quadratic repulsion: force ∝ (1 - d/D)²
+							local t = math.max(0.0, 1.0 - hit_dist / detect_dist)
+							local force = t * t
+							rep_x = rep_x - (hx / hit_dist) * force
+							rep_y = rep_y - (hy / hit_dist) * force
+							rep_z = rep_z - (hz / hit_dist) * force
+						end
+						break
+					end
+				end
+			end
 		end
 	end
-
-	-- All boundary candidates blocked: keep previous direction or escape upward
-	if self.tangent_boundary_dir then
-		-- Verify previous dir is still safe
-		local prev_clearance = self:RaycastDist(current_pos, self.tangent_boundary_dir, 8.0)
-		if prev_clearance > 4.0 then
-			self.log_obj:Record(LogLevel.Warning, "TangentBug: all new candidates blocked, keeping previous boundary dir")
-			return self.tangent_boundary_dir
-		end
-	end
-
-	-- Last resort: pure upward
-	self.log_obj:Record(LogLevel.Warning, "TangentBug: no valid direction found, ascending")
-	return Vector4.new(0, 0, 1, 0)
+	return rep_x, rep_y, rep_z, min_fwd_dist
 end
 
 --- Save learning data to JSON file

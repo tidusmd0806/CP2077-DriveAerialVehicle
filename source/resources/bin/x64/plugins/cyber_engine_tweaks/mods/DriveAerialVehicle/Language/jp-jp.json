@@ -6,7 +6,7 @@
     "native_settings_general_subtitle": "一般設定",
     "native_settings_general_language": "言語",
     "native_settings_general_language_description": "言語を選択してください。",
-    "native_settings_general_autopilot_speed": "オートパイロット速度",    "native_settings_general_autopilot_speed_description": "自動操縦の速度（5〜50 m/s）を調整します。値が大きいほど飛行速度が上がり、移動時間が短縮されます。",    "native_settings_general_astar_calculation_precision": "自動操縦のルート検索精度",    "native_settings_general_astar_calculation_precision_description": "自動操縦のルート検索精度（1〜100）。値が大きいほど精度が上がりますが、計算時間が増加します。デフォルト: 20（=1000回）。",    "native_settings_general_scan_during_autopilot": "自動操縦中にマップをスキャン",
+    "native_settings_general_autopilot_speed": "オートパイロット速度",    "native_settings_general_autopilot_speed_description": "自動操縦の速度（5〜50 m/s）を調整します。値が大きいほど飛行速度が上がり、移動時間が短縮されます。",    "native_settings_general_astar_calculation_precision": "自動操縦のルート検索精度",    "native_settings_general_astar_calculation_precision_description": "自動操縦のルート検索精度（1〜100）。値が大きいほど精度が上がりますが、計算時間が増加します。デフォルト: 50（=10000回）、最大: 100（=20000回）。",    "native_settings_general_scan_during_autopilot": "自動操縦中にマップをスキャン",
     "native_settings_general_scan_during_autopilot_description": "有効の場合、全ての自動操縦フェーズでレイスキャンにより障害物マップを更新します。無効の場合、どのフェーズでもスキャンを行います。",
     "native_settings_general_speed_slow": "遅い",
     "native_settings_general_speed_normal": "普通",
