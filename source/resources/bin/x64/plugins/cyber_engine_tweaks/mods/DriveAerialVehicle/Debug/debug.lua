@@ -690,18 +690,23 @@ function Debug:ImGuiObstacleMap()
     ImGui.Text("Data is used by A* route planner to avoid known obstacle areas.")
     ImGui.Separator()
 
-    -- Stats
-    local cell_count = 0
-    local confirmed_count = 0
+    -- Stats (ternary map: true=obstacle / "danger"=adjacent / false=clear / nil=unknown)
+    local obstacle_count = 0
+    local danger_count   = 0
+    local clear_count    = 0
     for _, v in pairs(av_obj.obstacle_map) do
-        cell_count = cell_count + 1
-        if v.count >= av_obj.obstacle_min_hits then
-            confirmed_count = confirmed_count + 1
+        if v == true then
+            obstacle_count = obstacle_count + 1
+        elseif v == "danger" then
+            danger_count = danger_count + 1
+        else
+            clear_count = clear_count + 1
         end
     end
-    ImGui.Text(string.format("Total cells tracked : %d", cell_count))
-    ImGui.Text(string.format("Confirmed obstacles : %d  (hits >= %d)",
-        confirmed_count, av_obj.obstacle_min_hits))
+    ImGui.Text(string.format("Obstacle cells : %d", obstacle_count))
+    ImGui.Text(string.format("Danger cells   : %d  (adjacent to obstacle)", danger_count))
+    ImGui.Text(string.format("Clear cells    : %d", clear_count))
+    ImGui.Text(string.format("Total cells    : %d", obstacle_count + danger_count + clear_count))
     ImGui.Text(string.format("Cell size           : %.0f m", av_obj.obstacle_cell_size))
     ImGui.Text(string.format("Record range        : %.0f m", av_obj.obstacle_record_range))
     ImGui.Text(string.format("Record interval     : %.2f s", av_obj.obstacle_record_interval))
@@ -729,10 +734,8 @@ function Debug:ImGuiObstacleMap()
     end
     ImGui.Separator()
 
-    -- Min hits slider
+    -- Min hits slider removed (binary map: any single hit = obstacle)
     local changed
-    av_obj.obstacle_min_hits, changed = ImGui.SliderInt(
-        "Min hits (confirmed)", av_obj.obstacle_min_hits, 1, 10)
     av_obj.obstacle_record_range, changed = ImGui.SliderFloat(
         "Record range (m)", av_obj.obstacle_record_range, 10.0, 60.0)
     ImGui.Separator()

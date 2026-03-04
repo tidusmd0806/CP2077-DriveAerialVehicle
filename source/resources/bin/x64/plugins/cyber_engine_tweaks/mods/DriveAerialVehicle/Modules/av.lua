@@ -199,7 +199,8 @@ function AV:New(core_obj)
 	obj.tangent_direct_cooldown_dist = 20.0 -- Must travel this far in DIRECT before re-entering BOUNDARY
 
 	-- 3D Obstacle Map: records confirmed obstacle positions across flights
-	obj.obstacle_map          = {}          -- key = "cx_cy_cz", value = {count=N}
+	obj.obstacle_map          = {}          -- key = "cx_cy_cz", value = true (obstacle) | "danger" (adjacent to obstacle) | false (clear) | nil (unknown)
+	                                        --   Priority (high→low): true > "danger" > false > nil  (never overwrite higher with lower)
 	obj.obstacle_cell_size    = 10.0        -- Grid cell size in meters (≈ vehicle length)
 	obj.obstacle_map_path     = "Data/obstacle_map.dat"  -- Legacy path (for migration)
 	obj.obstacle_map_dir      = "Data/map"               -- Chunked storage directory
@@ -207,7 +208,6 @@ function AV:New(core_obj)
 	obj.obstacle_map_dirty_chunks = {}                    -- chunk_key -> true (needs saving)
 	obj.obstacle_map_chunk_index  = {}                    -- chunk_key -> {cell_key -> true}
 	obj.obstacle_map_dir_ok    = false                    -- Directory existence verified
-	obj.obstacle_min_hits     = 1           -- Min hits before a cell is "known obstacle" (1 = any single hit counts)
 	obj.route_save_path       = "Data/last_route.json"  -- Last A* route for visualization
 
 	-- Obstacle map recording (toggled from debug menu)
@@ -3017,12 +3017,14 @@ function AV:GetSectorMovementCost(from_key, to_key)
 		end
 	end
 
-	-- Obstacle map penalty: sample 18 cells overlapping this sector.
+	-- Obstacle map penalty (ternary): sample 18 cells overlapping this sector.
 	-- sector_size=20m, cell_size=10m → ~2×2×2 cells per sector.
-	local max_hits = 0
-	local clear_count   = 0
-	local unknown_count = 0
-	local total_sampled = 0
+	-- Values: true=obstacle, "danger"=adjacent-to-obstacle, false=clear, nil=unknown
+	local obstacle_count = 0
+	local danger_count   = 0
+	local clear_count    = 0
+	local unknown_count  = 0
+	local total_sampled  = 0
 	for _, sfx in ipairs({0.2, 0.5, 0.8}) do
 		for _, sfy in ipairs({0.2, 0.5, 0.8}) do
 			for _, sfz in ipairs({0.25, 0.75}) do
@@ -3032,9 +3034,12 @@ function AV:GetSectorMovementCost(from_key, to_key)
 				local ckey = math.floor(wx/cs) .. "_" .. math.floor(wy/cs) .. "_" .. math.floor(wz/cs)
 				local cell = self.obstacle_map[ckey]
 				total_sampled = total_sampled + 1
-				if cell then
-					if cell.count > max_hits then max_hits = cell.count end
-					if cell.count == 0 then clear_count = clear_count + 1 end
+				if cell == true then
+					obstacle_count = obstacle_count + 1
+				elseif cell == "danger" then
+					danger_count = danger_count + 1
+				elseif cell == false then
+					clear_count = clear_count + 1
 				else
 					unknown_count = unknown_count + 1
 				end
@@ -3042,17 +3047,26 @@ function AV:GetSectorMovementCost(from_key, to_key)
 		end
 	end
 
-	-- Unknown cells get a virtual 50-hit penalty (proportional to their fraction).
-	local obstacle_penalty = 1.0
-	local unknown_ratio = unknown_count / total_sampled
-	local unknown_virtual_hits = unknown_ratio * 50
-	local effective_max_hits = math.max(max_hits, unknown_virtual_hits)
-
-	if effective_max_hits >= self.obstacle_min_hits then
-		obstacle_penalty = 1.0 + math.min(effective_max_hits / 2.0, 500.0)
-	elseif unknown_count == 0 then
-		local clear_ratio = clear_count / total_sampled
-		obstacle_penalty = 1.0 - 0.2 * clear_ratio
+	local obstacle_penalty
+	if obstacle_count > 0 then
+		-- Obstacle cells present: high penalty proportional to density (max 501)
+		obstacle_penalty = 1.0 + (obstacle_count / total_sampled) * 500.0
+	elseif unknown_count > 0 then
+		-- Unknown cells present: prefer danger over unknown, so unknown carries a
+		-- higher base penalty.  Danger cells in the same sector soften it slightly
+		-- because they represent *known* information about the area.
+		--   all unknown  → 1.0 + 1.0 * 4.0           = 5.0
+		--   half unknown + half danger → 1.0 + 0.5*4.0 + 0.5*1.5 = 3.75
+		local unknown_ratio = unknown_count / total_sampled
+		local danger_ratio  = danger_count  / total_sampled
+		obstacle_penalty = 1.0 + unknown_ratio * 4.0 + danger_ratio * 1.5
+	elseif danger_count > 0 then
+		-- Only danger cells (no obstacle, no unknown): medium penalty (max 2.5)
+		-- Lower than unknown → A* prefers known-danger over unknown territory
+		obstacle_penalty = 1.0 + (danger_count / total_sampled) * 1.5
+	else
+		-- All cells confirmed clear: slight bonus for known-safe corridors
+		obstacle_penalty = 0.8
 	end
 
 	-- Store in cache for reuse within this A* run
@@ -4289,54 +4303,44 @@ end
 --- Obstacle Map Functions
 --- ============================================================================
 
---- Record a confirmed obstacle hit position into the obstacle map grid
-function AV:RecordObstacleHit(hit_pos, ray_dir)
+--- Priority-aware cell write helper.
+--- Priority order: true(obstacle)=3 > "danger"=2 > false(clear)=1 > nil(unknown)=0
+--- A cell is only updated when the new value has strictly higher priority.
+---@param key string Cell key "cx_cy_cz"
+---@param value any  true | "danger" | false
+---@return boolean  true if the cell was actually updated
+function AV:SetObstacleCell(key, value)
+	local function prio(v)
+		if v == true          then return 3
+		elseif v == "danger"  then return 2
+		elseif v == false     then return 1
+		else                       return 0 end
+	end
+	if prio(value) > prio(self.obstacle_map[key]) then
+		self.obstacle_map[key] = value
+		self:MarkCellDirty(key)
+		return true
+	end
+	return false
+end
+
+--- Record a confirmed obstacle hit position into the obstacle map grid.
+--- Marks the exact hit cell as obstacle (true), then marks all 26 face/edge/corner
+--- neighbors as "danger" — but never downgrades a cell to a lower-priority state.
+function AV:RecordObstacleHit(hit_pos)
 	if not hit_pos then return end
 	local cs = self.obstacle_cell_size
 	local cx = math.floor(hit_pos.x / cs)
 	local cy = math.floor(hit_pos.y / cs)
 	local cz = math.floor(hit_pos.z / cs)
-	-- Center cell: ray-detected hit → increment count (propagated obstacle evidence).
-	local key = cx .. "_" .. cy .. "_" .. cz
-	if not self.obstacle_map[key] then
-		self.obstacle_map[key] = {count = 0}
-	end
-	-- Never overwrite a direct-collision marker (count >= 1000)
-	if self.obstacle_map[key].count < 1000 then
-		self.obstacle_map[key].count = self.obstacle_map[key].count + 1
-	end
-	self:MarkCellDirty(key)
-	-- Propagate count=1 to neighboring cells ONLY in the ray direction.
-	-- For each of the 26 neighbors, compute dot(offset, ray_dir).
-	-- If dot > 0 (neighbor is in the forward half of the ray), it may be
-	-- inside the obstacle that was just hit → record as count=1.
-	-- Rule: only write if existing count < 1 (never overwrite stronger evidence).
-	if ray_dir then
-		local rx = ray_dir.x or 0
-		local ry = ray_dir.y or 0
-		local rz = ray_dir.z or 0
-		local rlen = math.sqrt(rx*rx + ry*ry + rz*rz)
-		if rlen > 0.001 then
-			rx, ry, rz = rx/rlen, ry/rlen, rz/rlen
-			for dx = -1, 1 do
-				for dy = -1, 1 do
-					for dz = -1, 1 do
-						if not (dx == 0 and dy == 0 and dz == 0) then
-							-- Positive dot = offset is in the ray's forward direction
-							local dot = dx*rx + dy*ry + dz*rz
-							if dot > 0 then
-								local nkey = (cx+dx) .. "_" .. (cy+dy) .. "_" .. (cz+dz)
-								local existing = self.obstacle_map[nkey]
-								if not existing then
-									self.obstacle_map[nkey] = {count = 1}
-									self:MarkCellDirty(nkey)
-								elseif existing.count < 1 then
-									existing.count = 1
-									self:MarkCellDirty(nkey)
-								end
-							end
-						end
-					end
+	-- Mark the exact hit cell as obstacle
+	self:SetObstacleCell(cx .. "_" .. cy .. "_" .. cz, true)
+	-- Mark all 26 neighbors as danger (priority check inside SetObstacleCell)
+	for dx = -1, 1 do
+		for dy = -1, 1 do
+			for dz = -1, 1 do
+				if not (dx == 0 and dy == 0 and dz == 0) then
+					self:SetObstacleCell((cx+dx) .. "_" .. (cy+dy) .. "_" .. (cz+dz), "danger")
 				end
 			end
 		end
@@ -4344,9 +4348,7 @@ function AV:RecordObstacleHit(hit_pos, ray_dir)
 end
 
 --- Record a PHYSICAL collision (IsCollision() == true) into the obstacle map.
---- The cell the vehicle occupied at the moment of impact is marked with count=1000,
---- which is treated as essentially impassable by A* cost and ray density.
---- Unlike RecordObstacleHit (ray-based), no neighbour propagation is done here.
+--- Marks the vehicle's current cell as obstacle, then marks the 26 neighbors as danger.
 function AV:RecordDirectCollision()
 	local pos = self:GetPosition()
 	if not pos then return end
@@ -4355,38 +4357,50 @@ function AV:RecordDirectCollision()
 	local cy = math.floor(pos.y / cs)
 	local cz = math.floor(pos.z / cs)
 	local key = cx .. "_" .. cy .. "_" .. cz
-	if not self.obstacle_map[key] then
-		self.obstacle_map[key] = {count = 0}
-	end
-	if self.obstacle_map[key].count < 1000 then
-		self.obstacle_map[key].count = 1000
+	if self:SetObstacleCell(key, true) then
 		self.log_obj:Record(LogLevel.Info, string.format(
 			"Direct collision recorded at cell (%d,%d,%d) pos=(%.1f,%.1f,%.1f)",
 			cx, cy, cz, pos.x, pos.y, pos.z))
 	end
-	self:MarkCellDirty(key)
+	-- Mark neighbors as danger
+	for dx = -1, 1 do
+		for dy = -1, 1 do
+			for dz = -1, 1 do
+				if not (dx == 0 and dy == 0 and dz == 0) then
+					self:SetObstacleCell((cx+dx) .. "_" .. (cy+dy) .. "_" .. (cz+dz), "danger")
+				end
+			end
+		end
+	end
 end
 
---- Get maximum obstacle cell hit count along a ray (normalized 0-1, 5 hits = 1.0)
+--- Scan cells along a ray and return the highest danger level found (0.0–1.0).
+---   obstacle (true)    → 1.0  (stop scanning)
+---   danger ("danger")  → 0.6  (continue to check for obstacle beyond)
+---   unknown (nil)      → 0.3  (moderate uncertainty)
+---   clear  (false)     → 0.0
 function AV:GetObstacleDensityAlongRay(from_pos, dir, max_dist)
 	local cs = self.obstacle_cell_size
 	local steps = math.max(1, math.floor(max_dist / cs))
-	local max_count = 0
+	local has_danger  = false
+	local has_unknown = false
 	for i = 1, steps do
 		local d = i * cs
 		local key = math.floor((from_pos.x + dir.x*d)/cs) .. "_"
 				 .. math.floor((from_pos.y + dir.y*d)/cs) .. "_"
 				 .. math.floor((from_pos.z + dir.z*d)/cs)
 		local cell = self.obstacle_map[key]
-		if cell then
-			if cell.count > max_count then max_count = cell.count end
-		else
-			-- Unrecorded cell: treat as moderate risk (count=1.5 equivalent).
-			-- This nudges boundary direction selection toward known-safe paths.
-			if 1.5 > max_count then max_count = 1.5 end
+		if cell == true then
+			return 1.0
+		elseif cell == "danger" then
+			has_danger = true
+		elseif cell == nil then
+			has_unknown = true
 		end
 	end
-	return math.min(max_count / 5.0, 1.0)
+	if has_danger  then return 0.6 end
+	if has_unknown then return 0.3 end
+	return 0.0
 end
 
 --- Convert cell key "cx_cy_cz" to chunk key "chunkX_chunkY" (XY-based 500m chunks).
@@ -4522,8 +4536,10 @@ function AV:SaveObstacleMap()
 				local count = 0
 				for cell_key, _ in pairs(cell_set) do
 					local v = self.obstacle_map[cell_key]
-					if v then
-						lines[#lines+1] = cell_key:gsub("_", " ") .. " " .. v.count
+					if v ~= nil then
+						-- 2=obstacle, 1=danger, 0=clear
+						local vnum = (v == true) and 2 or (v == "danger" and 1 or 0)
+						lines[#lines+1] = cell_key:gsub("_", " ") .. " " .. vnum
 						count = count + 1
 					end
 				end
@@ -4572,13 +4588,21 @@ function AV:LoadObstacleMap()
 		if not cs then return 0 end
 		self.obstacle_cell_size = tonumber(cs) or 10.0
 		local n = 0
-		for cellx, celly, cellz, count in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
+		for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
 			local key = cellx .. "_" .. celly .. "_" .. cellz
-			local cnt = tonumber(count)
-			local existing = self.obstacle_map[key]
-			if not existing or existing.count < cnt then
-				self.obstacle_map[key] = {count = cnt}
+			local ival = tonumber(val) or 0
+			-- 2=obstacle(true), 1=danger("danger"), 0=clear(false)
+			-- Also accept legacy 1=obstacle for old files (val==1 that meant obstacle)
+			local new_val
+			if ival >= 2 then
+				new_val = true
+			elseif ival == 1 then
+				new_val = "danger"
+			else
+				new_val = false
 			end
+			-- Merge: higher priority wins (SetObstacleCell handles this)
+			self:SetObstacleCell(key, new_val)
 			self:RegisterCellInChunkIndex(key)
 			n = n + 1
 		end
@@ -4666,28 +4690,32 @@ function AV:RecordObstacleScan()
 		if len > 0.001 then
 			local nd = Vector4.new(d.x/len, d.y/len, d.z/len, 0)
 			local dist, hit = self:RaycastDist(pos, nd, range)
-			-- Direct physical contact: ray hit within one cell → vehicle is touching the obstacle.
-			-- Record as count=1000 (actual collision, not just proximity evidence).
-			if dist < self.obstacle_cell_size and hit then
-				self:RecordDirectCollision()
-			-- Normal ray hit: something detected ahead → accumulate count via RecordObstacleHit.
-			elseif dist < range - 0.5 and hit then
-				self:RecordObstacleHit(hit, nd)
+			local cs = self.obstacle_cell_size
+
+			if dist < range - 0.5 and hit then
+				-- 1. Record obstacle + 26 danger neighbors first
+				self:RecordObstacleHit(hit)
+				-- 2. Mark cells along the ray UP TO (not including) the obstacle cell as clear.
+				--    SetObstacleCell protects obstacle/danger cells automatically.
+				local max_d = dist - cs  -- stop one cell before the hit
+				local step_d = cs
+				while step_d <= max_d do
+					local ck = math.floor((pos.x + nd.x*step_d)/cs) .. "_" ..
+					           math.floor((pos.y + nd.y*step_d)/cs) .. "_" ..
+					           math.floor((pos.z + nd.z*step_d)/cs)
+					self:SetObstacleCell(ck, false)
+					step_d = step_d + cs
+				end
 			else
-				-- Ray cleared: mark traversed cells as confirmed clear (count = 0).
-				-- Walk first 2 cell-widths along the ray; never overwrite a hit cell.
-				local cs = self.obstacle_cell_size
-				for step = 1, 2 do
-					local d_val = step * cs
-					if d_val < range - cs then
-						local ck = math.floor((pos.x + nd.x*d_val)/cs) .. "_" ..
-								   math.floor((pos.y + nd.y*d_val)/cs) .. "_" ..
-								   math.floor((pos.z + nd.z*d_val)/cs)
-						if not self.obstacle_map[ck] then
-							self.obstacle_map[ck] = {count = 0}
-							self:MarkCellDirty(ck)
-						end
-					end
+				-- Ray cleared: mark ALL traversed cells as clear.
+				local max_d = range - cs
+				local step_d = cs
+				while step_d <= max_d do
+					local ck = math.floor((pos.x + nd.x*step_d)/cs) .. "_" ..
+					           math.floor((pos.y + nd.y*step_d)/cs) .. "_" ..
+					           math.floor((pos.z + nd.z*step_d)/cs)
+					self:SetObstacleCell(ck, false)
+					step_d = step_d + cs
 				end
 			end
 		end
@@ -4695,10 +4723,7 @@ function AV:RecordObstacleScan()
 	-- Also mark the cell the vehicle is currently occupying as confirmed clear.
 	local cs = self.obstacle_cell_size
 	local cur_key = math.floor(pos.x/cs) .. "_" .. math.floor(pos.y/cs) .. "_" .. math.floor(pos.z/cs)
-	if not self.obstacle_map[cur_key] then
-		self.obstacle_map[cur_key] = {count = 0}
-		self:MarkCellDirty(cur_key)
-	end
+	self:SetObstacleCell(cur_key, false)
 end
 
 --- Start continuous obstacle recording (independent of autopilot).

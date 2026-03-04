@@ -38,7 +38,7 @@ File format expected
 --------------------
   Data/map/chunk_{X}_{Y}.dat  (v3 format):
     Line 1 : "DAV_OBMAP v3 cell_size=<float>"
-    Lines 2+: "<cx> <cy> <cz> <count>"  (integer cell coords, may be negative)
+    Lines 2+: "<cx> <cy> <cz> <value>"  (value: 1=obstacle, 0=clear)
     Each file covers a 500m×500m XY region (50 cells per side).
 
   last_route.json (written by mod on each autopilot start):
@@ -70,7 +70,8 @@ DEFAULT_EXCEPTION_AREA_PATH  = SCRIPT_DIR / ".." / "Data" / "autopilot_exception
 
 
 def _parse_dat_content(content: str, cells: dict):
-    """Parse DAV_OBMAP v2/v3 content into cells dict. Returns cell_size."""
+    """Parse DAV_OBMAP v3 content into cells dict. Returns cell_size.
+    Values: 2=obstacle, 1=danger, 0=clear. Higher priority wins on merge."""
     import re
     m = re.search(r"cell_size=([\d.]+)", content.split("\n", 1)[0])
     cell_size = float(m.group(1)) if m else 10.0
@@ -78,11 +79,11 @@ def _parse_dat_content(content: str, cells: dict):
         parts = line.split()
         if len(parts) == 4:
             try:
-                cx, cy, cz, cnt = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+                cx, cy, cz, val = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
                 key = f"{cx}_{cy}_{cz}"
-                # Merge: keep higher count (same logic as Lua LoadObstacleMap)
-                if key not in cells or cells[key] < cnt:
-                    cells[key] = cnt
+                # Merge: higher priority wins (2=obstacle > 1=danger > 0=clear)
+                if key not in cells or cells[key] < val:
+                    cells[key] = val
             except ValueError:
                 pass
     return cell_size
@@ -165,22 +166,22 @@ def load_route(path: Path):
 # Data preparation
 # ---------------------------------------------------------------------------
 
-def parse_cells(cells: dict, cell_size: float, min_hits: int):
+def parse_cells(cells: dict, cell_size: float):
     """
-    Convert the cell dict to arrays split by category.
+    Convert the ternary cell dict to coordinate arrays.
 
     Returns
     -------
-    (xs, ys, zs, counts)                – propagated obstacle cells (min_hits <= count < 1000)
-    (hxs, hys, hzs)                     – direct-collision cells (count >= 1000)
-    (cxs, cys, czs)                     – confirmed-clear cells (count == 0)
+    (obs_xs, obs_ys, obs_zs)    – obstacle cells  (value == 2)  → red
+    (dng_xs, dng_ys, dng_zs)    – danger cells    (value == 1)  → orange
+    (cxs,    cys,    czs)       – clear cells     (value == 0)  → green
 
     World position of each cell centre = (ci + 0.5) * cell_size.
     """
-    xs, ys, zs, counts = [], [], [], []
-    hxs, hys, hzs = [], [], []  # direct-hit cells (count >= 1000)
-    cxs, cys, czs = [], [], []  # confirmed-clear cells
-    for key, count in cells.items():
+    obs_xs, obs_ys, obs_zs = [], [], []
+    dng_xs, dng_ys, dng_zs = [], [], []
+    cxs, cys, czs = [], [], []
+    for key, val in cells.items():
         parts = key.split("_")
         if len(parts) != 3:
             continue
@@ -191,20 +192,13 @@ def parse_cells(cells: dict, cell_size: float, min_hits: int):
         wx = (cx + 0.5) * cell_size
         wy = (cy + 0.5) * cell_size
         wz = (cz + 0.5) * cell_size
-        if count == 0:
-            cxs.append(wx)
-            cys.append(wy)
-            czs.append(wz)
-        elif count >= 1000:
-            hxs.append(wx)
-            hys.append(wy)
-            hzs.append(wz)
-        elif count >= min_hits:
-            xs.append(wx)
-            ys.append(wy)
-            zs.append(wz)
-            counts.append(count)
-    return xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs
+        if val >= 2:
+            obs_xs.append(wx); obs_ys.append(wy); obs_zs.append(wz)
+        elif val == 1:
+            dng_xs.append(wx); dng_ys.append(wy); dng_zs.append(wz)
+        else:
+            cxs.append(wx);   cys.append(wy);   czs.append(wz)
+    return obs_xs, obs_ys, obs_zs, dng_xs, dng_ys, dng_zs, cxs, cys, czs
 
 
 def parse_blocked_sectors(sectors: dict, sector_size: float):
@@ -242,10 +236,8 @@ _EA_COLORS = [
 ]
 
 
-def render_matplotlib(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys, bzs, route, cap_count, out_path, show_clear=True, exception_areas=None):
+def render_matplotlib(obs_xs, obs_ys, obs_zs, dng_xs, dng_ys, dng_zs, cxs, cys, czs, bxs, bys, bzs, route, out_path, show_clear=True, exception_areas=None):
     import matplotlib.pyplot as plt
-    import matplotlib.cm as cm
-    import matplotlib.colors as mcolors
     import numpy as np
 
     BG = "#0d0d1a"
@@ -260,54 +252,37 @@ def render_matplotlib(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys
         ax.set_facecolor(PANEL_BG)
     ax2d.set_facecolor(PANEL_BG)
 
-    # ---- helper: log-normalised colour mapping ----
-    # count 1 → yellow-green, 10 → orange, 100 → red-purple  (plasma log)
-    def _log_norm(vals, cap):
-        """Return LogNorm and LogNorm-normalised values clamped to [1, cap]."""
-        lo = 1
-        hi = max(cap, lo + 1)
-        return mcolors.LogNorm(vmin=lo, vmax=hi)
-
     # ---- shared draw helper ----
     def _draw_obstacles(ax, is_3d):
-        scatter_kw = dict(depthshade=True) if is_3d else {}
-
-        # confirmed-clear
+        # confirmed-clear (light green)
         if show_clear and cxs:
-            kw = dict(c="#00e5b0", marker=".", s=4, alpha=0.18,
+            kw = dict(c="#88ddaa", marker=".", s=4, alpha=0.20,
                       label=f"Clear ({len(cxs)})")
             if is_3d:
                 ax.scatter(cxs, cys, czs, **kw)
             else:
                 ax.scatter(cxs, cys, **kw)
 
-        # propagated obstacle cells (1 ≤ count < 1000)
-        if xs:
-            cap = cap_count or max(counts)
-            norm = _log_norm(counts, cap)
-            cmap = cm.get_cmap("plasma")
-            col  = [cmap(norm(min(c, cap))) for c in counts]
-            sz   = [max(8, min(40, c * 4)) for c in counts]
-            sc   = None
-            kw   = dict(c=counts, cmap="plasma",
-                        norm=norm, s=sz, alpha=0.80,
-                        label=f"Obstacles ({len(xs)})", **scatter_kw)
+        # danger cells (light orange)
+        if dng_xs:
+            kw = dict(c="#ffbb77", marker=".", s=4, alpha=0.35,
+                      label=f"Danger ({len(dng_xs)})")
             if is_3d:
-                sc = ax.scatter(xs, ys, zs, **kw)
+                ax.scatter(dng_xs, dng_ys, dng_zs, **kw)
             else:
-                sc = ax.scatter(xs, ys, **kw)
-            return sc  # return for colorbar
-        return None
+                ax.scatter(dng_xs, dng_ys, **kw)
 
-    sc3 = _draw_obstacles(ax3d, is_3d=True)
-    sc2 = _draw_obstacles(ax2d, is_3d=False)
+        # obstacle cells (red, square)
+        if obs_xs:
+            kw = dict(c="#dd2233", marker="s", s=4, alpha=0.70,
+                      label=f"Obstacle ({len(obs_xs)})")
+            if is_3d:
+                ax.scatter(obs_xs, obs_ys, obs_zs, **kw)
+            else:
+                ax.scatter(obs_xs, obs_ys, **kw)
 
-    # direct-collision cells (count ≥ 1000) → bright red, larger
-    if hxs:
-        kw_hit = dict(c="#ff2244", marker="s", s=18, alpha=0.90,
-                      label=f"Direct hit ({len(hxs)})")
-        ax3d.scatter(hxs, hys, hzs, **kw_hit)
-        ax2d.scatter(hxs, hys, **kw_hit)
+    _draw_obstacles(ax3d, is_3d=True)
+    _draw_obstacles(ax2d, is_3d=False)
 
     # blocked sectors
     if bxs:
@@ -416,14 +391,7 @@ def render_matplotlib(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys
     for spine in ax2d.spines.values():
         spine.set_edgecolor("#444466")
 
-    # ---- colourbar (log scale) ----
-    if sc3 is not None and counts:
-        cap = cap_count or max(counts)
-        cb = fig.colorbar(sc3, ax=[ax3d, ax2d], pad=0.02, shrink=0.55,
-                          orientation="vertical", fraction=0.02)
-        cb.set_label("Hit count (log scale)", color="#ccccee", fontsize=9)
-        cb.ax.yaxis.set_tick_params(color="#888899")
-        plt.setp(plt.getp(cb.ax.axes, "yticklabels"), color="#ccccee", fontsize=7)
+    # ---- colourbar: removed (binary map has no continuous scale) ----
 
     # ---- legend ----
     leg_kw = dict(facecolor="#1e1e38", labelcolor="#ddddee",
@@ -432,17 +400,12 @@ def render_matplotlib(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys
     ax2d.legend(loc="upper left", **leg_kw)
 
     # ---- stats box ----
-    total_obs = len(xs) + len(hxs)
-    if total_obs:
-        all_c = counts + [1000] * len(hxs)
+    if obs_xs or dng_xs or cxs:
         stats = (
-            f"Propagated cells : {len(xs)}\n"
-            f"Direct-hit cells : {len(hxs)}  (count=1000)\n"
-            f"Clear cells      : {len(cxs)}\n"
-            f"Max hits (prop.) : {max(counts) if counts else 0}"
+            f"Obstacle cells : {len(obs_xs)}\n"
+            f"Danger cells   : {len(dng_xs)}\n"
+            f"Clear cells    : {len(cxs)}"
         )
-    elif cxs:
-        stats = f"Clear cells : {len(cxs)}\nNo obstacle cells yet"
     elif route and route["xs"]:
         stats = f"Route waypoints: {len(route['xs'])}"
     else:
@@ -467,7 +430,7 @@ def render_matplotlib(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys
 # Plotly backend (interactive HTML)
 # ---------------------------------------------------------------------------
 
-def render_plotly(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys, bzs, route, cap_count, out_path, show_clear=True, exception_areas=None):
+def render_plotly(obs_xs, obs_ys, obs_zs, dng_xs, dng_ys, dng_zs, cxs, cys, czs, bxs, bys, bzs, route, out_path, show_clear=True, exception_areas=None):
     try:
         import plotly.graph_objects as go
         import numpy as np
@@ -475,76 +438,44 @@ def render_plotly(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys, bz
         print("plotly not installed.  Run: pip install plotly", file=sys.stderr)
         sys.exit(1)
 
-    import math
-
     BG      = "#0d0d1a"
     GRID_C  = "#2a2a4a"
     AXIS_BG = "#111126"
 
     traces = []
 
-    # ---- confirmed-clear cells ----
+    # ---- confirmed-clear cells (light green) ----
     if show_clear and cxs:
         traces.append(go.Scatter3d(
             x=cxs, y=cys, z=czs,
             mode="markers",
             name=f"Clear ({len(cxs)})",
-            marker=dict(size=1.5, color="#00e5b0", opacity=0.20, symbol="circle"),
-            hovertemplate="X: %{x:.0f}<br>Y: %{y:.0f}<br>Z: %{z:.0f}<br>Hits: 0<extra>clear</extra>"
+            marker=dict(size=1.5, color="#88ddaa", opacity=0.20, symbol="circle"),
+            hovertemplate="X: %{x:.0f}<br>Y: %{y:.0f}<br>Z: %{z:.0f}<extra>clear</extra>"
         ))
 
-    # ---- propagated obstacle cells (log colour scale) ----
-    if xs:
-        cap = cap_count or max(counts)
-        # Log-transform for colour: log10(count), range [0, log10(cap)]
-        log_c = [math.log10(max(c, 1)) for c in counts]
-        log_cap = max(math.log10(max(cap, 2)), 0.01)
-        sizes = [max(2, min(10, math.log10(max(c, 1)) * 3 + 2)) for c in counts]
+    # ---- danger cells (light orange) ----
+    if dng_xs:
         traces.append(go.Scatter3d(
-            x=xs, y=ys, z=zs,
+            x=dng_xs, y=dng_ys, z=dng_zs,
             mode="markers",
-            name=f"Obstacles ({len(xs)})",
-            marker=dict(
-                size=sizes,
-                color=log_c,
-                colorscale=[
-                    [0.0,  "#440154"],  # count ~1  (purple)
-                    [0.3,  "#31688e"],  # count ~2
-                    [0.55, "#35b779"],  # count ~4
-                    [0.75, "#fde725"],  # count ~10
-                    [1.0,  "#ff4444"],  # count ~cap
-                ],
-                cmin=0, cmax=log_cap,
-                opacity=0.82,
-                colorbar=dict(
-                    title=dict(text="Hit count", font=dict(color="#ccccee")),
-                    tickmode="array",
-                    tickvals=[math.log10(v) for v in [1, 2, 5, 10, 50, 100, 500]
-                              if math.log10(v) <= log_cap],
-                    ticktext=[str(v) for v in [1, 2, 5, 10, 50, 100, 500]
-                              if math.log10(v) <= log_cap],
-                    tickfont=dict(color="#ccccee"),
-                    x=1.02,
-                    thickness=14,
-                )
-            ),
+            name=f"Danger ({len(dng_xs)})",
+            marker=dict(size=1.5, color="#ffbb77", opacity=0.35, symbol="circle"),
+            hovertemplate="X: %{x:.0f}<br>Y: %{y:.0f}<br>Z: %{z:.0f}<extra>danger</extra>"
+        ))
+
+    # ---- obstacle cells (red, square) ----
+    if obs_xs:
+        traces.append(go.Scatter3d(
+            x=obs_xs, y=obs_ys, z=obs_zs,
+            mode="markers",
+            name=f"Obstacle ({len(obs_xs)})",
+            marker=dict(size=2.5, color="#dd2233", opacity=0.70, symbol="square"),
             hovertemplate=(
                 "X: %{x:.0f} m<br>"
                 "Y: %{y:.0f} m<br>"
-                "Z: %{z:.0f} m<br>"
-                "Hits: %{text}<extra>obstacle</extra>"
+                "Z: %{z:.0f} m<extra>obstacle</extra>"
             ),
-            text=[str(c) for c in counts],
-        ))
-
-    # ---- direct-collision cells (count ≥ 1000) → bright red ----
-    if hxs:
-        traces.append(go.Scatter3d(
-            x=hxs, y=hys, z=hzs,
-            mode="markers",
-            name=f"Direct hit ({len(hxs)})",
-            marker=dict(size=3, color="#ff2244", opacity=0.92, symbol="square"),
-            hovertemplate="X: %{x:.0f}<br>Y: %{y:.0f}<br>Z: %{z:.0f}<br>Hits: 1000<extra>direct collision</extra>"
         ))
 
     # ---- blocked sectors ----
@@ -636,7 +567,7 @@ def render_plotly(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys, bz
     )
 
     # Compute Z range for slider (if we have any data)
-    all_zs = list(zs) + list(hzs) + list(czs)
+    all_zs = list(obs_zs) + list(dng_zs) + list(czs)
     if route and route["zs"]: all_zs += route["zs"]
     z_min = min(all_zs) if all_zs else 0
     z_max = max(all_zs) if all_zs else 100
@@ -754,12 +685,12 @@ def main():
         help="Path to sector_danger_map.json (optional overlay)"
     )
     parser.add_argument(
-        "--min", type=int, default=2, metavar="N",
-        help="Minimum hit count to display an obstacle cell (default: 2)"
+        "--min", type=int, default=1, metavar="N",
+        help="Minimum value to show an obstacle cell  (default: 1)"
     )
     parser.add_argument(
         "--max", type=int, default=None, metavar="N",
-        help="Cap colour scale at this hit count (default: auto)"
+        help=argparse.SUPPRESS  # no longer used in binary mode
     )
     parser.add_argument(
         "--engine", choices=["matplotlib", "plotly"], default=None,
@@ -789,8 +720,8 @@ def main():
     args = parser.parse_args()
 
     # --- Load obstacle map ---
-    xs, ys, zs, counts = [], [], [], []
-    hxs, hys, hzs = [], [], []  # direct-collision cells (count >= 1000)
+    obs_xs, obs_ys, obs_zs = [], [], []
+    dng_xs, dng_ys, dng_zs = [], [], []  # danger cells (adjacent to obstacle)
     cxs, cys, czs = [], [], []  # confirmed-clear cells
 
     # Determine data source: explicit --data, or default Data/map/ directory
@@ -809,15 +740,15 @@ def main():
             print(f"  Chunk files found  : {len(chunk_files)}")
             cell_size, cells = load_obstacle_map_chunked(data_path)
             print(f"  Total cells loaded : {len(cells)}")
-            xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs = parse_cells(cells, cell_size, args.min)
+            obs_xs, obs_ys, obs_zs, dng_xs, dng_ys, dng_zs, cxs, cys, czs = parse_cells(cells, cell_size)
             if args.no_obstacles:
-                xs, ys, zs, counts = [], [], [], []
-                hxs, hys, hzs = [], [], []
+                obs_xs, obs_ys, obs_zs = [], [], []
+                dng_xs, dng_ys, dng_zs = [], [], []
             if args.no_clear:
                 cxs, cys, czs = [], [], []
-            print(f"  Propagated obstacle cells (min={args.min}) : {len(xs)}")
-            print(f"  Direct-collision cells (count>=1000)       : {len(hxs)}")
-            print(f"  Confirmed-clear cells (hit=0)              : {len(cxs)}")
+            print(f"  Obstacle cells     : {len(obs_xs)}")
+            print(f"  Danger cells       : {len(dng_xs)}")
+            print(f"  Confirmed-clear cells              : {len(cxs)}")
 
     # --- Load A* route ---
     route_path = args.route.resolve()
@@ -854,7 +785,7 @@ def main():
         if bxs:
             print(f"  Blocked sectors    : {len(bxs)}")
 
-    if not xs and not hxs and not cxs and not bxs and (route is None or not route["xs"]):
+    if not obs_xs and not dng_xs and not cxs and not bxs and (route is None or not route["xs"]):
         print("[WARNING] Nothing to plot.  Collect some data first.")
         sys.exit(0)
 
@@ -871,9 +802,9 @@ def main():
     show_clear = not args.no_clear
 
     if engine == "plotly":
-        render_plotly(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys, bzs, route, args.max, args.out, show_clear, exception_areas)
+        render_plotly(obs_xs, obs_ys, obs_zs, dng_xs, dng_ys, dng_zs, cxs, cys, czs, bxs, bys, bzs, route, args.out, show_clear, exception_areas)
     else:
-        render_matplotlib(xs, ys, zs, counts, hxs, hys, hzs, cxs, cys, czs, bxs, bys, bzs, route, args.max, args.out, show_clear, exception_areas)
+        render_matplotlib(obs_xs, obs_ys, obs_zs, dng_xs, dng_ys, dng_zs, cxs, cys, czs, bxs, bys, bzs, route, args.out, show_clear, exception_areas)
 
 
 if __name__ == "__main__":
