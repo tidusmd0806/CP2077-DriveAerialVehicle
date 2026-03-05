@@ -297,7 +297,7 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
-	-- UI: 10-100 (step 10) → internal: 5-50 (step 5, ×0.5)
+	-- UI: 10-100 (step 10) -> internal: 5-50 (step 5, x0.5)
 	option_table = DAV.NativeSettings.addRangeInt("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_autopilot_speed"), DAV.core_obj:GetTranslationText("native_settings_general_autopilot_speed_description"), 10, 100, 10, (DAV.user_setting_table.autopilot_speed or 25) * 2, 50, function(value)
 		if not DAV.core_obj.av_obj.is_auto_pilot then
 			DAV.user_setting_table.autopilot_speed = value / 2

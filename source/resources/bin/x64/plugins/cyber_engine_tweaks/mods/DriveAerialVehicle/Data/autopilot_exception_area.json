@@ -88,5 +88,14 @@
         "max_y" : 430,
         "min_z" : 220,
         "max_z" : 320 
+    },
+    {
+        "tag" : "watson_south_1",
+        "min_x" : -2000,
+        "max_x" : -1900,
+        "min_y" : 1330,
+        "max_y" : 1630,
+        "min_z" : 140,
+        "max_z" : 220 
     }
 ]
