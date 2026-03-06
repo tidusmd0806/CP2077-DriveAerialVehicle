@@ -18,9 +18,9 @@ Usage
 Options
 -------
   --data   PATH   Path to Data/map/ directory containing chunk_*.dat files
-                  (default: ../Data/map)
+                  (default: ./Data/map)
   --route  PATH   Path to last_route.json
-                  (default: ../Data/last_route.json)
+                  (default: ./Data/last_route.json)
   --sector PATH   Path to sector_danger_map.json  (optional overlay)
   --min    N      Minimum hit count to show an obstacle cell  (default: 2)
   --max    N      Cap colour scale at this hit count (default: auto)
@@ -63,10 +63,10 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_MAP_DIR              = SCRIPT_DIR / ".." / "Data" / "map"
-DEFAULT_ROUTE_PATH           = SCRIPT_DIR / ".." / "Data" / "last_route.json"
-DEFAULT_SECTOR_PATH          = SCRIPT_DIR / ".." / "Data" / "sector_danger_map.json"
-DEFAULT_EXCEPTION_AREA_PATH  = SCRIPT_DIR / ".." / "Data" / "autopilot_exception_area.json"
+DEFAULT_MAP_DIR              = SCRIPT_DIR / "Data" / "map"
+DEFAULT_ROUTE_PATH           = SCRIPT_DIR / "Data" / "last_route.json"
+DEFAULT_SECTOR_PATH          = SCRIPT_DIR / "Data" / "sector_danger_map.json"
+DEFAULT_EXCEPTION_AREA_PATH  = SCRIPT_DIR / "Data" / "autopilot_exception_area.json"
 
 
 def _parse_dat_content(content: str, cells: dict):
@@ -674,7 +674,7 @@ def main():
     )
     parser.add_argument(
         "--data", type=Path, default=None,
-        help="Path to Data/map/ directory containing chunk_*.dat files (default: ../Data/map)"
+        help="Path to Data/map/ directory containing chunk_*.dat files (default: ./Data/map)"
     )
     parser.add_argument(
         "--route", type=Path, default=DEFAULT_ROUTE_PATH,
@@ -711,7 +711,7 @@ def main():
     parser.add_argument(
         "--exception", type=Path, default=DEFAULT_EXCEPTION_AREA_PATH,
         metavar="FILE",
-        help="Path to autopilot_exception_area.json  (default: ../Data/autopilot_exception_area.json)"
+        help="Path to autopilot_exception_area.json  (default: ./Data/autopilot_exception_area.json)"
     )
     parser.add_argument(
         "--no-exception", action="store_true",

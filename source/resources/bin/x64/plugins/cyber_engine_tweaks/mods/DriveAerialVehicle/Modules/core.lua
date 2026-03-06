@@ -1125,7 +1125,7 @@ end
 --- Set destination mappin.
 function Core:SetDestinationMappin()
     if not self.current_custom_mappin_position:IsZero() then
-        self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
+        self.av_obj.navigation_obj:SetMappinDestination(self.current_custom_mappin_position)
         self.ft_index_nearest_mappin, self.ft_to_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
     end
 end
@@ -1159,7 +1159,7 @@ function Core:SetFavoriteMappin(pos)
         self.log_obj:Record(LogLevel.Trace, "Invalid Mappin Position")
         return
     end
-    self.av_obj:SetFavoriteDestination(position)
+    self.av_obj.navigation_obj:SetFavoriteDestination(position)
     self:CreateFavoriteMappin(position)
     self.ft_index_nearest_favorite, self.ft_to_favorite_distance = self:FindNearestFastTravelPosition(position)
 end

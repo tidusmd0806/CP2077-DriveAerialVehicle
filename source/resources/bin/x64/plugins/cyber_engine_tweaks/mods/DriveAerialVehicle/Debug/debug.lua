@@ -19,12 +19,13 @@ function Debug:New(core_obj)
     obj.is_im_gui_mappin_position = false
     obj.is_im_gui_model_type_status = false
     obj.is_im_gui_auto_pilot_info = false
-    obj.is_im_gui_auto_pilot_exception_area = false
     obj.is_im_gui_obstacle_map = false
     obj.selected_sound = "100_call_vehicle"
     obj.fade_time = 1.5
-    obj.exception_area_entity_list = {}
-    obj.spawn_lock = false
+    obj.manual_block_points = {}
+    obj.manual_block_marker_entities = {}
+    obj.last_manual_block_result = ""
+    obj.last_manual_block_ok = nil
 
     return setmetatable(obj, self)
 end
@@ -48,12 +49,120 @@ function Debug:ImGuiMain()
     self:ImGuiModelTypeStatus()
     self:ImGuiMappinPosition()
     self:ImGuiAutoPilotInfo()
-    self:ImGuiAutoPilotExceptionArea()
     self:ImGuiObstacleMap()
     self:ImGuiExcuteFunction()
 
     ImGui.End()
 
+end
+
+function Debug:ClearManualBlockMarkers()
+    for _, entity in ipairs(self.manual_block_marker_entities) do
+        exEntitySpawner.Despawn(entity)
+    end
+    self.manual_block_marker_entities = {}
+end
+
+function Debug:SpawnManualBlockMarkerAt(position)
+    if not position then return end
+    local entity_path = "ep1\\worlds\\03_night_city\\sectors\\c_pacifica\\combat_zone\\container_zone\\loc_q305_bunker\\loc_q305_bunker_lighting\\device\\bunker_storage_ceiling_lamp.ent"
+    local transform = WorldTransform.new()
+    local pos = WorldPosition.new()
+    pos:SetXYZ(position.x, position.y, position.z)
+    transform.Position = pos
+
+    local entity_id = exEntitySpawner.Spawn(entity_path, transform, '')
+    if entity_id == nil then return end
+
+    Cron.Every(0.01, {tick = 1}, function(timer)
+        local entity = Game.FindEntityByID(entity_id)
+        if entity ~= nil then
+            table.insert(self.manual_block_marker_entities, entity)
+            Cron.Halt(timer)
+            return
+        end
+        timer.tick = timer.tick + 1
+        if timer.tick > 300 then
+            Cron.Halt(timer)
+        end
+    end)
+end
+
+function Debug:RefreshManualBlockMarkers()
+    self:ClearManualBlockMarkers()
+    for i = 1, 8 do
+        local p = self.manual_block_points[i]
+        if p and p.pos then
+            self:SpawnManualBlockMarkerAt(p.pos)
+        end
+    end
+end
+
+function Debug:RecordManualBlockPoint(index)
+    local av_obj = self.core_obj and self.core_obj.av_obj
+    local nav = av_obj and av_obj.navigation_obj
+    if not nav then
+        self.last_manual_block_ok = false
+        self.last_manual_block_result = "Navigation object is not available"
+        return
+    end
+
+    local player = Game.GetPlayer()
+    if not player then
+        self.last_manual_block_ok = false
+        self.last_manual_block_result = "Player is not available"
+        return
+    end
+
+    local pos = player:GetWorldPosition()
+    local key = nav:PositionToSectorKey(pos)
+    if not key then
+        self.last_manual_block_ok = false
+        self.last_manual_block_result = "Failed to detect current sector"
+        return
+    end
+
+    local center = nav:SectorKeyToPosition(key)
+    if not center then
+        self.last_manual_block_ok = false
+        self.last_manual_block_result = "Failed to resolve sector center"
+        return
+    end
+
+    self.manual_block_points[index] = { key = key, pos = center }
+    self:RefreshManualBlockMarkers()
+    self.last_manual_block_ok = true
+    self.last_manual_block_result = string.format("P%d recorded: %s", index, key)
+end
+
+function Debug:ResetManualBlockPoints()
+    self.manual_block_points = {}
+    self:ClearManualBlockMarkers()
+end
+
+function Debug:CreateManualBlockHexahedron()
+    local av_obj = self.core_obj and self.core_obj.av_obj
+    local nav = av_obj and av_obj.navigation_obj
+    if not nav then
+        self.last_manual_block_ok = false
+        self.last_manual_block_result = "Navigation object is not available"
+        return
+    end
+
+    for i = 1, 8 do
+        if not self.manual_block_points[i] then
+            self.last_manual_block_ok = false
+            self.last_manual_block_result = "Record all 8 points first"
+            return
+        end
+    end
+
+    local ok, msg = nav:CreateObstacleConvexHexahedronFromPoints(self.manual_block_points)
+    self.last_manual_block_ok = ok
+    self.last_manual_block_result = msg or ""
+    if ok then
+        self:ResetManualBlockPoints()
+    end
 end
 
 function Debug:SetObserver()
@@ -167,7 +276,7 @@ function Debug:ImGuiAVPosition()
         local yaw = string.format("%.2f", self.core_obj.av_obj:GetEulerAngles().yaw)
         ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
         ImGui.Text("Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
-        ImGui.Text("Height : " .. tostring(DAV.core_obj.av_obj:GetHeight()))
+        ImGui.Text("Height : " .. tostring(DAV.core_obj.av_obj.navigation_obj:GetHeight()))
     end
 end
 
@@ -413,78 +522,6 @@ function Debug:ImGuiAutoPilotInfo()
     ImGui.Text("Cached Obstacle Cells: " .. tostring(table_count(av_obj.obstacle_map)))
 end
 
-function Debug:ImGuiAutoPilotExceptionArea()
-    self.is_im_gui_auto_pilot_exception_area = ImGui.Checkbox("[ImGui] Auto Pilot Exception Area", self.is_im_gui_auto_pilot_exception_area)
-    if self.is_im_gui_auto_pilot_exception_area and #self.exception_area_entity_list == 0 and not self.spawn_lock then
-        self.spawn_lock = true
-        local entity_path = "base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent"
-        local entity_id = nil
-        local entity = nil
-        local entity_spawn_lock = false
-        local positions = {}
-        local position_index = 1
-        local position_count = 1
-        for _, value in ipairs(DAV.core_obj.av_obj.autopilot_exception_area_list) do
-            local position = {
-                {value.min_x, value.min_y, value.min_z},
-                {value.max_x, value.min_y, value.min_z},
-                {value.min_x, value.max_y, value.min_z},
-                {value.max_x, value.max_y, value.min_z},
-                {value.min_x, value.min_y, value.max_z},
-                {value.max_x, value.min_y, value.max_z},
-                {value.min_x, value.max_y, value.max_z},
-                {value.max_x, value.max_y, value.max_z}
-            }
-            table.insert(positions, position)
-        end
-        Cron.Every(0.01, {tick=1}, function(timer)
-            if position_index > #positions then
-                self.spawn_lock = false
-                Cron.Halt(timer)
-            elseif not entity_spawn_lock then
-                local transform = WorldTransform.new()
-                local pos = WorldPosition.new()
-                entity_spawn_lock = true
-                pos:SetXYZ(table.unpack(positions[position_index][position_count]))
-                transform.Position = pos
-                entity_id = exEntitySpawner.Spawn(entity_path, transform, '')
-            elseif entity_id ~= nil then
-                entity = Game.FindEntityByID(entity_id)
-                if entity ~= nil then
-                    table.insert(self.exception_area_entity_list, entity)
-                    position_count = position_count + 1
-                    if position_count > 8 then
-                        position_index = position_index + 1
-                        position_count = 1
-                    end
-                    entity_spawn_lock = false
-                end
-            end
-        end)
-    elseif not self.is_im_gui_auto_pilot_exception_area and #self.exception_area_entity_list ~= 0 and not self.spawn_lock then
-        self.spawn_lock = true
-        for _, value in ipairs(self.exception_area_entity_list) do
-            exEntitySpawner.Despawn(value)
-        end
-        self.exception_area_entity_list = {}
-        Cron.After(3, function()
-            self.spawn_lock = false
-        end)
-    end
-    if self.is_im_gui_auto_pilot_exception_area then
-        local current_position = Game.GetPlayer():GetWorldPosition()
-        local res, tag, z = DAV.core_obj.av_obj:IsInExceptionArea(current_position)
-        if res then
-            ImGui.Text("In Exception Area : " .. tag .. ", Z : " .. z)
-        else
-            ImGui.Text("Not In Exception Area")
-        end
-        if ImGui.Button("Reload Area") then
-            DAV.core_obj.av_obj.autopilot_exception_area_list = Utils:ReadJson(DAV.core_obj.av_obj.exception_area_path)
-        end
-    end
-end
-
 function Debug:ImGuiObstacleMap()
     self.is_im_gui_obstacle_map = ImGui.Checkbox("[ImGui] 3D Obstacle Map", self.is_im_gui_obstacle_map)
     if not self.is_im_gui_obstacle_map then return end
@@ -526,7 +563,7 @@ function Debug:ImGuiObstacleMap()
     if av_obj.is_obstacle_map_recording then
         ImGui.PushStyleColor(ImGuiCol.Button, 0.7, 0.1, 0.1, 1.0)
         if ImGui.Button("STOP Recording") then
-            av_obj:StopObstacleRecording()
+            av_obj.navigation_obj:StopObstacleRecording()
             DAV.user_setting_table.is_enable_scan_during_autopilot = false
             Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
         end
@@ -536,7 +573,7 @@ function Debug:ImGuiObstacleMap()
     else
         ImGui.PushStyleColor(ImGuiCol.Button, 0.1, 0.5, 0.1, 1.0)
         if ImGui.Button("START Recording") then
-            av_obj:StartObstacleRecording()
+            av_obj.navigation_obj:StartObstacleRecording()
             DAV.user_setting_table.is_enable_scan_during_autopilot = true
             Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
         end
@@ -545,13 +582,56 @@ function Debug:ImGuiObstacleMap()
 
     ImGui.SameLine()
     if ImGui.Button("Integrate Diff -> Base") then
-        self.last_obstacle_diff_integrate_ok = av_obj:IntegrateObstacleMapDiff()
+        self.last_obstacle_diff_integrate_ok = av_obj.navigation_obj:IntegrateObstacleMapDiff()
     end
 
     if self.last_obstacle_diff_integrate_ok == true then
         ImGui.TextDisabled("Diff integration: success")
     elseif self.last_obstacle_diff_integrate_ok == false then
         ImGui.TextDisabled("Diff integration: failed (see CET log)")
+    end
+
+    ImGui.Separator()
+
+    ImGui.Text("=== Manual No-Go Convex Hexahedron ===")
+    ImGui.TextDisabled("Record any 8 corner points of a convex hexahedron (point order is free).")
+    ImGui.TextDisabled("If points are non-convex, duplicated, or nearly coplanar, creation will fail.")
+
+    if ImGui.Button("Record P1") then self:RecordManualBlockPoint(1) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P2") then self:RecordManualBlockPoint(2) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P3") then self:RecordManualBlockPoint(3) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P4") then self:RecordManualBlockPoint(4) end
+
+    if ImGui.Button("Record P5") then self:RecordManualBlockPoint(5) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P6") then self:RecordManualBlockPoint(6) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P7") then self:RecordManualBlockPoint(7) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P8") then self:RecordManualBlockPoint(8) end
+
+    if ImGui.Button("Create Obstacle Convex Hexahedron") then
+        self:CreateManualBlockHexahedron()
+    end
+
+    for i = 1, 8 do
+        local p = self.manual_block_points[i]
+        if p then
+            ImGui.Text(string.format("P%d: %s", i, p.key))
+        else
+            ImGui.Text(string.format("P%d: (not set)", i))
+        end
+    end
+
+    if self.last_manual_block_result and self.last_manual_block_result ~= "" then
+        if self.last_manual_block_ok == true then
+            ImGui.TextDisabled("Manual block: " .. self.last_manual_block_result)
+        elseif self.last_manual_block_ok == false then
+            ImGui.TextColored(1.0, 0.4, 0.4, 1.0, "Manual block: " .. self.last_manual_block_result)
+        end
     end
 
     ImGui.Separator()
@@ -563,7 +643,7 @@ function Debug:ImGuiObstacleMap()
     ImGui.Separator()
     ImGui.TextDisabled("Tip: drive around the city with recording ON.")
     ImGui.TextDisabled("A* autopilot will avoid confirmed obstacle sectors.")
-    ImGui.TextDisabled("Use Tools/visualize_obstacle_map.py to view 3D map.")
+    ImGui.TextDisabled("Use visualize_obstacle_map.py to view 3D map.")
 end
 
 function Debug:ImGuiExcuteFunction()

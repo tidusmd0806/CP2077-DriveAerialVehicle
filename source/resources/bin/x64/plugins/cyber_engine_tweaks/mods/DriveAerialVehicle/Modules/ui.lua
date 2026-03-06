@@ -302,7 +302,7 @@ function UI:CreateNativeSettingsPage()
 		if not DAV.core_obj.av_obj.is_auto_pilot then
 			DAV.user_setting_table.autopilot_speed = value / 2
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-			DAV.core_obj.av_obj:ReloadAutopilotProfile()
+			DAV.core_obj.av_obj.navigation_obj:ReloadAutopilotProfile()
 		end
 		Cron.After(self.delay_updating_native_settings, function()
 			self:UpdateNativeSettingsPage()
@@ -325,11 +325,11 @@ function UI:CreateNativeSettingsPage()
 		if state then
 			-- Start recording immediately if vehicle is currently active
 			if DAV.core_obj.av_obj.entity_id ~= nil then
-				DAV.core_obj.av_obj:StartObstacleRecording()
+				DAV.core_obj.av_obj.navigation_obj:StartObstacleRecording()
 			end
 		else
 			-- Stop recording in all cases
-			DAV.core_obj.av_obj:StopObstacleRecording()
+			DAV.core_obj.av_obj.navigation_obj:StopObstacleRecording()
 		end
 		Cron.After(self.delay_updating_native_settings, function()
 			self:UpdateNativeSettingsPage()

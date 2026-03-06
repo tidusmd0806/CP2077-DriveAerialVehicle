@@ -5,10 +5,6 @@ local Utils = require("Etc/utils.lua")
 local AV = {}
 AV.__index = AV
 
--- Attach navigation/autopilot methods from a dedicated module to keep this file smaller.
-local navigation_obj = Navigation:New()
-navigation_obj:Init(AV)
-
 --- Constractor.
 ---@param core_obj any Core instance
 ---@return table instance av instance
@@ -19,6 +15,9 @@ function AV:New(core_obj)
 	obj.all_models = core_obj.all_models
 	obj.engine_obj = Engine:New(obj)
 	obj.camera_obj = Camera:New(core_obj.all_models)
+	obj.navigation_obj = Navigation:New()
+	obj.navigation_obj:Init(obj)
+	obj.navigation_obj:InitState()
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
 	---static---
@@ -34,11 +33,11 @@ function AV:New(core_obj)
 	obj.destination_range = 3
 	obj.destination_z_offset = 10
 	obj.standard_leaving_height = 20
-	obj.exception_area_path = "Data/autopilot_exception_area.json"
 	obj.check_cell_distance = 5.0 -- check cell distance when leaving
 	-- thruster
 	obj.thruster_angle_step = 0.6
 	obj.thruster_angle_restore = 0.3
+
 	---dynamic---
 	-- common
 	obj.entity_id = nil
@@ -55,7 +54,7 @@ function AV:New(core_obj)
 	obj.is_crystal_dome = false
 	obj.search_ground_offset = 2
 	obj.search_ground_distance = 100
-	obj.collision_filters =  {"Static", "Terrain", "Water"}
+	obj.collision_filters = {"Static", "Terrain", "Water"}
 	obj.collision_query_filter = nil
 	obj.minimum_distance_to_ground = 1.2
 	obj.spawn_time = 0
@@ -66,159 +65,6 @@ function AV:New(core_obj)
 	obj.is_unmounting = false
 	obj.is_spawning = false
 	obj.is_combat = false
-	-- autopilot
-	obj.mappin_destination_position = Vector4.new(0, 0, 0, 1)
-	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
-	obj.autopilot_speed = 1
-	obj.autopilot_turn_speed = 0.01
-	obj.autopilot_leaving_height = 100
-	obj.autopilot_searching_range = 50         -- Detection range for obstacles
-	obj.autopilot_searching_step = 2           -- Used for minimum search range validation
-	obj.is_failture_auto_pilot = false
-	obj.autopilot_horizontal_sign = 0
-	obj.autopilot_vertical_sign = 0
-	obj.auto_speed_reduce_rate = 1
-	obj.search_range = 1
-	obj.initial_destination_length = 1
-	obj.dest_dir_vector_norm = 1
-	obj.dest_remaining_to_final = 1
-	obj.pre_speed_list = {x = 0, y = 0, z = 0}
-	obj.autopilot_exception_area_list = {}
-	obj.collision_check_side_distance = 2.5
-	obj.collision_check_front_distance = 3.5
-	obj.collision_check_rear_distance = 3.5
-	obj.autopilot_leaving_deceleration_start_flag = false
-	-- Exception area bypass parameters
-	obj.exception_area_bypass_distance = 200  -- Disable exception check when within this distance to destination
-	obj.is_exception_area_bypassed = false   -- Flag to track bypass status
-	-- 9-direction evaluation system debug info
-	obj.last_direction_evaluations = {}
-	obj.last_selected_direction = nil
-	obj.last_best_score = 0
-	obj.last_evaluation_timestamp = 0
-
-	-- === 5-Direction Evaluation System Parameters ===
-	-- Direction priorities (lower value = higher priority)
-	obj.eval_priority_forward = 1          -- Forward direction priority
-	obj.eval_priority_horizontal = 1.5     -- Left/Right direction priority - Improved for better avoidance
-	obj.eval_priority_up = 2.0              -- Up direction priority
-	obj.eval_priority_down = 5.0            -- Down direction priority (lower priority than up)
-
-	-- Maximum angle settings for each direction
-	obj.eval_max_angle_horizontal = 90      -- Max angle for left/right directions
-	obj.eval_max_angle_up = 110             -- Max angle for up direction (extended range)
-	obj.eval_max_angle_down = 90            -- Max angle for down direction (standard range)
-
-	-- Scoring parameters
-	obj.eval_collision_penalty_multiplier = 8      -- Penalty per collision (increased for more conservative approach)
-	obj.eval_safety_bonus_multiplier = 250         -- Safety rate bonus (safety_rate * this) - Further increased
-	obj.eval_angle_efficiency_multiplier = 3       -- Angle efficiency score ((90 - |angle|) * this) - Increased for angle preference
-	obj.eval_base_safety_score = 400               -- Base safety score for all directions - Further increased for safety
-
-	-- Direction bonuses and penalties
-	obj.eval_forward_bonus_multiplier = 1.2        -- Forward direction bonus (reduced for balanced competition)
-	-- Safety thresholds and penalties
-	obj.eval_safety_threshold_low = 0.3            -- Below this: 30% score reduction
-	obj.eval_safety_threshold_medium = 0.5         -- Below this: 15% score reduction
-	obj.eval_safety_penalty_low = 0.7              -- Penalty multiplier for low safety
-	obj.eval_safety_penalty_medium = 0.85          -- Penalty multiplier for medium safety
-
-	-- Safety margin evaluation system
-	obj.eval_safety_margin_enabled = true          -- Enable adjacent angle safety evaluation
-	obj.eval_safety_margin_range = 10              -- Check +/-10 degrees around selected angle (adjusted for 5-degree steps)
-	obj.eval_safety_margin_step = 5                -- Step size for safety margin evaluation (unified to 5 degrees)
-	obj.eval_safety_margin_bonus_multiplier = 50   -- Bonus for good safety margins
-	obj.eval_safety_margin_penalty_multiplier = 100 -- Penalty for poor safety margins
-
-	-- Angle evaluation parameters
-	obj.eval_angle_step = 5                        -- Angle evaluation step (degrees) - Unified 5-degree step for all angles
-
-	-- Low-angle collision penalty system
-	obj.eval_low_angle_penalty_enabled = true      -- Enable low-angle collision penalty
-	obj.eval_low_angle_threshold = 15              -- Angles <= this get extra penalty - Expanded range
-	obj.eval_low_angle_penalty_multiplier = 2.5    -- Extra penalty multiplier for low angles - Increased for stronger avoidance
-
-	-- High-angle collision penalty system
-	obj.eval_high_angle_threshold = 60             -- Angles >= this get moderate penalty
-	obj.eval_high_angle_penalty_multiplier = 1.3   -- Moderate penalty multiplier for high angles - Reduced for balance
-
-	-- Dead-end avoidance system
-	obj.deadend_score_threshold = 10               -- Threshold score to determine dead-end situation (lowered to prevent false positives)
-	obj.deadend_emergency_threshold = 0            -- Emergency threshold: all directions blocked
-	obj.deadend_vertical_escape_distance = 20     -- Distance to ascend when escaping dead-end (meters)
-	obj.deadend_escape_check_interval = 3         -- Seconds between dead-end escape attempts
-	obj.is_deadend_escape_active = false          -- Flag for dead-end escape mode
-	obj.deadend_escape_target_z = nil             -- Target altitude for dead-end escape
-	obj.deadend_last_check_time = 0               -- Last time dead-end was checked
-
-	-- === NEW: Sector-Based Navigation System ===
-	-- Global route planning (sector-based)
-	obj.sector_size = 20                          -- Sector size: 20m x 20m x 20m
-	obj.current_global_route = {}                 -- Current planned route (list of sector coordinates)
-	obj.current_route_index = 1                   -- Current position in route
-	obj.route_replan_interval = 10                -- Replan route every N seconds
-	obj.last_route_plan_time = 0
-	obj.astar_is_partial_route = false
-	obj.astar_local_avoidance_recheck_time = 0       -- last time astar_local_avoidance recheck was performed    -- True when last A* hit iteration limit (partial route)
-
-	-- Local avoidance (spherical raycast)
-	obj.local_avoidance_enabled = true
-	obj.local_ray_count = 32                      -- Number of rays for local avoidance
-	obj.local_ray_distance = 25                   -- Ray detection distance for local avoidance (meters)
-	obj.local_repulsion_strength = 35.0           -- Repulsion force multiplier (balanced for smooth avoidance)
-	obj.local_attraction_strength = 0.15          -- Attraction to destination multiplier (increased to prevent stalling)
-	obj.local_min_obstacle_distance = 35.0        -- Minimum safe distance from obstacles (increased for much safer margin)
-	obj.local_ray_angles = {}                     -- Pre-calculated ray directions (unit vectors)
-	
-	-- === 3D Local Avoidance Navigation ===
-	obj.local_avoidance_stuck_timer = 0           -- Accumulated seconds of receding from destination
-	obj.local_avoidance_stuck_threshold = 5.0     -- Seconds receding from dest in BOUNDARY = stuck
-	obj.local_avoidance_stuck_escape_time = 0     -- Timestamp when stuck-escape ascent started (0 = not escaping)
-	obj.local_avoidance_net_check_dist = nil      -- Distance to dest at last stuck-check interval
-	obj.local_avoidance_net_check_time = 0        -- Time of last stuck-check interval
-
-	-- 3D Obstacle Map: records confirmed obstacle positions across flights
-	obj.obstacle_map          = {}          -- key = "cx_cy_cz", value = true (obstacle) | "danger" (adjacent to obstacle) | false (clear) | nil (unknown)
-	                                        --   Priority (high->low): true > "danger" > false > nil (never overwrite higher with lower)
-	obj.obstacle_cell_size    = 10.0        -- Grid cell size in meters (~vehicle length)
-	obj.obstacle_map_path     = "Data/obstacle_map.dat"  -- Legacy path (for migration)
-	obj.obstacle_map_dir      = "Data/map"               -- Chunked storage directory
-	obj.obstacle_map_chunk_cells = 50                     -- Cells per chunk side (50x10m = 500m)
-	obj.obstacle_map_dirty_chunks = {}                    -- chunk_key -> true (needs saving)
-	obj.obstacle_map_dirty_cells  = {}                    -- chunk_key -> {cell_key -> true} changed since last save
-	obj.obstacle_map_chunk_index  = {}                    -- chunk_key -> {cell_key -> true}
-	obj.obstacle_map_dir_ok    = false                    -- Directory existence verified
-	obj.route_save_path       = "Data/last_route.json"  -- Last A* route for visualization
-
-	-- Obstacle map recording (toggled from debug menu)
-	obj.is_obstacle_map_recording  = false   -- When true, scan rays during ANY driving (not just autopilot)
-	obj.obstacle_record_interval   = 0.2     -- Seconds between scan ticks during recording
-	obj.obstacle_record_range      = 35.0    -- Raycast range during scan (m)
-
-	-- Autopilot navigation phases
-	-- "start_local" : start is in unknown sector -> local avoidance + scanning toward nearest known sector
-	-- "astar"       : follow A* route directly (no local avoidance)
-	-- "final_local" : destination was unknown -> local avoidance + scanning for final approach
-	obj.autopilot_phase           = "astar"   -- current navigation phase
-	obj.autopilot_local_target    = nil        -- intermediate target for start_local / final_local phases
-	obj.autopilot_dest_is_unknown = false      -- true when final destination is in unknown sector
-	obj.autopilot_exploring_mode  = false      -- legacy alias (kept for compatibility)
-	obj.autopilot_scan_dirty_count    = 0      -- scan ticks since last batch save
-	obj.autopilot_scan_dirty_threshold = 150   -- save every 150 ticks (~30s at 0.2s/tick)
-	obj.autopilot_scan_save_interval  = 120.0  -- also force-save every 120 seconds
-	obj.autopilot_scan_last_save_time = 0
-
-	-- Yaw smoothing
-	obj.yaw_target_smoothed = nil         -- Smoothed yaw target angle (degrees), nil = not initialized
-	obj.yaw_smooth_alpha = 0.06           -- Low-pass coefficient (lower = smoother, slower response)
-	obj.yaw_deadzone_deg = 4.0            -- Don't turn if yaw error is smaller than this (degrees)
-
-	-- Collision recording
-	obj.collision_detection_count = 0             -- Current session collision detections
-	obj.last_collision_sector = nil               -- Last sector where collision was detected
-
-	-- Smooth movement parameters
-	obj.direction_continuity_bonus = 10        -- Bonus for keeping same direction (reduced oscillation)
 
 	-- appearance
 	obj.is_enable_crystal_dome = false
@@ -283,24 +129,19 @@ function AV:Init()
 	self.flight_mode = self.all_models[DAV.model_index].flight_mode
 
 	-- Apply autopilot speed from user settings
-	self:ApplyAutopilotSpeed()
-	self.autopilot_exception_area_list = Utils:ReadJson(self.exception_area_path)
+	self.navigation_obj:ApplyAutopilotSpeed()
+	-- Exception-area system is disabled; keep list empty.
+	self.autopilot_exception_area_list = {}
 	self.collision_check_side_distance = self.all_models[index].collision_check_side_distance
 	self.collision_check_front_distance = self.all_models[index].collision_check_front_distance or self.collision_check_side_distance
 	self.collision_check_rear_distance = self.all_models[index].collision_check_rear_distance or self.collision_check_side_distance
-
-	-- Initialize learning system (wrapped in pcall for safety)
-	local success, error_msg = pcall(function()
-		self:InitializeLearningSystem()
-	end)
-	
-	if not success and self.log_obj then
-		self.log_obj:Record(LogLevel.Warning, "Failed to initialize learning system in Init(): " .. tostring(error_msg))
-	end
 end
 
 --- Build and cache a query filter using collision_filters.
 function AV:InitializeCollisionQueryFilter()
+	if type(self.collision_filters) ~= "table" then
+		self.collision_filters = {"Static", "Terrain", "Water"}
+	end
 	local query_filter = QueryFilter.new()
 	for _, group_name in ipairs(self.collision_filters) do
 		query_filter.mask2 = query_filter.mask2 + QueryFilter.AddGroup(CName.new(group_name)).mask2
@@ -554,7 +395,7 @@ function AV:SpawnToSky()
 	self:Spawn(position, angle)
 	Cron.Every(DAV.time_resolution, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
-			local height = self:GetHeight()
+			local height = self.navigation_obj:GetHeight()
 			self.log_obj:Record(LogLevel.Trace, "Current Height In Spawning: " .. height)
 			if timer.tick == 1 then
 				self:DisableAllDoorInteractions()
@@ -831,7 +672,7 @@ function AV:Mount()
 
 	-- Auto-start obstacle map recording if the setting is enabled
 	if DAV.user_setting_table.is_enable_scan_during_autopilot then
-		self:StartObstacleRecording()
+		self.navigation_obj:StartObstacleRecording()
 	end
 
 	return true
@@ -874,7 +715,7 @@ function AV:Unmount()
 				self.log_obj:Record(LogLevel.Info, "Unmounted")
 				
 				-- Stop obstacle recording and save on true unmount
-				self:StopObstacleRecording()
+				self.navigation_obj:StopObstacleRecording()
 
 				-- Consolidate learning data before unmounting
 				if self.short_term_memory and 
@@ -1283,7 +1124,7 @@ end
 ---@param angle number
 function AV:GetSpawnPosition(distance, angle)
     local pos = Game.GetPlayer():GetWorldPosition()
-    local heading = self:GetPlayerAroundDirection(angle)
+	local heading = self.navigation_obj:GetPlayerAroundDirection(angle)
     return Vector4.new(pos.x + (heading.x * distance), pos.y + (heading.y * distance), pos.z + heading.z, pos.w + heading.w)
 end
 
@@ -1291,7 +1132,7 @@ end
 ---@param angle number
 ---@return Quaternion
 function AV:GetSpawnOrientation(angle)
-    return EulerAngles.ToQuat(Vector4.ToRotation(self:GetPlayerAroundDirection(angle)))
+	return EulerAngles.ToQuat(Vector4.ToRotation(self.navigation_obj:GetPlayerAroundDirection(angle)))
 end
 
 --- Get exit position in world coordinates.
@@ -1341,14 +1182,6 @@ function AV:ChangeWorldCordinate(basic_vector, point_list)
     return result_list
 end
 
---- Initialize Learning System (stub - sector navigation handles all learning data)
-function AV:InitializeLearningSystem()
-	-- Old learning system no longer used
-	-- Sector navigation system handles all learning data
-	if self.log_obj then
-		self.log_obj:Record(LogLevel.Debug, "Legacy learning system skipped (using sector navigation)")
-	end
-end
 
 --- Consolidate short-term memory into long-term memory (call on flight end)
 function AV:ConsolidateMemory()
@@ -1356,13 +1189,11 @@ function AV:ConsolidateMemory()
 	-- NOTE: do NOT stop recording here; recording runs for the entire time the
 	-- player is in the vehicle (including after autopilot ends / is interrupted).
 	-- StopObstacleRecording() is called exclusively from the Unmount handler.
-	self:SaveObstacleMap()
+	self.navigation_obj:SaveObstacleMap()
 	if self.log_obj then
 		self.log_obj:Record(LogLevel.Info, "Flight completed, obstacle map saved")
 	end
 end
-
--- Local-avoidance navigation methods are defined in Modules/navigation.lua and attached to AV.
 
 return AV
 

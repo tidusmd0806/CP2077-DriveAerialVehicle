@@ -692,9 +692,9 @@ end
 function Engine:CalculateIdleMode()
     local x,y,z,roll,pitch = 0,0,0,0,0
 
-    if DAV.user_setting_table.is_enable_idle_gravity and not self.av_obj:IsCollision() then
+    if DAV.user_setting_table.is_enable_idle_gravity and not self.av_obj.navigation_obj:IsCollision() then
         local vel_vec, _ = self:GetDirectionAndAngularVelocity()
-        local height = self.av_obj:GetHeight()
+        local height = self.av_obj.navigation_obj:GetHeight()
         local dest_height = self.av_obj.minimum_distance_to_ground
 
         local damping = 0.2
