@@ -9,7 +9,7 @@
     "native_settings_general_autopilot_speed": "Autopilot Speed",
     "native_settings_general_autopilot_speed_description": "Autopilot speed in m/s (5-50). Higher values increase flight speed and reduce travel time.",
     "native_settings_general_astar_calculation_precision": "Autopilot Route Search Precision",
-    "native_settings_general_astar_calculation_precision_description": "Precision of autopilot route search (1-100). Higher values find better routes but take longer to compute. Default: 50 (=10000 iterations), Max: 100 (=20000 iterations).",
+    "native_settings_general_astar_calculation_precision_description": "Precision of autopilot route search (1-100). Higher values improve route search precision but may take longer to compute.",
     "native_settings_general_scan_during_autopilot": "Scan Map During Autopilot",
     "native_settings_general_scan_during_autopilot_description": "When enabled, the obstacle map is updated by ray scanning during all autopilot phases. When disabled, no scanning occurs in any phase.",
     "native_settings_general_speed_slow": "Slow",

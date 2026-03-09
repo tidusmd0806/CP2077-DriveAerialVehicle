@@ -70,7 +70,7 @@ function Navigation:New(av_obj)
 	obj.route_save_path = "Data/last_route.json"
 	obj.is_obstacle_map_recording = false
 	obj.obstacle_record_interval = 0.2
-	obj.obstacle_record_range = 35.0
+	obj.obstacle_record_range = 60.0
 
 	-- Navigation phase state
 	obj.autopilot_phase = "astar"
@@ -378,7 +378,8 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 	f_score[start_key] = start_h
 	heap_push(start_key, start_h)
 
-	local max_iterations = math.max(200, (DAV.user_setting_table.astar_calculation_precision or 50) * 200)
+	local precision = math.max(1, math.min(100, DAV.user_setting_table.astar_calculation_precision or 67))
+	local max_iterations = math.floor(200 + ((precision - 1) / 99) * (30000 - 200) + 0.5)
 	local iterations = 0
 
 	while heap_size > 0 and iterations < max_iterations do
