@@ -15,9 +15,7 @@ function AV:New(core_obj)
 	obj.all_models = core_obj.all_models
 	obj.engine_obj = Engine:New(obj)
 	obj.camera_obj = Camera:New(core_obj.all_models)
-	obj.navigation_obj = Navigation:New()
-	obj.navigation_obj:Init(obj)
-	obj.navigation_obj:InitState()
+	obj.navigation_obj = Navigation:New(obj)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
 	---static---
@@ -131,10 +129,10 @@ function AV:Init()
 	-- Apply autopilot speed from user settings
 	self.navigation_obj:ApplyAutopilotSpeed()
 	-- Exception-area system is disabled; keep list empty.
-	self.autopilot_exception_area_list = {}
-	self.collision_check_side_distance = self.all_models[index].collision_check_side_distance
-	self.collision_check_front_distance = self.all_models[index].collision_check_front_distance or self.collision_check_side_distance
-	self.collision_check_rear_distance = self.all_models[index].collision_check_rear_distance or self.collision_check_side_distance
+	self.navigation_obj.autopilot_exception_area_list = {}
+	self.navigation_obj.collision_check_side_distance = self.all_models[index].collision_check_side_distance
+	self.navigation_obj.collision_check_front_distance = self.all_models[index].collision_check_front_distance or self.navigation_obj.collision_check_side_distance
+	self.navigation_obj.collision_check_rear_distance = self.all_models[index].collision_check_rear_distance or self.navigation_obj.collision_check_side_distance
 end
 
 --- Build and cache a query filter using collision_filters.

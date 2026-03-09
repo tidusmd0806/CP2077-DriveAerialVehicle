@@ -1,108 +1,91 @@
-local Navigation = {}
+﻿local Navigation = {}
 Navigation.__index = Navigation
 local Utils = require("Etc/utils.lua")
 
 ---@diagnostic disable: undefined-global, undefined-field
 
 --- Constructor
+---@param av_obj table AV instance
 ---@return table
-function Navigation:New()
+function Navigation:New(av_obj)
 	local obj = {}
+	obj.av_obj = av_obj
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "Navigation")
-	return setmetatable(obj, self)
-end
 
---- Bind this navigation instance to one AV instance.
----@param av_obj table
-function Navigation:Init(av_obj)
-	self.av_obj = av_obj
-	setmetatable(self, {
-		__index = function(tbl, key)
-			local nav_method = Navigation[key]
-			if nav_method ~= nil then
-				return nav_method
-			end
-			return av_obj[key]
-		end,
-		__newindex = function(_, key, value)
-			av_obj[key] = value
-		end,
-	})
-end
-
---- Initialize navigation-owned runtime state on the bound AV instance.
-function Navigation:InitState()
+	-- Initialize navigation-owned runtime state on bound AV instance.
 	-- Destination and autopilot runtime values
-	self.mappin_destination_position = Vector4.new(0, 0, 0, 1)
-	self.favorite_destination_position = Vector4.new(0, 0, 0, 1)
-	self.autopilot_speed = 1
-	self.autopilot_turn_speed = 0.01
-	self.autopilot_leaving_height = 100
-	self.autopilot_searching_range = 50
-	self.autopilot_searching_step = 2
-	self.is_failture_auto_pilot = false
-	self.autopilot_horizontal_sign = 0
-	self.autopilot_vertical_sign = 0
-	self.auto_speed_reduce_rate = 1
-	self.search_range = 1
-	self.initial_destination_length = 1
-	self.dest_dir_vector_norm = 1
-	self.dest_remaining_to_final = 1
-	self.pre_speed_list = {x = 0, y = 0, z = 0}
-	self.autopilot_exception_area_list = {}
-	self.collision_check_side_distance = 2.5
-	self.collision_check_front_distance = 3.5
-	self.collision_check_rear_distance = 3.5
-	self.autopilot_leaving_deceleration_start_flag = false
-	self.exception_area_bypass_distance = 200
-	self.is_exception_area_bypassed = false
+	obj.mappin_destination_position = Vector4.new(0, 0, 0, 1)
+	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
+	obj.autopilot_speed = 1
+	obj.autopilot_turn_speed = 0.01
+	obj.autopilot_leaving_height = 100
+	obj.autopilot_searching_range = 50
+	obj.autopilot_searching_step = 2
+	obj.is_failture_auto_pilot = false
+	obj.autopilot_horizontal_sign = 0
+	obj.autopilot_vertical_sign = 0
+	obj.auto_speed_reduce_rate = 1
+	obj.search_range = 1
+	obj.initial_destination_length = 1
+	obj.dest_dir_vector_norm = 1
+	obj.dest_remaining_to_final = 1
+	obj.pre_speed_list = {x = 0, y = 0, z = 0}
+	obj.autopilot_exception_area_list = {}
+	obj.collision_check_side_distance = 2.5
+	obj.collision_check_front_distance = 3.5
+	obj.collision_check_rear_distance = 3.5
+	obj.autopilot_leaving_deceleration_start_flag = false
+	obj.exception_area_bypass_distance = 200
+	obj.is_exception_area_bypassed = false
 
 	-- Route / A* state
-	self.sector_size = 20
-	self.current_global_route = {}
-	self.current_route_index = 1
-	self.last_route_plan_time = 0
-	self.astar_is_partial_route = false
-	self.astar_local_avoidance_recheck_time = 0
+	obj.sector_size = 20
+	obj.current_global_route = {}
+	obj.current_route_index = 1
+	obj.last_route_plan_time = 0
+	obj.astar_is_partial_route = false
+	obj.astar_local_avoidance_recheck_time = 0
 
 	-- Local avoidance state
-	self.is_deadend_escape_active = false
-	self.local_ray_count = 32
-	self.local_ray_angles = {}
-	self.local_avoidance_stuck_timer = 0
-	self.local_avoidance_stuck_threshold = 5.0
-	self.local_avoidance_stuck_escape_time = 0
-	self.local_avoidance_net_check_dist = nil
-	self.local_avoidance_net_check_time = 0
+	obj.is_deadend_escape_active = false
+	obj.local_ray_count = 32
+	obj.local_ray_angles = {}
+	obj.local_avoidance_stuck_timer = 0
+	obj.local_avoidance_stuck_threshold = 5.0
+	obj.local_avoidance_stuck_escape_time = 0
+	obj.local_avoidance_net_check_dist = nil
+	obj.local_avoidance_net_check_time = 0
 
 	-- Obstacle map and scan state
-	self.obstacle_map = {}
-	self.obstacle_cell_size = 10.0
-	self.obstacle_map_path = "Data/obstacle_map.dat"
-	self.obstacle_map_dir = "Data/map"
-	self.obstacle_map_chunk_cells = 50
-	self.obstacle_map_dirty_chunks = {}
-	self.obstacle_map_dirty_cells = {}
-	self.obstacle_map_chunk_index = {}
-	self.obstacle_map_dir_ok = false
-	self.route_save_path = "Data/last_route.json"
-	self.is_obstacle_map_recording = false
-	self.obstacle_record_interval = 0.2
-	self.obstacle_record_range = 35.0
+	obj.obstacle_map = {}
+	obj.obstacle_cell_size = 10.0
+	obj.obstacle_map_path = "Data/obstacle_map.dat"
+	obj.obstacle_map_dir = "Data/map"
+	obj.obstacle_map_chunk_cells = 50
+	obj.obstacle_map_dirty_chunks = {}
+	obj.obstacle_map_dirty_cells = {}
+	obj.obstacle_map_chunk_index = {}
+	obj.obstacle_map_dir_ok = false
+	obj.route_save_path = "Data/last_route.json"
+	obj.is_obstacle_map_recording = false
+	obj.obstacle_record_interval = 0.2
+	obj.obstacle_record_range = 35.0
 
 	-- Navigation phase state
-	self.autopilot_phase = "astar"
-	self.autopilot_local_target = nil
-	self.autopilot_dest_is_unknown = false
-	self.autopilot_scan_dirty_count = 0
-	self.autopilot_scan_dirty_threshold = 150
-	self.autopilot_scan_last_save_time = 0
+	obj.autopilot_phase = "astar"
+	obj.autopilot_local_target = nil
+	obj.autopilot_dest_is_unknown = false
+	obj.autopilot_scan_dirty_count = 0
+	obj.autopilot_scan_dirty_threshold = 150
+	obj.autopilot_scan_last_save_time = 0
 
 	-- Yaw smoothing state
-	self.yaw_target_smoothed = nil
-	self.yaw_smooth_alpha = 0.06
-	self.yaw_deadzone_deg = 4.0
+	obj.yaw_target_smoothed = nil
+	obj.yaw_smooth_alpha = 0.06
+	obj.yaw_deadzone_deg = 4.0
+
+	return setmetatable(obj, self)
 end
 
 --- Convert position to sector key
@@ -595,7 +578,7 @@ end
 --- Record a PHYSICAL collision (IsCollision() == true) into the obstacle map.
 --- Marks the vehicle's current cell as obstacle, then marks the 26 neighbors as danger.
 function Navigation:RecordDirectCollision()
-	local pos = self:GetPosition()
+	local pos = self.av_obj:GetPosition()
 	if not pos then return end
 	local cs = self.obstacle_cell_size
 	local cx = math.floor(pos.x / cs)
@@ -1201,8 +1184,8 @@ end
 --- Cast rays using the same Fibonacci sphere pattern as local avoidance (N=32).
 --- Called by the recording Cron timer started via StartObstacleRecording().
 function Navigation:RecordObstacleScan()
-	if self.entity_id == nil then return end
-	local pos = self:GetPosition()
+	if self.av_obj.entity_id == nil then return end
+	local pos = self.av_obj:GetPosition()
 	if pos == nil then return end
 
 	if not self.local_ray_angles or #self.local_ray_angles ~= 32 then
@@ -1277,7 +1260,7 @@ function Navigation:StartObstacleRecording()
 		-- Data is saved on flight end via ConsolidateMemory().
 		if scan_count >= self.autopilot_scan_dirty_threshold then
 			scan_count = 0
-			if not self.is_auto_pilot then
+			if not self.av_obj.is_auto_pilot then
 				self:SaveObstacleMap()
 				self.log_obj:Record(LogLevel.Info, "Obstacle map periodic save during recording")
 			else
@@ -1298,7 +1281,7 @@ end
 --- Get Height between ground and vehicle
 ---@return number height
 function Navigation:GetHeight()
-	return self:GetPosition().z - self:GetGroundPosition()
+	return self.av_obj:GetPosition().z - self.av_obj:GetGroundPosition()
 end
 
 
@@ -1318,7 +1301,7 @@ end
 ---@return boolean
 function Navigation:AutoPilot()
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Start")
-	self.is_auto_pilot = true
+	self.av_obj.is_auto_pilot = true
 	local destination_position = Vector4.new(0, 0, 0, 1)
 	if DAV.user_setting_table.autopilot_selected_index == 0 then
 		if self.mappin_destination_position:IsZero() then
@@ -1338,22 +1321,23 @@ function Navigation:AutoPilot()
 		self.log_obj:Record(LogLevel.Info, "AutoPilot to Favorite Destination")
 	end
 
-	destination_position.z = destination_position.z + self.destination_z_offset
+	destination_position.z = destination_position.z + self.av_obj.destination_z_offset
 
-	local current_position = self:GetPosition()
+	local current_position = self.av_obj:GetPosition()
 
 	local direction_vector = Vector4.new(destination_position.x - current_position.x, destination_position.y - current_position.y, destination_position.z - current_position.z, 1)
 	self.initial_destination_length = Vector4.Length(direction_vector)
 
 	-- Store target altitude for maintaining flight height
 	local target_altitude
-	if self.autopilot_is_only_horizontal then
+	if self.av_obj.autopilot_is_only_horizontal then
 		self:AutoLeaving(direction_vector, self.autopilot_leaving_height - current_position.z)
 		target_altitude = self.autopilot_leaving_height
 		self.log_obj:Record(LogLevel.Info, "Select Leaving Only Horizontal")
 	else
-		self:AutoLeaving(direction_vector, self.standard_leaving_height)
-		target_altitude = current_position.z + self.standard_leaving_height
+		self:AutoLeaving(direction_vector, self.av_obj.standard_leaving_height)
+		-- Keep cruise altitude stable relative to destination, not start position.
+		target_altitude = destination_position.z + self.av_obj.standard_leaving_height
 		self.log_obj:Record(LogLevel.Info, "Select Leaving Horizontal and Vertical")
 	end
 
@@ -1472,11 +1456,11 @@ function Navigation:AutoPilot()
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
 
-		if self.is_leaving or self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+		if self.av_obj.is_leaving or self.av_obj.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			return
 		end
 
-		if not self.is_auto_pilot then
+		if not self.av_obj.is_auto_pilot then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted")
 			Cron.Halt(timer)
 			return
@@ -1489,7 +1473,7 @@ function Navigation:AutoPilot()
 		end
 
 		-- set destination vector
-		current_position = self:GetPosition()
+		current_position = self.av_obj:GetPosition()
 		local current_time = os.clock()
 
 		-- === Phase management ===
@@ -1540,7 +1524,7 @@ function Navigation:AutoPilot()
 			local advance_thr   = self.sector_size * 0.9   -- ~18 m: advance to next waypoint
 			local lookahead_dist = self.sector_size * 2.0  -- ~40 m: start blending toward next WP
 			-- Compute horizontal velocity direction (for "passed waypoint" detection)
-			local vel = self.engine_obj.direction_velocity
+			local vel = self.av_obj.engine_obj.direction_velocity
 			local vel_hx, vel_hy = vel.x, vel.y
 			local vel_hlen = math.sqrt(vel_hx*vel_hx + vel_hy*vel_hy)
 			while self.current_route_index <= #self.current_global_route do
@@ -1750,7 +1734,7 @@ function Navigation:AutoPilot()
 			nav_target.x - current_position.x,
 			nav_target.y - current_position.y,
 			nav_target.z - current_position.z, 1)
-		if self.autopilot_is_only_horizontal then
+		if self.av_obj.autopilot_is_only_horizontal then
 			dest_dir_vector.z = 0
 		end
 		-- dest_dir_vector_norm: distance to current nav target (waypoint or final dest)
@@ -1761,12 +1745,12 @@ function Navigation:AutoPilot()
 
 		-- check destination: use horizontal + upward-only Z so that being above target
 		-- at flight altitude doesn't prevent arrival detection
-		if dist_to_final_arr < self.destination_range then
+		if dist_to_final_arr < self.av_obj.destination_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
-			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			-- Landing height: distance from current Z to the ORIGINAL ground destination,
 			-- including any extra altitude added for exception area overshoot.
-			local landing_height = current_position.z - destination_position.z + self.destination_z_offset
+			local landing_height = current_position.z - destination_position.z + self.av_obj.destination_z_offset
 			self.log_obj:Record(LogLevel.Info, string.format(
 				"Landing: current_z=%.1f, dest_z=%.1f, ea_extra=%.1f, landing_height=%.1f",
 				current_position.z, destination_position.z, ea_landing_extra_height, landing_height))
@@ -1873,7 +1857,7 @@ function Navigation:AutoPilot()
 		local fix_direction_vector = Vector4.new(autopilot_speed * direction_vector.x / direction_vector_norm, autopilot_speed * direction_vector.y / direction_vector_norm, autopilot_speed * direction_vector.z / direction_vector_norm, 1)
 
 		-- yaw control
-		local vehicle_angle = self:GetForward()
+		local vehicle_angle = self.av_obj:GetForward()
 		local vehicle_angle_norm = Vector4.Length(vehicle_angle)
 		local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
 
@@ -1913,7 +1897,7 @@ function Navigation:AutoPilot()
 		end
 
 		-- -- restore angle
-		local current_angle = self:GetEulerAngles()
+		local current_angle = self.av_obj:GetEulerAngles()
 		local roll_diff = 0
 		local pitch_diff = 0
 		local forward = Vector4.new(vehicle_angle.x, vehicle_angle.y, 0, 1) -- Use only x and y components for forward vector to avoid z-axis influence on roll and pitch control
@@ -1927,9 +1911,9 @@ function Navigation:AutoPilot()
 		local between_angle_rad = math.rad(between_angle)
 		local left_right_value = 0
 		local forward_value = 0
-		if self.engine_obj.flight_mode == Def.FlightMode.Helicopter then
+		if self.av_obj.engine_obj.flight_mode == Def.FlightMode.Helicopter then
 			forward_value = math.cos(between_angle_rad)
-			local _, _, _, roll_diff_forward, pitch_diff_forward, _ = self.engine_obj:CalculateAddVelocity({Def.ActionList.HLeanForward, forward_value})
+			local _, _, _, roll_diff_forward, pitch_diff_forward, _ = self.av_obj.engine_obj:CalculateAddVelocity({Def.ActionList.HLeanForward, forward_value})
 			left_right_value = math.sin(between_angle_rad)
 			local roll_control = {}
 			if left_right_value >= 0 then
@@ -1937,7 +1921,7 @@ function Navigation:AutoPilot()
 			else
 				roll_control = {Def.ActionList.HLeanRight, -left_right_value}
 			end
-			local _, _, _, roll_diff_left_right, pitch_diff_left_right, _ = self.engine_obj:CalculateAddVelocity(roll_control)
+			local _, _, _, roll_diff_left_right, pitch_diff_left_right, _ = self.av_obj.engine_obj:CalculateAddVelocity(roll_control)
 			roll_diff = roll_diff_forward * forward_value + roll_diff_left_right * math.abs(left_right_value)
 			pitch_diff = pitch_diff_forward * forward_value + pitch_diff_left_right * math.abs(left_right_value)
 		else
@@ -1948,7 +1932,7 @@ function Navigation:AutoPilot()
 			else
 				roll_control = {Def.ActionList.Right, -left_right_value}
 			end
-			local _, _, _, roll_diff_left_right, pitch_diff_left_right, _ = self.engine_obj:CalculateAddVelocity(roll_control)
+			local _, _, _, roll_diff_left_right, pitch_diff_left_right, _ = self.av_obj.engine_obj:CalculateAddVelocity(roll_control)
 			roll_diff = roll_diff_left_right * math.abs(left_right_value)
 			pitch_diff = pitch_diff_left_right * math.abs(left_right_value)
 		end
@@ -2010,31 +1994,31 @@ function Navigation:AutoPilot()
 		self.pre_speed_list = {x = adjust_x, y = adjust_y, z = adjust_z}
 
 		if self.is_deadend_escape_active then
-			_, _, _, roll ,pitch ,yaw = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
+			_, _, _, roll ,pitch ,yaw = self.av_obj.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
 		end
 
 		-- limit
-		if current_angle.roll > self.engine_obj.max_roll or current_angle.roll < -self.engine_obj.max_roll then
+		if current_angle.roll > self.av_obj.engine_obj.max_roll or current_angle.roll < -self.av_obj.engine_obj.max_roll then
 			roll = 0
 		end
-		if current_angle.pitch > self.engine_obj.max_pitch or current_angle.pitch < -self.engine_obj.max_pitch then
+		if current_angle.pitch > self.av_obj.engine_obj.max_pitch or current_angle.pitch < -self.av_obj.engine_obj.max_pitch then
 			pitch = 0
 		end
 
 		-- Prevent FluctuationVelocity oscillation at target speed during movement
 		-- Temporarily increase target velocity margin to avoid 50m/s oscillation
-		local current_velocity = Vector4.Vector3To4(self.engine_obj.direction_velocity):Length()
+		local current_velocity = Vector4.Vector3To4(self.av_obj.engine_obj.direction_velocity):Length()
 		if math.abs(current_velocity - self.autopilot_speed) < 1.0 then  -- Near target speed
-			local original_target = self.engine_obj.target_velocity
+			local original_target = self.av_obj.engine_obj.target_velocity
 			-- Temporarily set higher target to prevent oscillation
-			self.engine_obj.target_velocity = self.autopilot_speed * 1.05
-			if not self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw) then
+			self.av_obj.engine_obj.target_velocity = self.autopilot_speed * 1.05
+			if not self.av_obj.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw) then
 				self.log_obj:Record(LogLevel.Warning, "Failed to run engine in Autopilot (overshoot prevention)")
 			end
 			-- Restore original target after run
-			self.engine_obj.target_velocity = original_target
+			self.av_obj.engine_obj.target_velocity = original_target
 		else
-			if not self.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw) then
+			if not self.av_obj.engine_obj:Run(adjust_x, adjust_y, adjust_z, roll, pitch, yaw) then
 				self.log_obj:Record(LogLevel.Warning, "Failed to run engine in Autopilot")
 			end
 		end
@@ -2046,65 +2030,65 @@ end
 ---@param dist_vector Vector4 vector to destination position
 ---@param height number | nil height to end leaving
 function Navigation:AutoLeaving(dist_vector, height)
-	self.is_leaving = true
+	self.av_obj.is_leaving = true
 
-	local current_position = self:GetPosition()
+	local current_position = self.av_obj:GetPosition()
 	local leaving_height = height or self.autopilot_leaving_height - current_position.z
 	local leaving_position = Vector4.new(current_position.x, current_position.y, current_position.z + leaving_height, 1)
-	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0.5))
-	self.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
-	self.engine_obj:SetFluctuationVelocityParams(self.autopilot_acceleration, self.autopilot_speed)
+	self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0.5))
+	self.av_obj.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
+	self.av_obj.engine_obj:SetFluctuationVelocityParams(self.autopilot_acceleration, self.autopilot_speed)
 	self.autopilot_leaving_deceleration_start_flag = false
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
-		if not self.is_auto_pilot then
+		if not self.av_obj.is_auto_pilot then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted")
-			self.is_leaving = false
+			self.av_obj.is_leaving = false
 			Cron.Halt(timer)
 			return
 		elseif self:IsCollision() then
 			self.log_obj:Record(LogLevel.Info, "Collision Detected")
 			self:RecordDirectCollision()
 			self:InterruptAutoPilot()
-			self.is_leaving = false
+			self.av_obj.is_leaving = false
 			Cron.Halt(timer)
 			return
 		end
 
 		-- Stabilize roll and pitch during takeoff
-		local _, _, _, roll_idle ,pitch_idle ,yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
-		if not self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
+		local _, _, _, roll_idle ,pitch_idle ,yaw_idle = self.av_obj.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
+		if not self.av_obj.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
 			self.log_obj:Record(LogLevel.Warning, "Failed to run angular velocity during takeoff")
 		end
 
-		local is_detected_celling, search_vector = self:IsWall(Vector4.new(0, 0, 1, 1), self.check_cell_distance, 0, "Vertical", true, "simple")
+		local is_detected_celling, search_vector = self:IsWall(Vector4.new(0, 0, 1, 1), self.av_obj.check_cell_distance, 0, "Vertical", true, "simple")
 		if is_detected_celling then
 			self.log_obj:Record(LogLevel.Info, "Detected Ceiling, Search Vector:" .. search_vector.x .. ", " .. search_vector.y .. ", " .. search_vector.z)
 		end
-		local current_position_in_leaving = self:GetPosition()
+		local current_position_in_leaving = self.av_obj:GetPosition()
 
 		if current_position_in_leaving.z > leaving_position.z or is_detected_celling then
-			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
-			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
-			self.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
+			self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+			self.av_obj.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
 			Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 				timer.tick = timer.tick + 1
-				if not self.is_auto_pilot then
+				if not self.av_obj.is_auto_pilot then
 					self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Canceling")
-					self.is_leaving = false
+					self.av_obj.is_leaving = false
 					Cron.Halt(timer)
 					return
 				elseif self:IsCollision() then
 					self.log_obj:Record(LogLevel.Info, "Collision Detected")
 					self:RecordDirectCollision()
 					self:InterruptAutoPilot()
-					self.is_leaving = false
+					self.av_obj.is_leaving = false
 					Cron.Halt(timer)
 					return
 				end
 
 				-- yaw control
-				local vehicle_angle = self:GetForward()
+				local vehicle_angle = self.av_obj:GetForward()
 				local vehicle_angle_norm = Vector4.Length(vehicle_angle)
 				local yaw_vehicle = math.atan2(vehicle_angle.y / vehicle_angle_norm, vehicle_angle.x / vehicle_angle_norm) * 180 / Pi()
 				local yaw_dist = yaw_vehicle
@@ -2123,24 +2107,24 @@ function Navigation:AutoLeaving(dist_vector, height)
 					yaw_diff_half = yaw_diff
 				end
 
-				if not self.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half) then
+				if not self.av_obj.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half) then
 					self.log_obj:Record(LogLevel.Warning, "Failed to run engine during leaving")
 				end
 
 				if math.abs(yaw_diff_half) < 0.1 then
-					if not self.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) then
+					if not self.av_obj.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) then
 						self.log_obj:Record(LogLevel.Warning, "Failed to run engine at leaving end")
 					end
-					self.is_leaving = false
+					self.av_obj.is_leaving = false
 					Cron.Halt(timer)
 				end
 			end)
 			Cron.Halt(timer)
 		elseif current_position_in_leaving.z > leaving_position.z - (leaving_height * 0.3) and not self.autopilot_leaving_deceleration_start_flag then
 			self.autopilot_leaving_deceleration_start_flag = true
-			self.engine_obj:SetFluctuationVelocityParams(-self.autopilot_acceleration, self.autopilot_speed * 0.2)
+			self.av_obj.engine_obj:SetFluctuationVelocityParams(-self.autopilot_acceleration, self.autopilot_speed * 0.2)
 		end
-		self:MoveThruster({{Def.ActionList.Nothing, 1}})
+		self.av_obj:MoveThruster({{Def.ActionList.Nothing, 1}})
 	end)
 end
 
@@ -2150,12 +2134,12 @@ end
 function Navigation:AutoLanding(height, target_z)
 	local down_time_count = ((height / self.autopilot_speed) / DAV.time_resolution) * 1.8
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing Start :" .. tostring(down_time_count) .. "s, " .. tostring(height) .. "m" .. (target_z and string.format(", target_z=%.1f", target_z) or ""))
-	self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
-	self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -0.5))
-	self.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
+	self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+	self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -0.5))
+	self.av_obj.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
 	self.autopilot_leaving_deceleration_start_flag = false
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
-		if not self.is_auto_pilot then
+		if not self.av_obj.is_auto_pilot then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Interrupted by Canceling")
 			Cron.Halt(timer)
 			return
@@ -2169,55 +2153,55 @@ function Navigation:AutoLanding(height, target_z)
 		end
 
 		-- restore angle 
-		local _, _, _, roll_idle ,pitch_idle ,yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
-		if not self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
+		local _, _, _, roll_idle ,pitch_idle ,yaw_idle = self.av_obj.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
+		if not self.av_obj.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
 			self.log_obj:Record(LogLevel.Warning, "Failed to run angular velocity during landing")
 		end
 
-		local is_detected_ground, search_vector = self:IsWall(Vector4.new(0, 0, -1, 1), self.minimum_distance_to_ground - 0.2, 0, "Vertical", false, "simple")
+		local is_detected_ground, search_vector = self:IsWall(Vector4.new(0, 0, -1, 1), self.av_obj.minimum_distance_to_ground - 0.2, 0, "Vertical", false, "simple")
 		if is_detected_ground then
 			self.log_obj:Record(LogLevel.Info, "Detected Ground, Search Vector:" .. search_vector.x .. ", " .. search_vector.y .. ", " .. search_vector.z)
 		end
 
 		if timer.tick == 1 then
-			self.engine_obj:SetFluctuationVelocityParams(self.autopilot_acceleration, self.autopilot_speed)
-		elseif target_z and self:GetPosition().z <= target_z + self.minimum_distance_to_ground then
+			self.av_obj.engine_obj:SetFluctuationVelocityParams(self.autopilot_acceleration, self.autopilot_speed)
+		elseif target_z and self.av_obj:GetPosition().z <= target_z + self.av_obj.minimum_distance_to_ground then
 			-- Reached destination altitude: stop here even if physical ground is lower.
 			self.log_obj:Record(LogLevel.Info, string.format(
 				"AutoPilot Success: reached destination altitude (current_z=%.1f, target_z=%.1f)",
-				self:GetPosition().z, target_z))
-			self.is_landed = true
-			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
-			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+				self.av_obj:GetPosition().z, target_z))
+			self.av_obj.is_landed = true
+			self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:SuccessAutoPilot()
 			Cron.Halt(timer)
 		elseif timer.tick > down_time_count then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for timeout")
-			self.is_landed = true
-			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
-			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+			self.av_obj.is_landed = true
+			self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:SuccessAutoPilot()
 			Cron.Halt(timer)
-		elseif self:GetHeight() < self.minimum_distance_to_ground then
+		elseif self:GetHeight() < self.av_obj.minimum_distance_to_ground then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for minimum_height")
-			self.is_landed = true
-			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
-			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+			self.av_obj.is_landed = true
+			self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:SuccessAutoPilot()
 			Cron.Halt(timer)
 		elseif self:IsCollision() or is_detected_ground then
 			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for Collision or Ground Detection")
-			self.is_landed = true
-			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
-			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+			self.av_obj.is_landed = true
+			self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:SuccessAutoPilot()
 			Cron.Halt(timer)
 		elseif self:GetHeight() <= deceleration_height and not self.autopilot_leaving_deceleration_start_flag then
 			self.autopilot_leaving_deceleration_start_flag = true
-			self.engine_obj:SetFluctuationVelocityParams(-self.autopilot_acceleration * deceleration_rate, self.autopilot_speed * 0.2)
+			self.av_obj.engine_obj:SetFluctuationVelocityParams(-self.autopilot_acceleration * deceleration_rate, self.autopilot_speed * 0.2)
 		end
 
-		self:MoveThruster({{Def.ActionList.Nothing, 1}})
+		self.av_obj:MoveThruster({{Def.ActionList.Nothing, 1}})
 
 		timer.tick = timer.tick + 1
 	end)
@@ -2226,22 +2210,22 @@ end
 --- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Success.
 
 function Navigation:SuccessAutoPilot()
-	self.is_auto_pilot = false
+	self.av_obj.is_auto_pilot = false
 	self.is_failture_auto_pilot = false
-	self.core_obj:SetAutoPilotHistory()
+	self.av_obj.core_obj:SetAutoPilotHistory()
 	-- Release per-flight caches to prevent memory accumulation.
 	self.iswall_cache           = {}
 	self.safe_streak_count      = 0
 	self.current_global_route   = {}
 	self.sector_penalty_cache   = nil
 	-- Consolidate learning data
-	self:ConsolidateMemory()
+	self.av_obj:ConsolidateMemory()
 end
 
 --- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Failed.
 
 function Navigation:InterruptAutoPilot()
-	self.is_auto_pilot = false
+	self.av_obj.is_auto_pilot = false
 	self.is_failture_auto_pilot = true
 	-- Release per-flight caches to prevent memory accumulation.
 	self.iswall_cache           = {}
@@ -2249,7 +2233,7 @@ function Navigation:InterruptAutoPilot()
 	self.current_global_route   = {}
 	self.sector_penalty_cache   = nil
 	-- Consolidate learning data (failures are important for learning)
-	self:ConsolidateMemory()
+	self.av_obj:ConsolidateMemory()
 end
 
 --- Set AV.is_failture_auto_pilot and get Failture AutoPilot Flag.
@@ -2276,7 +2260,7 @@ function Navigation:ApplyAutopilotSpeed()
 	self.autopilot_searching_range  = 96
 	self.autopilot_searching_step   = math.max(5, math.floor(speed / 5))
 	self.autopilot_min_speed_rate   = 0.4
-	self.autopilot_is_only_horizontal = false
+	self.av_obj.autopilot_is_only_horizontal = false
 end
 
 --- Reload autopilot settings (called from UI settings callback).
@@ -2309,7 +2293,7 @@ end
 --- This function returns collision status.
 ---@return boolean
 function Navigation:IsCollision()
-	return self.engine_obj:IsOnGround()
+	return self.av_obj.engine_obj:IsOnGround()
 end
 
 -- Update exception area bypass status based on distance to destination
@@ -2330,7 +2314,7 @@ end
 function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_exception_area, collision_mode)
 	-- Cache system: greatly reduces computation when no obstacle is present
 	local current_time = Game.GetTimeSystem():GetGameTimeStamp()
-	local current_position = self:GetPosition()
+	local current_position = self.av_obj:GetPosition()
 
 	-- Generate cache key
 	local cache_key = string.format("%.1f_%.1f_%.1f_%d_%s",
@@ -2396,7 +2380,7 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 				math.max(current_position.z, current_position.z), 1.0)
 		end
 
-		local adaptive_distance = distance * (1 + math.min(Vector4.Vector3To4(self.engine_obj.direction_velocity):Length() / 20.0, 2.0) * 0.4)
+		local adaptive_distance = distance * (1 + math.min(Vector4.Vector3To4(self.av_obj.engine_obj.direction_velocity):Length() / 20.0, 2.0) * 0.4)
 		local target_pos = Vector4.new(
 			raycast_start_pos.x + adaptive_distance * search_vec.x,
 			raycast_start_pos.y + adaptive_distance * search_vec.y,
@@ -2404,11 +2388,11 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 			1.0
 		)
 
-		if self.collision_query_filter == nil then
-			self:InitializeCollisionQueryFilter()
+		if self.av_obj.collision_query_filter == nil then
+			self.av_obj:InitializeCollisionQueryFilter()
 		end
 		local is_success, _ = Game.GetSpatialQueriesSystem():SyncRaycastByQueryFilter(
-			raycast_start_pos, target_pos, self.collision_query_filter, false, false)
+			raycast_start_pos, target_pos, self.av_obj.collision_query_filter, false, false)
 		if is_success then
 			self.safe_streak_count = 0  -- Reset
 			self.log_obj:Record(LogLevel.Trace, "Simple check - Wall Detected")
@@ -2441,7 +2425,7 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 	end
 
 	-- Optimized detection with balanced performance and coverage
-	local current_speed = Vector4.Vector3To4(self.engine_obj.direction_velocity):Length()
+	local current_speed = Vector4.Vector3To4(self.av_obj.engine_obj.direction_velocity):Length()
 	local speed_factor = math.min(current_speed / 20.0, 2.0)
 
 	local detection_step = self.collision_check_side_distance
@@ -2449,7 +2433,7 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 	-- Stepwise grid detection system: 3D positioning with right, forward, and up offsets
 	local function check_collision_at_point(offset_right, offset_forward, offset_up)
 		offset_up = offset_up or 0  -- Default to 0 if not provided for backward compatibility
-		local current_position = self:GetPosition()
+		local current_position = self.av_obj:GetPosition()
 
 		-- Calculate position offset: right_vec for left-right, dir_base_vec for front-back, up_vec for up-down
 		current_position.x = current_position.x + right_vec.x * offset_right + dir_base_vec.x * offset_forward + up_vec.x * offset_up
@@ -2458,7 +2442,7 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 
 		-- Ground proximity protection: Prevent raycast start points from going below ground during upward checks
 		-- if swing_direction == "Vertical" and angle >= 0 then  -- Upward vertical check
-		--     local base_position = self:GetPosition()  -- Original vehicle position
+		--     local base_position = self.av_obj:GetPosition()  -- Original vehicle position
 		--     local min_ground_clearance = 1.0  -- Minimum 1m above ground
 		--     if current_position.z < base_position.z - min_ground_clearance then
 		--         -- Raycast start point would be too low, clamp to minimum ground clearance
@@ -2475,11 +2459,11 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 			1.0
 		)
 
-		if self.collision_query_filter == nil then
-			self:InitializeCollisionQueryFilter()
+		if self.av_obj.collision_query_filter == nil then
+			self.av_obj:InitializeCollisionQueryFilter()
 		end
 		local is_success, _ = Game.GetSpatialQueriesSystem():SyncRaycastByQueryFilter(
-			current_position, target_pos, self.collision_query_filter, false, false)
+			current_position, target_pos, self.av_obj.collision_query_filter, false, false)
 		if is_success then
 			self.log_obj:Record(LogLevel.Trace, "Wall Detected")
 			return true
@@ -2717,11 +2701,11 @@ function Navigation:RaycastDist(from_pos, dir_normalized, max_dist)
 		from_pos.x + dir_normalized.x * max_dist,
 		from_pos.y + dir_normalized.y * max_dist,
 		from_pos.z + dir_normalized.z * max_dist, 1)
-	if self.collision_query_filter == nil then
-		self:InitializeCollisionQueryFilter()
+	if self.av_obj.collision_query_filter == nil then
+		self.av_obj:InitializeCollisionQueryFilter()
 	end
 	local hit, result = Game.GetSpatialQueriesSystem():SyncRaycastByQueryFilter(
-		from_pos, target, self.collision_query_filter, false, false)
+		from_pos, target, self.av_obj.collision_query_filter, false, false)
 	if hit then
 		if result and result.position then
 			local dx = result.position.x - from_pos.x
@@ -2749,7 +2733,7 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 	-- emergency-looking upward maneuvers just before landing.
 	local near_final_local_goal = false
 	if self.autopilot_phase == "final_local" then
-		local near_goal_dist = math.max((self.destination_range or 0) * 2.0, self.sector_size * 0.6)
+		local near_goal_dist = math.max((self.av_obj.destination_range or 0) * 2.0, self.sector_size * 0.6)
 		local remaining_horiz = self.dest_remaining_to_final or math.huge
 		if remaining_horiz <= near_goal_dist then
 			near_final_local_goal = true
@@ -2917,11 +2901,11 @@ function Navigation:CollectSphericalRepulsion(from_pos, forward_dir, detect_dist
 			from_pos.x + dx * detect_dist,
 			from_pos.y + dy * detect_dist,
 			from_pos.z + dz * detect_dist, 1)
-		if self.collision_query_filter == nil then
-			self:InitializeCollisionQueryFilter()
+		if self.av_obj.collision_query_filter == nil then
+			self.av_obj:InitializeCollisionQueryFilter()
 		end
 		local hit, result = Game.GetSpatialQueriesSystem():SyncRaycastByQueryFilter(
-			from_pos, end_pos, self.collision_query_filter, false, false)
+			from_pos, end_pos, self.av_obj.collision_query_filter, false, false)
 		if hit and result and result.position then
 			-- Vector from vehicle to hit point
 			local hx = result.position.x - from_pos.x
@@ -2947,3 +2931,4 @@ function Navigation:CollectSphericalRepulsion(from_pos, forward_dir, detect_dist
 end
 
 return Navigation
+

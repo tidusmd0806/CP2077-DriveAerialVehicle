@@ -461,6 +461,11 @@ function Debug:ImGuiAutoPilotInfo()
         ImGui.Text("AV object not available")
         return
     end
+    local nav_obj = av_obj.navigation_obj
+    if not nav_obj then
+        ImGui.Text("Navigation object not available")
+        return
+    end
 
     local function table_count(t)
         if type(t) ~= "table" then return 0 end
@@ -476,20 +481,72 @@ function Debug:ImGuiAutoPilotInfo()
         return string.format("(%.1f, %.1f, %.1f)", v.x or 0, v.y or 0, v.z or 0)
     end
 
-    local phase = tostring(av_obj.autopilot_phase or "unknown")
-    local route_len = (type(av_obj.current_global_route) == "table") and #av_obj.current_global_route or 0
-    local route_idx = tonumber(av_obj.current_route_index) or 0
+    local function get_current_sector_status()
+        local pos = av_obj:GetPosition()
+        if not pos then
+            return "Unknown", "nil"
+        end
+        local sector_key = nav_obj:PositionToSectorKey(pos) or "nil"
+        local ss = tonumber(nav_obj.sector_size) or 20
+        local cs = tonumber(nav_obj.obstacle_cell_size) or 10
+        local sx, sy, sz = nav_obj:ParseSectorKey(sector_key)
+        if not sx then
+            return "Unknown", sector_key
+        end
+
+        local obstacle_count = 0
+        local danger_count = 0
+        local clear_count = 0
+        local unknown_count = 0
+        local total_sampled = 0
+
+        for _, sfx in ipairs({0.2, 0.5, 0.8}) do
+            for _, sfy in ipairs({0.2, 0.5, 0.8}) do
+                for _, sfz in ipairs({0.25, 0.75}) do
+                    local wx = (sx + sfx) * ss
+                    local wy = (sy + sfy) * ss
+                    local wz = (sz + sfz) * ss
+                    local ckey = math.floor(wx / cs) .. "_" .. math.floor(wy / cs) .. "_" .. math.floor(wz / cs)
+                    local cell = nav_obj.obstacle_map[ckey]
+                    total_sampled = total_sampled + 1
+                    if cell == true then
+                        obstacle_count = obstacle_count + 1
+                    elseif cell == "danger" then
+                        danger_count = danger_count + 1
+                    elseif cell == false then
+                        clear_count = clear_count + 1
+                    else
+                        unknown_count = unknown_count + 1
+                    end
+                end
+            end
+        end
+
+        if obstacle_count > 0 then
+            return "Obstacle", sector_key
+        elseif danger_count > 0 then
+            return "Danger", sector_key
+        elseif clear_count == total_sampled then
+            return "Clear", sector_key
+        else
+            return "Unknown", sector_key
+        end
+    end
+
+    local phase = tostring(nav_obj.autopilot_phase or "unknown")
+    local route_len = (type(nav_obj.current_global_route) == "table") and #nav_obj.current_global_route or 0
+    local route_idx = tonumber(nav_obj.current_route_index) or 0
     local route_wp_key = "-"
     if route_len > 0 and route_idx >= 1 and route_idx <= route_len then
-        route_wp_key = tostring(av_obj.current_global_route[route_idx])
+        route_wp_key = tostring(nav_obj.current_global_route[route_idx])
     end
 
     ImGui.Text("=== Auto Pilot Runtime ===")
     ImGui.Text("Active: " .. tostring(av_obj.is_auto_pilot))
     ImGui.Text("Phase: " .. phase)
-    ImGui.Text("Dest Unknown Sector: " .. tostring(av_obj.autopilot_dest_is_unknown))
-    ImGui.Text("Exception Bypass Active: " .. tostring(av_obj.is_exception_area_bypassed))
-    if av_obj.is_deadend_escape_active then
+    ImGui.Text("Dest Unknown Sector: " .. tostring(nav_obj.autopilot_dest_is_unknown))
+    ImGui.Text("Exception Bypass Active: " .. tostring(nav_obj.is_exception_area_bypassed))
+    if nav_obj.is_deadend_escape_active then
         ImGui.TextColored(1, 0.6, 0.0, 1.0, "Dead-end Escape: ACTIVE")
     else
         ImGui.TextColored(0.0, 1.0, 0.0, 1.0, "Dead-end Escape: inactive")
@@ -499,27 +556,30 @@ function Debug:ImGuiAutoPilotInfo()
     ImGui.Text("=== Route / Target ===")
     ImGui.Text(string.format("Route Progress: %d / %d", route_idx, route_len))
     ImGui.Text("Current Waypoint Key: " .. route_wp_key)
-    ImGui.Text("A* Partial Route: " .. tostring(av_obj.astar_is_partial_route))
-    ImGui.Text("Local Target: " .. format_vec3(av_obj.autopilot_local_target))
-    ImGui.Text("Distance to Nav Target: " .. string.format("%.1f m", tonumber(av_obj.dest_dir_vector_norm) or 0))
-    ImGui.Text("Distance to Final Dest: " .. string.format("%.1f m", tonumber(av_obj.dest_remaining_to_final) or 0))
+    ImGui.Text("A* Partial Route: " .. tostring(nav_obj.astar_is_partial_route))
+    ImGui.Text("Local Target: " .. format_vec3(nav_obj.autopilot_local_target))
+    ImGui.Text("Distance to Nav Target: " .. string.format("%.1f m", tonumber(nav_obj.dest_dir_vector_norm) or 0))
+    ImGui.Text("Distance to Final Dest: " .. string.format("%.1f m", tonumber(nav_obj.dest_remaining_to_final) or 0))
 
     ImGui.Separator()
     ImGui.Text("=== Movement / Control ===")
-    ImGui.Text("Autopilot Speed: " .. string.format("%.2f", tonumber(av_obj.autopilot_speed) or 0))
-    ImGui.Text("Speed Reduce Rate: " .. string.format("%.2f", tonumber(av_obj.auto_speed_reduce_rate) or 0))
-    ImGui.Text("Effective Speed: " .. string.format("%.2f", (tonumber(av_obj.autopilot_speed) or 0) * (tonumber(av_obj.auto_speed_reduce_rate) or 0)))
-    ImGui.Text("Search Range: " .. string.format("%.2f / %.2f", tonumber(av_obj.search_range) or 0, tonumber(av_obj.autopilot_searching_range) or 0))
-    ImGui.Text("Auto Angle: " .. tostring(av_obj.autopilot_angle) .. " deg")
-    ImGui.Text("H Sign / V Sign: " .. tostring(av_obj.autopilot_horizontal_sign) .. " / " .. tostring(av_obj.autopilot_vertical_sign))
+    ImGui.Text("Autopilot Speed: " .. string.format("%.2f", tonumber(nav_obj.autopilot_speed) or 0))
+    ImGui.Text("Speed Reduce Rate: " .. string.format("%.2f", tonumber(nav_obj.auto_speed_reduce_rate) or 0))
+    ImGui.Text("Effective Speed: " .. string.format("%.2f", (tonumber(nav_obj.autopilot_speed) or 0) * (tonumber(nav_obj.auto_speed_reduce_rate) or 0)))
+    ImGui.Text("Search Range: " .. string.format("%.2f / %.2f", tonumber(nav_obj.search_range) or 0, tonumber(nav_obj.autopilot_searching_range) or 0))
+    ImGui.Text("Auto Angle: " .. tostring(nav_obj.autopilot_angle) .. " deg")
+    ImGui.Text("H Sign / V Sign: " .. tostring(nav_obj.autopilot_horizontal_sign) .. " / " .. tostring(nav_obj.autopilot_vertical_sign))
 
     ImGui.Separator()
     ImGui.Text("=== Map / Scan ===")
-    ImGui.Text("Obstacle Recording: " .. tostring(av_obj.is_obstacle_map_recording))
-    ImGui.Text("Record Interval: " .. string.format("%.2f s", tonumber(av_obj.obstacle_record_interval) or 0))
-    ImGui.Text("Record Range: " .. string.format("%.1f m", tonumber(av_obj.obstacle_record_range) or 0))
-    ImGui.Text("Dirty Scan Count: " .. tostring(av_obj.autopilot_scan_dirty_count) .. " / " .. tostring(av_obj.autopilot_scan_dirty_threshold))
-    ImGui.Text("Cached Obstacle Cells: " .. tostring(table_count(av_obj.obstacle_map)))
+    ImGui.Text("Obstacle Recording: " .. tostring(nav_obj.is_obstacle_map_recording))
+    ImGui.Text("Record Interval: " .. string.format("%.2f s", tonumber(nav_obj.obstacle_record_interval) or 0))
+    ImGui.Text("Record Range: " .. string.format("%.1f m", tonumber(nav_obj.obstacle_record_range) or 0))
+    ImGui.Text("Dirty Scan Count: " .. tostring(nav_obj.autopilot_scan_dirty_count) .. " / " .. tostring(nav_obj.autopilot_scan_dirty_threshold))
+    ImGui.Text("Cached Obstacle Cells: " .. tostring(table_count(nav_obj.obstacle_map)))
+    local sector_status, sector_key = get_current_sector_status()
+    ImGui.Text("Current Sector: " .. tostring(sector_key))
+    ImGui.Text("Current Sector Status: " .. tostring(sector_status))
 end
 
 function Debug:ImGuiObstacleMap()
@@ -529,6 +589,11 @@ function Debug:ImGuiObstacleMap()
     local av_obj = self.core_obj.av_obj
     if not av_obj then
         ImGui.Text("AV object not available")
+        return
+    end
+    local nav_obj = av_obj.navigation_obj
+    if not nav_obj then
+        ImGui.Text("Navigation object not available")
         return
     end
 
@@ -541,7 +606,7 @@ function Debug:ImGuiObstacleMap()
     local obstacle_count = 0
     local danger_count   = 0
     local clear_count    = 0
-    for _, v in pairs(av_obj.obstacle_map) do
+    for _, v in pairs(nav_obj.obstacle_map) do
         if v == true then
             obstacle_count = obstacle_count + 1
         elseif v == "danger" then
@@ -554,13 +619,13 @@ function Debug:ImGuiObstacleMap()
     ImGui.Text(string.format("Danger cells   : %d  (adjacent to obstacle)", danger_count))
     ImGui.Text(string.format("Clear cells    : %d", clear_count))
     ImGui.Text(string.format("Total cells    : %d", obstacle_count + danger_count + clear_count))
-    ImGui.Text(string.format("Cell size           : %.0f m", av_obj.obstacle_cell_size))
-    ImGui.Text(string.format("Record range        : %.0f m", av_obj.obstacle_record_range))
-    ImGui.Text(string.format("Record interval     : %.2f s", av_obj.obstacle_record_interval))
+    ImGui.Text(string.format("Cell size           : %.0f m", nav_obj.obstacle_cell_size))
+    ImGui.Text(string.format("Record range        : %.0f m", nav_obj.obstacle_record_range))
+    ImGui.Text(string.format("Record interval     : %.2f s", nav_obj.obstacle_record_interval))
     ImGui.Separator()
 
     -- Recording toggle (synced with NativeSettings is_enable_scan_during_autopilot)
-    if av_obj.is_obstacle_map_recording then
+    if nav_obj.is_obstacle_map_recording then
         ImGui.PushStyleColor(ImGuiCol.Button, 0.7, 0.1, 0.1, 1.0)
         if ImGui.Button("STOP Recording") then
             av_obj.navigation_obj:StopObstacleRecording()
@@ -638,8 +703,8 @@ function Debug:ImGuiObstacleMap()
 
     -- Min hits slider removed (binary map: any single hit = obstacle)
     local changed
-    av_obj.obstacle_record_range, changed = ImGui.SliderFloat(
-        "Record range (m)", av_obj.obstacle_record_range, 10.0, 60.0)
+    nav_obj.obstacle_record_range, changed = ImGui.SliderFloat(
+        "Record range (m)", nav_obj.obstacle_record_range, 10.0, 60.0)
     ImGui.Separator()
     ImGui.TextDisabled("Tip: drive around the city with recording ON.")
     ImGui.TextDisabled("A* autopilot will avoid confirmed obstacle sectors.")

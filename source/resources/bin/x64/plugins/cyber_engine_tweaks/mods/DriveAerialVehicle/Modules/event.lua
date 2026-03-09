@@ -407,8 +407,12 @@ function Event:CheckHUD()
     if self:IsAutoMode() then
         self.hud_obj:ToggleOriginalMPHDisplay(true)
         self.hud_obj:EnableManualMeter(true, true)
-        local initial_length = math.floor(self.av_obj.initial_destination_length)
-        local current_length = math.floor(self.av_obj.dest_remaining_to_final)
+        local nav_obj = self.av_obj.navigation_obj
+        local initial_length = math.floor(tonumber(nav_obj and nav_obj.initial_destination_length) or 1)
+        local current_length = math.floor(tonumber(nav_obj and nav_obj.dest_remaining_to_final) or 0)
+        if initial_length < 1 then
+            initial_length = 1
+        end
         self.hud_obj:SetSpeedMeterValue(current_length)
         self.hud_obj:SetRPMMeterValue(math.floor(10 * (1 - current_length / initial_length) + 1))
     else
