@@ -16,6 +16,16 @@ function Core:New()
     obj.queue_obj = Queue:New()
     obj.av_obj = nil
     obj.event_obj = nil
+    obj.is_obstacle_map_loaded_in_session = false
+    obj.is_obstacle_map_loading_in_session = false
+    obj.session_obstacle_map_cache = nil
+    obj.session_obstacle_map_chunk_index = nil
+    obj.session_obstacle_cell_size = nil
+    obj.session_obstacle_map_load_queue = nil
+    obj.session_obstacle_map_load_index = 1
+    obj.session_obstacle_map_load_total = 0
+    obj.session_obstacle_map_loaded_files = 0
+    obj.is_obstacle_map_preload_timer_active = false
     -- static --
     -- lock
     obj.delay_action_time_in_waiting = 0.05
@@ -151,6 +161,56 @@ function Core:Reset()
     self:RestoreFavoriteDestination()
     -- Reset Custom Mappin
     self.current_custom_mappin_position = Vector4.Zero()
+end
+
+function Core:EnsureObstacleMapSessionLoaded()
+    if self.av_obj == nil or self.av_obj.navigation_obj == nil then
+        self.log_obj:Record(LogLevel.Info, "AV object missing on session start. Reinitializing before obstacle map load")
+        self:Reset()
+    end
+
+    if self.av_obj ~= nil and self.av_obj.navigation_obj ~= nil then
+        self.av_obj.navigation_obj:EnsureObstacleMapLoaded()
+        return true
+    end
+
+    self.log_obj:Record(LogLevel.Warning, "Failed to ensure obstacle map session load because AV object is unavailable")
+    return false
+end
+
+function Core:StartObstacleMapSessionPreload()
+    if self.av_obj == nil or self.av_obj.navigation_obj == nil then
+        self.log_obj:Record(LogLevel.Info, "AV object missing on session start. Reinitializing before obstacle map preload")
+        self:Reset()
+    end
+
+    if self.av_obj ~= nil and self.av_obj.navigation_obj ~= nil then
+        self.av_obj.navigation_obj:StartObstacleMapSessionPreload()
+        return true
+    end
+
+    self.log_obj:Record(LogLevel.Warning, "Failed to start obstacle map session preload because AV object is unavailable")
+    return false
+end
+
+function Core:ReleaseObstacleMapSession()
+    if self.av_obj ~= nil and self.av_obj.navigation_obj ~= nil then
+        self.av_obj.navigation_obj:ReleaseObstacleMapSessionCache()
+        return true
+    end
+
+    self.is_obstacle_map_loaded_in_session = false
+    self.is_obstacle_map_loading_in_session = false
+    self.session_obstacle_map_cache = nil
+    self.session_obstacle_map_chunk_index = nil
+    self.session_obstacle_cell_size = nil
+    self.session_obstacle_map_load_queue = nil
+    self.session_obstacle_map_load_index = 1
+    self.session_obstacle_map_load_total = 0
+    self.session_obstacle_map_loaded_files = 0
+    self.is_obstacle_map_preload_timer_active = false
+    self.log_obj:Record(LogLevel.Info, "Obstacle map session cache released without active AV object")
+    return true
 end
 
 --- Load Setting from user_setting.json

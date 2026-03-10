@@ -108,7 +108,7 @@ DAV.user_setting_table = {
     autopilot_selected_index = 0,
     favorite_location_list = DAV.default_favorite_location_table,
     autopilot_speed = 25,  -- Autopilot speed in m/s (5-50)
-    astar_calculation_precision = 67,  -- A* calculation precision 1-100 (maps to 200-30000 iterations)
+    astar_calculation_precision = 100,  -- A* calculation precision 1-100 (maps to 200-100000 iterations)
     is_enable_scan_during_autopilot = true,  -- Scan and update obstacle map during autopilot
     is_enable_history = true,
     --- general

@@ -40,7 +40,6 @@ function Navigation:New(av_obj)
 	obj.is_exception_area_bypassed = false
 
 	-- Route / A* state
-	obj.sector_size = 20
 	obj.current_global_route = {}
 	obj.current_route_index = 1
 	obj.last_route_plan_time = 0
@@ -56,26 +55,40 @@ function Navigation:New(av_obj)
 	obj.local_avoidance_stuck_escape_time = 0
 	obj.local_avoidance_net_check_dist = nil
 	obj.local_avoidance_net_check_time = 0
+	local core_obj = av_obj.core_obj
 
 	-- Obstacle map and scan state
-	obj.obstacle_map = {}
-	obj.obstacle_cell_size = 10.0
+	obj.obstacle_map = core_obj.session_obstacle_map_cache or {}
+	obj.obstacle_cell_size = core_obj.session_obstacle_cell_size or 10.0
+	obj.sector_size = obj.obstacle_cell_size
 	obj.obstacle_map_path = "Data/obstacle_map.dat"
 	obj.obstacle_map_dir = "Data/map"
 	obj.obstacle_map_chunk_cells = 50
 	obj.obstacle_map_dirty_chunks = {}
 	obj.obstacle_map_dirty_cells = {}
-	obj.obstacle_map_chunk_index = {}
+	obj.obstacle_map_chunk_index = core_obj.session_obstacle_map_chunk_index or {}
 	obj.obstacle_map_dir_ok = false
 	obj.route_save_path = "Data/last_route.json"
 	obj.is_obstacle_map_recording = false
 	obj.obstacle_record_interval = 0.2
 	obj.obstacle_record_range = 60.0
+	obj.is_obstacle_map_loaded = core_obj.is_obstacle_map_loaded_in_session or false
+	obj.is_obstacle_map_loading = core_obj.is_obstacle_map_loading_in_session or false
+	obj.obstacle_map_load_queue = core_obj.session_obstacle_map_load_queue or {}
+	obj.obstacle_map_load_index = core_obj.session_obstacle_map_load_index or 1
+	obj.obstacle_map_load_total = core_obj.session_obstacle_map_load_total or 0
+	obj.obstacle_map_loaded_files = core_obj.session_obstacle_map_loaded_files or 0
+	obj.obstacle_map_preload_duration = 0.0
+	obj.obstacle_map_preload_tick = 0.01
 
 	-- Navigation phase state
 	obj.autopilot_phase = "astar"
 	obj.autopilot_local_target = nil
 	obj.autopilot_dest_is_unknown = false
+	obj.autopilot_dest_requires_final_local = false
+	obj.autopilot_dest_cell_status = "unknown"
+	obj.autopilot_astar_target_position = nil
+	obj.autopilot_astar_target_status = "unknown"
 	obj.autopilot_scan_dirty_count = 0
 	obj.autopilot_scan_dirty_threshold = 150
 	obj.autopilot_scan_last_save_time = 0
@@ -88,15 +101,255 @@ function Navigation:New(av_obj)
 	return setmetatable(obj, self)
 end
 
---- Convert position to sector key
+function Navigation:SyncRouteNodeSize()
+	self.sector_size = tonumber(self.obstacle_cell_size) or 10.0
+end
+
+function Navigation:SyncObstacleMapSessionState()
+	local core_obj = self.av_obj.core_obj
+	core_obj.is_obstacle_map_loaded_in_session = self.is_obstacle_map_loaded
+	core_obj.is_obstacle_map_loading_in_session = self.is_obstacle_map_loading
+	core_obj.session_obstacle_map_cache = self.obstacle_map
+	core_obj.session_obstacle_map_chunk_index = self.obstacle_map_chunk_index
+	core_obj.session_obstacle_cell_size = self.obstacle_cell_size
+	core_obj.session_obstacle_map_load_queue = self.obstacle_map_load_queue
+	core_obj.session_obstacle_map_load_index = self.obstacle_map_load_index
+	core_obj.session_obstacle_map_load_total = self.obstacle_map_load_total
+	core_obj.session_obstacle_map_loaded_files = self.obstacle_map_loaded_files
+end
+
+function Navigation:ClearObstacleMapLoadState()
+	self.is_obstacle_map_loading = false
+	self.obstacle_map_load_queue = {}
+	self.obstacle_map_load_index = 1
+	self.obstacle_map_load_total = 0
+	self.obstacle_map_loaded_files = 0
+	self.av_obj.core_obj.is_obstacle_map_preload_timer_active = false
+	self:SyncObstacleMapSessionState()
+end
+
+function Navigation:FinalizeObstacleMapLoad(log_message)
+	self.is_obstacle_map_loaded = true
+	self:ClearObstacleMapLoadState()
+	self:SyncRouteNodeSize()
+	if log_message then
+		self.log_obj:Record(LogLevel.Info, log_message)
+	end
+	return true
+end
+
+function Navigation:LoadObstacleMapChunkFile(path, is_diff)
+	local file = io.open(path, "r")
+	if not file then return 0 end
+	local raw = file:read("*all")
+	file:close()
+	if not raw or raw == "" then return 0 end
+	if not is_diff then
+		local cs = raw:match("^DAV_OBMAP v3 cell_size=([%d%.]+)")
+		if not cs then return 0 end
+		self.obstacle_cell_size = tonumber(cs) or 10.0
+		self:SyncRouteNodeSize()
+	end
+	local n = 0
+	for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
+		local key = cellx .. "_" .. celly .. "_" .. cellz
+		local ival = tonumber(val) or 0
+		local new_val
+		if ival >= 2 then
+			new_val = true
+		elseif ival == 1 then
+			new_val = "danger"
+		else
+			new_val = false
+		end
+		self:SetObstacleCellNoDirty(key, new_val)
+		self:RegisterCellInChunkIndex(key)
+		n = n + 1
+	end
+	return n
+end
+
+function Navigation:BuildObstacleMapLoadQueue()
+	self:MigrateOldObstacleMap()
+	self.obstacle_map_dirty_chunks = {}
+	self.obstacle_map_dirty_cells = {}
+
+	local load_queue = {}
+	local used_enum = false
+	if io.popen then
+		local dir_win = self.obstacle_map_dir:gsub("/", "\\")
+		local dat_pipe = io.popen('dir /b "' .. dir_win .. '\\chunk_*.dat" 2>nul')
+		if dat_pipe then
+			for filename in dat_pipe:lines() do
+				local cx, cy = filename:match("^chunk_(-?%d+)_(-?%d+)%.dat$")
+				if cx and cy then
+					load_queue[#load_queue + 1] = {
+						path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".dat",
+						is_diff = false,
+					}
+				end
+			end
+			dat_pipe:close()
+			used_enum = true
+		end
+		local diff_pipe = io.popen('dir /b "' .. dir_win .. '\\chunk_*.diff" 2>nul')
+		if diff_pipe then
+			for filename in diff_pipe:lines() do
+				local cx, cy = filename:match("^chunk_(-?%d+)_(-?%d+)%.diff$")
+				if cx and cy then
+					load_queue[#load_queue + 1] = {
+						path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".diff",
+						is_diff = true,
+					}
+				end
+			end
+			diff_pipe:close()
+		end
+	end
+
+	if not used_enum then
+		for cx = -10, 10 do
+			for cy = -10, 10 do
+				load_queue[#load_queue + 1] = {
+					path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".dat",
+					is_diff = false,
+				}
+				load_queue[#load_queue + 1] = {
+					path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".diff",
+					is_diff = true,
+				}
+			end
+		end
+	end
+
+	return load_queue, used_enum and "enum" or "probe"
+end
+
+function Navigation:ProcessObstacleMapLoadBatch(max_files)
+	if not self.is_obstacle_map_loading then
+		return true, 0, 0
+	end
+
+	local processed_files = 0
+	local loaded_cells = 0
+	local queue = self.obstacle_map_load_queue or {}
+	while self.obstacle_map_load_index <= #queue and processed_files < max_files do
+		local job = queue[self.obstacle_map_load_index]
+		self.obstacle_map_load_index = self.obstacle_map_load_index + 1
+		processed_files = processed_files + 1
+		loaded_cells = loaded_cells + self:LoadObstacleMapChunkFile(job.path, job.is_diff)
+		self.obstacle_map_loaded_files = self.obstacle_map_loaded_files + 1
+	end
+
+	self.obstacle_map_dirty_chunks = {}
+	self.obstacle_map_dirty_cells = {}
+	self:SyncObstacleMapSessionState()
+
+	if self.obstacle_map_load_index > #queue then
+		self:FinalizeObstacleMapLoad(string.format(
+			"Obstacle map loaded: %d files processed over staged preload",
+			self.obstacle_map_loaded_files))
+		return true, processed_files, loaded_cells
+	end
+
+	return false, processed_files, loaded_cells
+end
+
+function Navigation:StartObstacleMapSessionPreload()
+	if self.is_obstacle_map_loaded then
+		self:SyncRouteNodeSize()
+		return true
+	end
+	if self.is_obstacle_map_loading then
+		return true
+	end
+
+	local load_queue, load_mode = self:BuildObstacleMapLoadQueue()
+	self.obstacle_map_load_queue = load_queue
+	self.obstacle_map_load_index = 1
+	self.obstacle_map_load_total = #load_queue
+	self.obstacle_map_loaded_files = 0
+	self.is_obstacle_map_loading = #load_queue > 0
+	self:SyncObstacleMapSessionState()
+
+	if #load_queue == 0 then
+		return self:FinalizeObstacleMapLoad("Obstacle map preload skipped: no chunk files found")
+	end
+
+	local files_per_tick = 1
+	local tick_interval = self.obstacle_map_preload_tick
+	self.log_obj:Record(LogLevel.Info, string.format(
+		"Obstacle map staged preload started: %d files with %.2fs tick (%d files/tick, %s)",
+		#load_queue, tick_interval, files_per_tick, load_mode))
+
+	local finished = self:ProcessObstacleMapLoadBatch(files_per_tick)
+	if finished then
+		return true
+	end
+
+	if self.av_obj.core_obj.is_obstacle_map_preload_timer_active then
+		return true
+	end
+	self.av_obj.core_obj.is_obstacle_map_preload_timer_active = true
+	Cron.Every(tick_interval, function(timer)
+		if not self.is_obstacle_map_loading then
+			self.av_obj.core_obj.is_obstacle_map_preload_timer_active = false
+			Cron.Halt(timer)
+			return
+		end
+		local tick_finished = self:ProcessObstacleMapLoadBatch(files_per_tick)
+		if tick_finished then
+			self.av_obj.core_obj.is_obstacle_map_preload_timer_active = false
+			Cron.Halt(timer)
+		end
+	end)
+	return true
+end
+
+function Navigation:EnsureObstacleMapLoaded()
+	if self.is_obstacle_map_loaded then
+		self:SyncRouteNodeSize()
+		return
+	end
+
+	if self.is_obstacle_map_loading then
+		self.log_obj:Record(LogLevel.Info, "Obstacle map staged preload still running; completing remaining load immediately")
+		while self.is_obstacle_map_loading do
+			self:ProcessObstacleMapLoadBatch(32)
+		end
+		return
+	end
+
+	self:LoadObstacleMap()
+	self:FinalizeObstacleMapLoad("Obstacle map loaded once for this session")
+end
+
+function Navigation:ReleaseObstacleMapSessionCache()
+	self.obstacle_map = {}
+	self.obstacle_map_chunk_index = {}
+	self.obstacle_map_dirty_chunks = {}
+	self.obstacle_map_dirty_cells = {}
+	self.obstacle_cell_size = 10.0
+	self:SyncRouteNodeSize()
+	self.is_obstacle_map_loaded = false
+	self:ClearObstacleMapLoadState()
+	self.av_obj.core_obj.is_obstacle_map_loaded_in_session = false
+	self.av_obj.core_obj.session_obstacle_map_cache = nil
+	self.av_obj.core_obj.session_obstacle_map_chunk_index = nil
+	self.av_obj.core_obj.session_obstacle_cell_size = nil
+	self.log_obj:Record(LogLevel.Info, "Obstacle map session cache released")
+end
+
+--- Convert position to route-cell key
 ---@param position Vector4 Position in world space
 ---@return string|nil sector_key Format: "x_y_z", or nil if position is invalid
 function Navigation:PositionToSectorKey(position)
 	if not position then return nil end
 
-	local sx = math.floor(position.x / self.sector_size)
-	local sy = math.floor(position.y / self.sector_size)
-	local sz = math.floor(position.z / self.sector_size)
+	local node_size = self.sector_size or self.obstacle_cell_size
+	local sx = math.floor(position.x / node_size)
+	local sy = math.floor(position.y / node_size)
+	local sz = math.floor(position.z / node_size)
 
 	return string.format("%d_%d_%d", sx, sy, sz)
 end
@@ -122,7 +375,7 @@ function Navigation:ParseSectorKey(key)
 	return sx, sy, sz
 end
 
---- Get sector center position from key
+--- Get route-cell center position from key
 ---@param sector_key string Sector key "x_y_z"
 ---@return Vector4|nil Sector center position
 function Navigation:SectorKeyToPosition(sector_key)
@@ -132,11 +385,12 @@ function Navigation:SectorKeyToPosition(sector_key)
 	if not sx then return nil end
 
 	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
+	local node_size = self.sector_size or self.obstacle_cell_size
 
 	return Vector4.new(
-		(sx + 0.5) * self.sector_size,
-		(sy + 0.5) * self.sector_size,
-		(sz + 0.5) * self.sector_size,
+		(sx + 0.5) * node_size,
+		(sy + 0.5) * node_size,
+		(sz + 0.5) * node_size,
 		1
 	)
 end
@@ -198,11 +452,10 @@ end
 ---@param to_key string Destination sector key
 ---@return number Movement cost (distance + accessibility penalty + connectivity check)
 function Navigation:GetSectorMovementCost(from_key, to_key)
-	-- Base cost depends only on the direction offset (from->to), not sector content.
-	-- Penalty depends only on the destination sector (to_key), so we cache it.
+	-- Base cost depends only on the direction offset (from->to), not cell content.
+	-- Penalty depends only on the destination cell (to_key), so we cache it.
 	local fx, fy, fz = self:ParseSectorKey(from_key)
 	local tx, ty, tz = self:ParseSectorKey(to_key)
-
 	if not fx or not tx then return 1.0 end
 
 	local dx = tx - fx
@@ -210,7 +463,7 @@ function Navigation:GetSectorMovementCost(from_key, to_key)
 	local dz = tz - fz
 	local base_cost = math.sqrt(dx*dx + dy*dy + dz*dz)
 
-	-- Penalty cache: computed once per unique destination sector per A* run.
+	-- Penalty cache: computed once per unique destination cell per A* run.
 	-- Cache is initialised in PlanGlobalRoute and cleared afterwards.
 	if self.sector_penalty_cache then
 		local cached = self.sector_penalty_cache[to_key]
@@ -221,65 +474,22 @@ function Navigation:GetSectorMovementCost(from_key, to_key)
 
 	-- ==== Penalty computation (runs once per unique to_key) ====
 
-	-- CRITICAL: Block underground sectors (Z <= 0)
+	-- CRITICAL: Block underground cells (Z <= 0)
 	if tz <= 0 then
 		if self.sector_penalty_cache then self.sector_penalty_cache[to_key] = 10000000.0 end
 		return base_cost * 10000000.0
 	end
 
-	local cs = self.obstacle_cell_size
-	local ss = self.sector_size
-
-	-- Obstacle map penalty (ternary): sample 18 cells overlapping this sector.
-	-- sector_size=20m, cell_size=10m -> ~2x2x2 cells per sector.
-	-- Values: true=obstacle, "danger"=adjacent-to-obstacle, false=clear, nil=unknown
-	local obstacle_count = 0
-	local danger_count   = 0
-	local clear_count    = 0
-	local unknown_count  = 0
-	local total_sampled  = 0
-	for _, sfx in ipairs({0.2, 0.5, 0.8}) do
-		for _, sfy in ipairs({0.2, 0.5, 0.8}) do
-			for _, sfz in ipairs({0.25, 0.75}) do
-				local wx = (tx + sfx) * ss
-				local wy = (ty + sfy) * ss
-				local wz = (tz + sfz) * ss
-				local ckey = math.floor(wx/cs) .. "_" .. math.floor(wy/cs) .. "_" .. math.floor(wz/cs)
-				local cell = self.obstacle_map[ckey]
-				total_sampled = total_sampled + 1
-				if cell == true then
-					obstacle_count = obstacle_count + 1
-				elseif cell == "danger" then
-					danger_count = danger_count + 1
-				elseif cell == false then
-					clear_count = clear_count + 1
-				else
-					unknown_count = unknown_count + 1
-				end
-			end
-		end
-	end
-
 	local obstacle_penalty
-	if obstacle_count > 0 then
-		-- Obstacle cells present: high penalty proportional to density (max 501)
-		obstacle_penalty = 1.0 + (obstacle_count / total_sampled) * 500.0
-	elseif unknown_count > 0 then
-		-- Unknown cells present: prefer danger over unknown, so unknown carries a
-		-- higher base penalty. Danger cells in the same sector soften it slightly
-		-- because they represent known information about the area.
-		--   all unknown  -> 1.0 + 1.0 * 4.0           = 5.0
-		--   half unknown + half danger -> 1.0 + 0.5*4.0 + 0.5*1.5 = 3.75
-		local unknown_ratio = unknown_count / total_sampled
-		local danger_ratio  = danger_count  / total_sampled
-		obstacle_penalty = 1.0 + unknown_ratio * 4.0 + danger_ratio * 1.5
-	elseif danger_count > 0 then
-		-- Only danger cells (no obstacle, no unknown): medium penalty (max 2.5)
-		-- Lower than unknown -> A* prefers known-danger over unknown territory
-		obstacle_penalty = 1.0 + (danger_count / total_sampled) * 1.5
-	else
-		-- All cells confirmed clear: slight bonus for known-safe corridors
+	local cell = self.obstacle_map[to_key]
+	if cell == true then
+		obstacle_penalty = 500.0
+	elseif cell == "danger" then
+		obstacle_penalty = 2.5
+	elseif cell == false then
 		obstacle_penalty = 0.8
+	else
+		obstacle_penalty = 500.0
 	end
 
 	-- Store in cache for reuse within this A* run
@@ -293,7 +503,7 @@ end
 --- Plan global route using A* algorithm
 ---@param start_pos Vector4 Start position
 ---@param end_pos Vector4 End position
----@return table Route as list of sector keys
+---@return table Route as list of cell keys
 function Navigation:PlanGlobalRoute(start_pos, end_pos)
 	if not start_pos or not end_pos then
 		return {}
@@ -312,7 +522,7 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 		return {}
 	end
 
-	-- Same sector, no need for pathfinding
+	-- Same cell, no need for pathfinding
 	if start_key == end_key then
 		return {start_key}
 	end
@@ -378,8 +588,8 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 	f_score[start_key] = start_h
 	heap_push(start_key, start_h)
 
-	local precision = math.max(1, math.min(100, DAV.user_setting_table.astar_calculation_precision or 67))
-	local max_iterations = math.floor(200 + ((precision - 1) / 99) * (30000 - 200) + 0.5)
+	local precision = math.max(1, math.min(100, DAV.user_setting_table.astar_calculation_precision or 100))
+	local max_iterations = math.floor(200 + ((precision - 1) / 99) * (100000 - 200) + 0.5)
 	local iterations = 0
 
 	while heap_size > 0 and iterations < max_iterations do
@@ -404,7 +614,7 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 				end
 				self.astar_is_partial_route = false
 				self.log_obj:Record(LogLevel.Info, string.format(
-					"A* route planned: %d sectors, %d iterations from %s to %s (penalty_cache=%d coord_cache=%d)",
+					"A* route planned: %d cells, %d iterations from %s to %s (penalty_cache=%d coord_cache=%d)",
 					#route, iterations, start_key, end_key,
 					(function() local n=0; for _ in pairs(self.sector_penalty_cache) do n=n+1 end; return n end)(),
 					(function() local n=0; for _ in pairs(self.astar_coord_cache) do n=n+1 end; return n end)()))
@@ -427,7 +637,7 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 			for _, neighbor in ipairs(neighbors) do
 				if not closed_set[neighbor] then
 					local move_cost = self:GetSectorMovementCost(current, neighbor)
-					-- Skip impassable sectors (underground / exception area).
+					-- Skip impassable cells (underground / exception area).
 					-- Impassable returns base_cost * 1e7; max legitimate cost ~= 709, so 1e5 is safe.
 					if move_cost < 1e5 then
 						local tentative_g = (g_score[current] or math.huge) + move_cost
@@ -458,17 +668,17 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 		end
 		self.astar_is_partial_route = true
 		self.log_obj:Record(LogLevel.Warning, string.format(
-			"A* incomplete after %d iterations, using partial route to closest explored node: %d sectors (distance to goal: %.1f)",
+			"A* incomplete after %d iterations, using partial route to closest explored node: %d cells (distance to goal: %.1f)",
 			iterations, #partial_route, best_partial_dist * self.sector_size))
 		self.sector_penalty_cache = nil
 		self.astar_coord_cache    = nil
 		return partial_route
 	end
 
-	-- No valid path found through known sectors.
+	-- No valid path found through known cells.
 	self.astar_is_partial_route = true
 	self.log_obj:Record(LogLevel.Warning, string.format(
-		"A* pathfinding failed after %d iterations - no path through known sectors (start=%s, end=%s, open=%d, closed=%d)",
+		"A* pathfinding failed after %d iterations - no path through known cells (start=%s, end=%s, open=%d, closed=%d)",
 		iterations, start_key, end_key, open_count, closed_count))
 	self.sector_penalty_cache = nil
 	self.astar_coord_cache    = nil
@@ -476,7 +686,7 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 end
 
 --- Save the last planned A* route to JSON for external visualization.
----@param route table List of sector keys ("sx_sy_sz")
+---@param route table List of cell keys ("sx_sy_sz")
 ---@param start_pos Vector4 Actual start world position
 ---@param end_pos Vector4 Actual end world position
 function Navigation:SaveLastRoute(route, start_pos, end_pos)
@@ -495,6 +705,7 @@ function Navigation:SaveLastRoute(route, start_pos, end_pos)
 		end
 		local data = {
 			version     = 1,
+			cell_size   = self.sector_size,
 			sector_size = self.sector_size,
 			timestamp   = os.time(),
 			start_pos   = {x = start_pos.x, y = start_pos.y, z = start_pos.z},
@@ -1058,6 +1269,7 @@ function Navigation:LoadObstacleMap()
 		local cs = raw:match("^DAV_OBMAP v3 cell_size=([%d%.]+)")
 		if not cs then return 0 end
 		self.obstacle_cell_size = tonumber(cs) or 10.0
+			self:SyncRouteNodeSize()
 		local n = 0
 		for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
 			local key = cellx .. "_" .. celly .. "_" .. cellz
@@ -1180,6 +1392,10 @@ function Navigation:LoadObstacleMap()
 	if not ok then
 		self.log_obj:Record(LogLevel.Warning, "LoadObstacleMap failed: " .. tostring(err))
 	end
+	self:SyncRouteNodeSize()
+	self.av_obj.core_obj.session_obstacle_map_cache = self.obstacle_map
+	self.av_obj.core_obj.session_obstacle_map_chunk_index = self.obstacle_map_chunk_index
+	self.av_obj.core_obj.session_obstacle_cell_size = self.obstacle_cell_size
 end
 
 --- Cast rays using the same Fibonacci sphere pattern as local avoidance (N=32).
@@ -1237,8 +1453,9 @@ end
 --- Registers a Cron timer; subsequent calls while already running are no-ops.
 function Navigation:StartObstacleRecording()
 	if self.is_obstacle_map_recording then return end
-	-- Merge with any previously saved data so new scans accumulate on top
-	self:LoadObstacleMap()
+	if not self.is_obstacle_map_loaded and not self.is_obstacle_map_loading then
+		self:StartObstacleMapSessionPreload()
+	end
 	self.is_obstacle_map_recording = true
 	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STARTED (merged with saved map)")
 	local scan_count = 0
@@ -1361,13 +1578,13 @@ function Navigation:AutoPilot()
 		"Destination altitude adjusted: original=%.1f, flight_alt=%.1f, final=%.1f",
 		destination_position.z, target_altitude, adjusted_z))
 	
-	-- Debug: Log sector keys for start and destination
-	local start_sector = self:PositionToSectorKey(current_position)
-	local dest_sector = self:PositionToSectorKey(altitude_adjusted_destination)
+	-- Debug: Log cell keys for start and destination
+	local start_cell = self:PositionToSectorKey(current_position)
+	local dest_cell = self:PositionToSectorKey(altitude_adjusted_destination)
 	self.log_obj:Record(LogLevel.Info, string.format(
-		"Route planning: start_sector=%s (pos: %.1f, %.1f, %.1f), dest_sector=%s (pos: %.1f, %.1f, %.1f)",
-		start_sector or "nil", current_position.x, current_position.y, current_position.z,
-		dest_sector or "nil", altitude_adjusted_destination.x, altitude_adjusted_destination.y, altitude_adjusted_destination.z))
+		"Route planning: start_cell=%s (pos: %.1f, %.1f, %.1f), dest_cell=%s (pos: %.1f, %.1f, %.1f)",
+		start_cell or "nil", current_position.x, current_position.y, current_position.z,
+		dest_cell or "nil", altitude_adjusted_destination.x, altitude_adjusted_destination.y, altitude_adjusted_destination.z))
 
 	-- autopilot parameter initialize
 	self.autopilot_angle = 0
@@ -1385,59 +1602,65 @@ function Navigation:AutoPilot()
 	-- Yaw smoothing reset
 	self.yaw_target_smoothed = nil
 
-	--- NEW: Initialize sector navigation system
+	--- NEW: Initialize cell navigation system
 	self:InitializeSectorSystem()
 
 	-- Determine navigation phases based on start/destination knowledge
 	local ap_start_known = self:IsSectorAreaKnown(current_position)
-	local ap_dest_known  = self:IsSectorAreaKnown(altitude_adjusted_destination)
+	local ap_dest_status = self:GetObstacleCellStatusAtPosition(altitude_adjusted_destination)
+	local ap_dest_known  = ap_dest_status ~= "unknown"
+	local ap_dest_traversable = ap_dest_status == "clear" or ap_dest_status == "danger"
 	self.autopilot_scan_dirty_count    = 0
 	self.autopilot_scan_last_save_time = os.clock()
-	self.autopilot_dest_is_unknown     = not ap_dest_known
+	self.autopilot_dest_is_unknown     = ap_dest_status == "unknown"
+	self.autopilot_dest_requires_final_local = not ap_dest_traversable
+	self.autopilot_dest_cell_status = ap_dest_status
+	self.autopilot_astar_target_position = nil
+	self.autopilot_astar_target_status = "unknown"
 	self.astar_local_avoidance_recheck_time    = 0
 
 	if not ap_start_known then
-		-- Phase start_local: start is in unknown sector.
-		-- Navigate to nearest known sector using local avoidance + scanning, then switch to A*.
+		-- Phase start_local: start is in an unknown cell.
+		-- Navigate to the nearest known cell using local avoidance + scanning, then switch to A*.
 		local nearest, dist = self:FindNearestKnownSectorPos(current_position)
 		if nearest then
 			self.autopilot_phase        = "start_local"
 			self.autopilot_local_target = nearest
 			self.log_obj:Record(LogLevel.Info, string.format(
-				"AutoPilot [start_local]: start in UNKNOWN sector - navigating to nearest known sector (%.0fm away)",
+				"AutoPilot [start_local]: start in UNKNOWN cell - navigating to nearest known cell (%.0fm away)",
 				dist))
 		else
-			-- No known sectors at all: navigate entire route with local avoidance
+			-- No known cells at all: navigate entire route with local avoidance
 			self.autopilot_phase        = "final_local"
 			self.autopilot_local_target = altitude_adjusted_destination
 			self.log_obj:Record(LogLevel.Info,
-				"AutoPilot [final_local]: no known sectors exist - full local avoidance mode")
+				"AutoPilot [final_local]: no known cells exist - full local avoidance mode")
 		end
 		self.current_global_route = {}
 		self.current_route_index  = 1
 	else
-		-- Phase astar: start is in known sector - plan an A* route.
-		-- If destination is unknown, route to nearest known sector near dest, then final_local.
+		-- Phase astar: start is in a known cell - plan an A* route.
+		-- If destination is unknown or blocked, route to the nearest clear/danger cell near dest, then final_local.
 		self.autopilot_phase        = "astar"
 		self.autopilot_local_target = nil
 		local astar_dest = altitude_adjusted_destination
-		if not ap_dest_known then
-			local nearest, dist = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+		if self.autopilot_dest_requires_final_local then
+			local nearest, nearest_status, dist = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, true)
 			if nearest then
 				astar_dest = nearest
 				self.log_obj:Record(LogLevel.Info, string.format(
-					"AutoPilot [astar]: destination UNKNOWN - A* routes to nearest known (%.1f, %.1f, %.1f, %.0fm away), then local avoidance",
-					astar_dest.x, astar_dest.y, astar_dest.z, dist))
+					"AutoPilot [astar]: destination %s - A* routes to nearest reachable %s cell (%.1f, %.1f, %.1f, %.0fm away), then local avoidance",
+					ap_dest_status, nearest_status, astar_dest.x, astar_dest.y, astar_dest.z, dist))
 			else
-				-- No known sectors: fallback to full local avoidance
+				-- No reachable known cells: fallback to full local avoidance
 				self.autopilot_phase        = "final_local"
 				self.autopilot_local_target = altitude_adjusted_destination
 				self.log_obj:Record(LogLevel.Info,
-					"AutoPilot [final_local]: no known sectors - full local avoidance mode")
+					"AutoPilot [final_local]: no clear/danger cells near destination - full local avoidance mode")
 			end
 		else
 			self.log_obj:Record(LogLevel.Info,
-				"AutoPilot [astar]: start and destination both in KNOWN sectors - pure A* navigation")
+				"AutoPilot [astar]: start and destination both in KNOWN cells - pure A* navigation")
 		end
 		if self.autopilot_phase == "astar" then
 			self.current_global_route = self:PlanGlobalRoute(current_position, astar_dest)
@@ -1478,15 +1701,15 @@ function Navigation:AutoPilot()
 		local current_time = os.clock()
 
 		-- === Phase management ===
-		-- Transition: start_local -> astar when vehicle enters a known sector.
+		-- Transition: start_local -> astar when vehicle enters a known cell.
 		if self.autopilot_phase == "start_local" and self:IsSectorAreaKnown(current_position) then
 			-- Save suppressed during autopilot to avoid I/O stutter affecting A* route.
 			self.autopilot_scan_dirty_count = 0
 			self.autopilot_phase        = "astar"
 			self.autopilot_local_target = nil
 			local astar_dest = altitude_adjusted_destination
-			if self.autopilot_dest_is_unknown then
-				local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+			if self.autopilot_dest_requires_final_local then
+				local nearest = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, true)
 				if nearest then astar_dest = nearest end
 			end
 			self.current_global_route = self:PlanGlobalRoute(current_position, astar_dest)
@@ -1496,7 +1719,7 @@ function Navigation:AutoPilot()
 			self.local_avoidance_stuck_escape_time = 0
 			self.local_avoidance_net_check_dist    = nil
 			self.local_avoidance_net_check_time    = 0
-			self.log_obj:Record(LogLevel.Info, "AutoPilot [start_local->astar]: entered known sector, A* route planned")
+			self.log_obj:Record(LogLevel.Info, "AutoPilot [start_local->astar]: entered known cell, A* route planned")
 		end
 
 		-- Scanning: handled entirely by StartObstacleRecording()'s Cron timer.
@@ -1583,8 +1806,8 @@ function Navigation:AutoPilot()
 				if self.astar_is_partial_route
 					and horiz_to_final > self.sector_size * 2 then
 					local replan_dest = altitude_adjusted_destination
-					if self.autopilot_dest_is_unknown then
-						local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+					if self.autopilot_dest_requires_final_local then
+						local nearest = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, false)
 						if nearest then replan_dest = nearest end
 					end
 					local new_route = self:PlanGlobalRoute(current_position, replan_dest)
@@ -1634,8 +1857,8 @@ function Navigation:AutoPilot()
 			and self.autopilot_phase == "astar"
 			and (os.clock() - self.last_route_plan_time) > 1.0 then
 			local replan_dest = altitude_adjusted_destination
-			if self.autopilot_dest_is_unknown then
-				local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+			if self.autopilot_dest_requires_final_local then
+				local nearest = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, false)
 				if nearest then replan_dest = nearest end
 			end
 			local new_route = self:PlanGlobalRoute(current_position, replan_dest)
@@ -1671,15 +1894,15 @@ function Navigation:AutoPilot()
 		end
 
 		-- === astar_local_avoidance phase: local-avoidance fallback while A* can't make progress ===
-		-- Every 5s, if current sector is known, replan A* and resume if progress >= 50m.
+		-- Every 5s, if current cell is known, replan A* and resume if progress >= 50m.
 		if self.autopilot_phase == "astar_local_avoidance"
 			and horiz_to_final > self.sector_size * 2
 			and (os.clock() - self.astar_local_avoidance_recheck_time) > 5.0 then
 			self.astar_local_avoidance_recheck_time = os.clock()
 			if self:IsSectorAreaKnown(current_position) then
 				local replan_dest = altitude_adjusted_destination
-				if self.autopilot_dest_is_unknown then
-					local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+				if self.autopilot_dest_requires_final_local then
+					local nearest = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, false)
 					if nearest then replan_dest = nearest end
 				end
 				local new_route = self:PlanGlobalRoute(current_position, replan_dest)
@@ -1707,18 +1930,18 @@ function Navigation:AutoPilot()
 				end
 			else
 				self.log_obj:Record(LogLevel.Debug,
-					"astar_local_avoidance recheck: current sector unknown, continue local avoidance")
+					"astar_local_avoidance recheck: current cell unknown, continue local avoidance")
 			end
 		end
 
-		-- start_local: override nav_target to the nearest known sector (local intermediate target)
+		-- start_local: override nav_target to the nearest known cell (local intermediate target)
 		if self.autopilot_phase == "start_local" and self.autopilot_local_target then
 			nav_target = self.autopilot_local_target
 		end
 
-		-- Phase transition: astar -> final_local when A* route is exhausted and destination is unknown.
+		-- Phase transition: astar -> final_local when A* route is exhausted and destination needs local approach.
 		if self.autopilot_phase == "astar"
-			and self.autopilot_dest_is_unknown
+			and self.autopilot_dest_requires_final_local
 			and self.current_route_index > #self.current_global_route
 			and horiz_to_final > self.sector_size then
 			self.autopilot_phase           = "final_local"
@@ -1801,8 +2024,8 @@ function Navigation:AutoPilot()
 				self.autopilot_phase        = "astar"
 				self.autopilot_local_target = nil
 				local astar_dest = altitude_adjusted_destination
-				if self.autopilot_dest_is_unknown then
-					local nearest = self:FindNearestKnownSectorPos(altitude_adjusted_destination)
+				if self.autopilot_dest_requires_final_local then
+					local nearest = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, false)
 					if nearest then astar_dest = nearest end
 				end
 				self.current_global_route = self:PlanGlobalRoute(current_position, astar_dest)
@@ -2577,72 +2800,62 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 end
 
 --- ============================================================================
---- NEW: Sector-Based Navigation System
+--- Cell-Based Navigation System
 --- ============================================================================
 
---- Check if the sector containing position has any obstacle_map data (known territory).
---- Returns true if at least one cell in this sector exists in obstacle_map.
+---@param cell_key string|nil
+---@return string
+function Navigation:GetObstacleCellStatusByKey(cell_key)
+	if not cell_key then return "unknown" end
+	local cell = self.obstacle_map[cell_key]
+	if cell == true then
+		return "obstacle"
+	elseif cell == "danger" then
+		return "danger"
+	elseif cell == false then
+		return "clear"
+	end
+	return "unknown"
+end
+
+---@param position Vector4|nil
+---@return string
+function Navigation:GetObstacleCellStatusAtPosition(position)
+	if not position then return "unknown" end
+	return self:GetObstacleCellStatusByKey(self:PositionToSectorKey(position))
+end
+
+--- Check if the cell containing position has obstacle_map data.
 ---@param position Vector4 World position
 ---@return boolean
 function Navigation:IsSectorAreaKnown(position)
 	if not position then return false end
-	local cs = self.obstacle_cell_size
-	local ss = self.sector_size
-	local tx = math.floor(position.x / ss)
-	local ty = math.floor(position.y / ss)
-	local tz = math.floor(position.z / ss)
-	-- Sample 8 corner cells of this sector (2x2x2).
-	for _, fx in ipairs({0.2, 0.8}) do
-		for _, fy in ipairs({0.2, 0.8}) do
-			for _, fz in ipairs({0.2, 0.8}) do
-				local ckey = math.floor((tx+fx)*ss/cs) .. "_"
-							.. math.floor((ty+fy)*ss/cs) .. "_"
-							.. math.floor((tz+fz)*ss/cs)
-				if self.obstacle_map[ckey] ~= nil then
-					return true
-				end
-			end
-		end
-	end
-	return false
+	local cell_key = self:PositionToSectorKey(position)
+	return cell_key ~= nil and self.obstacle_map[cell_key] ~= nil
 end
 
---- Find the position of the nearest known sector to a given world position.
---- Iterates over all scanned obstacle cells, converts them to sectors, and returns
---- the sector centre closest to target_pos.
+--- Find the position of the nearest known cell to a given world position.
 ---@param target_pos Vector4 Reference world position
----@return Vector4|nil nearest_pos  Centre of nearest known sector (nil if map is empty)
----@return number      best_dist    Distance to that sector (math.huge if none found)
+---@return Vector4|nil nearest_pos  Centre of nearest known cell (nil if map is empty)
+---@return number      best_dist    Distance to that cell (math.huge if none found)
 function Navigation:FindNearestKnownSectorPos(target_pos)
 	if not target_pos then return nil, math.huge end
-	local ss = self.sector_size
 	local cs = self.obstacle_cell_size
 	local best_pos  = nil
 	local best_dist = math.huge
-	local seen = {}
-	for ckey, _ in pairs(self.obstacle_map) do
+	for ckey, cell in pairs(self.obstacle_map) do
 		local cx, cy, cz = ckey:match("([^_]+)_([^_]+)_([^_]+)")
 		if cx then
 			cx, cy, cz = tonumber(cx), tonumber(cy), tonumber(cz)
-			-- World position of cell centre
-			local wx = (cx + 0.5) * cs
-			local wy = (cy + 0.5) * cs
-			local wz = (cz + 0.5) * cs
-			-- Sector index that cell belongs to
-			local sx = math.floor(wx / ss)
-			local sy = math.floor(wy / ss)
-			local sz = math.floor(wz / ss)
-			local skey = sx .. "_" .. sy .. "_" .. sz
-			if not seen[skey] and sz > 0 then  -- skip underground sectors
-				seen[skey] = true
-				local spos = Vector4.new((sx + 0.5)*ss, (sy + 0.5)*ss, (sz + 0.5)*ss, 1)
-				local dx = spos.x - target_pos.x
-				local dy = spos.y - target_pos.y
-				local dz = spos.z - target_pos.z
+			if cz > 0 and cell ~= true then
+				local cell_pos = Vector4.new((cx + 0.5) * cs, (cy + 0.5) * cs, (cz + 0.5) * cs, 1)
+				local dx = cell_pos.x - target_pos.x
+				local dy = cell_pos.y - target_pos.y
+				local dz = cell_pos.z - target_pos.z
 				local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
 				if dist < best_dist then
 					best_dist = dist
-					best_pos  = spos
+					best_pos  = cell_pos
 				end
 			end
 		end
@@ -2650,21 +2863,184 @@ function Navigation:FindNearestKnownSectorPos(target_pos)
 	return best_pos, best_dist
 end
 
---- Initialize Sector Navigation System
+---@param cell_key string|nil
+---@return boolean
+function Navigation:IsCellTraversableForAstarTarget(cell_key)
+	if not cell_key then return false end
+	local _, _, cz = self:ParseSectorKey(cell_key)
+	if not cz or cz <= 0 then
+		return false
+	end
+	local cell = self.obstacle_map[cell_key]
+	return cell == false or cell == "danger"
+end
+
+---@param start_pos Vector4|nil
+---@param target_pos Vector4|nil
+---@return Vector4|nil nearest_pos
+---@return number best_dist
+---@return string status
+function Navigation:FindNearestReachableSafeOrDangerCellPos(start_pos, target_pos)
+	if not start_pos or not target_pos then return nil, math.huge, "unknown" end
+
+	local start_key = self:PositionToSectorKey(start_pos)
+	if not start_key then return nil, math.huge, "unknown" end
+
+	local max_visited = 30000
+	local visited = {[start_key] = true}
+	local queue = {start_key}
+	local head = 1
+	local visited_count = 0
+	local cs = self.obstacle_cell_size
+	local best_clear_pos = nil
+	local best_clear_dist = math.huge
+	local best_danger_pos = nil
+	local best_danger_dist = math.huge
+
+	local function consider_cell(cell_key)
+		local cell = self.obstacle_map[cell_key]
+		if cell ~= false and cell ~= "danger" then
+			return
+		end
+		local cx, cy, cz = self:ParseSectorKey(cell_key)
+		if not cx or not cz or cz <= 0 then
+			return
+		end
+		local cell_pos = Vector4.new((cx + 0.5) * cs, (cy + 0.5) * cs, (cz + 0.5) * cs, 1)
+		local dx = cell_pos.x - target_pos.x
+		local dy = cell_pos.y - target_pos.y
+		local dz = cell_pos.z - target_pos.z
+		local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+		if cell == false then
+			if dist < best_clear_dist then
+				best_clear_dist = dist
+				best_clear_pos = cell_pos
+			end
+		elseif dist < best_danger_dist then
+			best_danger_dist = dist
+			best_danger_pos = cell_pos
+		end
+	end
+
+	consider_cell(start_key)
+
+	while head <= #queue and visited_count < max_visited do
+		local current_key = queue[head]
+		head = head + 1
+		for _, neighbor_key in ipairs(self:GetNeighborSectors(current_key)) do
+			if not visited[neighbor_key] and self:IsCellTraversableForAstarTarget(neighbor_key) then
+				visited[neighbor_key] = true
+				queue[#queue + 1] = neighbor_key
+				visited_count = visited_count + 1
+				consider_cell(neighbor_key)
+			end
+		end
+	end
+
+	if best_clear_pos then
+		return best_clear_pos, best_clear_dist, "clear"
+	end
+	if best_danger_pos then
+		return best_danger_pos, best_danger_dist, "danger"
+	end
+	return nil, math.huge, "unknown"
+end
+
+---@param start_pos Vector4|nil
+---@param target_pos Vector4|nil
+---@param force_refresh boolean|nil
+---@return Vector4|nil astar_target
+---@return string status
+---@return number dist
+function Navigation:ResolveAutopilotAstarTarget(start_pos, target_pos, force_refresh)
+	if not self.autopilot_dest_requires_final_local then
+		return target_pos, self.autopilot_dest_cell_status, 0
+	end
+
+	local cached_target = self.autopilot_astar_target_position
+	if not force_refresh and cached_target ~= nil then
+		if target_pos ~= nil then
+			local dx = cached_target.x - target_pos.x
+			local dy = cached_target.y - target_pos.y
+			local dz = cached_target.z - target_pos.z
+			return cached_target, self.autopilot_astar_target_status, math.sqrt(dx*dx + dy*dy + dz*dz)
+		end
+		return cached_target, self.autopilot_astar_target_status, math.huge
+	end
+
+	local reachable_pos, reachable_dist, reachable_status = self:FindNearestReachableSafeOrDangerCellPos(start_pos, target_pos)
+	if reachable_pos then
+		self.autopilot_astar_target_position = reachable_pos
+		self.autopilot_astar_target_status = reachable_status
+		return reachable_pos, reachable_status, reachable_dist
+	end
+
+	self.autopilot_astar_target_position = nil
+	self.autopilot_astar_target_status = "unknown"
+	return nil, "unknown", math.huge
+end
+
+---@param target_pos Vector4
+---@return Vector4|nil nearest_pos
+---@return number best_dist
+---@return string status
+function Navigation:FindNearestSafeOrDangerCellPos(target_pos)
+	if not target_pos then return nil, math.huge, "unknown" end
+	local cs = self.obstacle_cell_size
+	local best_clear_pos = nil
+	local best_clear_dist = math.huge
+	local best_danger_pos = nil
+	local best_danger_dist = math.huge
+
+	for ckey, cell in pairs(self.obstacle_map) do
+		local cx, cy, cz = ckey:match("([^_]+)_([^_]+)_([^_]+)")
+		if cx then
+			cx, cy, cz = tonumber(cx), tonumber(cy), tonumber(cz)
+			if cz > 0 and (cell == false or cell == "danger") then
+				local cell_pos = Vector4.new((cx + 0.5) * cs, (cy + 0.5) * cs, (cz + 0.5) * cs, 1)
+				local dx = cell_pos.x - target_pos.x
+				local dy = cell_pos.y - target_pos.y
+				local dz = cell_pos.z - target_pos.z
+				local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+				if cell == false then
+					if dist < best_clear_dist then
+						best_clear_dist = dist
+						best_clear_pos = cell_pos
+					end
+				elseif dist < best_danger_dist then
+					best_danger_dist = dist
+					best_danger_pos = cell_pos
+				end
+			end
+		end
+	end
+
+	if best_clear_pos then
+		return best_clear_pos, best_clear_dist, "clear"
+	end
+	if best_danger_pos then
+		return best_danger_pos, best_danger_dist, "danger"
+	end
+	return nil, math.huge, "unknown"
+end
+
+--- Initialize cell-based navigation system
 
 function Navigation:InitializeSectorSystem()
 	local success, error_msg = pcall(function()
 		-- Initialize spherical ray pattern for local avoidance
 		self:GenerateSphericalRayPattern()
 		
-		-- Load obstacle map
-		self:LoadObstacleMap()
+		-- Keep background preload running, but avoid force-loading the rest here.
+		if not self.is_obstacle_map_loaded and not self.is_obstacle_map_loading then
+			self:StartObstacleMapSessionPreload()
+		end
 		
-		self.log_obj:Record(LogLevel.Info, "Sector navigation system initialized")
+		self.log_obj:Record(LogLevel.Info, "Cell navigation system initialized")
 	end)
 	
 	if not success then
-		self.log_obj:Record(LogLevel.Error, "Failed to initialize sector system: " .. tostring(error_msg))
+		self.log_obj:Record(LogLevel.Error, "Failed to initialize cell system: " .. tostring(error_msg))
 	end
 end
 
