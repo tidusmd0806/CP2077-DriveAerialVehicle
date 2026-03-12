@@ -21,6 +21,20 @@ DEFAULT_MAP_DIR = SCRIPT_DIR / "Data" / "map"
 DEFAULT_ROUTE_PATH = SCRIPT_DIR / "Data" / "last_route.json"
 
 
+def get_segment_color(segment_index: int) -> str:
+    palette = [
+        "#ffe55c",
+        "#ffb347",
+        "#88ddaa",
+        "#6ec6ff",
+        "#ff9aa2",
+        "#c7a6ff",
+        "#ffd166",
+        "#9ad0f5",
+    ]
+    return palette[(max(segment_index, 1) - 1) % len(palette)]
+
+
 def _parse_dat_content(content: str, cells: dict):
     import re
     m = re.search(r"cell_size=([\d.]+)", content.split("\n", 1)[0])
@@ -54,6 +68,45 @@ def load_route(path: Path):
         return None
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
+
+    def parse_pos(entry):
+        if not isinstance(entry, dict):
+            return None
+        return (
+            float(entry.get("x", 0)),
+            float(entry.get("y", 0)),
+            float(entry.get("z", 0)),
+        )
+
+    segments = []
+    unique_astar_targets = set()
+    raw_segments = data.get("segments", [])
+    for segment in raw_segments:
+        waypoints = segment.get("waypoints", [])
+        seg_xs, seg_ys, seg_zs, seg_labels = [], [], [], []
+        for wp in waypoints:
+            seg_xs.append(float(wp.get("wx", 0)))
+            seg_ys.append(float(wp.get("wy", 0)))
+            seg_zs.append(float(wp.get("wz", 0)))
+            seg_labels.append(wp.get("key", ""))
+        if not seg_xs:
+            continue
+        seg_astar_pos = parse_pos(segment.get("astar_destination_pos"))
+        if seg_astar_pos is not None:
+            unique_astar_targets.add(seg_astar_pos)
+        segments.append(
+            {
+                "index": int(segment.get("index", len(segments) + 1)),
+                "kind": segment.get("kind", "route"),
+                "xs": seg_xs,
+                "ys": seg_ys,
+                "zs": seg_zs,
+                "labels": seg_labels,
+                "astar_destination_pos": seg_astar_pos,
+                "astar_destination_status": segment.get("astar_destination_status", "unknown"),
+            }
+        )
+
     waypoints = data.get("waypoints", [])
     xs, ys, zs, labels = [], [], [], []
     for wp in waypoints:
@@ -63,13 +116,26 @@ def load_route(path: Path):
         labels.append(wp.get("key", ""))
     sp = data.get("start_pos", {})
     ep = data.get("end_pos", {})
+    final_destination_pos = parse_pos(data.get("final_destination_pos"))
+    original_destination_pos = parse_pos(data.get("original_destination_pos"))
+    astar_destination_pos = parse_pos(data.get("astar_destination_pos"))
+    if astar_destination_pos is not None:
+        unique_astar_targets.add(astar_destination_pos)
     return {
         "start_pos": (float(sp.get("x", 0)), float(sp.get("y", 0)), float(sp.get("z", 0))),
         "end_pos": (float(ep.get("x", 0)), float(ep.get("y", 0)), float(ep.get("z", 0))),
+        "final_destination_pos": final_destination_pos,
+        "original_destination_pos": original_destination_pos,
+        "astar_destination_pos": astar_destination_pos,
+        "final_destination_status": data.get("final_destination_status", "unknown"),
+        "astar_destination_status": data.get("astar_destination_status", "unknown"),
+        "requires_final_local": bool(data.get("requires_final_local", False)),
+        "unique_astar_target_count": len(unique_astar_targets),
         "xs": xs,
         "ys": ys,
         "zs": zs,
         "labels": labels,
+        "segments": segments,
     }
 
 
@@ -139,6 +205,9 @@ def collect_visual_data(data_path: Path, route_path: Path, no_obstacles: bool, n
             print(f"  Waypoints          : {len(route['xs'])}")
             print(f"  Start              : {route['start_pos']}")
             print(f"  Goal               : {route['end_pos']}")
+            print(f"  Original Dest      : {route.get('original_destination_pos')}")
+            print(f"  Final Dest         : {route.get('final_destination_pos')}")
+            print(f"  A* Dest            : {route.get('astar_destination_pos')}")
         else:
             print(f"[INFO] last_route.json not found ({route_path}).")
 
@@ -167,12 +236,20 @@ def render_pyvista(data: dict, out_path: Path | None, show_clear: bool, reload_l
     plotter = pv.Plotter(window_size=(1600, 900), title="DriveAerialVehicle - Obstacle Map (PyVista)")
     plotter.set_background("#0d0d1a")
     plotter.add_axes(line_width=1, color="white")
+    route_actor_names = []
 
     def remove_actor(name: str):
         try:
             plotter.remove_actor(name, reset_camera=False, render=False)
         except Exception:
             pass
+
+    def clear_route_actors():
+        while route_actor_names:
+            remove_actor(route_actor_names.pop())
+
+    def register_route_actor(name: str):
+        route_actor_names.append(name)
 
     def set_points(name: str, xs, ys, zs, color, size, opacity):
         remove_actor(name)
@@ -201,24 +278,79 @@ def render_pyvista(data: dict, out_path: Path | None, show_clear: bool, reload_l
         set_points("pts_danger", dng_xs, dng_ys, dng_zs, "#ffbb77", 2, 0.30)
         set_points("pts_obstacle", obs_xs, obs_ys, obs_zs, "#dd2233", 3, 0.70)
 
-        remove_actor("route_line")
-        remove_actor("route_wpts")
-        remove_actor("route_start")
-        remove_actor("route_goal")
+        clear_route_actors()
 
         if route and route["xs"]:
-            rpts = np.column_stack([route["xs"], route["ys"], route["zs"]]).astype(np.float32)
-            if len(rpts) >= 2:
-                route_line = pv.lines_from_points(rpts, close=False)
-                plotter.add_mesh(route_line, color="#ffe55c", line_width=3, name="route_line")
-            set_points("route_wpts", route["xs"], route["ys"], route["zs"], "#ffe55c", 4, 0.85)
+            if route.get("segments"):
+                for segment in route["segments"]:
+                    actor_suffix = f"_{segment['index']}"
+                    line_name = f"route_line{actor_suffix}"
+                    wpt_name = f"route_wpts{actor_suffix}"
+                    color = get_segment_color(segment.get("index", 1))
+                    rpts = np.column_stack([segment["xs"], segment["ys"], segment["zs"]]).astype(np.float32)
+                    if len(rpts) >= 2:
+                        route_line = pv.lines_from_points(rpts, close=False)
+                        plotter.add_mesh(route_line, color=color, line_width=4, name=line_name)
+                        register_route_actor(line_name)
+                    pts = np.column_stack([segment["xs"], segment["ys"], segment["zs"]]).astype(np.float32)
+                    cloud = pv.PolyData(pts)
+                    plotter.add_points(
+                        cloud,
+                        color=color,
+                        point_size=5,
+                        opacity=0.95,
+                        render_points_as_spheres=False,
+                        name=wpt_name,
+                    )
+                    register_route_actor(wpt_name)
+            else:
+                rpts = np.column_stack([route["xs"], route["ys"], route["zs"]]).astype(np.float32)
+                if len(rpts) >= 2:
+                    route_line = pv.lines_from_points(rpts, close=False)
+                    plotter.add_mesh(route_line, color="#ffe55c", line_width=3, name="route_line")
+                    register_route_actor("route_line")
+                pts = np.column_stack([route["xs"], route["ys"], route["zs"]]).astype(np.float32)
+                cloud = pv.PolyData(pts)
+                plotter.add_points(
+                    cloud,
+                    color="#ffe55c",
+                    point_size=4,
+                    opacity=0.85,
+                    render_points_as_spheres=False,
+                    name="route_wpts",
+                )
+                register_route_actor("route_wpts")
 
             sp = route["start_pos"]
-            ep = route["end_pos"]
+            ep = route.get("final_destination_pos") or route["end_pos"]
             set_points("route_start", [sp[0]], [sp[1]], [sp[2]], "#44ff88", 12, 1.0)
             set_points("route_goal", [ep[0]], [ep[1]], [ep[2]], "#ff5555", 12, 1.0)
+            original_goal = route.get("original_destination_pos")
+            if original_goal:
+                set_points("route_original_goal", [original_goal[0]], [original_goal[1]], [original_goal[2]], "#ff88aa", 11, 1.0)
+                register_route_actor("route_original_goal")
+            else:
+                remove_actor("route_original_goal")
+            astar_goal = route.get("astar_destination_pos")
+            if astar_goal:
+                set_points("route_astar_goal", [astar_goal[0]], [astar_goal[1]], [astar_goal[2]], "#55d6ff", 11, 1.0)
+                register_route_actor("route_astar_goal")
+            else:
+                remove_actor("route_astar_goal")
+            register_route_actor("route_start")
+            register_route_actor("route_goal")
 
         stats = f"Obstacle: {len(obs_xs)}\nDanger: {len(dng_xs)}\nClear: {len(cxs)}"
+        if route and route.get("segments"):
+            stats += f"\nRoute Segments: {len(route['segments'])}"
+        if route:
+            stats += f"\nRequires final_local: {route.get('requires_final_local', False)}"
+            stats += f"\nFinal Dest Status: {route.get('final_destination_status', 'unknown')}"
+            stats += f"\nA* Dest Status: {route.get('astar_destination_status', 'unknown')}"
+            stats += f"\nUnique A* Targets: {route.get('unique_astar_target_count', 0)}"
+            stats += f"\nOriginal Dest: {route.get('original_destination_pos')}"
+            stats += f"\nFinal Dest: {route.get('final_destination_pos') or route.get('end_pos')}"
+            stats += f"\nA* Dest: {route.get('astar_destination_pos')}"
         remove_actor("stats_text")
         plotter.add_text(stats, position="upper_left", font_size=10, color="#ddddee", name="stats_text")
 

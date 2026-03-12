@@ -592,13 +592,12 @@ function Debug:ImGuiObstacleMap()
     ImGui.Text(string.format("Record interval     : %.2f s", nav_obj.obstacle_record_interval))
     ImGui.Separator()
 
-    -- Recording toggle (synced with NativeSettings is_enable_scan_during_autopilot)
+    -- Recording toggle (debug-only runtime flag, not persisted)
     if nav_obj.is_obstacle_map_recording then
         ImGui.PushStyleColor(ImGuiCol.Button, 0.7, 0.1, 0.1, 1.0)
         if ImGui.Button("STOP Recording") then
             av_obj.navigation_obj:StopObstacleRecording()
-            DAV.user_setting_table.is_enable_scan_during_autopilot = false
-            Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+            DAV.debug_enable_obstacle_scan = false
         end
         ImGui.PopStyleColor(1)
         ImGui.SameLine()
@@ -607,11 +606,13 @@ function Debug:ImGuiObstacleMap()
         ImGui.PushStyleColor(ImGuiCol.Button, 0.1, 0.5, 0.1, 1.0)
         if ImGui.Button("START Recording") then
             av_obj.navigation_obj:StartObstacleRecording()
-            DAV.user_setting_table.is_enable_scan_during_autopilot = true
-            Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+            DAV.debug_enable_obstacle_scan = true
         end
         ImGui.PopStyleColor(1)
     end
+
+    ImGui.SameLine()
+    ImGui.Text("Auto-start: " .. tostring(DAV.debug_enable_obstacle_scan))
 
     ImGui.SameLine()
     if ImGui.Button("Integrate Diff -> Base") then

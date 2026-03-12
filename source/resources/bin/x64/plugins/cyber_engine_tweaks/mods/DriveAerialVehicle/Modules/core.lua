@@ -141,6 +141,9 @@ function Core:Init()
     self.event_obj = Event:New()
     self.event_obj:Init(self.av_obj)
 
+    -- Start staged obstacle map loading during mod startup so session start does not take the hit.
+    self:StartObstacleMapSessionPreload()
+
     Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
         self:GetActions()
@@ -180,7 +183,7 @@ end
 
 function Core:StartObstacleMapSessionPreload()
     if self.av_obj == nil or self.av_obj.navigation_obj == nil then
-        self.log_obj:Record(LogLevel.Info, "AV object missing on session start. Reinitializing before obstacle map preload")
+        self.log_obj:Record(LogLevel.Info, "AV object missing before obstacle map preload. Reinitializing")
         self:Reset()
     end
 
@@ -189,8 +192,42 @@ function Core:StartObstacleMapSessionPreload()
         return true
     end
 
-    self.log_obj:Record(LogLevel.Warning, "Failed to start obstacle map session preload because AV object is unavailable")
+    self.log_obj:Record(LogLevel.Warning, "Failed to start obstacle map preload because AV object is unavailable")
     return false
+end
+
+function Core:EnsureObstacleMapPreloadTimer(tick_interval, files_per_tick)
+    if self.is_obstacle_map_preload_timer_active then
+        return true
+    end
+
+    self.is_obstacle_map_preload_timer_active = true
+    Cron.Every(tick_interval, function(timer)
+        local navigation_obj = nil
+        if self.av_obj ~= nil then
+            navigation_obj = self.av_obj.navigation_obj
+        end
+
+        if navigation_obj == nil then
+            self.is_obstacle_map_preload_timer_active = false
+            Cron.Halt(timer)
+            return
+        end
+
+        if not navigation_obj.is_obstacle_map_loading then
+            self.is_obstacle_map_preload_timer_active = false
+            Cron.Halt(timer)
+            return
+        end
+
+        local is_finished = navigation_obj:ProcessObstacleMapLoadBatch(files_per_tick)
+        if is_finished then
+            self.is_obstacle_map_preload_timer_active = false
+            Cron.Halt(timer)
+        end
+    end)
+
+    return true
 end
 
 function Core:ReleaseObstacleMapSession()

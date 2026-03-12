@@ -94,10 +94,6 @@ function Event:SetObserve()
             DAV.core_obj:Reset()
         end
 
-        if DAV.core_obj then
-            DAV.core_obj:StartObstacleMapSessionPreload()
-        end
-
         DAV.core_obj:SetFastTravelPosition()
         self.current_situation = Def.Situation.Normal
 
@@ -105,9 +101,6 @@ function Event:SetObserve()
 
     GameUI.Observe("SessionEnd", function()
         self.log_obj:Record(LogLevel.Info, "Session end detected")
-        if DAV.core_obj then
-            DAV.core_obj:ReleaseObstacleMapSession()
-        end
         self.current_situation = Def.Situation.Idle
     end)
 

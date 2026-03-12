@@ -18,6 +18,7 @@ DAV = {
     is_ready = false,
     time_resolution = 0.01,
     is_debug_mode = false,
+    debug_enable_obstacle_scan = false,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
@@ -109,7 +110,6 @@ DAV.user_setting_table = {
     favorite_location_list = DAV.default_favorite_location_table,
     autopilot_speed = 25,  -- Autopilot speed in m/s (5-50)
     astar_calculation_precision = 100,  -- A* calculation precision 1-100 (maps to 200-100000 iterations)
-    is_enable_scan_during_autopilot = true,  -- Scan and update obstacle map during autopilot
     is_enable_history = true,
     --- general
     language_index = 1,
@@ -427,6 +427,9 @@ registerForEvent('onUpdate', function(delta)
 end)
 
 registerForEvent('onShutdown', function()
+    if DAV.core_obj ~= nil then
+        DAV.core_obj:ReleaseObstacleMapSession()
+    end
     Game.GetCallbackSystem():UnregisterCallback('Input/Key', DAV.input_key_listener:Target(), DAV.input_key_listener:Function("OnKeyInput"))
     Game.GetCallbackSystem():UnregisterCallback('Input/Axis', DAV.input_axis_listener:Target(), DAV.input_axis_listener:Function("OnAxisInput"))
 end)

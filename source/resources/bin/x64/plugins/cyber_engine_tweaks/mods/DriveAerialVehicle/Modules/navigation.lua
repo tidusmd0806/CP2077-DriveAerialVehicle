@@ -45,6 +45,11 @@ function Navigation:New(av_obj)
 	obj.last_route_plan_time = 0
 	obj.astar_is_partial_route = false
 	obj.astar_local_avoidance_recheck_time = 0
+	obj.route_plan_job = nil
+	obj.route_plan_iterations_per_tick = 1200
+	obj.route_plan_iterations_per_tick_leaving = 4000
+	obj.route_plan_replan_interval = 0.5
+	obj.route_plan_next_followup_time = 0
 
 	-- Local avoidance state
 	obj.is_deadend_escape_active = false
@@ -79,7 +84,7 @@ function Navigation:New(av_obj)
 	obj.obstacle_map_load_total = core_obj.session_obstacle_map_load_total or 0
 	obj.obstacle_map_loaded_files = core_obj.session_obstacle_map_loaded_files or 0
 	obj.obstacle_map_preload_duration = 0.0
-	obj.obstacle_map_preload_tick = 0.01
+	obj.obstacle_map_preload_tick = 0.05
 
 	-- Navigation phase state
 	obj.autopilot_phase = "astar"
@@ -87,8 +92,12 @@ function Navigation:New(av_obj)
 	obj.autopilot_dest_is_unknown = false
 	obj.autopilot_dest_requires_final_local = false
 	obj.autopilot_dest_cell_status = "unknown"
+	obj.autopilot_ground_destination = nil
+	obj.autopilot_final_destination = nil
+	obj.autopilot_original_destination = nil
 	obj.autopilot_astar_target_position = nil
 	obj.autopilot_astar_target_status = "unknown"
+	obj.autopilot_active_astar_destination = nil
 	obj.autopilot_scan_dirty_count = 0
 	obj.autopilot_scan_dirty_threshold = 150
 	obj.autopilot_scan_last_save_time = 0
@@ -282,28 +291,7 @@ function Navigation:StartObstacleMapSessionPreload()
 		"Obstacle map staged preload started: %d files with %.2fs tick (%d files/tick, %s)",
 		#load_queue, tick_interval, files_per_tick, load_mode))
 
-	local finished = self:ProcessObstacleMapLoadBatch(files_per_tick)
-	if finished then
-		return true
-	end
-
-	if self.av_obj.core_obj.is_obstacle_map_preload_timer_active then
-		return true
-	end
-	self.av_obj.core_obj.is_obstacle_map_preload_timer_active = true
-	Cron.Every(tick_interval, function(timer)
-		if not self.is_obstacle_map_loading then
-			self.av_obj.core_obj.is_obstacle_map_preload_timer_active = false
-			Cron.Halt(timer)
-			return
-		end
-		local tick_finished = self:ProcessObstacleMapLoadBatch(files_per_tick)
-		if tick_finished then
-			self.av_obj.core_obj.is_obstacle_map_preload_timer_active = false
-			Cron.Halt(timer)
-		end
-	end)
-	return true
+	return self.av_obj.core_obj:EnsureObstacleMapPreloadTimer(tick_interval, files_per_tick)
 end
 
 function Navigation:EnsureObstacleMapLoaded()
@@ -685,40 +673,570 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 	return {}
 end
 
+function Navigation:GetAstarMaxIterations()
+	local precision = math.max(1, math.min(100, DAV.user_setting_table.astar_calculation_precision or 100))
+	return math.floor(200 + ((precision - 1) / 99) * (100000 - 200) + 0.5)
+end
+
+function Navigation:CountTableEntries(input_table)
+	local count = 0
+	for _ in pairs(input_table or {}) do
+		count = count + 1
+	end
+	return count
+end
+
+function Navigation:RoutePlanHeapPush(job, key, score)
+	job.heap_size = job.heap_size + 1
+	job.heap_keys[job.heap_size] = key
+	job.heap_scores[job.heap_size] = score
+	local index = job.heap_size
+	while index > 1 do
+		local parent = math.floor(index / 2)
+		if job.heap_scores[parent] > job.heap_scores[index] then
+			job.heap_keys[index], job.heap_keys[parent] = job.heap_keys[parent], job.heap_keys[index]
+			job.heap_scores[index], job.heap_scores[parent] = job.heap_scores[parent], job.heap_scores[index]
+			index = parent
+		else
+			break
+		end
+	end
+end
+
+function Navigation:RoutePlanHeapPop(job)
+	if job.heap_size == 0 then
+		return nil, math.huge
+	end
+	local top_key = job.heap_keys[1]
+	local top_score = job.heap_scores[1]
+	job.heap_keys[1] = job.heap_keys[job.heap_size]
+	job.heap_scores[1] = job.heap_scores[job.heap_size]
+	job.heap_keys[job.heap_size] = nil
+	job.heap_scores[job.heap_size] = nil
+	job.heap_size = job.heap_size - 1
+	local index = 1
+	while true do
+		local smallest = index
+		local left = index * 2
+		local right = left + 1
+		if left <= job.heap_size and job.heap_scores[left] < job.heap_scores[smallest] then
+			smallest = left
+		end
+		if right <= job.heap_size and job.heap_scores[right] < job.heap_scores[smallest] then
+			smallest = right
+		end
+		if smallest == index then
+			break
+		end
+		job.heap_keys[index], job.heap_keys[smallest] = job.heap_keys[smallest], job.heap_keys[index]
+		job.heap_scores[index], job.heap_scores[smallest] = job.heap_scores[smallest], job.heap_scores[index]
+		index = smallest
+	end
+	return top_key, top_score
+end
+
+function Navigation:BuildRouteFromCameFrom(came_from, path_node)
+	local route = {}
+	while path_node do
+		table.insert(route, 1, path_node)
+		path_node = came_from[path_node]
+	end
+	return route
+end
+
+function Navigation:FinalizeRoutePlanJob(job, route, is_partial, message)
+	job.status = "completed"
+	job.route = route or {}
+	job.is_partial = is_partial or false
+	job.open_count = job.heap_size
+	job.closed_count = self:CountTableEntries(job.closed_set)
+	if message then
+		self.log_obj:Record(job.is_partial and LogLevel.Warning or LogLevel.Info, message)
+	end
+	if self.route_plan_job == job then
+		self.sector_penalty_cache = nil
+		self.astar_coord_cache = nil
+	end
+	return job
+end
+
+function Navigation:CreateRoutePlanJob(start_pos, end_pos, kind)
+	local job = {
+		kind = kind or "direct",
+		status = "completed",
+		start_pos = start_pos,
+		end_pos = end_pos,
+		route = {},
+		is_partial = false,
+		iterations = 0,
+		max_iterations = self:GetAstarMaxIterations(),
+		heap_keys = {},
+		heap_scores = {},
+		heap_size = 0,
+		closed_set = {},
+		came_from = {},
+		g_score = {},
+		f_score = {},
+		best_partial_node = nil,
+		best_partial_dist = math.huge,
+		sector_penalty_cache = {},
+		astar_coord_cache = {},
+	}
+
+	if not start_pos or not end_pos then
+		return job
+	end
+
+	job.start_key = self:PositionToSectorKey(start_pos)
+	job.end_key = self:PositionToSectorKey(end_pos)
+	if not job.start_key or not job.end_key then
+		return job
+	end
+
+	if job.start_key == job.end_key then
+		job.route = {job.start_key}
+		return job
+	end
+
+	job.status = "running"
+	job.g_score[job.start_key] = 0
+	local start_h = self:CalculateHeuristic(job.start_key, job.end_key)
+	job.f_score[job.start_key] = start_h
+	self:RoutePlanHeapPush(job, job.start_key, start_h)
+	return job
+end
+
+function Navigation:StepRoutePlanJob(job, step_iterations)
+	if not job or job.status ~= "running" then
+		return job
+	end
+
+	self.sector_penalty_cache = job.sector_penalty_cache
+	self.astar_coord_cache = job.astar_coord_cache
+
+	local step_count = 0
+	while job.heap_size > 0 and job.iterations < job.max_iterations and step_count < step_iterations do
+		local current, popped_f = self:RoutePlanHeapPop(job)
+		if not current then
+			break
+		end
+
+		if job.closed_set[current] or popped_f > (job.f_score[current] or math.huge) + 0.001 then
+			-- stale heap entry
+		else
+			job.iterations = job.iterations + 1
+			step_count = step_count + 1
+
+			if current == job.end_key then
+				local route = self:BuildRouteFromCameFrom(job.came_from, current)
+				return self:FinalizeRoutePlanJob(job, route, false, string.format(
+					"A* route planned: %d cells, %d iterations from %s to %s (penalty_cache=%d coord_cache=%d)",
+					#route, job.iterations, job.start_key, job.end_key,
+					self:CountTableEntries(job.sector_penalty_cache),
+					self:CountTableEntries(job.astar_coord_cache)))
+			end
+
+			job.closed_set[current] = true
+			local heuristic = self:CalculateHeuristic(current, job.end_key)
+			if heuristic < job.best_partial_dist then
+				job.best_partial_dist = heuristic
+				job.best_partial_node = current
+			end
+
+			for _, neighbor in ipairs(self:GetNeighborSectors(current)) do
+				if not job.closed_set[neighbor] then
+					local move_cost = self:GetSectorMovementCost(current, neighbor)
+					if move_cost < 1e5 then
+						local tentative_g = (job.g_score[current] or math.huge) + move_cost
+						if tentative_g < (job.g_score[neighbor] or math.huge) then
+							job.came_from[neighbor] = current
+							job.g_score[neighbor] = tentative_g
+							local new_f = tentative_g + self:CalculateHeuristic(neighbor, job.end_key)
+							job.f_score[neighbor] = new_f
+							self:RoutePlanHeapPush(job, neighbor, new_f)
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if job.heap_size > 0 and job.iterations < job.max_iterations then
+		return job
+	end
+
+	if job.best_partial_node and job.best_partial_node ~= job.start_key then
+		local partial_route = self:BuildRouteFromCameFrom(job.came_from, job.best_partial_node)
+		return self:FinalizeRoutePlanJob(job, partial_route, true, string.format(
+			"A* incomplete after %d iterations, using partial route to closest explored node: %d cells (distance to goal: %.1f)",
+			job.iterations, #partial_route, job.best_partial_dist * self.sector_size))
+	end
+
+	return self:FinalizeRoutePlanJob(job, {}, true, string.format(
+		"A* pathfinding failed after %d iterations - no path through known cells (start=%s, end=%s, open=%d, closed=%d)",
+		job.iterations, job.start_key or "nil", job.end_key or "nil", job.heap_size, self:CountTableEntries(job.closed_set)))
+end
+
+function Navigation:ResetLocalAvoidanceRuntime()
+	self.local_avoidance_stuck_timer = 0
+	self.local_avoidance_stuck_escape_time = 0
+	self.local_avoidance_net_check_dist = nil
+	self.local_avoidance_net_check_time = 0
+end
+
+function Navigation:BuildRemainingGlobalRoute()
+	local remaining_route = {}
+	if type(self.current_global_route) ~= "table" then
+		return remaining_route
+	end
+	local start_index = math.max(self.current_route_index or 1, 1)
+	for index = start_index, #self.current_global_route do
+		remaining_route[#remaining_route + 1] = self.current_global_route[index]
+	end
+	return remaining_route
+end
+
+function Navigation:BuildPartialFollowupPrefixRoute()
+	local prefix_route = self:BuildRemainingGlobalRoute()
+	if #prefix_route > 0 then
+		return prefix_route
+	end
+
+	if type(self.current_global_route) == "table"
+		and #self.current_global_route > 0
+		and (self.current_route_index or 1) > #self.current_global_route then
+		return {self.current_global_route[#self.current_global_route]}
+	end
+
+	return {}
+end
+
+function Navigation:MergeRouteSegments(prefix_route, suffix_route)
+	local merged_route = {}
+	for _, key in ipairs(prefix_route or {}) do
+		merged_route[#merged_route + 1] = key
+	end
+	local start_suffix_index = 1
+	if #merged_route > 0 and type(suffix_route) == "table" and #suffix_route > 0 then
+		if merged_route[#merged_route] == suffix_route[1] then
+			start_suffix_index = 2
+		end
+	end
+	for index = start_suffix_index, #(suffix_route or {}) do
+		merged_route[#merged_route + 1] = suffix_route[index]
+	end
+	return merged_route
+end
+
+function Navigation:StartAutopilotPartialRouteFollowup(current_position, final_destination)
+	local prefix_route = self:BuildPartialFollowupPrefixRoute()
+	final_destination = final_destination or self.autopilot_final_destination or self.altitude_adjusted_destination
+	local forced_astar_dest = self.autopilot_active_astar_destination
+	if #prefix_route == 0 then
+		return self:StartAutopilotRoutePlan(current_position, final_destination, "followup", "append", {}, forced_astar_dest)
+	end
+
+	local start_pos = self:SectorKeyToPosition(prefix_route[#prefix_route])
+	if start_pos == nil then
+		return self:StartAutopilotRoutePlan(current_position, final_destination, "followup", "append", {}, forced_astar_dest)
+	end
+
+	return self:StartAutopilotRoutePlan(start_pos, final_destination, "followup", "append", prefix_route, forced_astar_dest)
+end
+
+function Navigation:StartAutopilotRoutePlan(start_pos, final_destination, kind, apply_policy, route_prefix, forced_astar_dest)
+	local astar_dest = forced_astar_dest or final_destination
+	local astar_dest_status = self.autopilot_dest_cell_status
+	if astar_dest == nil and self.autopilot_dest_requires_final_local then
+		-- Recompute the reachable intermediate target from the current position for every replan.
+		-- Reusing the initial cached target makes followup plans collapse into short routes
+		-- once the vehicle gets close to the previous intermediate goal.
+		local nearest, nearest_status = self:ResolveAutopilotAstarTarget(start_pos, final_destination, true)
+		if nearest then
+			astar_dest = nearest
+			astar_dest_status = nearest_status
+		end
+	elseif forced_astar_dest == nil and self.autopilot_dest_requires_final_local then
+		local nearest, nearest_status = self:ResolveAutopilotAstarTarget(start_pos, final_destination, true)
+		if nearest then
+			astar_dest = nearest
+			astar_dest_status = nearest_status
+		end
+	elseif forced_astar_dest ~= nil then
+		astar_dest_status = self.autopilot_astar_target_status
+	end
+
+	local job = self:CreateRoutePlanJob(start_pos, astar_dest, kind)
+	job.apply_policy = apply_policy or "direct"
+	job.route_prefix = route_prefix
+	job.final_destination = final_destination
+	job.astar_destination = astar_dest
+	job.astar_destination_status = astar_dest_status
+	job.debug_targets = self:BuildRouteDebugTargets(final_destination, astar_dest, astar_dest_status)
+	job.started_horiz_to_final = Vector4.Distance(start_pos, final_destination)
+	job.started_at = os.clock()
+	self.route_plan_job = job
+	self.route_plan_next_followup_time = 0
+	if job.status == "running" then
+		self.last_route_plan_time = os.clock()
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"A* %s planning started: %s -> %s (max_iterations=%d)",
+			kind or "route", job.start_key or "nil", job.end_key or "nil", job.max_iterations))
+	else
+		self:ApplyAutopilotRoutePlanResult(job, start_pos, os.clock())
+		self.route_plan_job = nil
+	end
+	return job
+end
+
+function Navigation:ApplyAutopilotRoutePlanResult(job, current_position, current_time)
+	current_time = current_time or os.clock()
+	local route = job.route or {}
+	local debug_targets = job.debug_targets or self:BuildRouteDebugTargets(job.final_destination, job.astar_destination, job.astar_destination_status)
+	self.astar_is_partial_route = job.is_partial or false
+	local should_adopt_route = false
+
+	if job.apply_policy == "direct" then
+		self.current_global_route = route
+		self.current_route_index = 1
+		self.last_route_plan_time = current_time
+		self.autopilot_active_astar_destination = job.astar_destination
+		self:SaveLastRoute(route, current_position, job.final_destination, job.kind, true, debug_targets)
+		if self.astar_is_partial_route then
+			self.route_plan_next_followup_time = current_time + self.route_plan_replan_interval
+		else
+			self.route_plan_next_followup_time = 0
+		end
+		return
+	end
+
+	if job.apply_policy == "append" then
+		local prefix_route = self:BuildRemainingGlobalRoute()
+		if type(job.route_prefix) == "table" and #job.route_prefix > 0 then
+			if #prefix_route == 0 or prefix_route[#prefix_route] ~= job.route_prefix[#job.route_prefix] then
+				prefix_route = job.route_prefix
+			end
+		end
+		self.current_global_route = self:MergeRouteSegments(prefix_route, route)
+		self.current_route_index = 1
+		self.last_route_plan_time = current_time
+		self.autopilot_active_astar_destination = job.astar_destination
+		self:SaveLastRoute(route, job.start_pos or current_position, job.final_destination, job.kind, true, debug_targets)
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"A* %s appended asynchronously: %d waypoints, merged_total=%d",
+			job.kind or "replan", #route, #self.current_global_route))
+		if self.astar_is_partial_route then
+			self.route_plan_next_followup_time = current_time + self.route_plan_replan_interval
+		else
+			self.route_plan_next_followup_time = 0
+		end
+		return
+	end
+
+	local dist_gained = 0
+	if #route > 0 then
+		local last_wp_pos = self:SectorKeyToPosition(route[#route])
+		if last_wp_pos and job.astar_destination then
+			local ldx = job.astar_destination.x - last_wp_pos.x
+			local ldy = job.astar_destination.y - last_wp_pos.y
+			local horiz_to_final = Vector4.Distance(current_position, job.final_destination)
+			dist_gained = horiz_to_final - math.sqrt(ldx*ldx + ldy*ldy)
+		end
+	end
+	should_adopt_route = dist_gained >= 50
+	self:SaveLastRoute(route, current_position, job.final_destination, job.kind, should_adopt_route, debug_targets)
+
+	if should_adopt_route then
+		self.autopilot_phase = "astar"
+		self.current_global_route = route
+		self.current_route_index = 1
+		self.last_route_plan_time = current_time
+		self.autopilot_active_astar_destination = job.astar_destination
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"A* %s adopted asynchronously: %d waypoints, gained %.0fm",
+			job.kind or "replan", #route, dist_gained))
+		if self.astar_is_partial_route then
+			self.route_plan_next_followup_time = current_time + self.route_plan_replan_interval
+		else
+			self.route_plan_next_followup_time = 0
+		end
+	else
+		if job.kind == "recheck" or job.kind == "exhausted" or job.kind == "empty" then
+			self.autopilot_phase = "astar_local_avoidance"
+			self.astar_local_avoidance_recheck_time = current_time
+			self.current_global_route = {}
+			self.current_route_index = 1
+			self:ResetLocalAvoidanceRuntime()
+		end
+		self.route_plan_next_followup_time = current_time + self.route_plan_replan_interval
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"A* %s yielded only %.0fm progress; continue current navigation mode",
+			job.kind or "replan", dist_gained))
+	end
+end
+
+function Navigation:ProcessAutopilotRoutePlan(current_position, current_time)
+	local job = self.route_plan_job
+	if not job or job.status ~= "running" then
+		return
+	end
+	local step_iterations = self.av_obj.is_leaving and self.route_plan_iterations_per_tick_leaving or self.route_plan_iterations_per_tick
+	self:StepRoutePlanJob(job, step_iterations)
+	if job.status == "completed" then
+		self.route_plan_job = nil
+		self:ApplyAutopilotRoutePlanResult(job, current_position, current_time)
+	end
+end
+
+function Navigation:BuildSavedRouteWaypoints(route)
+	local waypoints = {}
+	for i, key in ipairs(route) do
+		local wpos = self:SectorKeyToPosition(key)
+		waypoints[i] = {
+			key = key,
+			wx  = wpos and wpos.x or 0,
+			wy  = wpos and wpos.y or 0,
+			wz  = wpos and wpos.z or 0,
+		}
+	end
+	return waypoints
+end
+
+function Navigation:SerializeRouteSavePosition(pos)
+	if pos == nil then
+		return nil
+	end
+	return {x = pos.x, y = pos.y, z = pos.z}
+end
+
+function Navigation:BuildRouteDebugTargets(final_destination, astar_destination, astar_status)
+	local final_pos = final_destination or self.autopilot_final_destination or self.altitude_adjusted_destination
+	local astar_pos = astar_destination or self.autopilot_active_astar_destination or self.autopilot_astar_target_position or final_pos
+	local resolved_astar_status = astar_status or self.autopilot_astar_target_status
+	if resolved_astar_status == nil or resolved_astar_status == "unknown" then
+		resolved_astar_status = self.autopilot_dest_cell_status
+	end
+	return {
+		original_destination_pos = self:SerializeRouteSavePosition(self.autopilot_ground_destination or self.autopilot_original_destination),
+		final_destination_pos = self:SerializeRouteSavePosition(final_pos),
+		astar_destination_pos = self:SerializeRouteSavePosition(astar_pos),
+		final_destination_status = self.autopilot_dest_cell_status,
+		astar_destination_status = resolved_astar_status,
+		requires_final_local = self.autopilot_dest_requires_final_local,
+	}
+end
+
+function Navigation:CreateRouteSaveData(start_pos, end_pos, debug_targets)
+	debug_targets = debug_targets or self:BuildRouteDebugTargets(end_pos)
+	return {
+		version     = 2,
+		cell_size   = self.sector_size,
+		sector_size = self.sector_size,
+		timestamp   = os.time(),
+		start_pos   = {x = start_pos.x, y = start_pos.y, z = start_pos.z},
+		end_pos     = {x = end_pos.x,   y = end_pos.y,   z = end_pos.z},
+		original_destination_pos = debug_targets.original_destination_pos,
+		final_destination_pos = debug_targets.final_destination_pos,
+		astar_destination_pos = debug_targets.astar_destination_pos,
+		final_destination_status = debug_targets.final_destination_status,
+		astar_destination_status = debug_targets.astar_destination_status,
+		requires_final_local = debug_targets.requires_final_local,
+		waypoints   = {},
+		segments    = {},
+	}
+end
+
+function Navigation:ResetLastRouteVisualization(start_pos, end_pos, debug_targets)
+	local ok, err = pcall(function()
+		Utils:WriteJson(self.route_save_path, self:CreateRouteSaveData(start_pos, end_pos, debug_targets))
+	end)
+	if not ok then
+		self.log_obj:Record(LogLevel.Warning, "ResetLastRouteVisualization failed: " .. tostring(err))
+	end
+end
+
+function Navigation:ClearLastRouteVisualization()
+	local fallback_pos = Vector4.new(0, 0, 0, 1)
+	local current_pos = fallback_pos
+	if self.av_obj ~= nil and self.av_obj.entity ~= nil then
+		local pos = self.av_obj:GetPosition()
+		if pos ~= nil then
+			current_pos = pos
+		end
+	end
+	self:ResetLastRouteVisualization(current_pos, current_pos)
+end
+
 --- Save the last planned A* route to JSON for external visualization.
 ---@param route table List of cell keys ("sx_sy_sz")
 ---@param start_pos Vector4 Actual start world position
 ---@param end_pos Vector4 Actual end world position
-function Navigation:SaveLastRoute(route, start_pos, end_pos)
+---@param route_kind string | nil
+---@param append_to_path boolean | nil
+function Navigation:SaveLastRoute(route, start_pos, end_pos, route_kind, append_to_path, debug_targets)
 	if not route or #route == 0 then return end
 	local ok, err = pcall(function()
-		-- Build waypoint list: store both the key and the world-space centre
-		local waypoints = {}
-		for i, key in ipairs(route) do
-			local wpos = self:SectorKeyToPosition(key)
-			waypoints[i] = {
-				key = key,
-				wx  = wpos and wpos.x or 0,
-				wy  = wpos and wpos.y or 0,
-				wz  = wpos and wpos.z or 0,
-			}
+		local data = Utils:ReadJson(self.route_save_path)
+		if data == nil or type(data) ~= "table" then
+			data = self:CreateRouteSaveData(start_pos, end_pos)
 		end
-		local data = {
-			version     = 1,
-			cell_size   = self.sector_size,
-			sector_size = self.sector_size,
-			timestamp   = os.time(),
-			start_pos   = {x = start_pos.x, y = start_pos.y, z = start_pos.z},
-			end_pos     = {x = end_pos.x,   y = end_pos.y,   z = end_pos.z},
-			waypoints   = waypoints,
+		if type(data.segments) ~= "table" then
+			data.segments = {}
+		end
+		if type(data.waypoints) ~= "table" then
+			data.waypoints = {}
+		end
+		debug_targets = debug_targets or self:BuildRouteDebugTargets(end_pos)
+
+		local segment_kind = route_kind or "route"
+		local segment_waypoints = self:BuildSavedRouteWaypoints(route)
+		local segment = {
+			index = #data.segments + 1,
+			kind = segment_kind,
+			timestamp = os.time(),
+			start_pos = {x = start_pos.x, y = start_pos.y, z = start_pos.z},
+			end_pos = {x = end_pos.x, y = end_pos.y, z = end_pos.z},
+			original_destination_pos = debug_targets.original_destination_pos,
+			final_destination_pos = debug_targets.final_destination_pos,
+			astar_destination_pos = debug_targets.astar_destination_pos,
+			final_destination_status = debug_targets.final_destination_status,
+			astar_destination_status = debug_targets.astar_destination_status,
+			waypoints = segment_waypoints,
 		}
-		local file = io.open(self.route_save_path, "w")
-		if file then
-			file:write(json.encode(data))
-			file:close()
-			self.log_obj:Record(LogLevel.Info, string.format(
-				"Route saved: %d waypoints -> %s", #route, self.route_save_path))
+		table.insert(data.segments, segment)
+
+		if append_to_path ~= false then
+			for i, waypoint in ipairs(segment_waypoints) do
+				local should_append = true
+				if i == 1 and #data.waypoints > 0 then
+					local last_waypoint = data.waypoints[#data.waypoints]
+					if last_waypoint ~= nil and last_waypoint.key == waypoint.key then
+						should_append = false
+					end
+				end
+				if should_append then
+					table.insert(data.waypoints, waypoint)
+				end
+			end
 		end
+
+		data.version = 2
+		data.cell_size = self.sector_size
+		data.sector_size = self.sector_size
+		data.timestamp = os.time()
+		data.start_pos = data.start_pos or {x = start_pos.x, y = start_pos.y, z = start_pos.z}
+		data.end_pos = {x = end_pos.x, y = end_pos.y, z = end_pos.z}
+		data.original_destination_pos = debug_targets.original_destination_pos
+		data.final_destination_pos = debug_targets.final_destination_pos
+		data.astar_destination_pos = debug_targets.astar_destination_pos
+		data.final_destination_status = debug_targets.final_destination_status
+		data.astar_destination_status = debug_targets.astar_destination_status
+		data.requires_final_local = debug_targets.requires_final_local
+
+		Utils:WriteJson(self.route_save_path, data)
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"Route segment saved: kind=%s, %d waypoints, total_segments=%d -> %s",
+			route_kind or "route", #segment_waypoints, #data.segments, self.route_save_path))
 	end)
 	if not ok then
 		self.log_obj:Record(LogLevel.Warning, "SaveLastRoute failed: " .. tostring(err))
@@ -1521,13 +2039,14 @@ function Navigation:AutoPilot()
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Start")
 	self.av_obj.is_auto_pilot = true
 	local destination_position = Vector4.new(0, 0, 0, 1)
+	local selected_destination = nil
 	if DAV.user_setting_table.autopilot_selected_index == 0 then
 		if self.mappin_destination_position:IsZero() then
 			self.log_obj:Record(LogLevel.Debug, "No Mappin Destination", "StartAutoPilot")
 			self:InterruptAutoPilot()
 			return false
 		end
-		destination_position = self.mappin_destination_position
+		selected_destination = self.mappin_destination_position
 		self.log_obj:Record(LogLevel.Info, "AutoPilot to Mappin Destination")
 	else
 		if self.favorite_destination_position:IsZero() then
@@ -1535,9 +2054,12 @@ function Navigation:AutoPilot()
 			self:InterruptAutoPilot()
 			return false
 		end
-		destination_position = self.favorite_destination_position
+		selected_destination = self.favorite_destination_position
 		self.log_obj:Record(LogLevel.Info, "AutoPilot to Favorite Destination")
 	end
+
+	destination_position = Vector4.new(selected_destination.x, selected_destination.y, selected_destination.z, 1)
+	self.autopilot_ground_destination = Vector4.new(destination_position.x, destination_position.y, destination_position.z, 1)
 
 	destination_position.z = destination_position.z + self.av_obj.destination_z_offset
 
@@ -1615,8 +2137,19 @@ function Navigation:AutoPilot()
 	self.autopilot_dest_is_unknown     = ap_dest_status == "unknown"
 	self.autopilot_dest_requires_final_local = not ap_dest_traversable
 	self.autopilot_dest_cell_status = ap_dest_status
+	self.autopilot_final_destination = Vector4.new(
+		altitude_adjusted_destination.x,
+		altitude_adjusted_destination.y,
+		altitude_adjusted_destination.z,
+		1)
+	self.autopilot_original_destination = Vector4.new(
+		self.autopilot_ground_destination.x,
+		self.autopilot_ground_destination.y,
+		self.autopilot_ground_destination.z,
+		1)
 	self.autopilot_astar_target_position = nil
 	self.autopilot_astar_target_status = "unknown"
+	self.autopilot_active_astar_destination = nil
 	self.astar_local_avoidance_recheck_time    = 0
 
 	if not ap_start_known then
@@ -1632,7 +2165,7 @@ function Navigation:AutoPilot()
 		else
 			-- No known cells at all: navigate entire route with local avoidance
 			self.autopilot_phase        = "final_local"
-			self.autopilot_local_target = altitude_adjusted_destination
+			self.autopilot_local_target = self.autopilot_ground_destination
 			self.log_obj:Record(LogLevel.Info,
 				"AutoPilot [final_local]: no known cells exist - full local avoidance mode")
 		end
@@ -1643,9 +2176,9 @@ function Navigation:AutoPilot()
 		-- If destination is unknown or blocked, route to the nearest clear/danger cell near dest, then final_local.
 		self.autopilot_phase        = "astar"
 		self.autopilot_local_target = nil
-		local astar_dest = altitude_adjusted_destination
+		local astar_dest = self.autopilot_final_destination
 		if self.autopilot_dest_requires_final_local then
-			local nearest, nearest_status, dist = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, true)
+			local nearest, nearest_status, dist = self:ResolveAutopilotAstarTarget(current_position, self.autopilot_final_destination, true)
 			if nearest then
 				astar_dest = nearest
 				self.log_obj:Record(LogLevel.Info, string.format(
@@ -1654,7 +2187,7 @@ function Navigation:AutoPilot()
 			else
 				-- No reachable known cells: fallback to full local avoidance
 				self.autopilot_phase        = "final_local"
-				self.autopilot_local_target = altitude_adjusted_destination
+				self.autopilot_local_target = self.autopilot_ground_destination
 				self.log_obj:Record(LogLevel.Info,
 					"AutoPilot [final_local]: no clear/danger cells near destination - full local avoidance mode")
 			end
@@ -1663,8 +2196,9 @@ function Navigation:AutoPilot()
 				"AutoPilot [astar]: start and destination both in KNOWN cells - pure A* navigation")
 		end
 		if self.autopilot_phase == "astar" then
-			self.current_global_route = self:PlanGlobalRoute(current_position, astar_dest)
+			self.current_global_route = {}
 			self.current_route_index  = 1
+			self:StartAutopilotRoutePlan(current_position, self.autopilot_final_destination, "initial", "direct")
 		else
 			-- final_local fallback
 			self.current_global_route = {}
@@ -1672,13 +2206,15 @@ function Navigation:AutoPilot()
 		end
 	end
 	self.last_route_plan_time = os.clock()
-	self.altitude_adjusted_destination = altitude_adjusted_destination
-	-- Save route for external visualization
-	self:SaveLastRoute(self.current_global_route, current_position, altitude_adjusted_destination)
+	self.altitude_adjusted_destination = self.autopilot_final_destination
+	self:ResetLastRouteVisualization(current_position, self.autopilot_final_destination, self:BuildRouteDebugTargets(self.autopilot_final_destination))
 
 	-- autopilot loop
 	Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 		timer.tick = timer.tick + 1
+		current_position = self.av_obj:GetPosition()
+		local current_time = os.clock()
+		self:ProcessAutopilotRoutePlan(current_position, current_time)
 
 		if self.av_obj.is_leaving or self.av_obj.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			return
@@ -1696,30 +2232,36 @@ function Navigation:AutoPilot()
 			return
 		end
 
-		-- set destination vector
-		current_position = self.av_obj:GetPosition()
-		local current_time = os.clock()
-
 		-- === Phase management ===
-		-- Transition: start_local -> astar when vehicle enters a known cell.
-		if self.autopilot_phase == "start_local" and self:IsSectorAreaKnown(current_position) then
-			-- Save suppressed during autopilot to avoid I/O stutter affecting A* route.
-			self.autopilot_scan_dirty_count = 0
-			self.autopilot_phase        = "astar"
-			self.autopilot_local_target = nil
-			local astar_dest = altitude_adjusted_destination
-			if self.autopilot_dest_requires_final_local then
-				local nearest = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, true)
-				if nearest then astar_dest = nearest end
+		-- Transition: start_local -> astar when vehicle enters a known cell,
+		-- or when it reaches the chosen known-cell target but is still hovering just outside that cell.
+		if self.autopilot_phase == "start_local" then
+			local start_astar_pos = nil
+			if self:IsSectorAreaKnown(current_position) then
+				start_astar_pos = current_position
+			elseif self.autopilot_local_target and self:IsSectorAreaKnown(self.autopilot_local_target) then
+				local local_dx = self.autopilot_local_target.x - current_position.x
+				local local_dy = self.autopilot_local_target.y - current_position.y
+				local local_dz = self.autopilot_local_target.z - current_position.z
+				local local_dist = math.sqrt(local_dx*local_dx + local_dy*local_dy + local_dz*local_dz)
+				if local_dist <= math.max(self.av_obj.destination_range, self.sector_size * 0.75) then
+					start_astar_pos = self.autopilot_local_target
+				end
 			end
-			self.current_global_route = self:PlanGlobalRoute(current_position, astar_dest)
-			self.current_route_index  = 1
-			self:SaveLastRoute(self.current_global_route, current_position, altitude_adjusted_destination)
-			self.local_avoidance_stuck_timer       = 0
-			self.local_avoidance_stuck_escape_time = 0
-			self.local_avoidance_net_check_dist    = nil
-			self.local_avoidance_net_check_time    = 0
-			self.log_obj:Record(LogLevel.Info, "AutoPilot [start_local->astar]: entered known cell, A* route planned")
+
+			if start_astar_pos then
+				self.autopilot_scan_dirty_count = 0
+				self.autopilot_phase        = "astar"
+				self.autopilot_local_target = nil
+				self.current_global_route = {}
+				self.current_route_index  = 1
+				self:StartAutopilotRoutePlan(start_astar_pos, self.autopilot_final_destination, "resume", "direct")
+				self.local_avoidance_stuck_timer       = 0
+				self.local_avoidance_stuck_escape_time = 0
+				self.local_avoidance_net_check_dist    = nil
+				self.local_avoidance_net_check_time    = 0
+				self.log_obj:Record(LogLevel.Info, "AutoPilot [start_local->astar]: known-sector target reached, async A* route planning started")
+			end
 		end
 
 		-- Scanning: handled entirely by StartObstacleRecording()'s Cron timer.
@@ -1729,13 +2271,24 @@ function Navigation:AutoPilot()
 		-- Distance to final fly-to point (altitude_adjusted_destination).
 		-- When destination is inside an exception area the fly-to point is above
 		-- the EA; landing will handle the final descent.
-		local ddx = altitude_adjusted_destination.x - current_position.x
-		local ddy = altitude_adjusted_destination.y - current_position.y
-		local ddz = altitude_adjusted_destination.z - current_position.z
+		local final_destination = self.autopilot_final_destination or altitude_adjusted_destination
+		local ground_destination = self.autopilot_ground_destination or destination_position
+		local arrival_target = (self.autopilot_phase == "final_local") and ground_destination or final_destination
+		local ddx = arrival_target.x - current_position.x
+		local ddy = arrival_target.y - current_position.y
+		local ddz = arrival_target.z - current_position.z
 		local horiz_to_final = math.sqrt(ddx*ddx + ddy*ddy)
 		local dist_to_final_arr = math.sqrt(ddx*ddx + ddy*ddy + (ddz < 0 and 0 or ddz*ddz))
 		-- Always track distance to final destination (not current A* waypoint) for HUD display
 		self.dest_remaining_to_final = horiz_to_final
+
+		if self.autopilot_phase == "astar"
+			and self.astar_is_partial_route
+			and self.route_plan_job == nil
+			and horiz_to_final > self.sector_size * 2
+			and current_time >= (self.route_plan_next_followup_time or 0) then
+				self:StartAutopilotPartialRouteFollowup(current_position, final_destination)
+		end
 
 		-- === A* Route Waypoint Following ===
 		-- Advance waypoint index when vehicle reaches current waypoint.
@@ -1743,7 +2296,7 @@ function Navigation:AutoPilot()
 		-- instead of heading straight to the final destination.
 		-- NOTE: advance threshold uses HORIZONTAL distance only to avoid premature
 		-- advancement when the vehicle is still climbing/descending to the waypoint Z.
-		local nav_target = altitude_adjusted_destination  -- fallback: aim at flight-altitude dest
+		local nav_target = final_destination  -- fallback: aim at flight-altitude dest
 		if #self.current_global_route > 0 and horiz_to_final > self.sector_size * 1.5 then
 			local advance_thr   = self.sector_size * 0.9   -- ~18 m: advance to next waypoint
 			local lookahead_dist = self.sector_size * 2.0  -- ~40 m: start blending toward next WP
@@ -1797,53 +2350,19 @@ function Navigation:AutoPilot()
 					self.current_route_index = self.current_route_index + 1
 				end
 			end
-			-- All waypoints passed: aim directly at the flight-altitude destination.
+			-- All waypoints passed: hold at the partial endpoint until the next appended A* segment is ready.
 			if self.current_route_index > #self.current_global_route then
-				nav_target = altitude_adjusted_destination
-				-- Partial route exhausted: replan A* from current position.
-				-- Only continue A* if new route brings us >= 50m closer to destination.
-				-- Otherwise switch to local avoidance (astar_local_avoidance phase).
+				local last_route_pos = self:SectorKeyToPosition(self.current_global_route[#self.current_global_route])
+				nav_target = last_route_pos or current_position
+				-- Partial route exhausted: keep the vehicle at the partial endpoint and
+				-- continue chaining A* followups toward the same resolved A* destination.
 				if self.astar_is_partial_route
 					and horiz_to_final > self.sector_size * 2 then
-					local replan_dest = altitude_adjusted_destination
-					if self.autopilot_dest_requires_final_local then
-						local nearest = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, false)
-						if nearest then replan_dest = nearest end
+					if self.route_plan_job == nil
+						and current_time >= (self.route_plan_next_followup_time or 0) then
+						self:StartAutopilotPartialRouteFollowup(current_position, final_destination)
 					end
-					local new_route = self:PlanGlobalRoute(current_position, replan_dest)
-					self.last_route_plan_time = os.clock()
-					-- Measure progress: how much closer does new route's terminal get us?
-					local dist_gained = 0
-					if #new_route > 0 then
-						local last_wp_pos = self:SectorKeyToPosition(new_route[#new_route])
-						if last_wp_pos then
-							local ldx = replan_dest.x - last_wp_pos.x
-							local ldy = replan_dest.y - last_wp_pos.y
-							dist_gained = horiz_to_final - math.sqrt(ldx*ldx + ldy*ldy)
-						end
-					end
-					if dist_gained >= 50 then
-						-- New route makes meaningful progress: stay in A* phase.
-						self.current_global_route = new_route
-						self.current_route_index  = 1
-						self:SaveLastRoute(new_route, current_position, altitude_adjusted_destination)
-						self.log_obj:Record(LogLevel.Info, string.format(
-							"A* partial replan: %d waypoints, gained %.0fm (horiz_to_final=%.0fm)",
-							#new_route, dist_gained, horiz_to_final))
-					else
-						-- Route makes no significant progress: fall back to local avoidance.
-						self.autopilot_phase           = "astar_local_avoidance"
-						self.astar_local_avoidance_recheck_time = os.clock()
-						self.current_global_route      = {}
-						self.current_route_index       = 1
-						self.local_avoidance_stuck_timer       = 0
-						self.local_avoidance_stuck_escape_time = 0
-						self.local_avoidance_net_check_dist    = nil
-						self.local_avoidance_net_check_time    = 0
-						self.log_obj:Record(LogLevel.Info, string.format(
-							"A* partial replan gained only %.0fm (<50m) - switching to local avoidance (horiz_to_final=%.0fm)",
-							dist_gained, horiz_to_final))
-					end
+					self.autopilot_phase = "astar"
 				end
 			end
 		end
@@ -1856,41 +2375,16 @@ function Navigation:AutoPilot()
 			and horiz_to_final > self.sector_size * 2
 			and self.autopilot_phase == "astar"
 			and (os.clock() - self.last_route_plan_time) > 1.0 then
-			local replan_dest = altitude_adjusted_destination
-			if self.autopilot_dest_requires_final_local then
-				local nearest = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, false)
-				if nearest then replan_dest = nearest end
+			if self.route_plan_job == nil then
+				self:StartAutopilotRoutePlan(current_position, final_destination, "empty", "gain_check")
 			end
-			local new_route = self:PlanGlobalRoute(current_position, replan_dest)
-			self.last_route_plan_time = os.clock()
-			local dist_gained = 0
-			if #new_route > 0 then
-				local last_wp_pos = self:SectorKeyToPosition(new_route[#new_route])
-				if last_wp_pos then
-					local ldx = replan_dest.x - last_wp_pos.x
-					local ldy = replan_dest.y - last_wp_pos.y
-					dist_gained = horiz_to_final - math.sqrt(ldx*ldx + ldy*ldy)
-				end
-			end
-			if dist_gained >= 50 then
-				self.current_global_route = new_route
-				self.current_route_index  = 1
-				self.log_obj:Record(LogLevel.Info, string.format(
-					"A* empty-route retry: %d waypoints, gained %.0fm",
-					#new_route, dist_gained))
-			else
-				self.autopilot_phase           = "astar_local_avoidance"
-				self.astar_local_avoidance_recheck_time = os.clock()
-				self.current_global_route      = {}
-				self.current_route_index       = 1
-				self.local_avoidance_stuck_timer       = 0
-				self.local_avoidance_stuck_escape_time = 0
-				self.local_avoidance_net_check_dist    = nil
-				self.local_avoidance_net_check_time    = 0
-				self.log_obj:Record(LogLevel.Info, string.format(
-					"A* empty-route retry: no progress (gained=%.0fm) - switching to local avoidance",
-					dist_gained))
-			end
+			self.autopilot_phase = "astar_local_avoidance"
+			self.astar_local_avoidance_recheck_time = current_time
+			self.current_global_route = {}
+			self.current_route_index = 1
+			self:ResetLocalAvoidanceRuntime()
+			self.log_obj:Record(LogLevel.Info,
+				"A* empty-route retry started asynchronously - switching to local avoidance")
 		end
 
 		-- === astar_local_avoidance phase: local-avoidance fallback while A* can't make progress ===
@@ -1900,34 +2394,11 @@ function Navigation:AutoPilot()
 			and (os.clock() - self.astar_local_avoidance_recheck_time) > 5.0 then
 			self.astar_local_avoidance_recheck_time = os.clock()
 			if self:IsSectorAreaKnown(current_position) then
-				local replan_dest = altitude_adjusted_destination
-				if self.autopilot_dest_requires_final_local then
-					local nearest = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, false)
-					if nearest then replan_dest = nearest end
+				if self.route_plan_job == nil then
+					self:StartAutopilotRoutePlan(current_position, final_destination, "recheck", "gain_check")
 				end
-				local new_route = self:PlanGlobalRoute(current_position, replan_dest)
-				self.last_route_plan_time = os.clock()
-				local dist_gained = 0
-				if #new_route > 0 then
-					local last_wp_pos = self:SectorKeyToPosition(new_route[#new_route])
-					if last_wp_pos then
-						local ldx = replan_dest.x - last_wp_pos.x
-						local ldy = replan_dest.y - last_wp_pos.y
-						dist_gained = horiz_to_final - math.sqrt(ldx*ldx + ldy*ldy)
-					end
-				end
-				if dist_gained >= 50 then
-					self.autopilot_phase      = "astar"
-					self.current_global_route = new_route
-					self.current_route_index  = 1
-					self.log_obj:Record(LogLevel.Info, string.format(
-						"astar_local_avoidance -> astar: replan gained %.0fm (%d waypoints)",
-						dist_gained, #new_route))
-				else
-					self.log_obj:Record(LogLevel.Info, string.format(
-						"astar_local_avoidance recheck: gained only %.0fm (<50m), continue local avoidance",
-						dist_gained))
-				end
+				self.log_obj:Record(LogLevel.Info,
+					"astar_local_avoidance recheck: async A* replan started")
 			else
 				self.log_obj:Record(LogLevel.Debug,
 					"astar_local_avoidance recheck: current cell unknown, continue local avoidance")
@@ -1937,14 +2408,19 @@ function Navigation:AutoPilot()
 		-- start_local: override nav_target to the nearest known cell (local intermediate target)
 		if self.autopilot_phase == "start_local" and self.autopilot_local_target then
 			nav_target = self.autopilot_local_target
+		elseif self.autopilot_phase == "final_local" and self.autopilot_local_target then
+			nav_target = self.autopilot_local_target
 		end
 
 		-- Phase transition: astar -> final_local when A* route is exhausted and destination needs local approach.
 		if self.autopilot_phase == "astar"
 			and self.autopilot_dest_requires_final_local
+			and not self.astar_is_partial_route
 			and self.current_route_index > #self.current_global_route
 			and horiz_to_final > self.sector_size then
 			self.autopilot_phase           = "final_local"
+			self.autopilot_local_target    = ground_destination
+			self.autopilot_active_astar_destination = nil
 			self.local_avoidance_stuck_timer       = 0
 			self.local_avoidance_stuck_escape_time = 0
 			self.local_avoidance_net_check_dist    = nil
@@ -1967,18 +2443,28 @@ function Navigation:AutoPilot()
 		-- Update exception area bypass status based on distance to destination
 		self:UpdateExceptionAreaBypass()
 
+		local can_arrive_at_final_destination = true
+		if self.autopilot_phase == "start_local" then
+			can_arrive_at_final_destination = false
+		elseif self.autopilot_phase == "astar" then
+			can_arrive_at_final_destination = not self.astar_is_partial_route
+				and self.route_plan_job == nil
+				and self.current_route_index > #self.current_global_route
+		end
+
 		-- check destination: use horizontal + upward-only Z so that being above target
 		-- at flight altitude doesn't prevent arrival detection
-		if dist_to_final_arr < self.av_obj.destination_range then
+		if can_arrive_at_final_destination
+			and dist_to_final_arr < self.av_obj.destination_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			-- Landing height: distance from current Z to the ORIGINAL ground destination,
 			-- including any extra altitude added for exception area overshoot.
-			local landing_height = current_position.z - destination_position.z + self.av_obj.destination_z_offset
+			local landing_height = current_position.z - ground_destination.z
 			self.log_obj:Record(LogLevel.Info, string.format(
 				"Landing: current_z=%.1f, dest_z=%.1f, ea_extra=%.1f, landing_height=%.1f",
-				current_position.z, destination_position.z, ea_landing_extra_height, landing_height))
-			self:AutoLanding(landing_height, destination_position.z)
+				current_position.z, ground_destination.z, ea_landing_extra_height, landing_height))
+			self:AutoLanding(landing_height, ground_destination.z)
 			Cron.Halt(timer)
 			return
 		end
@@ -2023,15 +2509,10 @@ function Navigation:AutoPilot()
 			if self:IsSectorAreaKnown(current_position) then
 				self.autopilot_phase        = "astar"
 				self.autopilot_local_target = nil
-				local astar_dest = altitude_adjusted_destination
-				if self.autopilot_dest_requires_final_local then
-					local nearest = self:ResolveAutopilotAstarTarget(current_position, altitude_adjusted_destination, false)
-					if nearest then astar_dest = nearest end
-				end
-				self.current_global_route = self:PlanGlobalRoute(current_position, astar_dest)
+				self.current_global_route = {}
 				self.current_route_index  = 1
-				self:SaveLastRoute(self.current_global_route, current_position, altitude_adjusted_destination)
-				self.log_obj:Record(LogLevel.Info, "AutoPilot: stuck escape complete - switched to A*")
+				self:StartAutopilotRoutePlan(current_position, final_destination, "resume", "direct")
+				self.log_obj:Record(LogLevel.Info, "AutoPilot: stuck escape complete - async A* resumed")
 			else
 				self.current_global_route = {}
 				self.current_route_index  = 1
@@ -2437,6 +2918,10 @@ function Navigation:SuccessAutoPilot()
 	self.av_obj.is_auto_pilot = false
 	self.is_failture_auto_pilot = false
 	self.av_obj.core_obj:SetAutoPilotHistory()
+	self.autopilot_ground_destination = nil
+	self.autopilot_final_destination = nil
+	self.autopilot_original_destination = nil
+	self.autopilot_active_astar_destination = nil
 	-- Release per-flight caches to prevent memory accumulation.
 	self.iswall_cache           = {}
 	self.safe_streak_count      = 0
@@ -2451,10 +2936,18 @@ end
 function Navigation:InterruptAutoPilot()
 	self.av_obj.is_auto_pilot = false
 	self.is_failture_auto_pilot = true
+	self.autopilot_ground_destination = nil
+	self.autopilot_final_destination = nil
+	self.autopilot_original_destination = nil
+	self.autopilot_active_astar_destination = nil
 	-- Release per-flight caches to prevent memory accumulation.
 	self.iswall_cache           = {}
 	self.safe_streak_count      = 0
 	self.current_global_route   = {}
+	self.current_route_index    = 1
+	self.route_plan_job         = nil
+	self.route_plan_next_followup_time = 0
+	self.astar_is_partial_route = false
 	self.sector_penalty_cache   = nil
 	-- Consolidate learning data (failures are important for learning)
 	self.av_obj:ConsolidateMemory()
@@ -2886,16 +3379,78 @@ function Navigation:FindNearestReachableSafeOrDangerCellPos(start_pos, target_po
 	local start_key = self:PositionToSectorKey(start_pos)
 	if not start_key then return nil, math.huge, "unknown" end
 
-	local max_visited = 30000
+	local max_visited = 120000
 	local visited = {[start_key] = true}
-	local queue = {start_key}
-	local head = 1
-	local visited_count = 0
+	local heap_keys = {start_key}
+	local heap_scores = {}
+	local heap_size = 1
+	local visited_count = 1
 	local cs = self.obstacle_cell_size
 	local best_clear_pos = nil
 	local best_clear_dist = math.huge
 	local best_danger_pos = nil
 	local best_danger_dist = math.huge
+
+	local function distance_to_target(cell_key)
+		local cx, cy, cz = self:ParseSectorKey(cell_key)
+		if not cx or not cz or cz <= 0 then
+			return math.huge
+		end
+		local dx = ((cx + 0.5) * cs) - target_pos.x
+		local dy = ((cy + 0.5) * cs) - target_pos.y
+		local dz = ((cz + 0.5) * cs) - target_pos.z
+		return math.sqrt(dx*dx + dy*dy + dz*dz)
+	end
+
+	heap_scores[1] = distance_to_target(start_key)
+
+	local function heap_push(cell_key, score)
+		heap_size = heap_size + 1
+		heap_keys[heap_size] = cell_key
+		heap_scores[heap_size] = score
+		local index = heap_size
+		while index > 1 do
+			local parent = math.floor(index / 2)
+			if heap_scores[parent] > heap_scores[index] then
+				heap_keys[index], heap_keys[parent] = heap_keys[parent], heap_keys[index]
+				heap_scores[index], heap_scores[parent] = heap_scores[parent], heap_scores[index]
+				index = parent
+			else
+				break
+			end
+		end
+	end
+
+	local function heap_pop()
+		if heap_size == 0 then
+			return nil
+		end
+		local top_key = heap_keys[1]
+		heap_keys[1] = heap_keys[heap_size]
+		heap_scores[1] = heap_scores[heap_size]
+		heap_keys[heap_size] = nil
+		heap_scores[heap_size] = nil
+		heap_size = heap_size - 1
+		local index = 1
+		while true do
+			local smallest = index
+			local left = index * 2
+			local right = left + 1
+			if left <= heap_size and heap_scores[left] < heap_scores[smallest] then
+				smallest = left
+			end
+			if right <= heap_size and heap_scores[right] < heap_scores[smallest] then
+				smallest = right
+			end
+			if smallest == index then
+				break
+			end
+			heap_keys[index], heap_keys[smallest] = heap_keys[smallest], heap_keys[index]
+			heap_scores[index], heap_scores[smallest] = heap_scores[smallest], heap_scores[index]
+			index = smallest
+		end
+		return top_key
+	end
 
 	local function consider_cell(cell_key)
 		local cell = self.obstacle_map[cell_key]
@@ -2924,14 +3479,16 @@ function Navigation:FindNearestReachableSafeOrDangerCellPos(start_pos, target_po
 
 	consider_cell(start_key)
 
-	while head <= #queue and visited_count < max_visited do
-		local current_key = queue[head]
-		head = head + 1
+	while heap_size > 0 and visited_count < max_visited do
+		local current_key = heap_pop()
+		if current_key == nil then
+			break
+		end
 		for _, neighbor_key in ipairs(self:GetNeighborSectors(current_key)) do
 			if not visited[neighbor_key] and self:IsCellTraversableForAstarTarget(neighbor_key) then
 				visited[neighbor_key] = true
-				queue[#queue + 1] = neighbor_key
 				visited_count = visited_count + 1
+				heap_push(neighbor_key, distance_to_target(neighbor_key))
 				consider_cell(neighbor_key)
 			end
 		end

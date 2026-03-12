@@ -319,24 +319,6 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
-	option_table = DAV.NativeSettings.addSwitch("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_scan_during_autopilot"), DAV.core_obj:GetTranslationText("native_settings_general_scan_during_autopilot_description"), DAV.user_setting_table.is_enable_scan_during_autopilot, true, function(state)
-		DAV.user_setting_table.is_enable_scan_during_autopilot = state
-		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-		if state then
-			-- Start recording immediately if vehicle is currently active
-			if DAV.core_obj.av_obj.entity_id ~= nil then
-				DAV.core_obj.av_obj.navigation_obj:StartObstacleRecording()
-			end
-		else
-			-- Stop recording in all cases
-			DAV.core_obj.av_obj.navigation_obj:StopObstacleRecording()
-		end
-		Cron.After(self.delay_updating_native_settings, function()
-			self:UpdateNativeSettingsPage()
-		end)
-	end)
-	table.insert(self.option_table_list, option_table)
-
 	option_table = DAV.NativeSettings.addSwitch("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_destruction"), DAV.core_obj:GetTranslationText("native_settings_general_destruction_description"), DAV.user_setting_table.is_enable_destruction, true, function(state)
 		DAV.user_setting_table.is_enable_destruction = state
 		DAV.core_obj:SetDestructibility(state)
