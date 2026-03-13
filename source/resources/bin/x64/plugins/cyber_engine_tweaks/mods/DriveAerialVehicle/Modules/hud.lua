@@ -723,13 +723,13 @@ function HUD:ReconstructInputHint()
                 -- Skip if this texture part has already been used (avoid duplicates)
                 if texture_part ~= "" and used_texture_parts[texture_part] then
                     texture_parts[i] = ""
-                    self.log_obj:Record(LogLevel.Info, "Action: " .. action .. ", Texture: " .. texture_part .. " (skipped - duplicate)")
+                    self.log_obj:Record(LogLevel.Trace, "Action: " .. action .. ", Texture: " .. texture_part .. " (skipped - duplicate)")
                 else
                     texture_parts[i] = texture_part
                     if texture_part ~= "" then
                         used_texture_parts[texture_part] = true
                     end
-                    self.log_obj:Record(LogLevel.Info, "Action: " .. action .. ", Key: " .. (key_code or "nil") .. ", Hold: " .. tostring(is_hold) .. ", Texture: " .. texture_part)
+                    self.log_obj:Record(LogLevel.Trace, "Action: " .. action .. ", Key: " .. (key_code or "nil") .. ", Hold: " .. tostring(is_hold) .. ", Texture: " .. texture_part)
                 end
             else
                 -- Use empty string instead of nil to indicate no texture
@@ -752,7 +752,7 @@ function HUD:ReconstructInputHint()
         local hint_widget = self:CreateOrUpdateHintWidget(hint_num, title, texture_parts, true)
         if hint_widget then
             hint_widget:Reparent(input_hint_widget)
-            self.log_obj:Record(LogLevel.Info, "Created hint widget: " .. title)
+            self.log_obj:Record(LogLevel.Trace, "Created hint widget: " .. title)
         end
 
     end
@@ -998,7 +998,7 @@ function HUD:CreateOrUpdateHintWidget(num, text, texture_parts, enable)
             local widget_name = "hint_" .. num
             local existing_widget = input_hint_widget:GetWidget(StringToName(widget_name))
             if existing_widget and not self.delete_custom_input_flag then
-                self.log_obj:Record(LogLevel.Info, "Widget " .. widget_name .. " already exists, updating existing widget")
+                self.log_obj:Record(LogLevel.Trace, "Widget " .. widget_name .. " already exists, updating existing widget")
                 existing_widget:SetVisible(enable or true)
                 existing_widget:GetWidget("hint"):GetWidget("wrapper"):GetWidget("label"):SetText(text or "")
                 for i = 1, 4 do

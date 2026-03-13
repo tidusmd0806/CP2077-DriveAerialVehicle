@@ -26,6 +26,7 @@ function Core:New()
     obj.session_obstacle_map_load_total = 0
     obj.session_obstacle_map_loaded_files = 0
     obj.is_obstacle_map_preload_timer_active = false
+    obj.has_started_obstacle_map_preload = false
     -- static --
     -- lock
     obj.delay_action_time_in_waiting = 0.05
@@ -135,11 +136,11 @@ function Core:Init()
     self.av_obj = AV:New(self)
     self.av_obj:Init()
 
-    -- Restore favorite destination from saved settings on startup
-    self:RestoreFavoriteDestination()
-
     self.event_obj = Event:New()
     self.event_obj:Init(self.av_obj)
+
+    -- Restore favorite destination from saved settings on startup
+    self:RestoreFavoriteDestination()
 
     -- Start staged obstacle map loading during mod startup so session start does not take the hit.
     self:StartObstacleMapSessionPreload()
@@ -167,27 +168,25 @@ function Core:Reset()
 end
 
 function Core:EnsureObstacleMapSessionLoaded()
-    if self.av_obj == nil or self.av_obj.navigation_obj == nil then
-        self.log_obj:Record(LogLevel.Info, "AV object missing on session start. Reinitializing before obstacle map load")
-        self:Reset()
-    end
-
-    if self.av_obj ~= nil and self.av_obj.navigation_obj ~= nil then
-        self.av_obj.navigation_obj:EnsureObstacleMapLoaded()
-        return true
-    end
-
-    self.log_obj:Record(LogLevel.Warning, "Failed to ensure obstacle map session load because AV object is unavailable")
+    self.log_obj:Record(LogLevel.Debug,
+        "EnsureObstacleMapSessionLoaded skipped: delayed obstacle-map loading is disabled; startup preload only")
     return false
 end
 
 function Core:StartObstacleMapSessionPreload()
+    if self.has_started_obstacle_map_preload then
+        self.log_obj:Record(LogLevel.Debug,
+            "StartObstacleMapSessionPreload skipped: obstacle-map preload is startup-only")
+        return false
+    end
+
     if self.av_obj == nil or self.av_obj.navigation_obj == nil then
         self.log_obj:Record(LogLevel.Info, "AV object missing before obstacle map preload. Reinitializing")
         self:Reset()
     end
 
     if self.av_obj ~= nil and self.av_obj.navigation_obj ~= nil then
+        self.has_started_obstacle_map_preload = true
         self.av_obj.navigation_obj:StartObstacleMapSessionPreload()
         return true
     end
@@ -1265,7 +1264,7 @@ end
 ---@param position Vector4
 function Core:CreateFavoriteMappin(position)
     self:RemoveFavoriteMappin()
-    if self.event_obj:IsInVehicle() then
+    if self.event_obj ~= nil and self.event_obj:IsInVehicle() then
         local mappin_data = MappinData.new()
         mappin_data.mappinType = TweakDBID.new('Mappins.DefaultStaticMappin')
         mappin_data.variant = gamedataMappinVariant.ExclamationMarkVariant

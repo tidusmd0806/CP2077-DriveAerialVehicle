@@ -56,10 +56,16 @@ function Navigation:New(av_obj)
 	obj.local_ray_count = 32
 	obj.local_ray_angles = {}
 	obj.local_avoidance_stuck_timer = 0
-	obj.local_avoidance_stuck_threshold = 5.0
+	obj.local_avoidance_stuck_threshold = 2.0
 	obj.local_avoidance_stuck_escape_time = 0
 	obj.local_avoidance_net_check_dist = nil
 	obj.local_avoidance_net_check_time = 0
+	obj.local_avoidance_detect_distance_min = 12.0
+	obj.local_avoidance_detect_distance_scale = 1.2
+	obj.local_avoidance_repulsion_effective_ratio = 0.65
+	obj.start_local_handoff_distance = 25.0
+	obj.nearest_known_search_soft_limit_cells = 60
+	obj.nearest_traversable_search_soft_limit_cells = 45
 	local core_obj = av_obj.core_obj
 
 	-- Obstacle map and scan state
@@ -85,6 +91,7 @@ function Navigation:New(av_obj)
 	obj.obstacle_map_loaded_files = core_obj.session_obstacle_map_loaded_files or 0
 	obj.obstacle_map_preload_duration = 0.0
 	obj.obstacle_map_preload_tick = 0.05
+	obj.obstacle_map_startup_preload_only = true
 
 	-- Navigation phase state
 	obj.autopilot_phase = "astar"
@@ -234,6 +241,212 @@ function Navigation:BuildObstacleMapLoadQueue()
 	return load_queue, used_enum and "enum" or "probe"
 end
 
+---@return table chunk_list
+function Navigation:EnumerateObstacleMapDataChunks()
+	local chunk_list = {}
+	local seen = {}
+	local used_enum = false
+	if io.popen then
+		local dir_win = self.obstacle_map_dir:gsub("/", "\\")
+		local dat_pipe = io.popen('dir /b "' .. dir_win .. '\\chunk_*.dat" 2>nul')
+		if dat_pipe then
+			for filename in dat_pipe:lines() do
+				local cx, cy = filename:match("^chunk_(-?%d+)_(-?%d+)%.dat$")
+				if cx and cy then
+					local chunk_key = cx .. "_" .. cy
+					seen[chunk_key] = true
+					chunk_list[#chunk_list + 1] = {
+						chunk_x = tonumber(cx),
+						chunk_y = tonumber(cy),
+						chunk_key = chunk_key,
+						path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".dat",
+						diff_path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".diff",
+					}
+				end
+			end
+			dat_pipe:close()
+			used_enum = true
+		end
+	end
+
+	if not used_enum then
+		for chunk_key, _ in pairs(self.obstacle_map_chunk_index or {}) do
+			if not seen[chunk_key] then
+				local cx, cy = chunk_key:match("^(-?%d+)_(-?%d+)$")
+				if cx and cy then
+					chunk_list[#chunk_list + 1] = {
+						chunk_x = tonumber(cx),
+						chunk_y = tonumber(cy),
+						chunk_key = chunk_key,
+						path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".dat",
+						diff_path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".diff",
+					}
+				end
+			end
+		end
+	end
+
+	return chunk_list
+end
+
+---@param origin_pos Vector4
+---@param chunk_info table
+---@return number dx
+---@return number dy
+---@return number dist
+function Navigation:GetChunkOffsetFromPosition(origin_pos, chunk_info)
+	local chunk_world_size = self.obstacle_map_chunk_cells * self.obstacle_cell_size
+	local min_x = chunk_info.chunk_x * chunk_world_size
+	local max_x = min_x + chunk_world_size
+	local min_y = chunk_info.chunk_y * chunk_world_size
+	local max_y = min_y + chunk_world_size
+	local near_x = math.min(math.max(origin_pos.x, min_x), max_x)
+	local near_y = math.min(math.max(origin_pos.y, min_y), max_y)
+	local dx = near_x - origin_pos.x
+	local dy = near_y - origin_pos.y
+	return dx, dy, math.sqrt(dx * dx + dy * dy)
+end
+
+---@param origin_pos Vector4|nil
+---@param direction_vec Vector4|nil
+---@return table|nil chunk_info
+---@return number best_dist
+function Navigation:FindNearestObstacleMapChunk(origin_pos, direction_vec)
+	if not origin_pos then return nil, math.huge end
+	local chunk_list = self:EnumerateObstacleMapDataChunks()
+	if #chunk_list == 0 then
+		return nil, math.huge
+	end
+
+	local dir_x, dir_y = 0, 0
+	local use_direction_filter = false
+	if direction_vec then
+		local flat_len = math.sqrt(direction_vec.x * direction_vec.x + direction_vec.y * direction_vec.y)
+		if flat_len > 0.001 then
+			dir_x = direction_vec.x / flat_len
+			dir_y = direction_vec.y / flat_len
+			use_direction_filter = true
+		end
+	end
+
+	local best_chunk = nil
+	local best_dist = math.huge
+	for _, chunk_info in ipairs(chunk_list) do
+		local dx, dy, dist = self:GetChunkOffsetFromPosition(origin_pos, chunk_info)
+		local passes_direction = true
+		if use_direction_filter then
+			local planar_len = math.sqrt(dx * dx + dy * dy)
+			if planar_len > 0.001 then
+				local forward_dot = (dx / planar_len) * dir_x + (dy / planar_len) * dir_y
+				passes_direction = forward_dot >= 0
+			end
+		end
+		if passes_direction and dist < best_dist then
+			best_dist = dist
+			best_chunk = chunk_info
+		end
+	end
+
+	return best_chunk, best_dist
+end
+
+---@param path string
+---@param is_diff boolean
+---@param loaded_cells table
+---@return number count
+---@return number|nil file_cell_size
+function Navigation:LoadChunkCellsForNearestLookup(path, is_diff, loaded_cells)
+	local file = io.open(path, "r")
+	if not file then return 0, nil end
+	local raw = file:read("*all")
+	file:close()
+	if not raw or raw == "" then return 0, nil end
+
+	local file_cell_size = nil
+	if not is_diff then
+		local cs = raw:match("^DAV_OBMAP v3 cell_size=([%d%.]+)")
+		if not cs then return 0, nil end
+		file_cell_size = tonumber(cs) or self.obstacle_cell_size
+	end
+
+	local count = 0
+	for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
+		local key = cellx .. "_" .. celly .. "_" .. cellz
+		local ival = tonumber(val) or 0
+		local new_val
+		if ival >= 2 then
+			new_val = true
+		elseif ival == 1 then
+			new_val = "danger"
+		else
+			new_val = false
+		end
+		loaded_cells[key] = new_val
+		count = count + 1
+	end
+
+	return count, file_cell_size
+end
+
+---@param chunk_info table|nil
+---@param origin_pos Vector4|nil
+---@param direction_vec Vector4|nil
+---@param max_dist number|nil
+---@return Vector4|nil nearest_pos
+---@return number best_dist
+function Navigation:FindNearestKnownSectorPosInChunk(chunk_info, origin_pos, direction_vec, max_dist)
+	if not chunk_info or not origin_pos then return nil, math.huge end
+
+	local loaded_cells = {}
+	local dat_count, file_cell_size = self:LoadChunkCellsForNearestLookup(chunk_info.path, false, loaded_cells)
+	if dat_count <= 0 then
+		return nil, math.huge
+	end
+	self:LoadChunkCellsForNearestLookup(chunk_info.diff_path, true, loaded_cells)
+
+	local cell_size = file_cell_size or self.obstacle_cell_size
+	local best_pos = nil
+	local best_dist = math.huge
+	local dir_x, dir_y, dir_z = 0, 0, 0
+	local use_direction_filter = false
+	if direction_vec then
+		local dir_len = math.sqrt(
+			direction_vec.x * direction_vec.x +
+			direction_vec.y * direction_vec.y +
+			direction_vec.z * direction_vec.z)
+		if dir_len > 0.001 then
+			dir_x = direction_vec.x / dir_len
+			dir_y = direction_vec.y / dir_len
+			dir_z = direction_vec.z / dir_len
+			use_direction_filter = true
+		end
+	end
+
+	for cell_key, cell in pairs(loaded_cells) do
+		if cell ~= nil and cell ~= true then
+			local cx, cy, cz = self:ParseSectorKey(cell_key)
+			if cx then
+				local cell_pos = Vector4.new((cx + 0.5) * cell_size, (cy + 0.5) * cell_size, (cz + 0.5) * cell_size, 1)
+				local dx = cell_pos.x - origin_pos.x
+				local dy = cell_pos.y - origin_pos.y
+				local dz = cell_pos.z - origin_pos.z
+				local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+				local passes_direction = true
+				if use_direction_filter and dist > 0.001 then
+					local forward_dot = (dx / dist) * dir_x + (dy / dist) * dir_y + (dz / dist) * dir_z
+					passes_direction = forward_dot >= 0
+				end
+				if passes_direction and (max_dist == nil or dist <= max_dist) and dist < best_dist then
+					best_dist = dist
+					best_pos = cell_pos
+				end
+			end
+		end
+	end
+
+	return best_pos, best_dist
+end
+
 function Navigation:ProcessObstacleMapLoadBatch(max_files)
 	if not self.is_obstacle_map_loading then
 		return true, 0, 0
@@ -299,17 +512,8 @@ function Navigation:EnsureObstacleMapLoaded()
 		self:SyncRouteNodeSize()
 		return
 	end
-
-	if self.is_obstacle_map_loading then
-		self.log_obj:Record(LogLevel.Info, "Obstacle map staged preload still running; completing remaining load immediately")
-		while self.is_obstacle_map_loading do
-			self:ProcessObstacleMapLoadBatch(32)
-		end
-		return
-	end
-
-	self:LoadObstacleMap()
-	self:FinalizeObstacleMapLoad("Obstacle map loaded once for this session")
+	self.log_obj:Record(LogLevel.Debug,
+		"EnsureObstacleMapLoaded skipped: delayed obstacle-map loading is disabled; startup preload only")
 end
 
 function Navigation:ReleaseObstacleMapSessionCache()
@@ -884,6 +1088,42 @@ function Navigation:ResetLocalAvoidanceRuntime()
 	self.local_avoidance_net_check_time = 0
 end
 
+function Navigation:RaiseAutopilotFlightTargets(min_z, reason)
+	if min_z == nil then
+		return self.autopilot_final_destination, false
+	end
+
+	local raised_fields = {}
+	local function raise_target(field_name)
+		local pos = self[field_name]
+		if pos ~= nil and pos.z ~= nil and pos.z < min_z then
+			self[field_name] = Vector4.new(pos.x, pos.y, min_z, pos.w or 1)
+			raised_fields[#raised_fields + 1] = field_name
+		end
+		return self[field_name]
+	end
+
+	local final_destination = raise_target("autopilot_final_destination")
+	raise_target("altitude_adjusted_destination")
+	raise_target("autopilot_local_target")
+	raise_target("autopilot_active_astar_destination")
+	raise_target("autopilot_astar_target_position")
+
+	if self.target_flight_altitude == nil or self.target_flight_altitude < min_z then
+		self.target_flight_altitude = min_z
+	end
+
+	if #raised_fields > 0 then
+		self.log_obj:Record(LogLevel.Info, string.format(
+			"AutoPilot: raised flight target altitude to %.1f after %s (%s)",
+			min_z,
+			reason or "stuck escape",
+			table.concat(raised_fields, ", ")))
+	end
+
+	return final_destination, #raised_fields > 0
+end
+
 function Navigation:BuildRemainingGlobalRoute()
 	local remaining_route = {}
 	if type(self.current_global_route) ~= "table" then
@@ -947,17 +1187,18 @@ end
 function Navigation:StartAutopilotRoutePlan(start_pos, final_destination, kind, apply_policy, route_prefix, forced_astar_dest)
 	local astar_dest = forced_astar_dest or final_destination
 	local astar_dest_status = self.autopilot_dest_cell_status
+	local use_fast_target_resolution = kind == "initial" or kind == "resume"
 	if astar_dest == nil and self.autopilot_dest_requires_final_local then
 		-- Recompute the reachable intermediate target from the current position for every replan.
 		-- Reusing the initial cached target makes followup plans collapse into short routes
 		-- once the vehicle gets close to the previous intermediate goal.
-		local nearest, nearest_status = self:ResolveAutopilotAstarTarget(start_pos, final_destination, true)
+		local nearest, nearest_status = self:ResolveAutopilotAstarTarget(start_pos, final_destination, true, use_fast_target_resolution)
 		if nearest then
 			astar_dest = nearest
 			astar_dest_status = nearest_status
 		end
 	elseif forced_astar_dest == nil and self.autopilot_dest_requires_final_local then
-		local nearest, nearest_status = self:ResolveAutopilotAstarTarget(start_pos, final_destination, true)
+		local nearest, nearest_status = self:ResolveAutopilotAstarTarget(start_pos, final_destination, true, use_fast_target_resolution)
 		if nearest then
 			astar_dest = nearest
 			astar_dest_status = nearest_status
@@ -1971,9 +2212,6 @@ end
 --- Registers a Cron timer; subsequent calls while already running are no-ops.
 function Navigation:StartObstacleRecording()
 	if self.is_obstacle_map_recording then return end
-	if not self.is_obstacle_map_loaded and not self.is_obstacle_map_loading then
-		self:StartObstacleMapSessionPreload()
-	end
 	self.is_obstacle_map_recording = true
 	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STARTED (merged with saved map)")
 	local scan_count = 0
@@ -1993,7 +2231,7 @@ function Navigation:StartObstacleRecording()
 		scan_count = scan_count + 1
 		-- Periodic save every ~30 s (150 ticks x 0.2 s) to protect against crashes.
 		-- Skipped during autopilot: I/O stutter could affect A* route decisions.
-		-- Data is saved on flight end via ConsolidateMemory().
+		-- Startup-only loading policy does not affect this explicit periodic save path.
 		if scan_count >= self.autopilot_scan_dirty_threshold then
 			scan_count = 0
 			if not self.av_obj.is_auto_pilot then
@@ -2006,12 +2244,11 @@ function Navigation:StartObstacleRecording()
 	end)
 end
 
---- Stop continuous obstacle recording and persist the map.
+--- Stop continuous obstacle recording.
 function Navigation:StopObstacleRecording()
 	if not self.is_obstacle_map_recording then return end
 	self.is_obstacle_map_recording = false
-	self:SaveObstacleMap()
-	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STOPPED and saved")
+	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STOPPED")
 end
 
 --- Get Height between ground and vehicle
@@ -2151,23 +2388,60 @@ function Navigation:AutoPilot()
 	self.autopilot_astar_target_status = "unknown"
 	self.autopilot_active_astar_destination = nil
 	self.astar_local_avoidance_recheck_time    = 0
+	local start_to_dest_vec = Vector4.new(
+		altitude_adjusted_destination.x - current_position.x,
+		altitude_adjusted_destination.y - current_position.y,
+		altitude_adjusted_destination.z - current_position.z,
+		0)
+	local start_to_dest_dist = math.sqrt(
+		start_to_dest_vec.x * start_to_dest_vec.x +
+		start_to_dest_vec.y * start_to_dest_vec.y +
+		start_to_dest_vec.z * start_to_dest_vec.z)
+	local should_skip_astar_for_unknown_pair = false
+	local front_known_pos = nil
+	local front_known_dist = math.huge
+	if not ap_start_known and not ap_dest_known and start_to_dest_dist > 0.001 then
+		front_known_pos, front_known_dist = self:FindNearestKnownSectorPosInDirection(current_position, start_to_dest_vec, start_to_dest_dist)
+		if not front_known_pos or front_known_dist > start_to_dest_dist then
+			should_skip_astar_for_unknown_pair = true
+			if front_known_pos then
+				self.log_obj:Record(LogLevel.Info, string.format(
+					"AutoPilot: start/destination both UNKNOWN - nearest front-known sector is farther than destination (known %.0fm > direct %.0fm), skipping A*",
+					front_known_dist, start_to_dest_dist))
+			else
+				self.log_obj:Record(LogLevel.Info, string.format(
+					"AutoPilot: start/destination both UNKNOWN - no front-known sector within direct distance (%.0fm), skipping A*",
+					start_to_dest_dist))
+			end
+		end
+	end
 
 	if not ap_start_known then
 		-- Phase start_local: start is in an unknown cell.
 		-- Navigate to the nearest known cell using local avoidance + scanning, then switch to A*.
-		local nearest, dist = self:FindNearestKnownSectorPos(current_position)
+		local nearest, dist = nil, math.huge
+		if not ap_dest_known and front_known_pos then
+			nearest, dist = front_known_pos, front_known_dist
+		elseif not should_skip_astar_for_unknown_pair then
+			nearest, dist = self:FindNearestKnownSectorPos(current_position)
+		end
 		if nearest then
 			self.autopilot_phase        = "start_local"
 			self.autopilot_local_target = nearest
 			self.log_obj:Record(LogLevel.Info, string.format(
-				"AutoPilot [start_local]: start in UNKNOWN cell - navigating to nearest known cell (%.0fm away)",
-				dist))
+				"AutoPilot [start_local]: start in UNKNOWN cell - navigating to %s known cell (%.0fm away)",
+				(ap_dest_known or not front_known_pos) and "nearest" or "front-nearest", dist))
 		else
-			-- No known cells at all: navigate entire route with local avoidance
+			-- No suitable known cells: navigate entire route with local avoidance
 			self.autopilot_phase        = "final_local"
 			self.autopilot_local_target = self.autopilot_ground_destination
-			self.log_obj:Record(LogLevel.Info,
-				"AutoPilot [final_local]: no known cells exist - full local avoidance mode")
+			if should_skip_astar_for_unknown_pair then
+				self.log_obj:Record(LogLevel.Info,
+					"AutoPilot [final_local]: start/destination both UNKNOWN and direct route is shorter than reaching a front-known sector - full local avoidance mode")
+			else
+				self.log_obj:Record(LogLevel.Info,
+					"AutoPilot [final_local]: no known cells exist - full local avoidance mode")
+			end
 		end
 		self.current_global_route = {}
 		self.current_route_index  = 1
@@ -2178,7 +2452,7 @@ function Navigation:AutoPilot()
 		self.autopilot_local_target = nil
 		local astar_dest = self.autopilot_final_destination
 		if self.autopilot_dest_requires_final_local then
-			local nearest, nearest_status, dist = self:ResolveAutopilotAstarTarget(current_position, self.autopilot_final_destination, true)
+			local nearest, nearest_status, dist = self:ResolveAutopilotAstarTarget(current_position, self.autopilot_final_destination, true, true)
 			if nearest then
 				astar_dest = nearest
 				self.log_obj:Record(LogLevel.Info, string.format(
@@ -2236,16 +2510,24 @@ function Navigation:AutoPilot()
 		-- Transition: start_local -> astar when vehicle enters a known cell,
 		-- or when it reaches the chosen known-cell target but is still hovering just outside that cell.
 		if self.autopilot_phase == "start_local" then
+			local start_local_handoff_distance = self.start_local_handoff_distance or 25.0
 			local start_astar_pos = nil
 			if self:IsSectorAreaKnown(current_position) then
 				start_astar_pos = current_position
-			elseif self.autopilot_local_target and self:IsSectorAreaKnown(self.autopilot_local_target) then
+			end
+			if start_astar_pos == nil and self.autopilot_local_target and self:IsSectorAreaKnown(self.autopilot_local_target) then
 				local local_dx = self.autopilot_local_target.x - current_position.x
 				local local_dy = self.autopilot_local_target.y - current_position.y
 				local local_dz = self.autopilot_local_target.z - current_position.z
 				local local_dist = math.sqrt(local_dx*local_dx + local_dy*local_dy + local_dz*local_dz)
-				if local_dist <= math.max(self.av_obj.destination_range, self.sector_size * 0.75) then
+				if local_dist <= start_local_handoff_distance then
 					start_astar_pos = self.autopilot_local_target
+				end
+			end
+			if start_astar_pos == nil then
+				local nearby_known_pos, nearby_known_dist = self:FindNearbyKnownSectorPos(current_position, start_local_handoff_distance)
+				if nearby_known_pos and nearby_known_dist <= start_local_handoff_distance then
+					start_astar_pos = nearby_known_pos
 				end
 			end
 
@@ -2278,7 +2560,10 @@ function Navigation:AutoPilot()
 		local ddy = arrival_target.y - current_position.y
 		local ddz = arrival_target.z - current_position.z
 		local horiz_to_final = math.sqrt(ddx*ddx + ddy*ddy)
-		local dist_to_final_arr = math.sqrt(ddx*ddx + ddy*ddy + (ddz < 0 and 0 or ddz*ddz))
+		local dist_to_final_arr = horiz_to_final
+		if self.autopilot_phase ~= "final_local" then
+			dist_to_final_arr = math.sqrt(ddx*ddx + ddy*ddy + (ddz < 0 and 0 or ddz*ddz))
+		end
 		-- Always track distance to final destination (not current A* waypoint) for HUD display
 		self.dest_remaining_to_final = horiz_to_final
 
@@ -2297,7 +2582,7 @@ function Navigation:AutoPilot()
 		-- NOTE: advance threshold uses HORIZONTAL distance only to avoid premature
 		-- advancement when the vehicle is still climbing/descending to the waypoint Z.
 		local nav_target = final_destination  -- fallback: aim at flight-altitude dest
-		if #self.current_global_route > 0 and horiz_to_final > self.sector_size * 1.5 then
+		if #self.current_global_route > 0 then
 			local advance_thr   = self.sector_size * 0.9   -- ~18 m: advance to next waypoint
 			local lookahead_dist = self.sector_size * 2.0  -- ~40 m: start blending toward next WP
 			-- Compute horizontal velocity direction (for "passed waypoint" detection)
@@ -2350,19 +2635,22 @@ function Navigation:AutoPilot()
 					self.current_route_index = self.current_route_index + 1
 				end
 			end
-			-- All waypoints passed: hold at the partial endpoint until the next appended A* segment is ready.
+			-- All waypoints passed: partial routes hold at their endpoint until followup planning appends more cells.
+			-- Completed non-partial routes should continue toward the actual destination position.
 			if self.current_route_index > #self.current_global_route then
-				local last_route_pos = self:SectorKeyToPosition(self.current_global_route[#self.current_global_route])
-				nav_target = last_route_pos or current_position
 				-- Partial route exhausted: keep the vehicle at the partial endpoint and
 				-- continue chaining A* followups toward the same resolved A* destination.
 				if self.astar_is_partial_route
 					and horiz_to_final > self.sector_size * 2 then
+					local last_route_pos = self:SectorKeyToPosition(self.current_global_route[#self.current_global_route])
+					nav_target = last_route_pos or current_position
 					if self.route_plan_job == nil
 						and current_time >= (self.route_plan_next_followup_time or 0) then
 						self:StartAutopilotPartialRouteFollowup(current_position, final_destination)
 					end
 					self.autopilot_phase = "astar"
+				else
+					nav_target = final_destination
 				end
 			end
 		end
@@ -2415,6 +2703,7 @@ function Navigation:AutoPilot()
 		-- Phase transition: astar -> final_local when A* route is exhausted and destination needs local approach.
 		if self.autopilot_phase == "astar"
 			and self.autopilot_dest_requires_final_local
+			and self.route_plan_job == nil
 			and not self.astar_is_partial_route
 			and self.current_route_index > #self.current_global_route
 			and horiz_to_final > self.sector_size then
@@ -2505,13 +2794,14 @@ function Navigation:AutoPilot()
 			self.local_avoidance_stuck_needs_replan = false
 			self.local_avoidance_net_check_dist     = nil  -- reset stuck baseline after replan
 			self.local_avoidance_net_check_time     = 0
+			local updated_final_destination = self.autopilot_final_destination or final_destination
 			-- After escaping stuck, switch to A* if current position is now in known territory
 			if self:IsSectorAreaKnown(current_position) then
 				self.autopilot_phase        = "astar"
 				self.autopilot_local_target = nil
 				self.current_global_route = {}
 				self.current_route_index  = 1
-				self:StartAutopilotRoutePlan(current_position, final_destination, "resume", "direct")
+				self:StartAutopilotRoutePlan(current_position, updated_final_destination, "resume", "direct")
 				self.log_obj:Record(LogLevel.Info, "AutoPilot: stuck escape complete - async A* resumed")
 			else
 				self.current_global_route = {}
@@ -2927,8 +3217,6 @@ function Navigation:SuccessAutoPilot()
 	self.safe_streak_count      = 0
 	self.current_global_route   = {}
 	self.sector_penalty_cache   = nil
-	-- Consolidate learning data
-	self.av_obj:ConsolidateMemory()
 end
 
 --- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Failed.
@@ -2949,8 +3237,6 @@ function Navigation:InterruptAutoPilot()
 	self.route_plan_next_followup_time = 0
 	self.astar_is_partial_route = false
 	self.sector_penalty_cache   = nil
-	-- Consolidate learning data (failures are important for learning)
-	self.av_obj:ConsolidateMemory()
 end
 
 --- Set AV.is_failture_auto_pilot and get Failture AutoPilot Flag.
@@ -3327,32 +3613,215 @@ function Navigation:IsSectorAreaKnown(position)
 	return cell_key ~= nil and self.obstacle_map[cell_key] ~= nil
 end
 
+---@param position Vector4|nil
+---@param max_dist number|nil
+---@return Vector4|nil nearest_pos
+---@return number best_dist
+function Navigation:FindNearbyKnownSectorPos(position, max_dist)
+	if not position then return nil, math.huge end
+	local base_key = self:PositionToSectorKey(position)
+	if not base_key then return nil, math.huge end
+
+	local base_x, base_y, base_z = self:ParseSectorKey(base_key)
+	if not base_x then return nil, math.huge end
+
+	local node_size = self.sector_size or self.obstacle_cell_size
+	local max_distance = max_dist or self.start_local_handoff_distance or 25.0
+	local radius_cells = math.max(1, math.ceil(max_distance / math.max(node_size, 0.001)))
+	local best_pos = nil
+	local best_dist = math.huge
+	for dx = -radius_cells, radius_cells do
+		for dy = -radius_cells, radius_cells do
+			for dz = -radius_cells, radius_cells do
+				local neighbor_key = string.format("%d_%d_%d", base_x + dx, base_y + dy, base_z + dz)
+				local cell = self.obstacle_map[neighbor_key]
+				if cell == false or cell == "danger" then
+					local neighbor_pos = Vector4.new(
+						(base_x + dx + 0.5) * node_size,
+						(base_y + dy + 0.5) * node_size,
+						(base_z + dz + 0.5) * node_size,
+						1)
+					local ddx = neighbor_pos.x - position.x
+					local ddy = neighbor_pos.y - position.y
+					local ddz = neighbor_pos.z - position.z
+					local dist = math.sqrt(ddx*ddx + ddy*ddy + ddz*ddz)
+					if dist <= max_distance and dist < best_dist then
+						best_dist = dist
+						best_pos = neighbor_pos
+					end
+				end
+			end
+		end
+	end
+
+	return best_pos, best_dist
+end
+
 --- Find the position of the nearest known cell to a given world position.
 ---@param target_pos Vector4 Reference world position
 ---@return Vector4|nil nearest_pos  Centre of nearest known cell (nil if map is empty)
 ---@return number      best_dist    Distance to that cell (math.huge if none found)
 function Navigation:FindNearestKnownSectorPos(target_pos)
-	if not target_pos then return nil, math.huge end
+	local nearest_chunk, chunk_dist = self:FindNearestObstacleMapChunk(target_pos, nil)
+	if not nearest_chunk then
+		return nil, math.huge
+	end
+	local nearest_pos, best_dist = self:FindNearestKnownSectorPosInChunk(nearest_chunk, target_pos, nil, nil)
+	if nearest_pos then
+		return nearest_pos, best_dist
+	end
+	self.log_obj:Record(LogLevel.Debug, string.format(
+		"FindNearestKnownSectorPos: nearest chunk %s had no traversable known cells (chunkDist=%.0fm)",
+		nearest_chunk.chunk_key,
+		chunk_dist))
+	return nil, math.huge
+end
+
+---@param origin_pos Vector4 Reference world position
+---@param direction_vec Vector4 Reference direction from origin
+---@param max_dist number|nil Maximum distance to inspect; nil keeps the full fallback path
+---@return Vector4|nil nearest_pos Centre of nearest known cell within the forward hemisphere
+---@return number best_dist Distance to that cell (math.huge if none found)
+function Navigation:FindNearestKnownSectorPosInDirection(origin_pos, direction_vec, max_dist)
+	local nearest_chunk, chunk_dist = self:FindNearestObstacleMapChunk(origin_pos, direction_vec)
+	if not nearest_chunk then
+		return nil, math.huge
+	end
+	local nearest_pos, best_dist = self:FindNearestKnownSectorPosInChunk(nearest_chunk, origin_pos, direction_vec, max_dist)
+	if nearest_pos then
+		return nearest_pos, best_dist
+	end
+	if not nearest_pos then
+		self.log_obj:Record(LogLevel.Debug, string.format(
+			"FindNearestKnownSectorPosInDirection: nearest front chunk %s had no forward traversable known cells (chunkDist=%.0fm)",
+			nearest_chunk.chunk_key,
+			chunk_dist))
+	end
+	return nil, math.huge
+end
+
+---@param origin_pos Vector4|nil
+---@param direction_vec Vector4|nil
+---@param max_dist number|nil
+---@return Vector4|nil nearest_pos
+---@return number best_dist
+---@return boolean found_local
+function Navigation:FindNearestKnownSectorPosByShell(origin_pos, direction_vec, max_dist)
+	if not origin_pos then return nil, math.huge, false end
+	local origin_key = self:PositionToSectorKey(origin_pos)
+	if not origin_key then return nil, math.huge, false end
+	local base_x, base_y, base_z = self:ParseSectorKey(origin_key)
+	if not base_x then return nil, math.huge, false end
+
 	local cs = self.obstacle_cell_size
-	local best_pos  = nil
+	local max_radius = self.nearest_known_search_soft_limit_cells or 60
+	if max_dist ~= nil then
+		max_radius = math.max(0, math.ceil(max_dist / math.max(cs, 0.001)))
+	end
+
+	local dir_x, dir_y, dir_z = 0, 0, 0
+	local use_direction_filter = false
+	if direction_vec then
+		local dir_len = math.sqrt(
+			direction_vec.x * direction_vec.x +
+			direction_vec.y * direction_vec.y +
+			direction_vec.z * direction_vec.z)
+		if dir_len > 0.001 then
+			dir_x = direction_vec.x / dir_len
+			dir_y = direction_vec.y / dir_len
+			dir_z = direction_vec.z / dir_len
+			use_direction_filter = true
+		end
+	end
+
+	for radius = 0, max_radius do
+		local best_pos = nil
+		local best_dist = math.huge
+		for dx = -radius, radius do
+			for dy = -radius, radius do
+				for dz = -radius, radius do
+					if radius == 0 or math.max(math.abs(dx), math.abs(dy), math.abs(dz)) == radius then
+						local cell_key = string.format("%d_%d_%d", base_x + dx, base_y + dy, base_z + dz)
+						local cell = self.obstacle_map[cell_key]
+						if cell ~= nil and cell ~= true then
+							local cell_pos = Vector4.new((base_x + dx + 0.5) * cs, (base_y + dy + 0.5) * cs, (base_z + dz + 0.5) * cs, 1)
+							local off_x = cell_pos.x - origin_pos.x
+							local off_y = cell_pos.y - origin_pos.y
+							local off_z = cell_pos.z - origin_pos.z
+							local dist = math.sqrt(off_x * off_x + off_y * off_y + off_z * off_z)
+							if (max_dist == nil or dist <= max_dist) and dist < best_dist then
+								local passes_direction = true
+								if use_direction_filter and dist > 0.001 then
+									local forward_dot = (off_x / dist) * dir_x + (off_y / dist) * dir_y + (off_z / dist) * dir_z
+									passes_direction = forward_dot >= 0
+								end
+								if passes_direction then
+									best_dist = dist
+									best_pos = cell_pos
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+		if best_pos then
+			return best_pos, best_dist, true
+		end
+	end
+
+	return nil, math.huge, false
+end
+
+---@param origin_pos Vector4|nil
+---@param direction_vec Vector4|nil
+---@return Vector4|nil nearest_pos
+---@return number best_dist
+function Navigation:FindNearestKnownSectorPosByFullScan(origin_pos, direction_vec)
+	if not origin_pos then return nil, math.huge end
+	local cs = self.obstacle_cell_size
+	local best_pos = nil
 	local best_dist = math.huge
+	local dir_x, dir_y, dir_z = 0, 0, 0
+	local use_direction_filter = false
+	if direction_vec then
+		local dir_len = math.sqrt(
+			direction_vec.x * direction_vec.x +
+			direction_vec.y * direction_vec.y +
+			direction_vec.z * direction_vec.z)
+		if dir_len > 0.001 then
+			dir_x = direction_vec.x / dir_len
+			dir_y = direction_vec.y / dir_len
+			dir_z = direction_vec.z / dir_len
+			use_direction_filter = true
+		end
+	end
+
 	for ckey, cell in pairs(self.obstacle_map) do
 		local cx, cy, cz = ckey:match("([^_]+)_([^_]+)_([^_]+)")
 		if cx then
 			cx, cy, cz = tonumber(cx), tonumber(cy), tonumber(cz)
-			if cz > 0 and cell ~= true then
+			if cell ~= nil and cell ~= true then
 				local cell_pos = Vector4.new((cx + 0.5) * cs, (cy + 0.5) * cs, (cz + 0.5) * cs, 1)
-				local dx = cell_pos.x - target_pos.x
-				local dy = cell_pos.y - target_pos.y
-				local dz = cell_pos.z - target_pos.z
-				local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-				if dist < best_dist then
-					best_dist = dist
-					best_pos  = cell_pos
+				local dx = cell_pos.x - origin_pos.x
+				local dy = cell_pos.y - origin_pos.y
+				local dz = cell_pos.z - origin_pos.z
+				local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+				if dist > 0.001 and dist < best_dist then
+					local passes_direction = true
+					if use_direction_filter then
+						local forward_dot = (dx / dist) * dir_x + (dy / dist) * dir_y + (dz / dist) * dir_z
+						passes_direction = forward_dot >= 0
+					end
+					if passes_direction then
+						best_dist = dist
+						best_pos = cell_pos
+					end
 				end
 			end
 		end
 	end
+
 	return best_pos, best_dist
 end
 
@@ -3509,7 +3978,7 @@ end
 ---@return Vector4|nil astar_target
 ---@return string status
 ---@return number dist
-function Navigation:ResolveAutopilotAstarTarget(start_pos, target_pos, force_refresh)
+function Navigation:ResolveAutopilotAstarTarget(start_pos, target_pos, force_refresh, prefer_fast)
 	if not self.autopilot_dest_requires_final_local then
 		return target_pos, self.autopilot_dest_cell_status, 0
 	end
@@ -3525,7 +3994,12 @@ function Navigation:ResolveAutopilotAstarTarget(start_pos, target_pos, force_ref
 		return cached_target, self.autopilot_astar_target_status, math.huge
 	end
 
-	local reachable_pos, reachable_dist, reachable_status = self:FindNearestReachableSafeOrDangerCellPos(start_pos, target_pos)
+	local reachable_pos, reachable_dist, reachable_status
+	if prefer_fast and target_pos ~= nil then
+		reachable_pos, reachable_dist, reachable_status = self:FindNearestSafeOrDangerCellPos(target_pos)
+	else
+		reachable_pos, reachable_dist, reachable_status = self:FindNearestReachableSafeOrDangerCellPos(start_pos, target_pos)
+	end
 	if reachable_pos then
 		self.autopilot_astar_target_position = reachable_pos
 		self.autopilot_astar_target_status = reachable_status
@@ -3543,6 +4017,11 @@ end
 ---@return string status
 function Navigation:FindNearestSafeOrDangerCellPos(target_pos)
 	if not target_pos then return nil, math.huge, "unknown" end
+	local local_pos, local_dist, local_status, found_local = self:FindNearestSafeOrDangerCellPosByShell(target_pos)
+	if found_local then
+		return local_pos, local_dist, local_status
+	end
+
 	local cs = self.obstacle_cell_size
 	local best_clear_pos = nil
 	local best_clear_dist = math.huge
@@ -3553,7 +4032,7 @@ function Navigation:FindNearestSafeOrDangerCellPos(target_pos)
 		local cx, cy, cz = ckey:match("([^_]+)_([^_]+)_([^_]+)")
 		if cx then
 			cx, cy, cz = tonumber(cx), tonumber(cy), tonumber(cz)
-			if cz > 0 and (cell == false or cell == "danger") then
+			if cell == false or cell == "danger" then
 				local cell_pos = Vector4.new((cx + 0.5) * cs, (cy + 0.5) * cs, (cz + 0.5) * cs, 1)
 				local dx = cell_pos.x - target_pos.x
 				local dy = cell_pos.y - target_pos.y
@@ -3581,17 +4060,68 @@ function Navigation:FindNearestSafeOrDangerCellPos(target_pos)
 	return nil, math.huge, "unknown"
 end
 
+---@param target_pos Vector4|nil
+---@return Vector4|nil nearest_pos
+---@return number best_dist
+---@return string status
+---@return boolean found_local
+function Navigation:FindNearestSafeOrDangerCellPosByShell(target_pos)
+	if not target_pos then return nil, math.huge, "unknown", false end
+	local target_key = self:PositionToSectorKey(target_pos)
+	if not target_key then return nil, math.huge, "unknown", false end
+	local base_x, base_y, base_z = self:ParseSectorKey(target_key)
+	if not base_x then return nil, math.huge, "unknown", false end
+
+	local cs = self.obstacle_cell_size
+	local max_radius = self.nearest_traversable_search_soft_limit_cells or 45
+	for radius = 0, max_radius do
+		local best_clear_pos = nil
+		local best_clear_dist = math.huge
+		local best_danger_pos = nil
+		local best_danger_dist = math.huge
+		for dx = -radius, radius do
+			for dy = -radius, radius do
+				for dz = -radius, radius do
+					if radius == 0 or math.max(math.abs(dx), math.abs(dy), math.abs(dz)) == radius then
+						local cell_key = string.format("%d_%d_%d", base_x + dx, base_y + dy, base_z + dz)
+						local cell = self.obstacle_map[cell_key]
+						if cell == false or cell == "danger" then
+							local cell_pos = Vector4.new((base_x + dx + 0.5) * cs, (base_y + dy + 0.5) * cs, (base_z + dz + 0.5) * cs, 1)
+							local ox = cell_pos.x - target_pos.x
+							local oy = cell_pos.y - target_pos.y
+							local oz = cell_pos.z - target_pos.z
+							local dist = math.sqrt(ox * ox + oy * oy + oz * oz)
+							if cell == false then
+								if dist < best_clear_dist then
+									best_clear_dist = dist
+									best_clear_pos = cell_pos
+								end
+							elseif dist < best_danger_dist then
+								best_danger_dist = dist
+								best_danger_pos = cell_pos
+							end
+						end
+					end
+				end
+			end
+		end
+		if best_clear_pos then
+			return best_clear_pos, best_clear_dist, "clear", true
+		end
+		if best_danger_pos then
+			return best_danger_pos, best_danger_dist, "danger", true
+		end
+	end
+
+	return nil, math.huge, "unknown", false
+end
+
 --- Initialize cell-based navigation system
 
 function Navigation:InitializeSectorSystem()
 	local success, error_msg = pcall(function()
 		-- Initialize spherical ray pattern for local avoidance
 		self:GenerateSphericalRayPattern()
-		
-		-- Keep background preload running, but avoid force-loading the rest here.
-		if not self.is_obstacle_map_loaded and not self.is_obstacle_map_loading then
-			self:StartObstacleMapSessionPreload()
-		end
 		
 		self.log_obj:Record(LogLevel.Info, "Cell navigation system initialized")
 	end)
@@ -3724,78 +4254,52 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 		self.local_avoidance_net_check_time = current_time
 	end
 
-	-- Stuck escape: ascend until upward is clear, then replan route
+	-- Stuck escape: ascend until a 35m Fibonacci-sphere scan has no collisions.
 	if (not near_final_local_goal) and self.local_avoidance_stuck_timer >= self.local_avoidance_stuck_threshold then
-		local up_dir       = Vector4.new(0, 0, 1, 0)
-		local up_check_dist = 15.0  -- upward obstacle check distance (15m)
-		local up_dist      = self:RaycastDist(current_pos, up_dir, up_check_dist)
-		local up_clear     = (up_dist >= up_check_dist - 0.5)
-
+		local escape_scan_dist = 35.0
 		if self.local_avoidance_stuck_escape_time == 0 then
-			-- First stuck frame: verify upward direction is not blocked.
-			if not up_clear then
-				self.log_obj:Record(LogLevel.Warning, string.format(
-					"Local avoidance: STUCK (%.1fs) and upward blocked (%.1fm) - aborting autopilot",
-					self.local_avoidance_stuck_timer, up_dist))
-				self.local_avoidance_stuck_abort = true
-				return dest_dir
-			end
-			-- Upward path is clear: start ascent-based escape.
 			self.local_avoidance_stuck_escape_time = current_time
 			self.log_obj:Record(LogLevel.Warning, string.format(
-				"Local avoidance: STUCK (%.1fs) - ascending until forward path clears",
-				self.local_avoidance_stuck_timer))
+				"Local avoidance: STUCK (%.1fs) - ascending until %.0fm Fibonacci sphere is collision-free",
+				self.local_avoidance_stuck_timer, escape_scan_dist))
 		end
 
-		-- During ascent: abort autopilot if a new ceiling is detected.
-		if not up_clear then
-			self.log_obj:Record(LogLevel.Warning, string.format(
-				"Local avoidance: obstacle detected above during escape (%.1fm) - aborting autopilot",
-				up_dist))
-			self.local_avoidance_stuck_abort = true
-			return dest_dir
-		end
-
-		-- Check forward clearance; when clear enough, complete escape.
-		local fwd_check_dist = math.max(20.0, self.autopilot_speed * 1.5)
-		local fwd_dist_check = self:RaycastDist(current_pos, dest_dir, fwd_check_dist)
 		local escape_elapsed = current_time - self.local_avoidance_stuck_escape_time
-
-		-- After at least 1s of ascent, finish escape if forward path is >=70% clear.
-		if escape_elapsed > 1.0 and fwd_dist_check > fwd_check_dist * 0.7 then
+		if not self:HasSphericalCollision(current_pos, escape_scan_dist) then
+			self:RaiseAutopilotFlightTargets(current_pos.z, "stuck escape")
 			self.local_avoidance_stuck_timer        = 0
 			self.local_avoidance_stuck_escape_time  = 0
 			self.local_avoidance_stuck_needs_replan = true
-			self.local_avoidance_net_check_dist     = nil  -- reset baseline after escape to avoid stale dist
+			self.local_avoidance_net_check_dist     = nil
 			self.log_obj:Record(LogLevel.Info, string.format(
-				"Local avoidance: escape complete after %.1fs - forward clear (%.1fm), replanning route",
-				escape_elapsed, fwd_dist_check))
-			return dest_dir  -- route replanning is handled in the AutoPilot loop
+				"Local avoidance: escape complete after %.1fs - %.0fm Fibonacci sphere is clear",
+				escape_elapsed, escape_scan_dist))
+			return dest_dir
 		end
 
-		-- Safety timeout: abort if forward path is not cleared after 20s ascent.
 		if escape_elapsed > 20.0 then
 			self.log_obj:Record(LogLevel.Warning, "Local avoidance: escape timeout (20s) - aborting autopilot")
 			self.local_avoidance_stuck_abort = true
 			return dest_dir
 		end
 
-		-- Still ascending: force upward speed so stale obstacle proximity does not linger.
 		self.auto_speed_reduce_rate = 0.5
 		return Vector4.new(0, 0, 1, 0)
 	end
 
 	-- === Repulsion-field navigation ===
 	-- Detect radius: faster speed -> look farther ahead.
-	local detect_dist = math.max(20.0, self.autopilot_speed * 2.0)
+	local detect_dist = math.max(
+		self.local_avoidance_detect_distance_min or 12.0,
+		self.autopilot_speed * (self.local_avoidance_detect_distance_scale or 1.2))
 	-- Collect repulsion forces from spherical ray scan
 	local rep_x, rep_y, rep_z, min_fwd_dist = self:CollectSphericalRepulsion(current_pos, dest_dir, detect_dist)
 	local rep_mag = math.sqrt(rep_x*rep_x + rep_y*rep_y + rep_z*rep_z)
 
 	-- Speed reduction: proportional to nearest forward obstacle
 	local proximity = math.min(min_fwd_dist, detect_dist) / detect_dist
-	if proximity < 0.5 then
-		self.auto_speed_reduce_rate = math.max(0.2, proximity * 0.8 + 0.2)
+	if proximity < 0.35 then
+		self.auto_speed_reduce_rate = math.max(0.35, proximity * 0.5 + 0.35)
 	else
 		self.auto_speed_reduce_rate = 0.7
 	end
@@ -3822,6 +4326,7 @@ end
 --- (closest hit distance in the forward hemisphere, for speed control).
 function Navigation:CollectSphericalRepulsion(from_pos, forward_dir, detect_dist)
 	local fx, fy, fz = forward_dir.x, forward_dir.y, forward_dir.z
+	local effective_dist = detect_dist * (self.local_avoidance_repulsion_effective_ratio or 0.65)
 	if not self.local_ray_angles or #self.local_ray_angles ~= 32 then
 		self.local_ray_count = 32
 		self:GenerateSphericalRayPattern()
@@ -3852,16 +4357,43 @@ function Navigation:CollectSphericalRepulsion(from_pos, forward_dir, detect_dist
 				if fwd_dot > 0.5 then
 					min_fwd_dist = math.min(min_fwd_dist, hit_dist)
 				end
-				-- Quadratic repulsion: force proportional to (1 - d/D)^2
-				local t = math.max(0.0, 1.0 - hit_dist / detect_dist)
-				local force = t * t
-				rep_x = rep_x - (hx / hit_dist) * force
-				rep_y = rep_y - (hy / hit_dist) * force
-				rep_z = rep_z - (hz / hit_dist) * force
+				if hit_dist <= effective_dist then
+					-- Strongly bias repulsion toward nearby obstacles only.
+					local t = math.max(0.0, 1.0 - hit_dist / math.max(effective_dist, 0.001))
+					local force = t * t * t
+					rep_x = rep_x - (hx / hit_dist) * force
+					rep_y = rep_y - (hy / hit_dist) * force
+					rep_z = rep_z - (hz / hit_dist) * force
+				end
 			end
 		end
 	end
 	return rep_x, rep_y, rep_z, min_fwd_dist
+end
+
+function Navigation:HasSphericalCollision(from_pos, detect_dist)
+	if not self.local_ray_angles or #self.local_ray_angles ~= 32 then
+		self.local_ray_count = 32
+		self:GenerateSphericalRayPattern()
+	end
+	if self.av_obj.collision_query_filter == nil then
+		self.av_obj:InitializeCollisionQueryFilter()
+	end
+
+	for _, dir in ipairs(self.local_ray_angles) do
+		local end_pos = Vector4.new(
+			from_pos.x + dir.x * detect_dist,
+			from_pos.y + dir.y * detect_dist,
+			from_pos.z + dir.z * detect_dist,
+			1)
+		local hit = Game.GetSpatialQueriesSystem():SyncRaycastByQueryFilter(
+			from_pos, end_pos, self.av_obj.collision_query_filter, false, false)
+		if hit then
+			return true
+		end
+	end
+
+	return false
 end
 
 return Navigation

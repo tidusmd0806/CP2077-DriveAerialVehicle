@@ -712,15 +712,8 @@ function AV:Unmount()
 			if not self:IsPlayerIn() then
 				self.log_obj:Record(LogLevel.Info, "Unmounted")
 				
-				-- Stop obstacle recording and save on true unmount
+				-- Stop obstacle recording on true unmount.
 				self.navigation_obj:StopObstacleRecording()
-
-				-- Consolidate learning data before unmounting
-				if self.short_term_memory and 
-				   self.short_term_memory.path_history and 
-				   #self.short_term_memory.path_history > 0 then
-					self:ConsolidateMemory()
-				end
 				
 				local player = Game.GetPlayer()
 				local entity = Game.FindEntityByID(self.entity_id)
@@ -1183,13 +1176,8 @@ end
 
 --- Consolidate short-term memory into long-term memory (call on flight end)
 function AV:ConsolidateMemory()
-	-- Save current in-memory map to disk.
-	-- NOTE: do NOT stop recording here; recording runs for the entire time the
-	-- player is in the vehicle (including after autopilot ends / is interrupted).
-	-- StopObstacleRecording() is called exclusively from the Unmount handler.
-	self.navigation_obj:SaveObstacleMap()
 	if self.log_obj then
-		self.log_obj:Record(LogLevel.Info, "Flight completed, obstacle map saved")
+		self.log_obj:Record(LogLevel.Debug, "ConsolidateMemory skipped: obstacle map persistence is startup/preload only")
 	end
 end
 

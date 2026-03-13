@@ -481,8 +481,7 @@ function Debug:ImGuiAutoPilotInfo()
         return string.format("(%.1f, %.1f, %.1f)", v.x or 0, v.y or 0, v.z or 0)
     end
 
-    local function get_current_cell_status()
-        local pos = av_obj:GetPosition()
+    local function get_cell_status_at(pos)
         if not pos then
             return "Unknown", "nil"
         end
@@ -499,12 +498,37 @@ function Debug:ImGuiAutoPilotInfo()
         return "Unknown", cell_key
     end
 
+    local function format_target(name, pos, extra)
+        local status, key = get_cell_status_at(pos)
+        local suffix = extra and (" | " .. extra) or ""
+        ImGui.Text(string.format("%s: %s | %s | %s%s", name, format_vec3(pos), tostring(key), tostring(status), suffix))
+    end
+
     local phase = tostring(nav_obj.autopilot_phase or "unknown")
     local route_len = (type(nav_obj.current_global_route) == "table") and #nav_obj.current_global_route or 0
     local route_idx = tonumber(nav_obj.current_route_index) or 0
     local route_wp_key = "-"
     if route_len > 0 and route_idx >= 1 and route_idx <= route_len then
         route_wp_key = tostring(nav_obj.current_global_route[route_idx])
+    end
+    local current_pos = av_obj.GetPosition and av_obj:GetPosition() or nil
+    local current_cell_status, current_cell_key = get_cell_status_at(current_pos)
+    local final_cell_status, final_cell_key = get_cell_status_at(nav_obj.autopilot_final_destination)
+    local planner_job = nav_obj.route_plan_job
+    local planner_status = planner_job and planner_job.status or "idle"
+    local planner_kind = planner_job and planner_job.kind or "-"
+    local planner_iterations = planner_job and planner_job.iterations or 0
+    local planner_max_iterations = planner_job and planner_job.max_iterations or 0
+    local planner_open = planner_job and planner_job.heap_size or 0
+    local planner_closed = planner_job and table_count(planner_job.closed_set) or 0
+    local planner_start_key = planner_job and planner_job.start_key or "-"
+    local planner_end_key = planner_job and planner_job.end_key or "-"
+    local followup_in = math.max(0, (tonumber(nav_obj.route_plan_next_followup_time) or 0) - os.clock())
+    local stuck_timer = tonumber(nav_obj.local_avoidance_stuck_timer) or 0
+    local stuck_threshold = tonumber(nav_obj.local_avoidance_stuck_threshold) or 0
+    local escape_elapsed = 0
+    if (tonumber(nav_obj.local_avoidance_stuck_escape_time) or 0) > 0 then
+        escape_elapsed = math.max(0, os.clock() - nav_obj.local_avoidance_stuck_escape_time)
     end
 
     ImGui.Text("=== Auto Pilot Runtime ===")
@@ -513,41 +537,38 @@ function Debug:ImGuiAutoPilotInfo()
     ImGui.Text("Dest Unknown Cell: " .. tostring(nav_obj.autopilot_dest_is_unknown))
     ImGui.Text("Dest Final Local: " .. tostring(nav_obj.autopilot_dest_requires_final_local))
     ImGui.Text("Dest Cell Status: " .. tostring(nav_obj.autopilot_dest_cell_status))
-    ImGui.Text("Exception Bypass Active: " .. tostring(nav_obj.is_exception_area_bypassed))
-    if nav_obj.is_deadend_escape_active then
-        ImGui.TextColored(1, 0.6, 0.0, 1.0, "Dead-end Escape: ACTIVE")
-    else
-        ImGui.TextColored(0.0, 1.0, 0.0, 1.0, "Dead-end Escape: inactive")
-    end
+    ImGui.Text("Current Cell: " .. tostring(current_cell_key) .. " | " .. tostring(current_cell_status))
+    ImGui.Text("Final Dest Cell: " .. tostring(final_cell_key) .. " | " .. tostring(final_cell_status))
 
     ImGui.Separator()
     ImGui.Text("=== Route / Target ===")
     ImGui.Text(string.format("Route Progress: %d / %d", route_idx, route_len))
     ImGui.Text("Current Waypoint Key: " .. route_wp_key)
     ImGui.Text("A* Partial Route: " .. tostring(nav_obj.astar_is_partial_route))
-    ImGui.Text("Local Target: " .. format_vec3(nav_obj.autopilot_local_target))
     ImGui.Text("Distance to Nav Target: " .. string.format("%.1f m", tonumber(nav_obj.dest_dir_vector_norm) or 0))
     ImGui.Text("Distance to Final Dest: " .. string.format("%.1f m", tonumber(nav_obj.dest_remaining_to_final) or 0))
+    ImGui.Text("Target Flight Altitude: " .. string.format("%.1f", tonumber(nav_obj.target_flight_altitude) or 0))
+    format_target("Ground Destination", nav_obj.autopilot_ground_destination)
+    format_target("Final Flight Target", nav_obj.autopilot_final_destination)
+    format_target("Local Target", nav_obj.autopilot_local_target)
+    format_target("Active A* Target", nav_obj.autopilot_active_astar_destination, "status=" .. tostring(nav_obj.autopilot_astar_target_status))
+    format_target("Resolved A* Cache", nav_obj.autopilot_astar_target_position, "status=" .. tostring(nav_obj.autopilot_astar_target_status))
+
+
 
     ImGui.Separator()
-    ImGui.Text("=== Movement / Control ===")
+    ImGui.Text("=== Movement / Local Avoidance ===")
     ImGui.Text("Autopilot Speed: " .. string.format("%.2f", tonumber(nav_obj.autopilot_speed) or 0))
     ImGui.Text("Speed Reduce Rate: " .. string.format("%.2f", tonumber(nav_obj.auto_speed_reduce_rate) or 0))
     ImGui.Text("Effective Speed: " .. string.format("%.2f", (tonumber(nav_obj.autopilot_speed) or 0) * (tonumber(nav_obj.auto_speed_reduce_rate) or 0)))
     ImGui.Text("Search Range: " .. string.format("%.2f / %.2f", tonumber(nav_obj.search_range) or 0, tonumber(nav_obj.autopilot_searching_range) or 0))
-    ImGui.Text("Auto Angle: " .. tostring(nav_obj.autopilot_angle) .. " deg")
-    ImGui.Text("H Sign / V Sign: " .. tostring(nav_obj.autopilot_horizontal_sign) .. " / " .. tostring(nav_obj.autopilot_vertical_sign))
+    ImGui.Text(string.format("Stuck Timer: %.1f / %.1f s", stuck_timer, stuck_threshold))
+    ImGui.Text("Escape Active: " .. tostring((tonumber(nav_obj.local_avoidance_stuck_escape_time) or 0) > 0))
+    ImGui.Text(string.format("Escape Elapsed: %.1f s", escape_elapsed))
+    ImGui.Text("Needs Replan: " .. tostring(nav_obj.local_avoidance_stuck_needs_replan))
+    ImGui.Text("Wall Safe Streak: " .. tostring(nav_obj.safe_streak_count or 0))
+    ImGui.Text("Wall Cache Size: " .. tostring(nav_obj.iswall_cache_size or 0))
 
-    ImGui.Separator()
-    ImGui.Text("=== Map / Scan ===")
-    ImGui.Text("Obstacle Recording: " .. tostring(nav_obj.is_obstacle_map_recording))
-    ImGui.Text("Record Interval: " .. string.format("%.2f s", tonumber(nav_obj.obstacle_record_interval) or 0))
-    ImGui.Text("Record Range: " .. string.format("%.1f m", tonumber(nav_obj.obstacle_record_range) or 0))
-    ImGui.Text("Dirty Scan Count: " .. tostring(nav_obj.autopilot_scan_dirty_count) .. " / " .. tostring(nav_obj.autopilot_scan_dirty_threshold))
-    ImGui.Text("Cached Obstacle Cells: " .. tostring(table_count(nav_obj.obstacle_map)))
-    local cell_status, cell_key = get_current_cell_status()
-    ImGui.Text("Current Cell: " .. tostring(cell_key))
-    ImGui.Text("Current Cell Status: " .. tostring(cell_status))
 end
 
 function Debug:ImGuiObstacleMap()
