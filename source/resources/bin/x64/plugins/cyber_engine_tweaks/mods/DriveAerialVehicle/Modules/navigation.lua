@@ -50,16 +50,26 @@ function Navigation:New(av_obj)
 	obj.route_plan_iterations_per_tick_leaving = 4000
 	obj.route_plan_replan_interval = 0.5
 	obj.route_plan_next_followup_time = 0
+	obj.astar_impassable_penalty = 10000000.0
+	obj.astar_blocked_penalty = 10000.0
+	obj.astar_danger_penalty = 6.0
+	obj.astar_clear_penalty = 0.8
 
 	-- Local avoidance state
 	obj.is_deadend_escape_active = false
 	obj.local_ray_count = 32
 	obj.local_ray_angles = {}
 	obj.local_avoidance_stuck_timer = 0
-	obj.local_avoidance_stuck_threshold = 2.0
+	obj.local_avoidance_stuck_threshold = 1.5
 	obj.local_avoidance_stuck_escape_time = 0
 	obj.local_avoidance_net_check_dist = nil
+	obj.local_avoidance_net_check_pos = nil
 	obj.local_avoidance_net_check_time = 0
+	obj.local_avoidance_stuck_check_interval = 0.5
+	obj.local_avoidance_stuck_min_forward_progress = 0.5
+	obj.local_avoidance_stuck_reset_forward_progress = 2.0
+	obj.local_avoidance_stuck_speed_ratio_threshold = 0.25
+	obj.local_avoidance_stuck_min_dist_improvement = 0.75
 	obj.local_avoidance_detect_distance_min = 12.0
 	obj.local_avoidance_detect_distance_scale = 1.2
 	obj.local_avoidance_repulsion_effective_ratio = 0.65
@@ -113,12 +123,100 @@ function Navigation:New(av_obj)
 	obj.yaw_target_smoothed = nil
 	obj.yaw_smooth_alpha = 0.06
 	obj.yaw_deadzone_deg = 4.0
+	obj.astar_yaw_lookahead_points = 4
 
 	return setmetatable(obj, self)
 end
 
 function Navigation:SyncRouteNodeSize()
 	self.sector_size = tonumber(self.obstacle_cell_size) or 10.0
+end
+
+---@param current_position Vector4
+---@param fallback_vector Vector4
+---@param final_destination Vector4|nil
+---@return Vector4
+function Navigation:ComputeAstarYawTargetVector(current_position, fallback_vector, final_destination)
+	if self.autopilot_phase ~= "astar" or #self.current_global_route == 0 then
+		return fallback_vector
+	end
+
+	local start_index = math.max(1, self.current_route_index or 1)
+	if start_index > #self.current_global_route then
+		return fallback_vector
+	end
+
+	local lookahead_points = math.max(1, self.astar_yaw_lookahead_points or 4)
+	local sum_x, sum_y, sum_z = 0, 0, 0
+	local weight_sum = 0
+	local prev_pos = current_position
+	local added_segments = 0
+
+	for idx = start_index, math.min(#self.current_global_route, start_index + lookahead_points - 1) do
+		local route_pos = self:SectorKeyToPosition(self.current_global_route[idx])
+		if route_pos then
+			local seg_x = route_pos.x - prev_pos.x
+			local seg_y = route_pos.y - prev_pos.y
+			local seg_z = route_pos.z - prev_pos.z
+			local seg_len = math.sqrt(seg_x * seg_x + seg_y * seg_y + seg_z * seg_z)
+			if seg_len > 0.001 then
+				local weight = lookahead_points - added_segments
+				sum_x = sum_x + (seg_x / seg_len) * weight
+				sum_y = sum_y + (seg_y / seg_len) * weight
+				sum_z = sum_z + (seg_z / seg_len) * weight
+				weight_sum = weight_sum + weight
+				added_segments = added_segments + 1
+			end
+			prev_pos = route_pos
+		end
+	end
+
+	if final_destination and added_segments < lookahead_points then
+		local seg_x = final_destination.x - prev_pos.x
+		local seg_y = final_destination.y - prev_pos.y
+		local seg_z = final_destination.z - prev_pos.z
+		local seg_len = math.sqrt(seg_x * seg_x + seg_y * seg_y + seg_z * seg_z)
+		if seg_len > 0.001 then
+			local weight = math.max(1, lookahead_points - added_segments)
+			sum_x = sum_x + (seg_x / seg_len) * weight
+			sum_y = sum_y + (seg_y / seg_len) * weight
+			sum_z = sum_z + (seg_z / seg_len) * weight
+			weight_sum = weight_sum + weight
+		end
+	end
+
+	if weight_sum <= 0 then
+		return fallback_vector
+	end
+
+	return Vector4.new(sum_x / weight_sum, sum_y / weight_sum, sum_z / weight_sum, 0)
+end
+
+---@param vehicle_forward Vector4|nil
+---@param movement_vector Vector4|nil
+---@return table
+function Navigation:BuildAutopilotThrusterCommands(vehicle_forward, movement_vector)
+	if not vehicle_forward or not movement_vector then
+		return {{Def.ActionList.Nothing, 1}}
+	end
+
+	local forward_len = math.sqrt(vehicle_forward.x * vehicle_forward.x + vehicle_forward.y * vehicle_forward.y)
+	local movement_len = math.sqrt(movement_vector.x * movement_vector.x + movement_vector.y * movement_vector.y)
+	if forward_len <= 0.001 or movement_len <= 0.001 then
+		return {{Def.ActionList.Nothing, 1}}
+	end
+
+	local forward_dot =
+		(vehicle_forward.x / forward_len) * (movement_vector.x / movement_len) +
+		(vehicle_forward.y / forward_len) * (movement_vector.y / movement_len)
+
+	if forward_dot >= 0.2 then
+		return {{Def.ActionList.Forward, math.min(1.0, math.max(0.0, forward_dot))}}
+	elseif forward_dot <= -0.2 then
+		return {{Def.ActionList.Backward, math.min(1.0, math.max(0.0, -forward_dot))}}
+	end
+
+	return {{Def.ActionList.Nothing, 1}}
 end
 
 function Navigation:SyncObstacleMapSessionState()
@@ -319,6 +417,7 @@ function Navigation:FindNearestObstacleMapChunk(origin_pos, direction_vec)
 	end
 
 	local dir_x, dir_y = 0, 0
+	local min_forward_dot = math.sqrt(0.5)
 	local use_direction_filter = false
 	if direction_vec then
 		local flat_len = math.sqrt(direction_vec.x * direction_vec.x + direction_vec.y * direction_vec.y)
@@ -338,7 +437,7 @@ function Navigation:FindNearestObstacleMapChunk(origin_pos, direction_vec)
 			local planar_len = math.sqrt(dx * dx + dy * dy)
 			if planar_len > 0.001 then
 				local forward_dot = (dx / planar_len) * dir_x + (dy / planar_len) * dir_y
-				passes_direction = forward_dot >= 0
+				passes_direction = forward_dot >= min_forward_dot
 			end
 		end
 		if passes_direction and dist < best_dist then
@@ -445,6 +544,58 @@ function Navigation:FindNearestKnownSectorPosInChunk(chunk_info, origin_pos, dir
 	end
 
 	return best_pos, best_dist
+end
+
+---@param chunk_info table|nil
+---@param target_pos Vector4|nil
+---@return Vector4|nil nearest_pos
+---@return number best_dist
+---@return string status
+function Navigation:FindNearestSafeOrDangerCellPosInChunk(chunk_info, target_pos)
+	if not chunk_info or not target_pos then return nil, math.huge, "unknown" end
+
+	local loaded_cells = {}
+	local dat_count, file_cell_size = self:LoadChunkCellsForNearestLookup(chunk_info.path, false, loaded_cells)
+	if dat_count <= 0 then
+		return nil, math.huge, "unknown"
+	end
+	self:LoadChunkCellsForNearestLookup(chunk_info.diff_path, true, loaded_cells)
+
+	local cell_size = file_cell_size or self.obstacle_cell_size
+	local best_clear_pos = nil
+	local best_clear_dist = math.huge
+	local best_danger_pos = nil
+	local best_danger_dist = math.huge
+
+	for cell_key, cell in pairs(loaded_cells) do
+		if cell == false or cell == "danger" then
+			local cx, cy, cz = self:ParseSectorKey(cell_key)
+			if cx then
+				local cell_pos = Vector4.new((cx + 0.5) * cell_size, (cy + 0.5) * cell_size, (cz + 0.5) * cell_size, 1)
+				local dx = cell_pos.x - target_pos.x
+				local dy = cell_pos.y - target_pos.y
+				local dz = cell_pos.z - target_pos.z
+				local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+				if cell == false then
+					if dist < best_clear_dist then
+						best_clear_dist = dist
+						best_clear_pos = cell_pos
+					end
+				elseif dist < best_danger_dist then
+					best_danger_dist = dist
+					best_danger_pos = cell_pos
+				end
+			end
+		end
+	end
+
+	if best_clear_pos then
+		return best_clear_pos, best_clear_dist, "clear"
+	end
+	if best_danger_pos then
+		return best_danger_pos, best_danger_dist, "danger"
+	end
+	return nil, math.huge, "unknown"
 end
 
 function Navigation:ProcessObstacleMapLoadBatch(max_files)
@@ -668,20 +819,21 @@ function Navigation:GetSectorMovementCost(from_key, to_key)
 
 	-- CRITICAL: Block underground cells (Z <= 0)
 	if tz <= 0 then
-		if self.sector_penalty_cache then self.sector_penalty_cache[to_key] = 10000000.0 end
-		return base_cost * 10000000.0
+		local impassable_penalty = self.astar_impassable_penalty or 10000000.0
+		if self.sector_penalty_cache then self.sector_penalty_cache[to_key] = impassable_penalty end
+		return base_cost * impassable_penalty
 	end
 
 	local obstacle_penalty
 	local cell = self.obstacle_map[to_key]
 	if cell == true then
-		obstacle_penalty = 500.0
+		obstacle_penalty = self.astar_blocked_penalty or 500.0
 	elseif cell == "danger" then
-		obstacle_penalty = 2.5
+		obstacle_penalty = self.astar_danger_penalty or 6.0
 	elseif cell == false then
-		obstacle_penalty = 0.8
+		obstacle_penalty = self.astar_clear_penalty or 0.8
 	else
-		obstacle_penalty = 500.0
+		obstacle_penalty = self.astar_blocked_penalty or 500.0
 	end
 
 	-- Store in cache for reuse within this A* run
@@ -1085,6 +1237,7 @@ function Navigation:ResetLocalAvoidanceRuntime()
 	self.local_avoidance_stuck_timer = 0
 	self.local_avoidance_stuck_escape_time = 0
 	self.local_avoidance_net_check_dist = nil
+	self.local_avoidance_net_check_pos = nil
 	self.local_avoidance_net_check_time = 0
 end
 
@@ -2357,6 +2510,7 @@ function Navigation:AutoPilot()
 	self.local_avoidance_stuck_abort = false
 	self.local_avoidance_stuck_needs_replan = false
 	self.local_avoidance_net_check_dist = nil
+	self.local_avoidance_net_check_pos = nil
 	self.local_avoidance_net_check_time = 0
 	-- Yaw smoothing reset
 	self.yaw_target_smoothed = nil
@@ -2541,6 +2695,7 @@ function Navigation:AutoPilot()
 				self.local_avoidance_stuck_timer       = 0
 				self.local_avoidance_stuck_escape_time = 0
 				self.local_avoidance_net_check_dist    = nil
+				self.local_avoidance_net_check_pos     = nil
 				self.local_avoidance_net_check_time    = 0
 				self.log_obj:Record(LogLevel.Info, "AutoPilot [start_local->astar]: known-sector target reached, async A* route planning started")
 			end
@@ -2713,6 +2868,7 @@ function Navigation:AutoPilot()
 			self.local_avoidance_stuck_timer       = 0
 			self.local_avoidance_stuck_escape_time = 0
 			self.local_avoidance_net_check_dist    = nil
+			self.local_avoidance_net_check_pos     = nil
 			self.local_avoidance_net_check_time    = 0
 			self.log_obj:Record(LogLevel.Info,
 				"AutoPilot [astar->final_local]: A* route complete, switching to local avoidance for final leg")
@@ -2793,6 +2949,7 @@ function Navigation:AutoPilot()
 		if self.local_avoidance_stuck_needs_replan then
 			self.local_avoidance_stuck_needs_replan = false
 			self.local_avoidance_net_check_dist     = nil  -- reset stuck baseline after replan
+			self.local_avoidance_net_check_pos      = nil
 			self.local_avoidance_net_check_time     = 0
 			local updated_final_destination = self.autopilot_final_destination or final_destination
 			-- After escaping stuck, switch to A* if current position is now in known territory
@@ -2859,6 +3016,9 @@ function Navigation:AutoPilot()
 		-- Compute raw yaw target from navigation vector
 		local yaw_target_raw = yaw_vehicle
 		local yaw_target_vector = navigation_vector
+		if self.autopilot_phase == "astar" and #self.current_global_route > 0 then
+			yaw_target_vector = self:ComputeAstarYawTargetVector(current_position, navigation_vector, final_destination)
+		end
 		local yaw_target_vector_norm = Vector4.Length(yaw_target_vector)
 		if yaw_target_vector_norm > 0.001 then
 			yaw_target_raw = math.atan2(yaw_target_vector.y / yaw_target_vector_norm, yaw_target_vector.x / yaw_target_vector_norm) * 180 / Pi()
@@ -3017,6 +3177,8 @@ function Navigation:AutoPilot()
 				self.log_obj:Record(LogLevel.Warning, "Failed to run engine in Autopilot")
 			end
 		end
+
+		self.av_obj:MoveThruster(self:BuildAutopilotThrusterCommands(vehicle_angle, fix_direction_vector))
 	end)
 	return true
 end
@@ -4017,103 +4179,22 @@ end
 ---@return string status
 function Navigation:FindNearestSafeOrDangerCellPos(target_pos)
 	if not target_pos then return nil, math.huge, "unknown" end
-	local local_pos, local_dist, local_status, found_local = self:FindNearestSafeOrDangerCellPosByShell(target_pos)
-	if found_local then
-		return local_pos, local_dist, local_status
+
+	local nearest_chunk, chunk_dist = self:FindNearestObstacleMapChunk(target_pos, nil)
+	if not nearest_chunk then
+		return nil, math.huge, "unknown"
 	end
 
-	local cs = self.obstacle_cell_size
-	local best_clear_pos = nil
-	local best_clear_dist = math.huge
-	local best_danger_pos = nil
-	local best_danger_dist = math.huge
-
-	for ckey, cell in pairs(self.obstacle_map) do
-		local cx, cy, cz = ckey:match("([^_]+)_([^_]+)_([^_]+)")
-		if cx then
-			cx, cy, cz = tonumber(cx), tonumber(cy), tonumber(cz)
-			if cell == false or cell == "danger" then
-				local cell_pos = Vector4.new((cx + 0.5) * cs, (cy + 0.5) * cs, (cz + 0.5) * cs, 1)
-				local dx = cell_pos.x - target_pos.x
-				local dy = cell_pos.y - target_pos.y
-				local dz = cell_pos.z - target_pos.z
-				local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-				if cell == false then
-					if dist < best_clear_dist then
-						best_clear_dist = dist
-						best_clear_pos = cell_pos
-					end
-				elseif dist < best_danger_dist then
-					best_danger_dist = dist
-					best_danger_pos = cell_pos
-				end
-			end
-		end
+	local chunk_pos, chunk_cell_dist, chunk_status = self:FindNearestSafeOrDangerCellPosInChunk(nearest_chunk, target_pos)
+	if chunk_pos then
+		return chunk_pos, chunk_cell_dist, chunk_status
 	end
 
-	if best_clear_pos then
-		return best_clear_pos, best_clear_dist, "clear"
-	end
-	if best_danger_pos then
-		return best_danger_pos, best_danger_dist, "danger"
-	end
+	self.log_obj:Record(LogLevel.Debug, string.format(
+		"FindNearestSafeOrDangerCellPos: nearest chunk %s had no traversable cells near target (chunkDist=%.0fm)",
+		nearest_chunk.chunk_key,
+		chunk_dist))
 	return nil, math.huge, "unknown"
-end
-
----@param target_pos Vector4|nil
----@return Vector4|nil nearest_pos
----@return number best_dist
----@return string status
----@return boolean found_local
-function Navigation:FindNearestSafeOrDangerCellPosByShell(target_pos)
-	if not target_pos then return nil, math.huge, "unknown", false end
-	local target_key = self:PositionToSectorKey(target_pos)
-	if not target_key then return nil, math.huge, "unknown", false end
-	local base_x, base_y, base_z = self:ParseSectorKey(target_key)
-	if not base_x then return nil, math.huge, "unknown", false end
-
-	local cs = self.obstacle_cell_size
-	local max_radius = self.nearest_traversable_search_soft_limit_cells or 45
-	for radius = 0, max_radius do
-		local best_clear_pos = nil
-		local best_clear_dist = math.huge
-		local best_danger_pos = nil
-		local best_danger_dist = math.huge
-		for dx = -radius, radius do
-			for dy = -radius, radius do
-				for dz = -radius, radius do
-					if radius == 0 or math.max(math.abs(dx), math.abs(dy), math.abs(dz)) == radius then
-						local cell_key = string.format("%d_%d_%d", base_x + dx, base_y + dy, base_z + dz)
-						local cell = self.obstacle_map[cell_key]
-						if cell == false or cell == "danger" then
-							local cell_pos = Vector4.new((base_x + dx + 0.5) * cs, (base_y + dy + 0.5) * cs, (base_z + dz + 0.5) * cs, 1)
-							local ox = cell_pos.x - target_pos.x
-							local oy = cell_pos.y - target_pos.y
-							local oz = cell_pos.z - target_pos.z
-							local dist = math.sqrt(ox * ox + oy * oy + oz * oz)
-							if cell == false then
-								if dist < best_clear_dist then
-									best_clear_dist = dist
-									best_clear_pos = cell_pos
-								end
-							elseif dist < best_danger_dist then
-								best_danger_dist = dist
-								best_danger_pos = cell_pos
-							end
-						end
-					end
-				end
-			end
-		end
-		if best_clear_pos then
-			return best_clear_pos, best_clear_dist, "clear", true
-		end
-		if best_danger_pos then
-			return best_danger_pos, best_danger_dist, "danger", true
-		end
-	end
-
-	return nil, math.huge, "unknown", false
 end
 
 --- Initialize cell-based navigation system
@@ -4212,45 +4293,66 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 		dest_dir_vec.y / dest_len,
 		dest_dir_vec.z / dest_len, 0)
 
-	-- Stuck detection every 2 seconds using net progress toward the destination.
-	-- If progress is less than 2 m in 2 s, accumulate stuck time.
-	-- If progress is greater than 10 m in 2 s, fully reset stuck state.
-	-- This accumulates in both DIRECT and BOUNDARY modes to prevent endless loops.
-	local stuck_check_interval = 2.0
-	local stuck_progress_threshold = -2.0   -- insufficient progress if not at least 2m closer in 2s
-	local stuck_reset_threshold    = -10.0  -- full reset when at least 10m closer in 2s
+	-- Stuck detection uses short-window forward progress plus actual speed deficiency.
+	-- This reacts faster than pure destination-distance checks and is harder to fool
+	-- by sideways drift near walls.
+	local stuck_check_interval = self.local_avoidance_stuck_check_interval or 0.5
+	local stuck_min_forward_progress = self.local_avoidance_stuck_min_forward_progress or 0.5
+	local stuck_reset_forward_progress = self.local_avoidance_stuck_reset_forward_progress or 2.0
+	local stuck_speed_ratio_threshold = self.local_avoidance_stuck_speed_ratio_threshold or 0.25
+	local stuck_min_dist_improvement = self.local_avoidance_stuck_min_dist_improvement or 0.75
 	if near_final_local_goal then
 		self.local_avoidance_stuck_timer       = 0
 		self.local_avoidance_stuck_escape_time = 0
 		self.local_avoidance_stuck_abort       = false
 		self.local_avoidance_stuck_needs_replan = false
 		self.local_avoidance_net_check_dist    = dest_len
+		self.local_avoidance_net_check_pos     = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
 		self.local_avoidance_net_check_time    = current_time
-	elseif self.local_avoidance_net_check_dist == nil then
+	elseif self.local_avoidance_net_check_dist == nil or self.local_avoidance_net_check_pos == nil then
 		self.local_avoidance_net_check_dist = dest_len
+		self.local_avoidance_net_check_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
 		self.local_avoidance_net_check_time = current_time
 	elseif current_time - self.local_avoidance_net_check_time >= stuck_check_interval then
+		local baseline_pos = self.local_avoidance_net_check_pos
+		local delta_x = current_pos.x - baseline_pos.x
+		local delta_y = current_pos.y - baseline_pos.y
+		local delta_z = current_pos.z - baseline_pos.z
+		local forward_progress = delta_x * dest_dir.x + delta_y * dest_dir.y + delta_z * dest_dir.z
 		local dist_change = dest_len - self.local_avoidance_net_check_dist  -- positive=farther, negative=closer
+		local actual_velocity, _ = self.av_obj.engine_obj:GetDirectionAndAngularVelocity()
+		local actual_speed = math.sqrt(
+			actual_velocity.x * actual_velocity.x +
+			actual_velocity.y * actual_velocity.y +
+			actual_velocity.z * actual_velocity.z)
+		local low_speed_threshold = math.max(2.5, (self.autopilot_speed or 0) * stuck_speed_ratio_threshold)
+		local low_speed = actual_speed <= low_speed_threshold
+		local receding = dist_change > 0.5
+		local weak_dist_improvement = dist_change > -stuck_min_dist_improvement
+		local poor_forward_progress = forward_progress < stuck_min_forward_progress
 
-		if dist_change <= stuck_reset_threshold then
-			-- Strong progress (>=10m in 2s): fully reset stuck state.
+		if forward_progress >= stuck_reset_forward_progress then
 			if self.local_avoidance_stuck_timer > 0 then
 				self.log_obj:Record(LogLevel.Debug, string.format(
-					"StuckDetect: good progress %.1fm, resetting stuck timer (was %.0fs)",
-					-dist_change, self.local_avoidance_stuck_timer))
+					"StuckDetect: forward progress %.1fm, resetting stuck timer (was %.1fs)",
+					forward_progress, self.local_avoidance_stuck_timer))
 			end
 			self.local_avoidance_stuck_timer       = 0
 			self.local_avoidance_stuck_escape_time = 0
-		elseif dist_change > stuck_progress_threshold then
-			-- Insufficient progress (receding or <2m closer): accumulate stuck time.
+		elseif receding or (poor_forward_progress and (low_speed or weak_dist_improvement)) then
 			self.local_avoidance_stuck_timer = self.local_avoidance_stuck_timer + stuck_check_interval
 			self.log_obj:Record(LogLevel.Debug, string.format(
-				"StuckDetect: insufficient progress %.1fm (dist=%.1fm), stuck=%.0fs/%.0fs",
-				dist_change, dest_len, self.local_avoidance_stuck_timer, self.local_avoidance_stuck_threshold))
+				"StuckDetect: progress=%.2fm distDelta=%.2fm weakDist=%s speed=%.2fm/s (<=%.2f=%s), stuck=%.1fs/%.1fs",
+				forward_progress, dist_change, tostring(weak_dist_improvement), actual_speed, low_speed_threshold, tostring(low_speed),
+				self.local_avoidance_stuck_timer, self.local_avoidance_stuck_threshold))
+		elseif poor_forward_progress then
+			self.local_avoidance_stuck_timer = math.max(0, self.local_avoidance_stuck_timer - stuck_check_interval * 0.25)
+		else
+			self.local_avoidance_stuck_timer = math.max(0, self.local_avoidance_stuck_timer - stuck_check_interval)
 		end
-		-- -10m < dist_change <= -2m: mild progress, treated as neutral.
 
 		self.local_avoidance_net_check_dist = dest_len
+		self.local_avoidance_net_check_pos = Vector4.new(current_pos.x, current_pos.y, current_pos.z, 1)
 		self.local_avoidance_net_check_time = current_time
 	end
 
@@ -4271,6 +4373,7 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 			self.local_avoidance_stuck_escape_time  = 0
 			self.local_avoidance_stuck_needs_replan = true
 			self.local_avoidance_net_check_dist     = nil
+			self.local_avoidance_net_check_pos      = nil
 			self.log_obj:Record(LogLevel.Info, string.format(
 				"Local avoidance: escape complete after %.1fs - %.0fm Fibonacci sphere is clear",
 				escape_elapsed, escape_scan_dist))

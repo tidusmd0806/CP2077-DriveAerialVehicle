@@ -52,7 +52,7 @@ function AV:New(core_obj)
 	obj.is_crystal_dome = false
 	obj.search_ground_offset = 2
 	obj.search_ground_distance = 100
-	obj.collision_filters = {"Static", "Terrain", "Water"}
+	obj.collision_filters = {"Static", "Terrain", "Water", "VehicleBlocker"}
 	obj.collision_query_filter = nil
 	obj.minimum_distance_to_ground = 1.2
 	obj.spawn_time = 0
