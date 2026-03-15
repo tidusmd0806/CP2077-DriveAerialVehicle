@@ -288,23 +288,23 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
         self.log_obj:Record(LogLevel.Warning, "Engine not initialized", "Engine:Run")
         return false
     end
-    
+
     if not self.entity_id then
         self.log_obj:Record(LogLevel.Error, "Entity ID is nil", "Engine:Run")
         return false
     end
-    
+
     if self.av_obj:IsDespawned() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle not spawned", "Engine:Run")
         return false
     end
-    
+
     local vel_vec, _ = self:GetDirectionAndAngularVelocity()
     if not vel_vec then
         self.log_obj:Record(LogLevel.Error, "Failed to get velocity", "Engine:Run")
         return false
     end
-    
+
     local current_angle = self.av_obj:GetEulerAngles()
     if not current_angle then
         self.log_obj:Record(LogLevel.Error, "Failed to get angles", "Engine:Run")
@@ -747,8 +747,12 @@ function Engine:FluctuationVelocity(delta)
         self.engine_control_type = Def.EngineControlType.AddForce
         return
     end
-    
+
     local velocity = Vector4.Vector3To4(self.direction_velocity):Length()
+    if velocity == 0 then
+        self.log_obj:Record(LogLevel.Trace, "Current velocity is 0 - cannot apply fluctuation")
+        return
+    end
     if self.step_width_per_second == 0 then
         self.log_obj:Record(LogLevel.Trace, "step_width_per_second is 0")
         self.engine_control_type = Def.EngineControlType.ChangeVelocity

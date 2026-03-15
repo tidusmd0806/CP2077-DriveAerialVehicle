@@ -35,8 +35,6 @@ function Event:New()
     obj.is_locked_showing_meter = false
     obj.check_input_count = 0
     obj.is_ltbf_flight_active = false
-    -- projection
-    obj.is_landing_projection = false
 
     return setmetatable(obj, self)
 
@@ -545,7 +543,7 @@ function Event:CheckInput()
         self.hud_obj:SetInputHintController()
         if not self.hud_obj:IsVisibleCustomInputHints() then
             self.hud_obj:ReconstructInputHint()
-            self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
+            self.log_obj:Record(LogLevel.Trace, "ReconstructInputHint called")
             return
         end
     end
@@ -659,12 +657,6 @@ function Event:IsInMenuOrPopupOrPhoto()
     else
         return false
     end
-end
-
---- Check if entry is allowed.
----@return boolean
-function Event:IsAllowedEntry()
-    return self.is_allowed_entry
 end
 
 --- Check perspective is FPP.

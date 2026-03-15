@@ -892,7 +892,9 @@ end
 --- Set landing vfx position.
 ---@param position Vector4 offset center position
 function AV:SetLandingVFXPosition(position)
-	if self.is_enable_landing_vfx and DAV.user_setting_table.is_enable_landing_vfx then
+	if self.is_enable_landing_vfx
+		and DAV.user_setting_table.is_enable_landing_vfx
+		and self.landing_vfx_component ~= nil then
 		self.landing_vfx_component:SetLocalPosition(position)
 	end
 end
@@ -1171,14 +1173,6 @@ function AV:ChangeWorldCordinate(basic_vector, point_list)
         result_list[i] = {x = rotated.x + basic_vector.x, y = rotated.y + basic_vector.y, z = rotated.z + basic_vector.z}
     end
     return result_list
-end
-
-
---- Consolidate short-term memory into long-term memory (call on flight end)
-function AV:ConsolidateMemory()
-	if self.log_obj then
-		self.log_obj:Record(LogLevel.Debug, "ConsolidateMemory skipped: obstacle map persistence is startup/preload only")
-	end
 end
 
 return AV

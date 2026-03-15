@@ -54,6 +54,7 @@ function Navigation:New(av_obj)
 	obj.astar_blocked_penalty = 10000.0
 	obj.astar_danger_penalty = 6.0
 	obj.astar_clear_penalty = 0.8
+	obj.final_local_arrival_range = 8.0
 
 	-- Local avoidance state
 	obj.is_deadend_escape_active = false
@@ -107,6 +108,7 @@ function Navigation:New(av_obj)
 	obj.autopilot_phase = "astar"
 	obj.autopilot_local_target = nil
 	obj.autopilot_dest_is_unknown = false
+	obj.autopilot_dest_is_blocked = false
 	obj.autopilot_dest_requires_final_local = false
 	obj.autopilot_dest_cell_status = "unknown"
 	obj.autopilot_ground_destination = nil
@@ -2520,12 +2522,45 @@ function Navigation:AutoPilot()
 
 	-- Determine navigation phases based on start/destination knowledge
 	local ap_start_known = self:IsSectorAreaKnown(current_position)
+	local requested_ground_destination = Vector4.new(
+		self.autopilot_ground_destination.x,
+		self.autopilot_ground_destination.y,
+		self.autopilot_ground_destination.z,
+		1)
 	local ap_dest_status = self:GetObstacleCellStatusAtPosition(altitude_adjusted_destination)
+	local requested_dest_status = ap_dest_status
 	local ap_dest_known  = ap_dest_status ~= "unknown"
 	local ap_dest_traversable = ap_dest_status == "clear" or ap_dest_status == "danger"
+	local blocked_dest_resolved_pos = nil
+	local blocked_dest_resolved_dist = math.huge
+	local blocked_dest_resolved_status = "unknown"
+	if requested_dest_status == true then
+		blocked_dest_resolved_pos, blocked_dest_resolved_dist, blocked_dest_resolved_status = self:FindNearestSafeOrDangerCellPos(altitude_adjusted_destination)
+		if blocked_dest_resolved_pos then
+			altitude_adjusted_destination = Vector4.new(
+				blocked_dest_resolved_pos.x,
+				blocked_dest_resolved_pos.y,
+				blocked_dest_resolved_pos.z,
+				1)
+			ap_dest_status = blocked_dest_resolved_status
+			ap_dest_known = true
+			ap_dest_traversable = true
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"AutoPilot: blocked destination cell remapped to nearest %s cell at (%.1f, %.1f, %.1f, %.0fm away)",
+				blocked_dest_resolved_status,
+				altitude_adjusted_destination.x,
+				altitude_adjusted_destination.y,
+				altitude_adjusted_destination.z,
+				blocked_dest_resolved_dist))
+		else
+			self.log_obj:Record(LogLevel.Info,
+				"AutoPilot: destination is a blocked cell and no nearby clear/danger cell was found; keeping final_local fallback")
+		end
+	end
 	self.autopilot_scan_dirty_count    = 0
 	self.autopilot_scan_last_save_time = os.clock()
 	self.autopilot_dest_is_unknown     = ap_dest_status == "unknown"
+	self.autopilot_dest_is_blocked     = requested_dest_status == true
 	self.autopilot_dest_requires_final_local = not ap_dest_traversable
 	self.autopilot_dest_cell_status = ap_dest_status
 	self.autopilot_final_destination = Vector4.new(
@@ -2534,12 +2569,16 @@ function Navigation:AutoPilot()
 		altitude_adjusted_destination.z,
 		1)
 	self.autopilot_original_destination = Vector4.new(
-		self.autopilot_ground_destination.x,
-		self.autopilot_ground_destination.y,
-		self.autopilot_ground_destination.z,
+		requested_ground_destination.x,
+		requested_ground_destination.y,
+		requested_ground_destination.z,
 		1)
-	self.autopilot_astar_target_position = nil
-	self.autopilot_astar_target_status = "unknown"
+	self.autopilot_astar_target_position = blocked_dest_resolved_pos and Vector4.new(
+		blocked_dest_resolved_pos.x,
+		blocked_dest_resolved_pos.y,
+		blocked_dest_resolved_pos.z,
+		1) or nil
+	self.autopilot_astar_target_status = blocked_dest_resolved_pos and blocked_dest_resolved_status or "unknown"
 	self.autopilot_active_astar_destination = nil
 	self.astar_local_avoidance_recheck_time    = 0
 	local start_to_dest_vec = Vector4.new(
@@ -2601,7 +2640,8 @@ function Navigation:AutoPilot()
 		self.current_route_index  = 1
 	else
 		-- Phase astar: start is in a known cell - plan an A* route.
-		-- If destination is unknown or blocked, route to the nearest clear/danger cell near dest, then final_local.
+		-- Unknown destinations still fall back through final_local, while blocked destinations
+		-- are remapped upfront to a nearby clear/danger cell and stay in pure A*.
 		self.autopilot_phase        = "astar"
 		self.autopilot_local_target = nil
 		local astar_dest = self.autopilot_final_destination
@@ -2619,6 +2659,10 @@ function Navigation:AutoPilot()
 				self.log_obj:Record(LogLevel.Info,
 					"AutoPilot [final_local]: no clear/danger cells near destination - full local avoidance mode")
 			end
+		elseif self.autopilot_dest_is_blocked and blocked_dest_resolved_pos then
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"AutoPilot [astar]: blocked destination remapped to nearest %s cell - pure A* navigation",
+				blocked_dest_resolved_status))
 		else
 			self.log_obj:Record(LogLevel.Info,
 				"AutoPilot [astar]: start and destination both in KNOWN cells - pure A* navigation")
@@ -2899,8 +2943,13 @@ function Navigation:AutoPilot()
 
 		-- check destination: use horizontal + upward-only Z so that being above target
 		-- at flight altitude doesn't prevent arrival detection
+		local arrival_range = self.av_obj.destination_range
+		if self.autopilot_phase == "final_local" then
+			arrival_range = math.max(arrival_range, self.final_local_arrival_range or 8.0)
+		end
+
 		if can_arrive_at_final_destination
-			and dist_to_final_arr < self.av_obj.destination_range then
+			and dist_to_final_arr < arrival_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			-- Landing height: distance from current Z to the ORIGINAL ground destination,
@@ -4278,7 +4327,8 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 	-- emergency-looking upward maneuvers just before landing.
 	local near_final_local_goal = false
 	if self.autopilot_phase == "final_local" then
-		local near_goal_dist = math.max((self.av_obj.destination_range or 0) * 2.0, self.sector_size * 0.6)
+		local final_local_arrival_range = math.max(self.av_obj.destination_range or 0, self.final_local_arrival_range or 8.0)
+		local near_goal_dist = math.max(final_local_arrival_range * 2.0, self.sector_size * 0.6)
 		local remaining_horiz = self.dest_remaining_to_final or math.huge
 		if remaining_horiz <= near_goal_dist then
 			near_final_local_goal = true
