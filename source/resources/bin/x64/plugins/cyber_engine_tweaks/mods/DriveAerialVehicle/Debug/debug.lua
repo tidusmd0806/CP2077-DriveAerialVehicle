@@ -18,15 +18,14 @@ function Debug:New(core_obj)
     obj.is_im_gui_sound_check = false
     obj.is_im_gui_mappin_position = false
     obj.is_im_gui_model_type_status = false
-    obj.is_im_gui_auto_pilot_status = false
-    obj.is_im_gui_change_auto_setting = false
     obj.is_im_gui_auto_pilot_info = false
-    obj.is_im_gui_auto_pilot_exception_area = false
-    obj.is_im_gui_check_setting_param = false
+    obj.is_im_gui_obstacle_map = false
     obj.selected_sound = "100_call_vehicle"
     obj.fade_time = 1.5
-    obj.exception_area_entity_list = {}
-    obj.spawn_lock = false
+    obj.manual_block_points = {}
+    obj.manual_block_marker_entities = {}
+    obj.last_manual_block_result = ""
+    obj.last_manual_block_ok = nil
 
     return setmetatable(obj, self)
 end
@@ -49,15 +48,121 @@ function Debug:ImGuiMain()
     self:ImGuiSoundCheck()
     self:ImGuiModelTypeStatus()
     self:ImGuiMappinPosition()
-    self:ImGuiAutoPilotStatus()
-    self:ImGuiChangeAutoPilotSetting()
     self:ImGuiAutoPilotInfo()
-    self:ImGuiAutoPilotExceptionArea()
-    self:ImGuiCheckSettingParam()
+    self:ImGuiObstacleMap()
     self:ImGuiExcuteFunction()
 
     ImGui.End()
 
+end
+
+function Debug:ClearManualBlockMarkers()
+    for _, entity in ipairs(self.manual_block_marker_entities) do
+        exEntitySpawner.Despawn(entity)
+    end
+    self.manual_block_marker_entities = {}
+end
+
+function Debug:SpawnManualBlockMarkerAt(position)
+    if not position then return end
+    local entity_path = "ep1\\worlds\\03_night_city\\sectors\\c_pacifica\\combat_zone\\container_zone\\loc_q305_bunker\\loc_q305_bunker_lighting\\device\\bunker_storage_ceiling_lamp.ent"
+    local transform = WorldTransform.new()
+    local pos = WorldPosition.new()
+    pos:SetXYZ(position.x, position.y, position.z)
+    transform.Position = pos
+
+    local entity_id = exEntitySpawner.Spawn(entity_path, transform, '')
+    if entity_id == nil then return end
+
+    Cron.Every(0.01, {tick = 1}, function(timer)
+        local entity = Game.FindEntityByID(entity_id)
+        if entity ~= nil then
+            table.insert(self.manual_block_marker_entities, entity)
+            Cron.Halt(timer)
+            return
+        end
+        timer.tick = timer.tick + 1
+        if timer.tick > 300 then
+            Cron.Halt(timer)
+        end
+    end)
+end
+
+function Debug:RefreshManualBlockMarkers()
+    self:ClearManualBlockMarkers()
+    for i = 1, 8 do
+        local p = self.manual_block_points[i]
+        if p and p.pos then
+            self:SpawnManualBlockMarkerAt(p.pos)
+        end
+    end
+end
+
+function Debug:RecordManualBlockPoint(index)
+    local av_obj = self.core_obj and self.core_obj.av_obj
+    local nav = av_obj and av_obj.navigation_obj
+    if not nav then
+        self.last_manual_block_ok = false
+        self.last_manual_block_result = "Navigation object is not available"
+        return
+    end
+
+    local player = Game.GetPlayer()
+    if not player then
+        self.last_manual_block_ok = false
+        self.last_manual_block_result = "Player is not available"
+        return
+    end
+
+    local pos = player:GetWorldPosition()
+    local key = nav:PositionToSectorKey(pos)
+    if not key then
+        self.last_manual_block_ok = false
+        self.last_manual_block_result = "Failed to detect current cell"
+        return
+    end
+
+    local center = nav:SectorKeyToPosition(key)
+    if not center then
+        self.last_manual_block_ok = false
+        self.last_manual_block_result = "Failed to resolve cell center"
+        return
+    end
+
+    self.manual_block_points[index] = { key = key, pos = center }
+    self:RefreshManualBlockMarkers()
+    self.last_manual_block_ok = true
+    self.last_manual_block_result = string.format("P%d recorded: %s", index, key)
+end
+
+function Debug:ResetManualBlockPoints()
+    self.manual_block_points = {}
+    self:ClearManualBlockMarkers()
+end
+
+function Debug:CreateManualBlockHexahedron()
+    local av_obj = self.core_obj and self.core_obj.av_obj
+    local nav = av_obj and av_obj.navigation_obj
+    if not nav then
+        self.last_manual_block_ok = false
+        self.last_manual_block_result = "Navigation object is not available"
+        return
+    end
+
+    for i = 1, 8 do
+        if not self.manual_block_points[i] then
+            self.last_manual_block_ok = false
+            self.last_manual_block_result = "Record all 8 points first"
+            return
+        end
+    end
+
+    local ok, msg = nav:CreateObstacleConvexHexahedronFromPoints(self.manual_block_points)
+    self.last_manual_block_ok = ok
+    self.last_manual_block_result = msg or ""
+    if ok then
+        self:ResetManualBlockPoints()
+    end
 end
 
 function Debug:SetObserver()
@@ -171,52 +276,52 @@ function Debug:ImGuiAVPosition()
         local yaw = string.format("%.2f", self.core_obj.av_obj:GetEulerAngles().yaw)
         ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
         ImGui.Text("Roll:" .. roll .. ", Pitch:" .. pitch .. ", Yaw:" .. yaw)
-        ImGui.Text("Height : " .. tostring(DAV.core_obj.av_obj:GetHeight()))
+        ImGui.Text("Height : " .. tostring(self.core_obj.av_obj.navigation_obj:GetHeight()))
     end
 end
 
 function Debug:ImGuiVehicleInfo()
     self.is_im_gui_vehicle_info = ImGui.Checkbox("[ImGui] Vehicle Info", self.is_im_gui_vehicle_info)
     if self.is_im_gui_vehicle_info then
-        if DAV.core_obj.av_obj == nil then
+        if self.core_obj.av_obj == nil then
             return
         end
-        if DAV.core_obj.av_obj:IsDestroyed() then
+        if self.core_obj.av_obj:IsDestroyed() then
             ImGui.Text("Vehicle : Destroyed")
         else
             ImGui.Text("Vehicle : Alive")
         end
-        if DAV.core_obj.av_obj:IsEngineOn() then
+        if self.core_obj.av_obj:IsEngineOn() then
             ImGui.Text("Engine : On")
         else
             ImGui.Text("Engine : Off")
         end
-        local left_door_state = DAV.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_left)
-        local right_door_state = DAV.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_right)
+        local left_door_state = self.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_left)
+        local right_door_state = self.core_obj.av_obj:GetDoorState(EVehicleDoor.seat_front_right)
         ImGui.Text("Door State : " .. tostring(left_door_state) .. ", ")
         ImGui.Text(tostring(right_door_state))
-        local lock_list = DAV.core_obj.av_obj.door_input_lock_list
+        local lock_list = self.core_obj.av_obj.door_input_lock_list
         ImGui.Text("Door Input Lock : " .. tostring(lock_list["seat_front_left"]) .. ", " .. tostring(lock_list["seat_front_right"]))
-        if DAV.core_obj.av_obj.engine_obj.fly_av_system == nil then
+        if self.core_obj.av_obj.engine_obj.fly_av_system == nil then
             return
         end
-        if DAV.core_obj.av_obj.engine_obj:IsOnGround() then
+        if self.core_obj.av_obj.engine_obj:IsOnGround() then
             ImGui.Text("On Ground")
         else
             ImGui.Text("In Air")
         end
         ImGui.Text("Phy State: " .. tostring(self.core_obj.av_obj.engine_obj:GetPhysicsState()))
-        if DAV.core_obj.av_obj.engine_obj.fly_av_system:HasGravity() then
+        if self.core_obj.av_obj.engine_obj.fly_av_system:HasGravity() then
             ImGui.Text("Gravity : On")
         else
             ImGui.Text("Gravity : Off")
         end
-        local speed = DAV.core_obj.av_obj.engine_obj.fly_av_system:GetVelocity()
+        local speed = self.core_obj.av_obj.engine_obj.fly_av_system:GetVelocity()
         local speed_x = string.format("%.2f", speed.x)
         local speed_y = string.format("%.2f", speed.y)
         local speed_z = string.format("%.2f", speed.z)
         ImGui.Text("Speed : X:" .. speed_x .. ", Y:" .. speed_y .. ", Z:" .. speed_z)
-        local angular_velocity = DAV.core_obj.av_obj.engine_obj.fly_av_system:GetAngularVelocity()
+        local angular_velocity = self.core_obj.av_obj.engine_obj.fly_av_system:GetAngularVelocity()
         local angular_velocity_x = string.format("%.2f", angular_velocity.x)
         local angular_velocity_y = string.format("%.2f", angular_velocity.y)
         local angular_velocity_z = string.format("%.2f", angular_velocity.z)
@@ -227,7 +332,7 @@ end
 function Debug:ImGuiEngineInfo()
     self.is_im_gui_engine_info = ImGui.Checkbox("[ImGui] Engine Info", self.is_im_gui_engine_info)
     if self.is_im_gui_engine_info then
-        if DAV.core_obj.av_obj == nil then
+        if self.core_obj.av_obj == nil then
             return
         end
         local engine_obj = self.core_obj.av_obj.engine_obj
@@ -339,7 +444,7 @@ function Debug:ImGuiMappinPosition()
         local y = string.format("%.2f", self.core_obj.current_custom_mappin_position.y)
         local z = string.format("%.2f", self.core_obj.current_custom_mappin_position.z)
         ImGui.Text("X: " .. x .. ", Y: " .. y .. ", Z: " .. z)
-        if DAV.core_obj.is_custom_mappin then
+        if self.core_obj.is_custom_mappin then
             ImGui.Text("Custom Mappin : On")
         else
             ImGui.Text("Custom Mappin : Off")
@@ -347,333 +452,253 @@ function Debug:ImGuiMappinPosition()
     end
 end
 
-function Debug:ImGuiAutoPilotStatus()
-    self.is_im_gui_auto_pilot_status = ImGui.Checkbox("[ImGui] Auto Pilot Status", self.is_im_gui_auto_pilot_status)
-    if self.is_im_gui_auto_pilot_status then
-        ImGui.Text("FT Index near mappin : " .. tostring(DAV.core_obj.ft_index_nearest_mappin))
-        ImGui.Text("FT Index near favorite : " .. tostring(DAV.core_obj.ft_index_nearest_favorite))
-        local selected_history_index = DAV.core_obj.event_obj.ui_obj.selected_auto_pilot_history_index
-        ImGui.Text("Selected History Index : " .. selected_history_index)
-        ImGui.Text("-----History-----")
-        local mappin_history = DAV.user_setting_table.mappin_history
-        if #mappin_history ~= 0 then
-            for i, value in ipairs(mappin_history) do
-                ImGui.Text("[" .. i .. "] : " .. value.district[1])
-                ImGui.SameLine()
-                ImGui.Text("/ " .. value.location)
-                ImGui.SameLine()
-                ImGui.Text("/ " .. value.distance)
-                if value.position ~= nil then
-                    ImGui.Text("[" .. i .. "] : " .. value.position.x .. ", " .. value.position.y .. ", " .. value.position.z)
-                else
-                    ImGui.Text("[" .. i .. "] : nil")
-                end
-            end
-        else
-            ImGui.Text("No History")
-        end
-        local selected_favorite_index = DAV.core_obj.event_obj.ui_obj.selected_auto_pilot_history_index
-        ImGui.Text("Selected Favorite Index : " .. selected_favorite_index)
-        ImGui.Text("------Favorite Location------")
-        local favorite_location_list = DAV.user_setting_table.favorite_location_list
-        for i, value in ipairs(favorite_location_list) do
-            ImGui.Text("[" .. i .. "] : " .. value.name)
-            if value.pos ~= nil then
-                ImGui.Text("[" .. i .. "] : " .. value.pos.x .. ", " .. value.pos.y .. ", " .. value.pos.z)
-            else
-                ImGui.Text("[" .. i .. "] : nil")
-            end
-        end
-    end
-end
-
-function Debug:ImGuiChangeAutoPilotSetting()
-    self.is_im_gui_change_auto_setting = ImGui.Checkbox("[ImGui] Change AP Profile", self.is_im_gui_change_auto_setting)
-    if self.is_im_gui_change_auto_setting then
-        if ImGui.Button("Update Profile") then
-            DAV.core_obj.av_obj.autopilot_profile = Utils:ReadJson(DAV.core_obj.av_obj.profile_path)
-            DAV.core_obj.av_obj:ReloadAutopilotProfile()
-        end
-        ImGui.Text("Level : " .. DAV.user_setting_table.autopilot_speed_level)
-        ImGui.Text("Speed : " .. DAV.core_obj.av_obj.autopilot_speed .. ", Acceleration : " .. DAV.core_obj.av_obj.autopilot_acceleration)
-        ImGui.Text("Search Range : " .. DAV.core_obj.av_obj.autopilot_searching_range .. ", Search Step : " .. DAV.core_obj.av_obj.autopilot_searching_step)
-        ImGui.Text("Min Speed Rate : " .. DAV.core_obj.av_obj.autopilot_min_speed_rate .. ", Turn Speed : " .. DAV.core_obj.av_obj.autopilot_turn_speed)
-        ImGui.Text("Leaving Height : " .. DAV.core_obj.av_obj.autopilot_leaving_height .. ", Only Horizontal : " .. tostring(DAV.core_obj.av_obj.autopilot_is_only_horizontal))
-    end
-end
-
 function Debug:ImGuiAutoPilotInfo()
     self.is_im_gui_auto_pilot_info = ImGui.Checkbox("[ImGui] Auto Pilot Info", self.is_im_gui_auto_pilot_info)
-    if self.is_im_gui_auto_pilot_info then
-        local av_obj = DAV.core_obj.av_obj
+    if not self.is_im_gui_auto_pilot_info then return end
 
-        -- Current autopilot status
-        ImGui.Text("=== Current Autopilot Status ===")
-        ImGui.Text("AutoPilot Active: " .. tostring(av_obj.is_auto_pilot))
-        ImGui.Text("Current Speed: " .. string.format("%.2f", av_obj.autopilot_speed * av_obj.auto_speed_reduce_rate))
-        ImGui.Text("Search Range: " .. string.format("%.1f", av_obj.search_range))
-        ImGui.Text("Destination Distance 2D: " .. string.format("%.1f", av_obj.dest_dir_vector_norm))
-
-        ImGui.Separator()
-
-        -- Dead-end Avoidance System
-        ImGui.Text("=== Dead-end Avoidance System ===")
-        ImGui.Text("Score Threshold: " .. string.format("%.1f", av_obj.deadend_score_threshold))
-        ImGui.Text("Escape Distance: " .. string.format("%.1f", av_obj.deadend_vertical_escape_distance) .. "m")
-        ImGui.Text("Check Interval: " .. string.format("%.1f", av_obj.deadend_escape_check_interval) .. "s")
-        
-        if av_obj.is_deadend_escape_active then
-            ImGui.TextColored(1, 0.5, 0, 1, "Status: ESCAPE MODE ACTIVE")
-            if av_obj.deadend_escape_target_z then
-                local current_pos = Game.GetPlayer():GetWorldPosition()
-                ImGui.Text("Current Altitude: " .. string.format("%.1f", current_pos.z) .. "m")
-                ImGui.Text("Target Altitude: " .. string.format("%.1f", av_obj.deadend_escape_target_z) .. "m")
-                local remaining = av_obj.deadend_escape_target_z - current_pos.z
-                if remaining > 0 then
-                    ImGui.TextColored(1, 1, 0, 1, "Ascending: " .. string.format("%.1f", remaining) .. "m remaining")
-                else
-                    ImGui.TextColored(0, 1, 1, 1, "Testing forward path clearance...")
-                end
-            end
-        else
-            ImGui.TextColored(0, 1, 0, 1, "Status: NORMAL NAVIGATION")
-        end
-        
-        -- Show current best score and its relation to threshold
-        if av_obj.last_best_score then
-            local score_text = string.format("Current Best Score: %.1f", av_obj.last_best_score)
-            if av_obj.last_best_score <= av_obj.deadend_score_threshold then
-                if not av_obj.is_deadend_escape_active then
-                    ImGui.TextColored(1, 1, 0, 1, score_text .. " (Below threshold - will trigger escape)")
-                else
-                    ImGui.TextColored(1, 0.5, 0, 1, score_text .. " (Escape mode active)")
-                end
-            else
-                ImGui.TextColored(0, 1, 0, 1, score_text .. " (Above threshold)")
-            end
-        end
-
-        ImGui.Separator()
-
-        -- Exception Area Bypass Information
-        ImGui.Text("=== Exception Area Bypass ===")
-        ImGui.Text("Bypass Distance Threshold: " .. string.format("%.1f", av_obj.exception_area_bypass_distance))
-        if av_obj.is_exception_area_bypassed then
-            ImGui.TextColored(0, 1, 0, 1, "Status: BYPASSED (Exception areas ignored)")
-        else
-            ImGui.TextColored(1, 1, 0, 1, "Status: ACTIVE (Exception areas enforced)")
-        end
-
-        ImGui.Separator()
-
-        -- 5-Direction Evaluation System Results
-        ImGui.Text("=== 5-Direction Evaluation Results ===")
-        if av_obj.last_selected_direction then
-            ImGui.Text("Selected Direction: " .. av_obj.last_selected_direction)
-            ImGui.Text("Best Score: " .. string.format("%.1f", av_obj.last_best_score))
-            ImGui.Text("Last Evaluation: " .. string.format("%.2f", av_obj.last_evaluation_timestamp) .. "s ago")
-        else
-            ImGui.Text("No evaluation data available")
-        end
-
-        ImGui.Separator()
-
-        -- Direction Scores Table
-        ImGui.Text("=== Direction Evaluation Scores ===")
-        local directions = {"Forward", "Left", "Right", "Up", "Down"}
-        
-        -- Show direction priority and max angle information
-        ImGui.Text(string.format("Priorities: Forward=%.1f, Horizontal=%.1f, Up=%.1f, Down=%.1f", 
-            av_obj.eval_priority_forward, av_obj.eval_priority_horizontal, av_obj.eval_priority_up, av_obj.eval_priority_down))
-        ImGui.Text(string.format("Max Angles: Horizontal=%d°, Up=%d°, Down=%d°", 
-            av_obj.eval_max_angle_horizontal, av_obj.eval_max_angle_up, av_obj.eval_max_angle_down))
-
-        -- Add coordinate system debug info
-        if av_obj.last_direction_evaluations["Left"] and av_obj.last_direction_evaluations["Right"] then
-            local left_angle = av_obj.last_direction_evaluations["Left"].angle
-            local right_angle = av_obj.last_direction_evaluations["Right"].angle
-            ImGui.Text(string.format("Debug: Left angle=%d°, Right angle=%d° (Left should be negative, Right positive)",
-                left_angle, right_angle))
-
-            -- Show avoidance strength information
-            local selected_angle = math.abs(av_obj.autopilot_angle or 0)
-            local step_multiplier = 1.0
-            if selected_angle >= 15 and selected_angle <= 45 then
-                step_multiplier = 1.5
-            elseif selected_angle > 45 then
-                step_multiplier = 1.3
-            end
-            ImGui.Text(string.format("Avoidance Strength: %.1fx (angle: %d°)", step_multiplier, selected_angle))
-        end
-
-        for _, dir_name in ipairs(directions) do
-            local eval = av_obj.last_direction_evaluations[dir_name]
-            if eval then
-                local color = {1.0, 1.0, 1.0, 1.0}  -- White default
-                if dir_name == av_obj.last_selected_direction then
-                    color = {0.0, 1.0, 0.0, 1.0}  -- Green for selected
-                elseif eval.score <= 0 then
-                    color = {1.0, 0.0, 0.0, 1.0}  -- Red for bad score
-                elseif eval.score < 50 then
-                    color = {1.0, 1.0, 0.0, 1.0}  -- Yellow for low score
-                end
-
-                local display_name = dir_name
-                if dir_name == "Left" then
-                    display_name = "Right"
-                elseif dir_name == "Right" then
-                    display_name = "Left"
-                end
-
-                ImGui.PushStyleColor(ImGuiCol.Text, color[1], color[2], color[3], color[4])
-
-                -- Show collision count and penalty score if available in debug storage
-                local penalty_info = ""
-                if av_obj.last_direction_evaluations[dir_name] and av_obj.last_direction_evaluations[dir_name].collision_penalty_score then
-                    penalty_info = string.format(" (penalty: %.1f)", av_obj.last_direction_evaluations[dir_name].collision_penalty_score)
-                end
-
-                -- Add safety margin information
-                local margin_info = ""
-                if eval.safety_margin_score then
-                    if eval.safety_margin_score > 0 then
-                        margin_info = string.format(", SafeMargin: +%.1f", eval.safety_margin_score)
-                    elseif eval.safety_margin_score < 0 then
-                        margin_info = string.format(", SafeMargin: %.1f", eval.safety_margin_score)
-                    end
-                end
-
-                ImGui.Text(string.format("%s: %.1f (Safety: %.2f, Collisions: %d%s, Angle: %d°%s)",
-                    display_name, eval.score, eval.safety_rate, eval.collision_count, penalty_info, eval.angle, margin_info))
-
-                ImGui.PopStyleColor()
-            else
-                ImGui.Text(dir_name .. ": No data")
-            end
-        end
-
-        ImGui.Separator()
-
-        -- Current movement parameters (kept from original)
-        ImGui.Text("=== Movement Parameters ===")
-        ImGui.Text("Angle: " .. tostring(av_obj.autopilot_angle) .. "°")
-        ImGui.Text("H Sign: " .. tostring(av_obj.autopilot_horizontal_sign))
-        ImGui.Text("V Sign: " .. tostring(av_obj.autopilot_vertical_sign))
-        ImGui.Text("Speed Reduce Rate: " .. string.format("%.2f", av_obj.auto_speed_reduce_rate))
+    local av_obj = self.core_obj.av_obj
+    if not av_obj then
+        ImGui.Text("AV object not available")
+        return
     end
+    local nav_obj = av_obj.navigation_obj
+    if not nav_obj then
+        ImGui.Text("Navigation object not available")
+        return
+    end
+
+    local function table_count(t)
+        if type(t) ~= "table" then return 0 end
+        local n = 0
+        for _, _ in pairs(t) do
+            n = n + 1
+        end
+        return n
+    end
+
+    local function format_vec3(v)
+        if not v then return "nil" end
+        return string.format("(%.1f, %.1f, %.1f)", v.x or 0, v.y or 0, v.z or 0)
+    end
+
+    local function get_cell_status_at(pos)
+        if not pos then
+            return "Unknown", "nil"
+        end
+        local cell_key = nav_obj:PositionToSectorKey(pos) or "nil"
+        local cell = nav_obj.obstacle_map[cell_key]
+        if cell == true then
+            return "Obstacle", cell_key
+        elseif cell == "danger" then
+            return "Danger", cell_key
+        elseif cell == false then
+            return "Clear", cell_key
+        end
+
+        return "Unknown", cell_key
+    end
+
+    local function format_target(name, pos, extra)
+        local status, key = get_cell_status_at(pos)
+        local suffix = extra and (" | " .. extra) or ""
+        ImGui.Text(string.format("%s: %s | %s | %s%s", name, format_vec3(pos), tostring(key), tostring(status), suffix))
+    end
+
+    local phase = tostring(nav_obj.autopilot_phase or "unknown")
+    local route_len = (type(nav_obj.current_global_route) == "table") and #nav_obj.current_global_route or 0
+    local route_idx = tonumber(nav_obj.current_route_index) or 0
+    local route_wp_key = "-"
+    if route_len > 0 and route_idx >= 1 and route_idx <= route_len then
+        route_wp_key = tostring(nav_obj.current_global_route[route_idx])
+    end
+    local current_pos = av_obj.GetPosition and av_obj:GetPosition() or nil
+    local current_cell_status, current_cell_key = get_cell_status_at(current_pos)
+    local final_cell_status, final_cell_key = get_cell_status_at(nav_obj.autopilot_final_destination)
+    local planner_job = nav_obj.route_plan_job
+    local planner_status = planner_job and planner_job.status or "idle"
+    local planner_kind = planner_job and planner_job.kind or "-"
+    local planner_iterations = planner_job and planner_job.iterations or 0
+    local planner_max_iterations = planner_job and planner_job.max_iterations or 0
+    local planner_open = planner_job and planner_job.heap_size or 0
+    local planner_closed = planner_job and table_count(planner_job.closed_set) or 0
+    local planner_start_key = planner_job and planner_job.start_key or "-"
+    local planner_end_key = planner_job and planner_job.end_key or "-"
+    local followup_in = math.max(0, (tonumber(nav_obj.route_plan_next_followup_time) or 0) - os.clock())
+    local stuck_timer = tonumber(nav_obj.local_avoidance_stuck_timer) or 0
+    local stuck_threshold = tonumber(nav_obj.local_avoidance_stuck_threshold) or 0
+    local escape_elapsed = 0
+    if (tonumber(nav_obj.local_avoidance_stuck_escape_time) or 0) > 0 then
+        escape_elapsed = math.max(0, os.clock() - nav_obj.local_avoidance_stuck_escape_time)
+    end
+
+    ImGui.Text("=== Auto Pilot Runtime ===")
+    ImGui.Text("Active: " .. tostring(av_obj.is_auto_pilot))
+    ImGui.Text("Phase: " .. phase)
+    ImGui.Text("Dest Unknown Cell: " .. tostring(nav_obj.autopilot_dest_is_unknown))
+    ImGui.Text("Dest Final Local: " .. tostring(nav_obj.autopilot_dest_requires_final_local))
+    ImGui.Text("Dest Cell Status: " .. tostring(nav_obj.autopilot_dest_cell_status))
+    ImGui.Text("Current Cell: " .. tostring(current_cell_key) .. " | " .. tostring(current_cell_status))
+    ImGui.Text("Final Dest Cell: " .. tostring(final_cell_key) .. " | " .. tostring(final_cell_status))
+
+    ImGui.Separator()
+    ImGui.Text("=== Route / Target ===")
+    ImGui.Text(string.format("Route Progress: %d / %d", route_idx, route_len))
+    ImGui.Text("Current Waypoint Key: " .. route_wp_key)
+    ImGui.Text("A* Partial Route: " .. tostring(nav_obj.astar_is_partial_route))
+    ImGui.Text("Distance to Nav Target: " .. string.format("%.1f m", tonumber(nav_obj.dest_dir_vector_norm) or 0))
+    ImGui.Text("Distance to Final Dest: " .. string.format("%.1f m", tonumber(nav_obj.dest_remaining_to_final) or 0))
+    ImGui.Text("Target Flight Altitude: " .. string.format("%.1f", tonumber(nav_obj.target_flight_altitude) or 0))
+    format_target("Ground Destination", nav_obj.autopilot_ground_destination)
+    format_target("Final Flight Target", nav_obj.autopilot_final_destination)
+    format_target("Local Target", nav_obj.autopilot_local_target)
+    format_target("Active A* Target", nav_obj.autopilot_active_astar_destination, "status=" .. tostring(nav_obj.autopilot_astar_target_status))
+    format_target("Resolved A* Cache", nav_obj.autopilot_astar_target_position, "status=" .. tostring(nav_obj.autopilot_astar_target_status))
+
+
+
+    ImGui.Separator()
+    ImGui.Text("=== Movement / Local Avoidance ===")
+    ImGui.Text("Autopilot Speed: " .. string.format("%.2f", tonumber(nav_obj.autopilot_speed) or 0))
+    ImGui.Text("Speed Reduce Rate: " .. string.format("%.2f", tonumber(nav_obj.auto_speed_reduce_rate) or 0))
+    ImGui.Text("Effective Speed: " .. string.format("%.2f", (tonumber(nav_obj.autopilot_speed) or 0) * (tonumber(nav_obj.auto_speed_reduce_rate) or 0)))
+    ImGui.Text("Search Range: " .. string.format("%.2f / %.2f", tonumber(nav_obj.search_range) or 0, tonumber(nav_obj.autopilot_searching_range) or 0))
+    ImGui.Text(string.format("Stuck Timer: %.1f / %.1f s", stuck_timer, stuck_threshold))
+    ImGui.Text("Escape Active: " .. tostring((tonumber(nav_obj.local_avoidance_stuck_escape_time) or 0) > 0))
+    ImGui.Text(string.format("Escape Elapsed: %.1f s", escape_elapsed))
+    ImGui.Text("Needs Replan: " .. tostring(nav_obj.local_avoidance_stuck_needs_replan))
+    ImGui.Text("Wall Safe Streak: " .. tostring(nav_obj.safe_streak_count or 0))
+    ImGui.Text("Wall Cache Size: " .. tostring(nav_obj.iswall_cache_size or 0))
+
 end
 
-function Debug:ImGuiAutoPilotExceptionArea()
-    self.is_im_gui_auto_pilot_exception_area = ImGui.Checkbox("[ImGui] Auto Pilot Exception Area", self.is_im_gui_auto_pilot_exception_area)
-    if self.is_im_gui_auto_pilot_exception_area and #self.exception_area_entity_list == 0 and not self.spawn_lock then
-        self.spawn_lock = true
-        local entity_path = "base\\gameplay\\devices\\advertising\\digital\\entropy\\entropy_digital_billboard_1x3_3_b.ent"
-        local entity_id = nil
-        local entity = nil
-        local entity_spawn_lock = false
-        local positions = {}
-        local position_index = 1
-        local position_count = 1
-        for _, value in ipairs(DAV.core_obj.av_obj.autopilot_exception_area_list) do
-            local position = {
-                {value.min_x, value.min_y, value.min_z},
-                {value.max_x, value.min_y, value.min_z},
-                {value.min_x, value.max_y, value.min_z},
-                {value.max_x, value.max_y, value.min_z},
-                {value.min_x, value.min_y, value.max_z},
-                {value.max_x, value.min_y, value.max_z},
-                {value.min_x, value.max_y, value.max_z},
-                {value.max_x, value.max_y, value.max_z}
-            }
-            table.insert(positions, position)
-        end
-        Cron.Every(0.01, {tick=1}, function(timer)
-            if position_index > #positions then
-                self.spawn_lock = false
-                Cron.Halt(timer)
-            elseif not entity_spawn_lock then
-                local transform = WorldTransform.new()
-                local pos = WorldPosition.new()
-                entity_spawn_lock = true
-                pos:SetXYZ(table.unpack(positions[position_index][position_count]))
-                transform.Position = pos
-                entity_id = exEntitySpawner.Spawn(entity_path, transform, '')
-            elseif entity_id ~= nil then
-                entity = Game.FindEntityByID(entity_id)
-                if entity ~= nil then
-                    table.insert(self.exception_area_entity_list, entity)
-                    position_count = position_count + 1
-                    if position_count > 8 then
-                        position_index = position_index + 1
-                        position_count = 1
-                    end
-                    entity_spawn_lock = false
-                end
-            end
-        end)
-    elseif not self.is_im_gui_auto_pilot_exception_area and #self.exception_area_entity_list ~= 0 and not self.spawn_lock then
-        self.spawn_lock = true
-        for _, value in ipairs(self.exception_area_entity_list) do
-            exEntitySpawner.Despawn(value)
-        end
-        self.exception_area_entity_list = {}
-        Cron.After(3, function()
-            self.spawn_lock = false
-        end)
+function Debug:ImGuiObstacleMap()
+    self.is_im_gui_obstacle_map = ImGui.Checkbox("[ImGui] 3D Obstacle Map", self.is_im_gui_obstacle_map)
+    if not self.is_im_gui_obstacle_map then return end
+
+    local av_obj = self.core_obj.av_obj
+    if not av_obj then
+        ImGui.Text("AV object not available")
+        return
     end
-    if self.is_im_gui_auto_pilot_exception_area then
-        local current_position = Game.GetPlayer():GetWorldPosition()
-        local res, tag, z = DAV.core_obj.av_obj:IsInExceptionArea(current_position)
-        if res then
-            ImGui.Text("In Exception Area : " .. tag .. ", Z : " .. z)
+    local nav_obj = av_obj.navigation_obj
+    if not nav_obj then
+        ImGui.Text("Navigation object not available")
+        return
+    end
+
+    ImGui.Text("=== 3D Obstacle Map ===")
+    ImGui.Text("Records raycast hits during ANY driving (manual or autopilot).")
+    ImGui.Text("Data is used by A* route planner to avoid known obstacle areas.")
+    ImGui.Separator()
+
+    -- Stats (ternary map: true=obstacle / "danger"=adjacent / false=clear / nil=unknown)
+    local obstacle_count = 0
+    local danger_count   = 0
+    local clear_count    = 0
+    for _, v in pairs(nav_obj.obstacle_map) do
+        if v == true then
+            obstacle_count = obstacle_count + 1
+        elseif v == "danger" then
+            danger_count = danger_count + 1
         else
-            ImGui.Text("Not In Exception Area")
-        end
-        if ImGui.Button("Reload Area") then
-            DAV.core_obj.av_obj.autopilot_exception_area_list = Utils:ReadJson(DAV.core_obj.av_obj.exception_area_path)
+            clear_count = clear_count + 1
         end
     end
-end
+    ImGui.Text(string.format("Obstacle cells : %d", obstacle_count))
+    ImGui.Text(string.format("Danger cells   : %d  (adjacent to obstacle)", danger_count))
+    ImGui.Text(string.format("Clear cells    : %d", clear_count))
+    ImGui.Text(string.format("Total cells    : %d", obstacle_count + danger_count + clear_count))
+    ImGui.Text(string.format("Cell size           : %.0f m", nav_obj.obstacle_cell_size))
+    ImGui.Text(string.format("Record range        : %.0f m", nav_obj.obstacle_record_range))
+    ImGui.Text(string.format("Record interval     : %.2f s", nav_obj.obstacle_record_interval))
+    ImGui.Separator()
 
-function Debug:ImGuiCheckSettingParam()
-    self.is_im_gui_check_setting_param = ImGui.Checkbox("[ImGui] Check Setting Param", self.is_im_gui_check_setting_param)
-    if self.is_im_gui_check_setting_param then
-        local user_setting = DAV.user_setting_table
-
-        ImGui.Text("=== Engine Parameters (Internal Values) ===")
-
-        -- Movement Parameters
-        ImGui.Text("--- AV Movement ---")
-        ImGui.Text("acceleration: " .. user_setting.acceleration)
-        ImGui.Text("vertical_acceleration: " .. user_setting.vertical_acceleration)
-        ImGui.Text("left/right left_right_acceleration: " .. user_setting.left_right_acceleration)
-        ImGui.Text("roll_change_amount: " .. user_setting.roll_change_amount)
-        ImGui.Text("roll_restore_amount: " .. user_setting.pitch_restore_amount)
-        ImGui.Text("pitch_change_amount: " .. user_setting.pitch_change_amount)
-        ImGui.Text("pitch_restore_amount: " .. user_setting.pitch_restore_amount)
-        ImGui.Text("yaw_change_amount: " .. user_setting.yaw_change_amount)
-        ImGui.Text("rotate_roll_change_amount: " .. user_setting.rotate_roll_change_amount)
-
-        ImGui.Text("--- helicopter Movement ---")
-        ImGui.Text("h_roll_change_amount: " .. user_setting.h_roll_change_amount)
-        ImGui.Text("h_roll_restore_amount: " .. user_setting.h_roll_restore_amount)
-        ImGui.Text("h_pitch_change_amount: " .. user_setting.h_pitch_change_amount)
-        ImGui.Text("h_pitch_restore_amount: " .. user_setting.h_pitch_restore_amount)
-        ImGui.Text("h_yaw_change_amount: " .. user_setting.h_yaw_change_amount)
-        ImGui.Text("h_acceleration: " .. user_setting.h_acceleration)
-        ImGui.Text("h_lift_idle_acceleration: " .. user_setting.h_lift_idle_acceleration)
-        ImGui.Text("h_ascend_acceleration: " .. user_setting.h_ascend_acceleration)
-        ImGui.Text("h_descend_acceleration: " .. user_setting.h_descend_acceleration)
-
-        -- Resistance Parameters
-        ImGui.Text("--- Resistance ---")
-        ImGui.Text("Horizontal Air Resistance: " .. user_setting.horizontal_air_resistance_const)
-        ImGui.Text("Vertical Air Resistance: " .. user_setting.vertical_air_resistance_const)
-
-        -- Speed Parameters
-        ImGui.Text("--- Speed Settings ---")
-        ImGui.Text("Max Speed: " .. user_setting.max_speed)
+    -- Recording toggle (debug-only runtime flag, not persisted)
+    if nav_obj.is_obstacle_map_recording then
+        ImGui.PushStyleColor(ImGuiCol.Button, 0.7, 0.1, 0.1, 1.0)
+        if ImGui.Button("STOP Recording") then
+            av_obj.navigation_obj:StopObstacleRecording()
+            DAV.debug_enable_obstacle_scan = false
+        end
+        ImGui.PopStyleColor(1)
+        ImGui.SameLine()
+        ImGui.Text("<< Recording active >>")
+    else
+        ImGui.PushStyleColor(ImGuiCol.Button, 0.1, 0.5, 0.1, 1.0)
+        if ImGui.Button("START Recording") then
+            av_obj.navigation_obj:StartObstacleRecording()
+            DAV.debug_enable_obstacle_scan = true
+        end
+        ImGui.PopStyleColor(1)
     end
+
+    ImGui.SameLine()
+    ImGui.Text("Auto-start: " .. tostring(DAV.debug_enable_obstacle_scan))
+
+    ImGui.SameLine()
+    if ImGui.Button("Integrate Diff -> Base") then
+        self.last_obstacle_diff_integrate_ok = av_obj.navigation_obj:IntegrateObstacleMapDiff()
+    end
+
+    if self.last_obstacle_diff_integrate_ok == true then
+        ImGui.TextDisabled("Diff integration: success")
+    elseif self.last_obstacle_diff_integrate_ok == false then
+        ImGui.TextDisabled("Diff integration: failed (see CET log)")
+    end
+
+    ImGui.Separator()
+
+    ImGui.Text("=== Manual No-Go Convex Hexahedron ===")
+    ImGui.TextDisabled("Record any 8 corner points of a convex hexahedron (point order is free).")
+    ImGui.TextDisabled("If points are non-convex, duplicated, or nearly coplanar, creation will fail.")
+
+    if ImGui.Button("Record P1") then self:RecordManualBlockPoint(1) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P2") then self:RecordManualBlockPoint(2) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P3") then self:RecordManualBlockPoint(3) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P4") then self:RecordManualBlockPoint(4) end
+
+    if ImGui.Button("Record P5") then self:RecordManualBlockPoint(5) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P6") then self:RecordManualBlockPoint(6) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P7") then self:RecordManualBlockPoint(7) end
+    ImGui.SameLine()
+    if ImGui.Button("Record P8") then self:RecordManualBlockPoint(8) end
+
+    if ImGui.Button("Create Obstacle Convex Hexahedron") then
+        self:CreateManualBlockHexahedron()
+    end
+
+    for i = 1, 8 do
+        local p = self.manual_block_points[i]
+        if p then
+            ImGui.Text(string.format("P%d: %s", i, p.key))
+        else
+            ImGui.Text(string.format("P%d: (not set)", i))
+        end
+    end
+
+    if self.last_manual_block_result and self.last_manual_block_result ~= "" then
+        if self.last_manual_block_ok == true then
+            ImGui.TextDisabled("Manual block: " .. self.last_manual_block_result)
+        elseif self.last_manual_block_ok == false then
+            ImGui.TextColored(1.0, 0.4, 0.4, 1.0, "Manual block: " .. self.last_manual_block_result)
+        end
+    end
+
+    ImGui.Separator()
+
+    -- Min hits slider removed (binary map: any single hit = obstacle)
+    local changed
+    nav_obj.obstacle_record_range, changed = ImGui.SliderFloat(
+        "Record range (m)", nav_obj.obstacle_record_range, 10.0, 60.0)
+    ImGui.Separator()
+    ImGui.TextDisabled("Tip: drive around the city with recording ON.")
+    ImGui.TextDisabled("A* autopilot will avoid confirmed obstacle cells.")
+    ImGui.TextDisabled("Use visualize_obstacle_map.py to view 3D map.")
 end
 
 function Debug:ImGuiExcuteFunction()
@@ -682,7 +707,7 @@ function Debug:ImGuiExcuteFunction()
         local player = Game.GetPlayer()
         local entity = player:GetMountedVehicle()
         local ent_id = entity:GetEntityID()
-        local seat = DAV.core_obj.av_obj.active_seat[1]
+        local seat = self.core_obj.av_obj.active_seat[1]
 
         local data = MountEventData.new()
         data.isInstant = false

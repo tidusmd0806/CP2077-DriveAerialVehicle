@@ -16,6 +16,17 @@ function Core:New()
     obj.queue_obj = Queue:New()
     obj.av_obj = nil
     obj.event_obj = nil
+    obj.is_obstacle_map_loaded_in_session = false
+    obj.is_obstacle_map_loading_in_session = false
+    obj.session_obstacle_map_cache = nil
+    obj.session_obstacle_map_chunk_index = nil
+    obj.session_obstacle_cell_size = nil
+    obj.session_obstacle_map_load_queue = nil
+    obj.session_obstacle_map_load_index = 1
+    obj.session_obstacle_map_load_total = 0
+    obj.session_obstacle_map_loaded_files = 0
+    obj.is_obstacle_map_preload_timer_active = false
+    obj.has_started_obstacle_map_preload = false
     -- static --
     -- lock
     obj.delay_action_time_in_waiting = 0.05
@@ -128,6 +139,12 @@ function Core:Init()
     self.event_obj = Event:New()
     self.event_obj:Init(self.av_obj)
 
+    -- Restore favorite destination from saved settings on startup
+    self:RestoreFavoriteDestination()
+
+    -- Start staged obstacle map loading during mod startup so session start does not take the hit.
+    self:StartObstacleMapSessionPreload()
+
     Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
         self:GetActions()
@@ -144,8 +161,92 @@ function Core:Reset()
     self.av_obj = AV:New(self)
     self.av_obj:Init()
     self.event_obj:Init(self.av_obj)
+    -- Restore favorite destination for the new AV object
+    self:RestoreFavoriteDestination()
     -- Reset Custom Mappin
     self.current_custom_mappin_position = Vector4.Zero()
+end
+
+function Core:EnsureObstacleMapSessionLoaded()
+    self.log_obj:Record(LogLevel.Debug,
+        "EnsureObstacleMapSessionLoaded skipped: delayed obstacle-map loading is disabled; startup preload only")
+    return false
+end
+
+function Core:StartObstacleMapSessionPreload()
+    if self.has_started_obstacle_map_preload then
+        self.log_obj:Record(LogLevel.Debug,
+            "StartObstacleMapSessionPreload skipped: obstacle-map preload is startup-only")
+        return false
+    end
+
+    if self.av_obj == nil or self.av_obj.navigation_obj == nil then
+        self.log_obj:Record(LogLevel.Info, "AV object missing before obstacle map preload. Reinitializing")
+        self:Reset()
+    end
+
+    if self.av_obj ~= nil and self.av_obj.navigation_obj ~= nil then
+        self.has_started_obstacle_map_preload = true
+        self.av_obj.navigation_obj:StartObstacleMapSessionPreload()
+        return true
+    end
+
+    self.log_obj:Record(LogLevel.Warning, "Failed to start obstacle map preload because AV object is unavailable")
+    return false
+end
+
+function Core:EnsureObstacleMapPreloadTimer(tick_interval, files_per_tick)
+    if self.is_obstacle_map_preload_timer_active then
+        return true
+    end
+
+    self.is_obstacle_map_preload_timer_active = true
+    Cron.Every(tick_interval, function(timer)
+        local navigation_obj = nil
+        if self.av_obj ~= nil then
+            navigation_obj = self.av_obj.navigation_obj
+        end
+
+        if navigation_obj == nil then
+            self.is_obstacle_map_preload_timer_active = false
+            Cron.Halt(timer)
+            return
+        end
+
+        if not navigation_obj.is_obstacle_map_loading then
+            self.is_obstacle_map_preload_timer_active = false
+            Cron.Halt(timer)
+            return
+        end
+
+        local is_finished = navigation_obj:ProcessObstacleMapLoadBatch(files_per_tick)
+        if is_finished then
+            self.is_obstacle_map_preload_timer_active = false
+            Cron.Halt(timer)
+        end
+    end)
+
+    return true
+end
+
+function Core:ReleaseObstacleMapSession()
+    if self.av_obj ~= nil and self.av_obj.navigation_obj ~= nil then
+        self.av_obj.navigation_obj:ReleaseObstacleMapSessionCache()
+        return true
+    end
+
+    self.is_obstacle_map_loaded_in_session = false
+    self.is_obstacle_map_loading_in_session = false
+    self.session_obstacle_map_cache = nil
+    self.session_obstacle_map_chunk_index = nil
+    self.session_obstacle_cell_size = nil
+    self.session_obstacle_map_load_queue = nil
+    self.session_obstacle_map_load_index = 1
+    self.session_obstacle_map_load_total = 0
+    self.session_obstacle_map_loaded_files = 0
+    self.is_obstacle_map_preload_timer_active = false
+    self.log_obj:Record(LogLevel.Info, "Obstacle map session cache released without active AV object")
+    return true
 end
 
 --- Load Setting from user_setting.json
@@ -1099,7 +1200,7 @@ function Core:SetCustomMappin(mappin)
         return
     end
     if mappin:GetVariant() == gamedataMappinVariant.CustomPositionVariant then
-        self.log_obj:Record(LogLevel.Info, "SetCustomMappin")
+        self.log_obj:Record(LogLevel.Trace, "SetCustomMappin")
         self.is_custom_mappin = mappin:IsPlayerTracked()
         local mappin_pos = mappin:GetWorldPosition()
         if self.is_custom_mappin then
@@ -1120,9 +1221,30 @@ end
 --- Set destination mappin.
 function Core:SetDestinationMappin()
     if not self.current_custom_mappin_position:IsZero() then
-        self.av_obj:SetMappinDestination(self.current_custom_mappin_position)
+        self.av_obj.navigation_obj:SetMappinDestination(self.current_custom_mappin_position)
         self.ft_index_nearest_mappin, self.ft_to_mappin_distance = self:FindNearestFastTravelPosition(self.current_custom_mappin_position)
     end
+end
+
+--- Restore favorite destination from saved settings (called on startup).
+--- If autopilot_selected_index > 0, find the corresponding favorite and set it.
+function Core:RestoreFavoriteDestination()
+    local selected_index = DAV.user_setting_table.autopilot_selected_index
+    if selected_index == nil or selected_index <= 0 then
+        return
+    end
+    local favorite_list = DAV.user_setting_table.favorite_location_list
+    if favorite_list == nil or favorite_list[selected_index] == nil then
+        return
+    end
+    local pos = favorite_list[selected_index].pos
+    if pos == nil then
+        return
+    end
+    self:SetFavoriteMappin(pos)
+    self.log_obj:Record(LogLevel.Info, string.format(
+        "Restored favorite destination #%d: (%.1f, %.1f, %.1f)",
+        selected_index, pos.x or 0, pos.y or 0, pos.z or 0))
 end
 
 --- Set favorite mappin.
@@ -1133,7 +1255,7 @@ function Core:SetFavoriteMappin(pos)
         self.log_obj:Record(LogLevel.Trace, "Invalid Mappin Position")
         return
     end
-    self.av_obj:SetFavoriteDestination(position)
+    self.av_obj.navigation_obj:SetFavoriteDestination(position)
     self:CreateFavoriteMappin(position)
     self.ft_index_nearest_favorite, self.ft_to_favorite_distance = self:FindNearestFastTravelPosition(position)
 end
@@ -1142,7 +1264,7 @@ end
 ---@param position Vector4
 function Core:CreateFavoriteMappin(position)
     self:RemoveFavoriteMappin()
-    if self.event_obj:IsInVehicle() then
+    if self.event_obj ~= nil and self.event_obj:IsInVehicle() then
         local mappin_data = MappinData.new()
         mappin_data.mappinType = TweakDBID.new('Mappins.DefaultStaticMappin')
         mappin_data.variant = gamedataMappinVariant.ExclamationMarkVariant

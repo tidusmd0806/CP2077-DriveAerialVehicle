@@ -35,7 +35,7 @@ LogLevel = {
 }
 
 -- Force the log level to be the same for all instances
-MasterLogLevel = LogLevel.Warning
+MasterLogLevel = LogLevel.Info
 -- Print debug messages to the console
 PrintDebugMode = false
 
@@ -104,7 +104,7 @@ function Log:Record(level, message, context, skip_caller)
         
         -- Auto-add caller information for Error/Critical/Warning (unless skip_caller is true)
         local full_context = context
-        if not skip_caller and (level <= LogLevel.Warning) then
+        if not skip_caller and (level <= LogLevel.Warning) and debug then
             local debug_info = debug.getinfo(2, "Sl")
             if debug_info then
                 local source = debug_info.source or "unknown"

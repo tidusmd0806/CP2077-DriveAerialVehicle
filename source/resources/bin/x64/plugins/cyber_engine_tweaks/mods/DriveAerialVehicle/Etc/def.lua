@@ -105,13 +105,6 @@ Def.CameraDistanceLevel = {
     TppFar = 4,
 }
 
----@enum Def.AutopilotSpeedLevel
-Def.AutopilotSpeedLevel = {
-    Slow = 1,
-    Normal = 2,
-    Fast = 3,
-}
-
 ---@enum Def.FlightMode
 Def.FlightMode = {
     AV = 0,

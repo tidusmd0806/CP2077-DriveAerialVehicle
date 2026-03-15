@@ -13,11 +13,12 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicle",
-	version = "3.1.2",
+	version = "3.2.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
     is_debug_mode = false,
+    debug_enable_obstacle_scan = false,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
@@ -107,7 +108,8 @@ DAV.user_setting_table = {
     mappin_history = {},
     autopilot_selected_index = 0,
     favorite_location_list = DAV.default_favorite_location_table,
-    autopilot_speed_level = Def.AutopilotSpeedLevel.Normal,
+    autopilot_speed = 25,  -- Autopilot speed in m/s (5-50)
+    astar_calculation_precision = 100,  -- A* calculation precision 1-100 (maps to 200-100000 iterations)
     is_enable_history = true,
     --- general
     language_index = 1,
@@ -342,7 +344,7 @@ registerForEvent("onHook", function()
                     DAV.listening_keybind_widget = nil
                 end
                 local current_situation = Def.Situation.Idle
-                if DAV.core_obj ~= nil then
+                if DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil then
                     current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
                 end
                 if current_situation == Def.Situation.InVehicle or current_situation == Def.Situation.Waiting or current_situation == Def.Situation.Normal then
@@ -425,6 +427,9 @@ registerForEvent('onUpdate', function(delta)
 end)
 
 registerForEvent('onShutdown', function()
+    if DAV.core_obj ~= nil then
+        DAV.core_obj:ReleaseObstacleMapSession()
+    end
     Game.GetCallbackSystem():UnregisterCallback('Input/Key', DAV.input_key_listener:Target(), DAV.input_key_listener:Function("OnKeyInput"))
     Game.GetCallbackSystem():UnregisterCallback('Input/Axis', DAV.input_axis_listener:Target(), DAV.input_axis_listener:Function("OnAxisInput"))
 end)
