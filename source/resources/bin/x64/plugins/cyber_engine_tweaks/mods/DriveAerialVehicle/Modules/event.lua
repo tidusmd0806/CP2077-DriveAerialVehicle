@@ -35,8 +35,6 @@ function Event:New()
     obj.is_locked_showing_meter = false
     obj.check_input_count = 0
     obj.is_ltbf_flight_active = false
-    -- projection
-    obj.is_landing_projection = false
 
     return setmetatable(obj, self)
 
@@ -330,7 +328,7 @@ end
 
 --- Check vehicle has landed.
 function Event:CheckLanded()
-    if self.av_obj:IsCollision() or self.av_obj.is_landed then
+    if self.av_obj.navigation_obj:IsCollision() or self.av_obj.is_landed then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
         if not DAV.is_valid_audioawre then
             self.sound_obj:StopGameSound("210_landing")
@@ -386,7 +384,7 @@ function Event:CheckInAV()
             self.av_obj.engine_obj:EnableOriginalPhysics(true)
             self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
             if self:IsAutoMode() then
-                self.av_obj:InterruptAutoPilot()
+                self.av_obj.navigation_obj:InterruptAutoPilot()
             end
             SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
         end
@@ -407,8 +405,12 @@ function Event:CheckHUD()
     if self:IsAutoMode() then
         self.hud_obj:ToggleOriginalMPHDisplay(true)
         self.hud_obj:EnableManualMeter(true, true)
-        local initial_length = math.floor(self.av_obj.initial_destination_length)
-        local current_length = math.floor(self.av_obj.dest_dir_vector_norm)
+        local nav_obj = self.av_obj.navigation_obj
+        local initial_length = math.floor(tonumber(nav_obj and nav_obj.initial_destination_length) or 1)
+        local current_length = math.floor(tonumber(nav_obj and nav_obj.dest_remaining_to_final) or 0)
+        if initial_length < 1 then
+            initial_length = 1
+        end
         self.hud_obj:SetSpeedMeterValue(current_length)
         self.hud_obj:SetRPMMeterValue(math.floor(10 * (1 - current_length / initial_length) + 1))
     else
@@ -517,7 +519,7 @@ end
 
 --- Check height between AV and ground. if height is too low, show landing warning.
 function Event:CheckHeight()
-    local height = self.av_obj:GetHeight()
+    local height = self.av_obj.navigation_obj:GetHeight()
     if height < self.projection_max_height_offset + self.av_obj.minimum_distance_to_ground then
         local height_offset = - height + self.av_obj.projection_offset.z
         self.av_obj:SetLandingVFXPosition(Vector4.new(self.av_obj.projection_offset.x, self.av_obj.projection_offset.y, height_offset, 1))
@@ -541,7 +543,7 @@ function Event:CheckInput()
         self.hud_obj:SetInputHintController()
         if not self.hud_obj:IsVisibleCustomInputHints() then
             self.hud_obj:ReconstructInputHint()
-            self.log_obj:Record(LogLevel.Info, "ReconstructInputHint called")
+            self.log_obj:Record(LogLevel.Trace, "ReconstructInputHint called")
             return
         end
     end
@@ -561,7 +563,7 @@ end
 
 --- Check if auto pilot is failed. if failed, show interrupt auto pilot display.
 function Event:CheckFailAutoPilot()
-    if self.av_obj:IsFailedAutoPilot() then
+    if self.av_obj.navigation_obj:IsFailedAutoPilot() then
         self.hud_obj:ShowInterruptAutoPilotDisplay()
         self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
     end
@@ -657,12 +659,6 @@ function Event:IsInMenuOrPopupOrPhoto()
     end
 end
 
---- Check if entry is allowed.
----@return boolean
-function Event:IsAllowedEntry()
-    return self.is_allowed_entry
-end
-
 --- Check perspective is FPP.
 ---@return boolean
 function Event:IsFPP()
@@ -694,11 +690,11 @@ function Event:ToggleAutoMode()
         if not self.av_obj.is_auto_pilot then
             self.hud_obj:ShowAutoModeDisplay()
             self.is_locked_operation = true
-            self.av_obj:AutoPilot()
+            self.av_obj.navigation_obj:AutoPilot()
         else
             self.hud_obj:ShowDriveModeDisplay()
             self.is_locked_operation = false
-            self.av_obj:InterruptAutoPilot()
+            self.av_obj.navigation_obj:InterruptAutoPilot()
         end
     end
 end

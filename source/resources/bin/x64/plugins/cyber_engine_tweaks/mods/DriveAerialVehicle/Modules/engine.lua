@@ -21,6 +21,7 @@ function Engine:New(av_obj)
     obj.rpm_count_scale = 80
     obj.rpm_max_count = 10 * obj.rpm_count_scale
     obj.torque_gain = 1000
+    obj.ground_check_delay = 3.0
     ---dynamic---
     obj.entity_id = nil
     obj.flight_mode = Def.FlightMode.AV
@@ -105,7 +106,7 @@ function Engine:Update(delta)
         -- Do nothing, just block the physics
         self.log_obj:Record(LogLevel.Trace, "Blocking DAV physics")
     else
-        self.log_obj:Record(LogLevel.Error, "Unknown control type")
+        self.log_obj:Record(LogLevel.Error, "Unknown control type", "Engine:Update - control_type: " .. tostring(self.engine_control_type))
     end
 end
 
@@ -157,6 +158,11 @@ end
 ---@return boolean
 function Engine:IsOnGround()
     if not self.is_finished_init then
+        return false
+    end
+    -- Ignore ground checks for a short time after initialization (prevent false detections from physics engine initialization)
+    local elapsed_time = os.clock() - self.av_obj.spawn_time
+    if elapsed_time < self.ground_check_delay then
         return false
     end
     return self.fly_av_system:IsOnGround()
@@ -275,15 +281,35 @@ end
 ---@param roll number
 ---@param pitch number
 ---@param yaw number
+---@return boolean success True if engine ran successfully, false otherwise
 function Engine:Run(x, y, z, roll, pitch, yaw)
-    -- Skip execution if vehicle entity is not properly initialized
-    if self.av_obj:IsDespawned() then
-        self.log_obj:Record(LogLevel.Trace, "Engine:Run skipped - vehicle not spawned")
-        return
+    -- Validation checks
+    if not self.is_finished_init then
+        self.log_obj:Record(LogLevel.Warning, "Engine not initialized", "Engine:Run")
+        return false
     end
-    
+
+    if not self.entity_id then
+        self.log_obj:Record(LogLevel.Error, "Entity ID is nil", "Engine:Run")
+        return false
+    end
+
+    if self.av_obj:IsDespawned() then
+        self.log_obj:Record(LogLevel.Trace, "Vehicle not spawned", "Engine:Run")
+        return false
+    end
+
     local vel_vec, _ = self:GetDirectionAndAngularVelocity()
+    if not vel_vec then
+        self.log_obj:Record(LogLevel.Error, "Failed to get velocity", "Engine:Run")
+        return false
+    end
+
     local current_angle = self.av_obj:GetEulerAngles()
+    if not current_angle then
+        self.log_obj:Record(LogLevel.Error, "Failed to get angles", "Engine:Run")
+        return false
+    end
     local roll_restore_amount
     local pitch_restore_amount
 
@@ -364,16 +390,18 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
 
     self.direction_velocity = Vector3.new(x, y, z)
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
+    return true
 end
 
 ---@param roll number
 ---@param pitch number
 ---@param yaw number
+---@return boolean success True if engine ran successfully, false otherwise
 function Engine:OnlyAngularRun(roll, pitch, yaw)
     -- Skip execution if vehicle entity is not properly initialized
     if self.av_obj:IsDespawned() then
         self.log_obj:Record(LogLevel.Trace, "Engine:OnlyAngularRun skipped - vehicle not spawned")
-        return
+        return false
     end
     local current_angle = self.av_obj:GetEulerAngles()
     local roll_restore_amount
@@ -425,6 +453,7 @@ function Engine:OnlyAngularRun(roll, pitch, yaw)
     yaw = yaw + d_yaw
 
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
+    return true
 end
 
 --- Calculate velocity for AV mode.
@@ -663,9 +692,9 @@ end
 function Engine:CalculateIdleMode()
     local x,y,z,roll,pitch = 0,0,0,0,0
 
-    if DAV.user_setting_table.is_enable_idle_gravity and not self.av_obj:IsCollision() then
+    if DAV.user_setting_table.is_enable_idle_gravity and not self.av_obj.navigation_obj:IsCollision() then
         local vel_vec, _ = self:GetDirectionAndAngularVelocity()
-        local height = self.av_obj:GetHeight()
+        local height = self.av_obj.navigation_obj:GetHeight()
         local dest_height = self.av_obj.minimum_distance_to_ground
 
         local damping = 0.2
@@ -718,8 +747,12 @@ function Engine:FluctuationVelocity(delta)
         self.engine_control_type = Def.EngineControlType.AddForce
         return
     end
-    
+
     local velocity = Vector4.Vector3To4(self.direction_velocity):Length()
+    if velocity == 0 then
+        self.log_obj:Record(LogLevel.Trace, "Current velocity is 0 - cannot apply fluctuation")
+        return
+    end
     if self.step_width_per_second == 0 then
         self.log_obj:Record(LogLevel.Trace, "step_width_per_second is 0")
         self.engine_control_type = Def.EngineControlType.ChangeVelocity
