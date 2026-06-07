@@ -146,6 +146,27 @@ function Event:SetObserve()
             end
         end)
     end
+
+    -- Observe appearance changes to reapply thruster positions
+    ObserveAfter("Entity", "ScheduleAppearanceChange", function(this, newAppearanceName)
+        if DAV.core_obj == nil or DAV.core_obj.av_obj == nil then
+            return
+        end
+        local av_obj = DAV.core_obj.av_obj
+        if av_obj.entity_id == nil then
+            return
+        end
+        if this:GetEntityID().hash == av_obj.entity_id.hash then
+            DAV.core_obj.log_obj:Record(LogLevel.Debug, "Appearance change detected on AV entity")
+            Cron.After(0.1, function()
+                if av_obj:SetThrusterComponent() then
+                    av_obj.is_available_thruster = true
+                else
+                    av_obj.is_available_thruster = false
+                end
+            end)
+        end
+    end)
 end
 
 --- Set Override Functions

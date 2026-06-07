@@ -880,13 +880,6 @@ function AV:ChangeAppearance(type)
 		return
 	end
 	entity:ScheduleAppearanceChange(type)
-	Cron.After(0.1, function()
-		if self:SetThrusterComponent() then
-			self.is_available_thruster = true
-		else
-			self.is_available_thruster = false
-		end
-	end)
 end
 
 --- Set landing vfx position.
