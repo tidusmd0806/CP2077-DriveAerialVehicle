@@ -42,7 +42,7 @@ PrintDebugMode = false
 local Log = {}
 Log.__index = Log
 
---- Constractor
+--- Constructor
 ---@return table
 function Log:New()
     local obj = {}

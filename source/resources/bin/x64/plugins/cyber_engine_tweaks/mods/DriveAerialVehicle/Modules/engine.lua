@@ -2,7 +2,7 @@ local Utils = require("Etc/utils.lua")
 Engine = {}
 Engine.__index = Engine
 
---- Constractor
+--- Constructor
 --- @param av_obj any AV instance
 --- @return table
 function Engine:New(av_obj)
@@ -615,7 +615,7 @@ function Engine:CalculateHelicopterMode(action_command_list)
     local roll_change_amount = DAV.user_setting_table.h_roll_change_amount
     local pitch_change_amount = DAV.user_setting_table.h_pitch_change_amount
     local yaw_change_amount = DAV.user_setting_table.h_yaw_change_amount
-    local acceaeration = DAV.user_setting_table.h_acceleration
+    local acceleration = DAV.user_setting_table.h_acceleration
     local ascend_acceleration = DAV.user_setting_table.h_ascend_acceleration
     local descend_acceleration = DAV.user_setting_table.h_descend_acceleration
 
@@ -662,9 +662,9 @@ function Engine:CalculateHelicopterMode(action_command_list)
     elseif action_command_list[1] == Def.ActionList.HLeftRotate then
         yaw = yaw + yaw_change_amount
     elseif action_command_list[1] == Def.ActionList.HAccelerate then
-        x = x + acceaeration * forward_vec.x
-        y = y + acceaeration * forward_vec.y
-        z = z + acceaeration * forward_vec.z
+        x = x + acceleration * forward_vec.x
+        y = y + acceleration * forward_vec.y
+        z = z + acceleration * forward_vec.z
     elseif action_command_list[1] == Def.ActionList.HUp then
         z = z + ascend_acceleration * up_vec.z
         self.heli_lift_acceleration = self.heli_lift_acceleration + ascend_acceleration

@@ -1,7 +1,7 @@
 local Queue = {}
 Queue.__index = Queue
 
---- Constractor
+--- Constructor
 ---@return table
 function Queue:New()
     local obj = {}

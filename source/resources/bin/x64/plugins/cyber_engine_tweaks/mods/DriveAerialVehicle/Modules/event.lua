@@ -5,7 +5,7 @@ local UI = require("Modules/ui.lua")
 local Event = {}
 Event.__index = Event
 
---- Constractor
+--- Constructor
 ---@return table
 function Event:New()
     -- instance --
@@ -323,7 +323,7 @@ end
 --- Spawn vehicle.
 function Event:SpawnVehicle()
     self.sound_obj:PlayGameSound("100_call_vehicle")
-    if not DAV.is_valid_audioawre then
+    if not DAV.is_valid_audioware then
         self.sound_obj:PlayGameSound("210_landing")
         self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
     end
@@ -335,7 +335,7 @@ end
 function Event:ReturnVehicle()
     if self:IsWaiting() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected in Waiting situation")
-        if not DAV.is_valid_audioawre then
+        if not DAV.is_valid_audioware then
             self.sound_obj:PlayGameSound("240_leaving")
         end
         self.sound_obj:PlayGameSound("100_call_vehicle")
@@ -351,7 +351,7 @@ end
 function Event:CheckLanded()
     if self.av_obj.navigation_obj:IsCollision() or self.av_obj.is_landed then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
-        if not DAV.is_valid_audioawre then
+        if not DAV.is_valid_audioware then
             self.sound_obj:StopGameSound("210_landing")
         end
         self.sound_obj:PlayGameSound("110_arrive_vehicle")

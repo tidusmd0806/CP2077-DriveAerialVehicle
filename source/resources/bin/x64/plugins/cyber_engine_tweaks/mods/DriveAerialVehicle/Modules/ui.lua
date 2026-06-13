@@ -2,7 +2,7 @@ local Utils = require("Etc/utils.lua")
 local UI = {}
 UI.__index = UI
 
---- Constractor
+--- Constructor
 ---@return table
 function UI:New()
 	-- instance --
@@ -11,7 +11,6 @@ function UI:New()
     obj.log_obj:SetLevel(LogLevel.Info, "UI")
 	-- static --
 	-- record name
-    obj.dummy_vehicle_record = "Vehicle.av_dav_dummy"
 	obj.delay_updating_native_settings = 0.1
 	-- dynamic --
 	-- common
