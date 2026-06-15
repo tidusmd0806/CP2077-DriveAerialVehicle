@@ -6,7 +6,7 @@ local Utils = require("Etc/utils.lua")
 local Core = {}
 Core.__index = Core
 
---- Constractor
+--- Constructor
 ---@return table
 function Core:New()
     -- instance --
@@ -1103,7 +1103,7 @@ function Core:SetEvent(action)
         elseif action == Def.ActionList.ToggleAutopilot then
             self:ToggleAutopilot()
         elseif action == Def.ActionList.OpenAutopilotPanel then
-            self:OpenAutopioltPanel()
+            self:OpenAutopilotPanel()
         elseif action == Def.ActionList.ToggleRadio then
             self:ToggleRadio()
         elseif action == Def.ActionList.OpenRadio then
@@ -1131,7 +1131,7 @@ function Core:ToggleAutopilot()
 end
 
 --- Open Autopilot Panel.
-function Core:OpenAutopioltPanel()
+function Core:OpenAutopilotPanel()
     if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
         self.event_obj.ui_obj:OpenAutopilotPopup()
     end
@@ -1367,12 +1367,6 @@ end
 ---@return number
 function Core:GetFTIndexNearbyMappin()
     return self.ft_index_nearest_mappin
-end
-
---- Get favorite position index.
----@return number
-function Core:GetFTIndexNearbyFavorite()
-    return self.ft_index_nearest_favorite
 end
 
 --- Find nearest fast travel position.

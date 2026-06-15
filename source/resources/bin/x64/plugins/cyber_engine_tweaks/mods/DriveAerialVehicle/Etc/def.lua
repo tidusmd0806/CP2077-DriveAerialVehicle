@@ -48,7 +48,7 @@ Def.ActionList = {
     OpenAutopilotPanel = 201,
 }
 
----@enum Def.AccelationActionList
+---@enum Def.AccelerationActionList
 Def.AccelerationActionList = {
     --- AV
     Forward = Def.ActionList.Forward,

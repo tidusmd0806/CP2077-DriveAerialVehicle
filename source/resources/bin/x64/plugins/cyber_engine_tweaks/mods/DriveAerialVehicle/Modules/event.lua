@@ -5,7 +5,7 @@ local UI = require("Modules/ui.lua")
 local Event = {}
 Event.__index = Event
 
---- Constractor
+--- Constructor
 ---@return table
 function Event:New()
     -- instance --
@@ -146,6 +146,27 @@ function Event:SetObserve()
             end
         end)
     end
+
+    -- Observe appearance changes to reapply thruster positions
+    ObserveAfter("Entity", "ScheduleAppearanceChange", function(this, newAppearanceName)
+        if DAV.core_obj == nil or DAV.core_obj.av_obj == nil then
+            return
+        end
+        local av_obj = DAV.core_obj.av_obj
+        if av_obj.entity_id == nil then
+            return
+        end
+        if this:GetEntityID().hash == av_obj.entity_id.hash then
+            DAV.core_obj.log_obj:Record(LogLevel.Debug, "Appearance change detected on AV entity")
+            Cron.After(0.1, function()
+                if av_obj:SetThrusterComponent() then
+                    av_obj.is_available_thruster = true
+                else
+                    av_obj.is_available_thruster = false
+                end
+            end)
+        end
+    end)
 end
 
 --- Set Override Functions
@@ -302,7 +323,7 @@ end
 --- Spawn vehicle.
 function Event:SpawnVehicle()
     self.sound_obj:PlayGameSound("100_call_vehicle")
-    if not DAV.is_valid_audioawre then
+    if not DAV.is_valid_audioware then
         self.sound_obj:PlayGameSound("210_landing")
         self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
     end
@@ -314,7 +335,7 @@ end
 function Event:ReturnVehicle()
     if self:IsWaiting() then
         self.log_obj:Record(LogLevel.Trace, "Vehicle return detected in Waiting situation")
-        if not DAV.is_valid_audioawre then
+        if not DAV.is_valid_audioware then
             self.sound_obj:PlayGameSound("240_leaving")
         end
         self.sound_obj:PlayGameSound("100_call_vehicle")
@@ -330,7 +351,7 @@ end
 function Event:CheckLanded()
     if self.av_obj.navigation_obj:IsCollision() or self.av_obj.is_landed then
         self.log_obj:Record(LogLevel.Trace, "Landed detected")
-        if not DAV.is_valid_audioawre then
+        if not DAV.is_valid_audioware then
             self.sound_obj:StopGameSound("210_landing")
         end
         self.sound_obj:PlayGameSound("110_arrive_vehicle")

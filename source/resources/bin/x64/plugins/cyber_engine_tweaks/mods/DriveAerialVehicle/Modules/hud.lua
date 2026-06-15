@@ -4,7 +4,7 @@ local Utils = require("Etc/utils.lua")
 local HUD = {}
 HUD.__index = HUD
 
---- Constractor
+--- Constructor
 ---@return table
 function HUD:New()
     -- instance --
@@ -85,7 +85,7 @@ function HUD:SetOverride()
             end
         end)
 
-        Override("dialogWidgetGameController", "OnDialogsActivateHub", function(_, id, wrapped_metthod) -- Avoid interaction getting overriden by game
+        Override("dialogWidgetGameController", "OnDialogsActivateHub", function(_, id, wrapped_method) -- Avoid interaction getting overriden by game
             if self.av_obj:IsPlayerInEntryArea() then
                 local id_
                 if self.interaction_hub == nil then
@@ -93,9 +93,9 @@ function HUD:SetOverride()
                 else
                     id_ = self.interaction_hub.id
                 end
-                return wrapped_metthod(id_)
+                return wrapped_method(id_)
             else
-                return wrapped_metthod(id)
+                return wrapped_method(id)
             end
         end)
 

@@ -1,7 +1,7 @@
 local Camera = {}
 Camera.__index = Camera
 
---- Constractor
+--- Constructor
 ---@param all_models table all models data
 ---@return table
 function Camera:New(all_models)

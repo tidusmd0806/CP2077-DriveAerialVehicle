@@ -2,7 +2,7 @@ local Utils = require("Etc/utils.lua")
 local UI = {}
 UI.__index = UI
 
---- Constractor
+--- Constructor
 ---@return table
 function UI:New()
 	-- instance --
@@ -11,7 +11,6 @@ function UI:New()
     obj.log_obj:SetLevel(LogLevel.Info, "UI")
 	-- static --
 	-- record name
-    obj.dummy_vehicle_record = "Vehicle.av_dav_dummy"
 	obj.delay_updating_native_settings = 0.1
 	-- dynamic --
 	-- common
@@ -28,7 +27,6 @@ function UI:New()
 	-- autopilot setting popup
 	obj.ui_game_menu_controller = nil
 	obj.autopilot_popup_obj = nil
-	obj.current_position_name = ""
 	-- native settings page
 	obj.option_table_list = {}
 	obj.is_activate_vehicle_switch = false
@@ -740,7 +738,7 @@ function UI:CreateNativeSettingsPage()
 		table.insert(self.option_table_list, option_table)
 
 		option_table = DAV.NativeSettings.addRangeInt("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_lift_idle_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_h_lift_idle_acceleration_description"), 1, 100, 1, self:InternalToUserValue(DAV.user_setting_table.h_lift_idle_acceleration, 0.01, 4.00), self:InternalToUserValue(2.00, 0.01, 4.00), function(value)
-			DAV.user_setting_table.h_lift_idle_acceleration = self:UserToInternalValue(value, 0.1, 4.00)
+			DAV.user_setting_table.h_lift_idle_acceleration = self:UserToInternalValue(value, 0.01, 4.00)
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()
@@ -749,7 +747,7 @@ function UI:CreateNativeSettingsPage()
 		table.insert(self.option_table_list, option_table)
 
 		option_table = DAV.NativeSettings.addRangeInt("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_h_ascend_acceleration"), DAV.core_obj:GetTranslationText("native_settings_advance_h_ascend_acceleration_description"), 1, 100, 1, self:InternalToUserValue(DAV.user_setting_table.h_ascend_acceleration, 0.01, 2.00), self:InternalToUserValue(0.50, 0.01, 2.00), function(value)
-			DAV.user_setting_table.h_ascend_acceleration = self:UserToInternalValue(value, 0.10, 2.00)
+			DAV.user_setting_table.h_ascend_acceleration = self:UserToInternalValue(value, 0.01, 2.00)
 			Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 			Cron.After(self.delay_updating_native_settings, function()
 				self:UpdateNativeSettingsPage()

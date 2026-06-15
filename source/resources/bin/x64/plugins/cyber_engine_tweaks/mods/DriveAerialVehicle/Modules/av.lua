@@ -1,11 +1,11 @@
-﻿local Camera = require("Modules/camera.lua")
+local Camera = require("Modules/camera.lua")
 local Engine = require("Modules/engine.lua")
 local Navigation = require("Modules/navigation.lua")
 local Utils = require("Etc/utils.lua")
 local AV = {}
 AV.__index = AV
 
---- Constractor.
+--- Constructor.
 ---@param core_obj any Core instance
 ---@return table instance av instance
 function AV:New(core_obj)
@@ -111,7 +111,6 @@ function AV:Init()
 	self.is_enable_landing_vfx = self.all_models[index].landing_vfx
 	self.projection_offset = self.all_models[index].projection_offset
 	self.engine_audio_name = self.all_models[index].engine_audio_name
-	self.is_enable_manual_speed_meter = self.all_models[index].manual_speed_meter
 	self.is_enable_manual_rpm_meter = self.all_models[index].manual_rpm_meter
 	self.is_armed = self.all_models[index].armed
 	self.engine_component_name_list = self.all_models[index].engine_component_name
@@ -880,13 +879,6 @@ function AV:ChangeAppearance(type)
 		return
 	end
 	entity:ScheduleAppearanceChange(type)
-	Cron.After(0.1, function()
-		if self:SetThrusterComponent() then
-			self.is_available_thruster = true
-		else
-			self.is_available_thruster = false
-		end
-	end)
 end
 
 --- Set landing vfx position.

@@ -3,7 +3,7 @@ local Utils = require("Etc/utils")
 local Sound = {}
 Sound.__index = Sound
 
---- Constractor
+--- Constructor
 --- @return table
 function Sound:New()
     -- instance --

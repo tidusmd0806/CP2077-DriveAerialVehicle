@@ -1,4 +1,4 @@
-﻿local Navigation = {}
+local Navigation = {}
 Navigation.__index = Navigation
 local Utils = require("Etc/utils.lua")
 
