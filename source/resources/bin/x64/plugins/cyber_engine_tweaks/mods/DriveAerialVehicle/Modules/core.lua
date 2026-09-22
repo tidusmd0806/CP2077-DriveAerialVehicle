@@ -837,6 +837,7 @@ end
 --- A hold must not be armed while the vehicle is spawning or the player
 --- is not actually seated (e.g. pressing the pad enter button, which is
 --- also bound to move_down/descend, would otherwise arm a phantom hold).
+--- Suggested by LordCucumber (boost-down fix report).
 ---@return boolean
 function Core:IsReadyForMovementInput()
     if self.av_obj == nil or self.event_obj == nil then return false end
