@@ -59,6 +59,8 @@ function Core:New()
     -- AV
     obj.move_up_button_hold_count = 0
     obj.max_move_hold_count = 50000
+    -- Registry of currently armed button holds (safety net for StopAllButtonHolds)
+    obj.active_button_holds = {}
     obj.is_move_forward_button_hold_counter = false
     obj.move_forward_button_hold_count = 0
     obj.is_move_backward_button_hold_counter = false
@@ -158,6 +160,7 @@ end
 
 --- Reset AV and Event object.
 function Core:Reset()
+    self:StopAllButtonHolds()
     self.av_obj = AV:New(self)
     self.av_obj:Init()
     self.event_obj:Init(self.av_obj)
@@ -779,6 +782,7 @@ function Core:StartButtonHold(button_name, action_type, max_count, on_start_call
     
     -- Set flag
     self[counter_flag_name] = true
+    self.active_button_holds[button_name] = true
     
     -- Execute start callback
     if on_start_callback then
@@ -817,6 +821,27 @@ end
 function Core:StopButtonHold(button_name)
     local counter_flag_name = "is_" .. button_name .. "_button_hold_counter"
     self[counter_flag_name] = false
+    self.active_button_holds[button_name] = nil
+end
+
+--- Stop all armed button holds.
+--- Safety net so a hold can never outlive the situation that armed it
+--- (exit, reset, session end, blocked operation).
+function Core:StopAllButtonHolds()
+    for button_name in pairs(self.active_button_holds) do
+        self:StopButtonHold(button_name)
+    end
+end
+
+--- Check if the player is ready to receive movement input.
+--- A hold must not be armed while the vehicle is spawning or the player
+--- is not actually seated (e.g. pressing the pad enter button, which is
+--- also bound to move_down/descend, would otherwise arm a phantom hold).
+---@return boolean
+function Core:IsReadyForMovementInput()
+    if self.av_obj == nil or self.event_obj == nil then return false end
+    if self.av_obj:IsSpawning() then return false end
+    return self.event_obj:IsInVehicle()
 end
 
 --- Convert Press Button Action.
@@ -873,7 +898,9 @@ function Core:ConvertAVPressAction(keybind_name)
     
     local action = action_map[keybind_name]
     if action then
-        self:StartButtonHold(keybind_name, action, self.max_move_hold_count)
+        if self:IsReadyForMovementInput() then
+            self:StartButtonHold(keybind_name, action, self.max_move_hold_count)
+        end
     end
 end
 
@@ -894,17 +921,21 @@ function Core:ConvertHeliPressAction(keybind_name)
     
     local action = action_map[keybind_name]
     if action then
-        self:StartButtonHold(keybind_name, action, self.max_move_hold_count)
+        if self:IsReadyForMovementInput() then
+            self:StartButtonHold(keybind_name, action, self.max_move_hold_count)
+        end
     elseif keybind_name == "acceleration" then
         -- Special handling for acceleration with thruster callbacks
-        local self_ref = self
-        self:StartButtonHold(
-            keybind_name,
-            Def.ActionList.HAccelerate,
-            self.max_move_hold_count,
-            function() self_ref.av_obj:ToggleHeliThruster(true) end,
-            function() self_ref.av_obj:ToggleHeliThruster(false) end
-        )
+        if self:IsReadyForMovementInput() then
+            local self_ref = self
+            self:StartButtonHold(
+                keybind_name,
+                Def.ActionList.HAccelerate,
+                self.max_move_hold_count,
+                function() self_ref.av_obj:ToggleHeliThruster(true) end,
+                function() self_ref.av_obj:ToggleHeliThruster(false) end
+            )
+        end
     end
 end
 

@@ -100,6 +100,10 @@ function Event:SetObserve()
     GameUI.Observe("SessionEnd", function()
         self.log_obj:Record(LogLevel.Info, "Session end detected")
         self.current_situation = Def.Situation.Idle
+        -- Drop any armed movement holds so they cannot survive the session change
+        if DAV.core_obj ~= nil then
+            DAV.core_obj:StopAllButtonHolds()
+        end
     end)
 
     -- Compatibility for LTBF
@@ -400,6 +404,10 @@ function Event:CheckInAV()
             self.log_obj:Record(LogLevel.Info, "Exit AV")
             self.hud_obj:HideLeftBottomHUD()
             self:SetSituation(Def.Situation.Waiting)
+            -- Drop any armed movement holds on exit so they cannot leak into the next ride
+            if DAV.core_obj ~= nil then
+                DAV.core_obj:StopAllButtonHolds()
+            end
             self.hud_obj:HideCustomHint()
             self.hud_obj:EnableManualMeter(false, false)
             self.av_obj.engine_obj:EnableOriginalPhysics(true)
