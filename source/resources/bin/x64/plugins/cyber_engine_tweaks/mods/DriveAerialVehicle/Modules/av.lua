@@ -737,6 +737,9 @@ end
 function AV:BlockOperation(on)
 	if on then
 		self.is_blocking_operation = true
+		-- Releases are ignored while blocking, so drop any armed holds now
+		-- to make sure none of them can outlive the blocked operation
+		self.core_obj:StopAllButtonHolds()
 		self.engine_obj:SetControlType(Def.EngineControlType.Blocking)
 		self.engine_obj:EnableOriginalPhysics(true)
 		self.engine_obj:EnableGravity(true)

@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicle",
-	version = "3.2.1",
+	version = "3.2.2",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -343,15 +343,20 @@ registerForEvent("onHook", function()
                 elseif DAV.listening_keybind_widget and action == "IACT_Release" then -- Key was bound, by keyboard
                     DAV.listening_keybind_widget = nil
                 end
-                local current_situation = Def.Situation.Idle
-                if DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil then
-                    current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
-                end
-                if current_situation == Def.Situation.InVehicle or current_situation == Def.Situation.Waiting or current_situation == Def.Situation.Normal then
-                    if action == "IACT_Press" then
-                        DAV.core_obj:ConvertPressButtonAction(key)
-                    elseif action == "IACT_Release" then
+                if action == "IACT_Release" then
+                    -- Always process releases so an armed hold can never leak,
+                    -- even if the situation changed after the press was accepted.
+                    -- Stopping a hold that is not armed is a no-op.
+                    if DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil then
                         DAV.core_obj:ConvertHoldButtonAction(key)
+                    end
+                else
+                    local current_situation = Def.Situation.Idle
+                    if DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil then
+                        current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
+                    end
+                    if action == "IACT_Press" and (current_situation == Def.Situation.InVehicle or current_situation == Def.Situation.Waiting or current_situation == Def.Situation.Normal) then
+                        DAV.core_obj:ConvertPressButtonAction(key)
                     end
                 end
             end
