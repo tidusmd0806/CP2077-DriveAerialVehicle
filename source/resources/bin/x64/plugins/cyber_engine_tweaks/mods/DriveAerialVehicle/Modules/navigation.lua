@@ -4,6 +4,13 @@ local Utils = require("Etc/utils.lua")
 
 ---@diagnostic disable: undefined-global, undefined-field
 
+-- File-scope inventory of the chunk files that exist on disk.
+-- It is identical for every Navigation instance, so it is enumerated once per
+-- session instead of once per instance. Cleared by ReleaseObstacleMapSessionCache()
+-- and re-enumerated when a new resident cache is started.
+local g_all_chunks_cache = nil
+local g_all_chunks_by_key = nil
+
 --- Constructor
 ---@param av_obj table AV instance
 ---@return table
@@ -49,6 +56,19 @@ function Navigation:New(av_obj)
 	obj.route_plan_iterations_per_tick = 1200
 	obj.route_plan_iterations_per_tick_leaving = 4000
 	obj.route_plan_replan_interval = 0.5
+	-- Final approach handoff. destination_range is only 3m, so requiring the
+	-- vehicle to be *further* than sector_size (10m) from the destination before
+	-- switching to the local-avoidance final leg left a dead zone between 3m and
+	-- 10m: too far to register arrival, too close to switch. Hand off anywhere
+	-- within this distance instead.
+	obj.final_local_max_handoff_distance = 150.0
+	-- Beyond that distance we keep chaining A* followups for routing quality, but
+	-- after this many consecutive low-gain rejections we give up on A* and hand
+	-- off anyway rather than retrying forever.
+	obj.final_local_fallback_after_rejects = 3
+	-- Consecutive A* followups that gained too little against a destination that
+	-- needs a local final approach. Drives the give-up escalation above.
+	obj.autopilot_low_gain_followups = 0
 	obj.route_plan_next_followup_time = 0
 	obj.astar_impassable_penalty = 10000000.0
 	obj.astar_blocked_penalty = 10000.0
@@ -102,7 +122,39 @@ function Navigation:New(av_obj)
 	obj.obstacle_map_loaded_files = core_obj.session_obstacle_map_loaded_files or 0
 	obj.obstacle_map_preload_duration = 0.0
 	obj.obstacle_map_preload_tick = 0.05
-	obj.obstacle_map_startup_preload_only = true
+	obj.obstacle_map_startup_preload_only = false
+
+	-- Resident chunk cache (docs/PERFORMANCE_FIX_PLAN.md, fix (1)).
+	-- Only chunks near the player are kept in `obstacle_map`; the rest is streamed
+	-- in under a wall-clock budget and evicted once it drifts away.
+	-- "Resident" is not tracked separately: a chunk is resident exactly when
+	-- `obstacle_map_chunk_index[chunk_key]` exists, so no extra state can drift.
+	-- Measured (Lua 5.4, same load path): <=25 resident chunks (~82MB) produce no
+	-- >=8ms GC spikes, while the full 96-chunk map (~301MB) puts 4.5% of ticks
+	-- over 8ms with a p99.9 of 52ms. That is the idle micro-stutter being reported.
+	obj.obstacle_map_resident_radius = 2		-- chunks kept resident around the player (~1000m)
+	obj.obstacle_map_evict_radius = 4			-- chunks further than this become evictable
+	obj.obstacle_map_load_budget_ms = 3.0		-- wall-clock budget per maintenance tick
+	-- Chunks pinned while an autopilot route is active. The corridor is 1 chunk
+	-- wide: measured against the real map, a 1-wide corridor gives exactly the same
+	-- A* result as a 2-wide one or the full 96-chunk map (303 cells / 32k iters),
+	-- while the unpinned version fails (PARTIAL, 1616m short, 100k iters capped).
+	-- 32 covers any route the shipped map can express (~16 chunks worst case).
+	obj.obstacle_map_route_max_chunks = 32
+	-- While the AV hovers before departure we can spend more per tick, because the
+	-- player expects a pause there and nothing else is moving.
+	obj.obstacle_route_load_budget_ms = 15.0
+	obj.obstacle_route_tick = 0.02
+	-- Never hold departure longer than this; plan with whatever is loaded by then.
+	obj.obstacle_route_wait_timeout = 15.0
+	obj.obstacle_map_route_chunks = {}
+	obj.obstacle_map_route_pending = nil
+	obj.route_corridor_timer = nil
+	obj.obstacle_map_cache_started = false
+	-- In-flight incremental parses, keyed by chunk_key. A chunk is "resident" only
+	-- once its parse finished, so a half-parsed chunk is never mistaken for a
+	-- complete one (and never evicted mid-read).
+	obj.obstacle_map_load_states = {}
 
 	-- Navigation phase state
 	obj.autopilot_phase = "astar"
@@ -600,6 +652,602 @@ function Navigation:FindNearestSafeOrDangerCellPosInChunk(chunk_info, target_pos
 	return nil, math.huge, "unknown"
 end
 
+--- Chunk geometry helper: world position -> chunk coordinates.
+---@param position Vector4
+---@return number|nil chunk_x
+---@return number|nil chunk_y
+function Navigation:PositionToChunkCoords(position)
+	if not position then return nil, nil end
+	local chunk_world_size = self.obstacle_map_chunk_cells * (tonumber(self.obstacle_cell_size) or 10.0)
+	if not chunk_world_size or chunk_world_size <= 0 then return nil, nil end
+	return math.floor(position.x / chunk_world_size), math.floor(position.y / chunk_world_size)
+end
+
+--- Enumerate every chunk that exists on disk (.dat and/or .diff), once per session.
+--- The result is cached file-side because it is identical for every Navigation
+--- instance and enumerating it repeatedly is what made the old loader spawn
+--- `cmd.exe` over and over.
+---@param force_refresh boolean|nil
+---@return table list of {chunk_key, chunk_x, chunk_y, path, diff_path, has_dat, has_diff}
+function Navigation:GetAllChunksCached(force_refresh)
+	if g_all_chunks_cache ~= nil and not force_refresh then
+		return g_all_chunks_cache
+	end
+
+	local by_key = {}
+	local list = {}
+
+	local function touch(cx, cy, ext)
+		local key = cx .. "_" .. cy
+		local info = by_key[key]
+		if not info then
+			info = {
+				chunk_key = key,
+				chunk_x = tonumber(cx),
+				chunk_y = tonumber(cy),
+				path = self.obstacle_map_dir .. "/chunk_" .. key .. ".dat",
+				diff_path = self.obstacle_map_dir .. "/chunk_" .. key .. ".diff",
+				has_dat = false,
+				has_diff = false,
+			}
+			by_key[key] = info
+			list[#list + 1] = info
+		end
+		if ext == "diff" then
+			info.has_diff = true
+		else
+			info.has_dat = true
+		end
+	end
+
+	if io.popen then
+		local dir_win = self.obstacle_map_dir:gsub("/", "\\")
+		local patterns = { "chunk_*.dat", "chunk_*.diff" }
+		for _, pattern in ipairs(patterns) do
+			local pipe = io.popen('dir /b "' .. dir_win .. '\\' .. pattern .. '" 2>nul')
+			if pipe then
+				for filename in pipe:lines() do
+					local cx, cy, ext = filename:match("^chunk_(-?%d+)_(-?%d+)%.(%w+)$")
+					if cx and cy and ext then touch(cx, cy, ext) end
+				end
+				pipe:close()
+			end
+		end
+	end
+
+	if #list == 0 then
+		-- Fallback when io.popen is unavailable: probe the coordinate range.
+		-- Slower, but runs at most once per session.
+		for cx = -10, 10 do
+			for cy = -10, 10 do
+				local key = cx .. "_" .. cy
+				local info = {
+					chunk_key = key,
+					chunk_x = cx,
+					chunk_y = cy,
+					path = self.obstacle_map_dir .. "/chunk_" .. key .. ".dat",
+					diff_path = self.obstacle_map_dir .. "/chunk_" .. key .. ".diff",
+					has_dat = false,
+					has_diff = false,
+				}
+				local dat = io.open(info.path, "r")
+				if dat then dat:close() info.has_dat = true end
+				local diff = io.open(info.diff_path, "r")
+				if diff then diff:close() info.has_diff = true end
+				if info.has_dat or info.has_diff then
+					by_key[key] = info
+					list[#list + 1] = info
+				end
+			end
+		end
+	end
+
+	g_all_chunks_cache = list
+	g_all_chunks_by_key = by_key
+	return list
+end
+
+--- Record that a diff file now exists for this chunk.
+--- The resident-cache inventory is enumerated once per session, so a diff written
+--- later would be invisible and an evicted chunk would come back missing its
+--- freshly recorded obstacles.
+---@param chunk_key string
+---@param has_dat boolean|nil
+---@param has_diff boolean|nil
+function Navigation:MarkChunkOnDisk(chunk_key, has_dat, has_diff)
+	if not g_all_chunks_by_key then return end
+	local info = g_all_chunks_by_key[chunk_key]
+	if not info then
+		local cx, cy = chunk_key:match("^(-?%d+)_(-?%d+)$")
+		if not cx then return end
+		info = {
+			chunk_key = chunk_key,
+			chunk_x = tonumber(cx),
+			chunk_y = tonumber(cy),
+			path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".dat",
+			diff_path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".diff",
+			has_dat = false,
+			has_diff = false,
+		}
+		g_all_chunks_by_key[chunk_key] = info
+		if g_all_chunks_cache then
+			g_all_chunks_cache[#g_all_chunks_cache + 1] = info
+		end
+	end
+	if has_dat ~= nil then info.has_dat = has_dat end
+	if has_diff ~= nil then info.has_diff = has_diff end
+end
+
+--- Incrementally parse one chunk (base file + diff) into the resident cache,
+--- yielding as soon as the wall-clock budget for the current tick is spent.
+---
+--- The old loader parsed a whole chunk in a single call (~31ms median, 290ms
+--- worst), which is exactly what landed a multi-frame stall on the game thread.
+--- Parsing is resumable here: the cursor lives on the chunk record, so the next
+--- tick picks up precisely where this one stopped.
+---@param chunk_info table
+---@param budget_s number
+---@return boolean done        true when the whole chunk is in memory
+---@return number cells_loaded cells parsed during this call
+function Navigation:ParseChunkIncremental(chunk_info, budget_s)
+	if not chunk_info then return true, 0 end
+
+	local key = chunk_info.chunk_key
+	local st = self.obstacle_map_load_states[key]
+	if not st then
+		local files = {}
+		if chunk_info.has_dat then
+			files[#files + 1] = { path = chunk_info.path, is_diff = false }
+		end
+		if chunk_info.has_diff then
+			files[#files + 1] = { path = chunk_info.diff_path, is_diff = true }
+		end
+		st = { files = files, fi = 1, fh = nil, buf = nil, raw = nil, pos = 1, cells = 0 }
+		self.obstacle_map_load_states[key] = st
+	end
+
+	local started = os.clock()
+	while true do
+		-- Phase 1: read the current file in blocks. A cold-disk read of a 250KB
+		-- chunk can block for tens of ms on its own, so the read is budgeted too.
+		if st.raw == nil then
+			if st.fh == nil then
+				if st.fi > #st.files then
+					self.obstacle_map_load_states[key] = nil
+					self.obstacle_map_loaded_files = self.obstacle_map_loaded_files + 1
+					return true, st.cells
+				end
+				st.fh = io.open(st.files[st.fi].path, "r")
+				st.buf = {}
+				if not st.fh then
+					st.fi = st.fi + 1
+				end
+			else
+				local block = st.fh:read(65536)
+				if not block then
+					st.fh:close()
+					st.fh = nil
+					st.raw = table.concat(st.buf)
+					st.buf = nil
+					st.pos = 1
+					local spec = st.files[st.fi]
+					if not spec.is_diff then
+						local cs = st.raw:match("^DAV_OBMAP v3 cell_size=([%d%.]+)")
+						if not cs then
+							-- Not a v3 base chunk; skip it like LoadObstacleMapChunkFile does.
+							-- Only here do we advance: a successfully read file is advanced
+							-- past once its cells have been parsed below.
+							st.raw = nil
+							st.fi = st.fi + 1
+						else
+							self.obstacle_cell_size = tonumber(cs) or 10.0
+							self:SyncRouteNodeSize()
+						end
+					end
+				else
+					st.buf[#st.buf + 1] = block
+					if (os.clock() - started) >= budget_s then
+						return false, st.cells
+					end
+				end
+			end
+		else
+			local s, e, a, b, c, v = st.raw:find("(-?%d+) (-?%d+) (-?%d+) (-?%d+)", st.pos)
+			if not s then
+				st.raw = nil
+				st.fi = st.fi + 1
+			else
+				st.pos = e + 1
+				local key = a .. "_" .. b .. "_" .. c
+				local ival = tonumber(v) or 0
+				local new_val
+				if ival >= 2 then
+					new_val = true
+				elseif ival == 1 then
+					new_val = "danger"
+				else
+					new_val = false
+				end
+				self:SetObstacleCellNoDirty(key, new_val)
+				self:RegisterCellInChunkIndex(key)
+				st.cells = st.cells + 1
+				if (os.clock() - started) >= budget_s then
+					return false, st.cells
+				end
+			end
+		end
+	end
+end
+
+--- Load a whole chunk in one go. Only for places where a one-off synchronous load
+--- is acceptable (e.g. the autopilot destination, right when the player asks).
+---@param chunk_info table
+---@return number cells_loaded
+function Navigation:LoadResidentChunk(chunk_info)
+	if not chunk_info then return 0 end
+	local total = 0
+	local done = false
+	while not done do
+		local cells
+		done, cells = self:ParseChunkIncremental(chunk_info, math.huge)
+		total = total + cells
+	end
+	return total
+end
+
+--- Is this chunk fully in memory?
+--- Derived from the live cell index rather than from the on-disk inventory, so
+--- re-enumerating the inventory can never orphan the resident state.
+---@param chunk_key string
+---@return boolean
+function Navigation:IsChunkResident(chunk_key)
+	return self.obstacle_map_chunk_index[chunk_key] ~= nil
+		and self.obstacle_map_load_states[chunk_key] == nil
+end
+
+--- Drop one chunk's cells from the resident cache. The chunk stays on disk and can
+--- be pulled back in later by EnsureResidentChunks().
+---@param chunk_key string
+---@return number cells_freed
+function Navigation:UnloadResidentChunk(chunk_key)
+	local cells = self.obstacle_map_chunk_index[chunk_key]
+	local freed = 0
+	if cells then
+		for cell_key in pairs(cells) do
+			if self.obstacle_map[cell_key] ~= nil then freed = freed + 1 end
+			self.obstacle_map[cell_key] = nil
+		end
+	end
+	self.obstacle_map_chunk_index[chunk_key] = nil
+	-- A chunk can drift away while still mid-read; drop the handle so it does not leak.
+	local st = self.obstacle_map_load_states[chunk_key]
+	if st then
+		if st.fh then pcall(function() st.fh:close() end) end
+		self.obstacle_map_load_states[chunk_key] = nil
+	end
+	return freed
+end
+
+--- Is this chunk far enough from the player (and not needed by the active route)
+--- that it may leave memory?
+---@param chunk_key string
+---@param pcx number player chunk x
+---@param pcy number player chunk y
+---@param evict_radius number
+---@return boolean
+function Navigation:IsChunkEvictable(chunk_key, pcx, pcy, evict_radius)
+	if self.obstacle_map_route_chunks[chunk_key] then return false end
+	local cx, cy = chunk_key:match("^(-?%d+)_(-?%d+)$")
+	if not cx then return false end
+	local dx = math.abs(tonumber(cx) - pcx)
+	local dy = math.abs(tonumber(cy) - pcy)
+	return math.max(dx, dy) > evict_radius
+end
+
+--- Load not-yet-resident chunks inside `obstacle_map_resident_radius`, nearest
+--- first, until this tick's wall-clock budget is spent. This is what keeps a
+--- ~31ms chunk parse from ever landing in a single frame.
+---@param pcx number
+---@param pcy number
+---@return number chunks_loaded
+---@return number pending_count  chunks still missing inside the radius after this tick
+function Navigation:EnsureResidentChunks(pcx, pcy)
+	local chunks = self:GetAllChunksCached()
+	local radius = self.obstacle_map_resident_radius or 0
+	local budget_s = (self.obstacle_map_load_budget_ms or 3.0) / 1000.0
+	local started = os.clock()
+
+	local pending = {}
+	for _, info in ipairs(chunks) do
+		if not self:IsChunkResident(info.chunk_key) then
+			local dx = info.chunk_x - pcx
+			local dy = info.chunk_y - pcy
+			if math.max(math.abs(dx), math.abs(dy)) <= radius then
+				pending[#pending + 1] = { info = info, dist2 = dx * dx + dy * dy }
+			end
+		end
+	end
+
+	if #pending == 0 then return 0, 0 end
+	table.sort(pending, function(a, b) return a.dist2 < b.dist2 end)
+
+	local loaded = 0
+	for _, entry in ipairs(pending) do
+		local done = self:ParseChunkIncremental(entry.info, budget_s)
+		if done then
+			loaded = loaded + 1
+		end
+		if (os.clock() - started) >= budget_s then
+			break
+		end
+	end
+	return loaded, #pending - loaded
+end
+
+--- Evict chunks that drifted outside `obstacle_map_evict_radius` and are not needed
+--- by the active autopilot route. Dirty chunks are flushed to disk first so no
+--- recorded obstacle data is lost.
+---@param pcx number
+---@param pcy number
+---@return number chunks_evicted
+function Navigation:EvictDistantChunks(pcx, pcy)
+	local evict_radius = self.obstacle_map_evict_radius
+		or ((self.obstacle_map_resident_radius or 0) + 2)
+
+	local targets = {}
+	for chunk_key in pairs(self.obstacle_map_chunk_index) do
+		-- Never touch a chunk that is still being parsed.
+		if self.obstacle_map_load_states[chunk_key] == nil
+				and self:IsChunkEvictable(chunk_key, pcx, pcy, evict_radius) then
+			targets[#targets + 1] = chunk_key
+		end
+	end
+	if #targets == 0 then return 0 end
+
+	-- A dirty chunk must reach disk before its cells leave memory.
+	local needs_flush = false
+	for _, chunk_key in ipairs(targets) do
+		if self.obstacle_map_dirty_chunks[chunk_key] then
+			needs_flush = true
+			break
+		end
+	end
+	if needs_flush then
+		self:SaveObstacleMap()
+	end
+
+	local evicted = 0
+	for _, chunk_key in ipairs(targets) do
+		self:UnloadResidentChunk(chunk_key)
+		evicted = evicted + 1
+	end
+	return evicted
+end
+
+--- One pass of the resident obstacle-map cache: pull in what is near the player,
+--- push out what is far. Driven by a single Cron timer for the whole session so
+--- the window follows the player without ever blocking a frame.
+---@return boolean idle true when there was nothing to do at all
+function Navigation:MaintainObstacleMapCache()
+	if (self.obstacle_map_resident_radius or 0) <= 0 then
+		return true
+	end
+
+	local player = Game.GetPlayer()
+	if player == nil then return true end
+	local player_pos = player:GetWorldPosition()
+	if player_pos == nil then return true end
+
+	local pcx, pcy = self:PositionToChunkCoords(player_pos)
+	if pcx == nil then return true end
+
+	-- A queued route corridor has priority over window maintenance: it is what the
+	-- autopilot is waiting on, and those chunks are pinned anyway.
+	local route_settled = true
+	if self.obstacle_map_route_pending and #self.obstacle_map_route_pending > 0 then
+		local budget_s = (self.obstacle_route_load_budget_ms or 15.0) / 1000.0
+		if self:DrainRouteCorridor(budget_s) > 0 then route_settled = false end
+	end
+
+	local _, pending = self:EnsureResidentChunks(pcx, pcy)
+	local evicted = self:EvictDistantChunks(pcx, pcy)
+
+	if pending == 0 and route_settled and not self.is_obstacle_map_loaded then
+		self.is_obstacle_map_loaded = true
+		self:SyncObstacleMapSessionState()
+	end
+
+	return pending == 0 and evicted == 0 and route_settled
+end
+
+--- Pin the chunks an autopilot route crosses, and load the destination chunk
+--- synchronously.
+--- GetSectorMovementCost() treats an unknown cell as blocked, so without this a
+--- windowed map would make every off-window destination look unreachable. The
+--- Builds the 1-chunk-wide corridor of chunks a route crosses, pins them against
+--- eviction, and queues the ones that are not resident yet for loading.
+--- Ordered start -> destination, so a timeout still leaves a contiguous known
+--- stretch near the vehicle rather than scattered chunks.
+---@param start_pos Vector4
+---@param end_pos Vector4
+---@return number  chunks still needing to be loaded
+function Navigation:PrepareRouteChunks(start_pos, end_pos)
+	if (self.obstacle_map_resident_radius or 0) <= 0 then return 0 end
+
+	self:GetAllChunksCached()
+	local a_cx, a_cy = self:PositionToChunkCoords(start_pos)
+	local b_cx, b_cy = self:PositionToChunkCoords(end_pos)
+	if a_cx == nil or b_cx == nil then return 0 end
+
+	-- Walk the chunk grid along the segment, one chunk wide.
+	local steps = math.max(math.abs(b_cx - a_cx), math.abs(b_cy - a_cy), 1)
+	local max_chunks = self.obstacle_map_route_max_chunks or 32
+
+	local order = {}
+	local seen = {}
+	for i = 0, steps do
+		local t = i / steps
+		local key = math.floor(a_cx + (b_cx - a_cx) * t + 0.5) .. "_" ..
+		            math.floor(a_cy + (b_cy - a_cy) * t + 0.5)
+		if not seen[key] then
+			seen[key] = true
+			order[#order + 1] = key
+		end
+	end
+	-- Always keep the destination chunk, even if the cap truncated the walk.
+	local dest_key = b_cx .. "_" .. b_cy
+	if not seen[dest_key] then
+		order[#order + 1] = dest_key
+		seen[dest_key] = true
+	end
+
+	local pending = {}
+	for _, key in ipairs(order) do
+		if next(self.obstacle_map_route_chunks) ~= nil
+			and self:CountTableEntries(self.obstacle_map_route_chunks) >= max_chunks
+			and key ~= dest_key then
+			self.log_obj:Record(LogLevel.Warning, string.format(
+				"AutoPilot: route corridor capped at %d chunks - %s and beyond stay unknown",
+				max_chunks, key))
+			break
+		end
+		self.obstacle_map_route_chunks[key] = true
+		if not self:IsChunkResident(key) then
+			local info = g_all_chunks_by_key and g_all_chunks_by_key[key]
+			if info then pending[#pending + 1] = info end
+		end
+	end
+	self.obstacle_map_route_pending = pending
+	return #pending
+end
+
+--- Streams the route corridor into the resident window, then runs on_ready().
+--- Returns true when the work was deferred, meaning the caller must not proceed
+--- yet. The AV is already in AutoLeaving at this point, so the wait reads as the
+--- silent hover the player expects before departure.
+--- Returns false when there was nothing to load and the caller should continue.
+---@param start_pos Vector4
+---@param end_pos Vector4
+---@param on_ready function
+---@return boolean  deferred
+function Navigation:StartRouteCorridorPreload(start_pos, end_pos, on_ready)
+	self:ReleaseRouteChunks()
+	local total = self:PrepareRouteChunks(start_pos, end_pos)
+	if total <= 0 then return false end
+
+	local deadline = os.clock() + (self.obstacle_route_wait_timeout or 15.0)
+	local budget_s = (self.obstacle_route_load_budget_ms or 15.0) / 1000.0
+	self.log_obj:Record(LogLevel.Info, string.format(
+		"AutoPilot: streaming %d corridor chunks before departure", total))
+
+	local resolved = false
+	local gate_timer = nil
+
+	-- Single, idempotent completion point. begin_navigation() must never run twice,
+	-- that would start a second autopilot loop.
+	local function finish(remaining)
+		if resolved then return end
+		resolved = true
+		local id = gate_timer
+		if id then
+			Cron.Halt(id)
+		end
+		if self.route_corridor_timer == id then
+			self.route_corridor_timer = nil
+		end
+		gate_timer = nil
+		if remaining > 0 then
+			-- Leave the rest queued: MaintainObstacleMapCache() keeps draining it
+			-- during the flight, so the route keeps improving as data arrives.
+			self.log_obj:Record(LogLevel.Warning, string.format(
+				"AutoPilot: corridor wait timed out, %d/%d chunks loaded - planning with what we have",
+				total - remaining, total))
+		end
+		on_ready()
+	end
+
+	gate_timer = Cron.Every(self.obstacle_route_tick or 0.02, {tick = 0}, function(timer)
+		-- Cancellation wins over completion.
+		if not self.av_obj.is_auto_pilot then
+			self:ReleaseRouteChunks()
+			resolved = true
+			Cron.Halt(timer)
+			if self.route_corridor_timer == (timer and timer.id or timer) then
+				self.route_corridor_timer = nil
+			end
+			return
+		end
+
+		-- MaintainObstacleMapCache() drains this same queue from its own timer. If it
+		-- emptied the queue first, that is success, not a reason to stall: an early
+		-- return here used to leave the vehicle hovering forever with no autopilot loop.
+		local remaining = self:DrainRouteCorridor(budget_s)
+
+		if remaining == 0 or os.clock() >= deadline then
+			finish(remaining)
+		end
+	end)
+
+	self.route_corridor_timer = gate_timer
+	return true
+end
+
+--- Incremental counterpart of LoadResidentChunk: registers residency on completion
+--- and leaves the parse state in place so the next call resumes where this ended.
+---@param chunk_info table
+---@param budget_s number
+---@return boolean  fully loaded
+function Navigation:LoadResidentChunkIncremental(chunk_info, budget_s)
+	if chunk_info == nil then return false end
+	if self:IsChunkResident(chunk_info.chunk_key) then return true end
+	local done = self:ParseChunkIncremental(chunk_info, budget_s)
+	if done then
+		self.obstacle_map_chunk_index[chunk_info.chunk_key] = chunk_info
+		self.obstacle_map_load_states[chunk_info.chunk_key] = nil
+	end
+	return done
+end
+
+--- Drain up to `budget_s` of corridor loading off the pending queue.
+--- An entry is removed only once it is fully loaded. A chunk that runs out of
+--- budget stays queued and resumes on the next call; popping unconditionally
+--- would silently drop half-parsed chunks and leave holes in the corridor.
+---@param budget_s number
+---@return number  chunks still pending
+function Navigation:DrainRouteCorridor(budget_s)
+	local list = self.obstacle_map_route_pending
+	if not list or #list == 0 then return 0 end
+	local started = os.clock()
+	while #list > 0 do
+		local info = list[1]
+		if self:IsChunkResident(info.chunk_key) then
+			table.remove(list, 1)
+		elseif self:LoadResidentChunkIncremental(info, budget_s) then
+			table.remove(list, 1)
+		else
+			break
+		end
+		if os.clock() - started >= budget_s then break end
+	end
+	if #list == 0 then self.obstacle_map_route_pending = nil end
+	return #list
+end
+
+--- Release the autopilot route pin so those chunks become evictable again.
+function Navigation:ReleaseRouteChunks()
+	if self.route_corridor_timer then
+		Cron.Halt(self.route_corridor_timer)
+		self.route_corridor_timer = nil
+	end
+	self.obstacle_map_route_pending = nil
+	for key in pairs(self.obstacle_map_route_chunks) do
+		local state = self.obstacle_map_load_states[key]
+		if state and state.fi then pcall(function() state.fi:close() end) end
+		self.obstacle_map_load_states[key] = nil
+	end
+	self.obstacle_map_route_chunks = {}
+end
+
 function Navigation:ProcessObstacleMapLoadBatch(max_files)
 	if not self.is_obstacle_map_loading then
 		return true, 0, 0
@@ -630,34 +1278,39 @@ function Navigation:ProcessObstacleMapLoadBatch(max_files)
 	return false, processed_files, loaded_cells
 end
 
+--- Start the resident obstacle-map chunk cache for this session.
+--- NOTE: this used to queue every chunk file on disk and pull them all in at a
+--- fixed 1 file / 0.05s, which blocked the game thread for ~31ms (worst 290ms)
+--- every tick for ~5s and then left ~300MB resident for the rest of the session.
+--- It now starts a budgeted window that follows the player.
 function Navigation:StartObstacleMapSessionPreload()
-	if self.is_obstacle_map_loaded then
-		self:SyncRouteNodeSize()
-		return true
-	end
-	if self.is_obstacle_map_loading then
+	if self.obstacle_map_cache_started then
 		return true
 	end
 
-	local load_queue, load_mode = self:BuildObstacleMapLoadQueue()
-	self.obstacle_map_load_queue = load_queue
-	self.obstacle_map_load_index = 1
-	self.obstacle_map_load_total = #load_queue
-	self.obstacle_map_loaded_files = 0
-	self.is_obstacle_map_loading = #load_queue > 0
+	-- Fresh inventory: chunks recorded earlier can have created new files.
+	local chunks = self:GetAllChunksCached(true)
+	self.obstacle_map_cache_started = true
+	self.obstacle_map_load_total = #chunks
 	self:SyncObstacleMapSessionState()
 
-	if #load_queue == 0 then
-		return self:FinalizeObstacleMapLoad("Obstacle map preload skipped: no chunk files found")
+	if #chunks == 0 then
+		self.is_obstacle_map_loaded = true
+		self:SyncObstacleMapSessionState()
+		self.log_obj:Record(LogLevel.Info, "Obstacle map cache started: no chunk files found")
+		return true
 	end
 
-	local files_per_tick = 1
-	local tick_interval = self.obstacle_map_preload_tick
+	local cell_size = tonumber(self.obstacle_cell_size) or 10.0
 	self.log_obj:Record(LogLevel.Info, string.format(
-		"Obstacle map staged preload started: %d files with %.2fs tick (%d files/tick, %s)",
-		#load_queue, tick_interval, files_per_tick, load_mode))
+		"Obstacle map resident cache started: %d chunks on disk, resident radius %d (~%dm), evict beyond %d, budget %.1fms/tick",
+		#chunks,
+		self.obstacle_map_resident_radius,
+		self.obstacle_map_resident_radius * self.obstacle_map_chunk_cells * cell_size,
+		self.obstacle_map_evict_radius,
+		self.obstacle_map_load_budget_ms))
 
-	return self.av_obj.core_obj:EnsureObstacleMapPreloadTimer(tick_interval, files_per_tick)
+	return self.av_obj.core_obj:EnsureObstacleMapPreloadTimer(self.obstacle_map_preload_tick)
 end
 
 function Navigation:EnsureObstacleMapLoaded()
@@ -678,6 +1331,15 @@ function Navigation:ReleaseObstacleMapSessionCache()
 	self:SyncRouteNodeSize()
 	self.is_obstacle_map_loaded = false
 	self:ClearObstacleMapLoadState()
+	self:ReleaseRouteChunks()
+	self.obstacle_map_cache_started = false
+	-- Close any in-flight read handles before dropping the inventory.
+	for _, st in pairs(self.obstacle_map_load_states) do
+		if st.fh then pcall(function() st.fh:close() end) end
+	end
+	self.obstacle_map_load_states = {}
+	g_all_chunks_cache = nil
+	g_all_chunks_by_key = nil
 	self.av_obj.core_obj.is_obstacle_map_loaded_in_session = false
 	self.av_obj.core_obj.session_obstacle_map_cache = nil
 	self.av_obj.core_obj.session_obstacle_map_chunk_index = nil
@@ -1448,6 +2110,7 @@ function Navigation:ApplyAutopilotRoutePlanResult(job, current_position, current
 		self.current_route_index = 1
 		self.last_route_plan_time = current_time
 		self.autopilot_active_astar_destination = job.astar_destination
+		self.autopilot_low_gain_followups = 0
 		self.log_obj:Record(LogLevel.Info, string.format(
 			"A* %s adopted asynchronously: %d waypoints, gained %.0fm",
 			job.kind or "replan", #route, dist_gained))
@@ -1464,10 +2127,16 @@ function Navigation:ApplyAutopilotRoutePlanResult(job, current_position, current
 			self.current_route_index = 1
 			self:ResetLocalAvoidanceRuntime()
 		end
+		-- Track repeated low-gain followups against a destination we already know
+		-- needs a local final approach, so the autopilot escalates instead of
+		-- retrying A* forever without closing the last few metres.
+		if self.autopilot_dest_requires_final_local then
+			self.autopilot_low_gain_followups = (self.autopilot_low_gain_followups or 0) + 1
+		end
 		self.route_plan_next_followup_time = current_time + self.route_plan_replan_interval
 		self.log_obj:Record(LogLevel.Info, string.format(
-			"A* %s yielded only %.0fm progress; continue current navigation mode",
-			job.kind or "replan", dist_gained))
+			"A* %s yielded only %.0fm progress; continue current navigation mode (%d low-gain retries)",
+			job.kind or "replan", dist_gained, self.autopilot_low_gain_followups or 0))
 	end
 end
 
@@ -2084,6 +2753,9 @@ function Navigation:SaveObstacleMap()
 					file:close()
 					n_saved = n_saved + 1
 					n_cells = n_cells + count
+					-- Keep the resident-cache inventory aware of the new diff, otherwise
+					-- an evicted chunk reloads from .dat only and loses these cells.
+					self:MarkChunkOnDisk(ck, nil, true)
 				end
 			end
 		end
@@ -2143,6 +2815,8 @@ function Navigation:IntegrateObstacleMapDiff()
 			if os.remove(diff_path) then
 				n_diff_removed = n_diff_removed + 1
 			end
+			-- Reflect the new on-disk state in the resident-cache inventory.
+			self:MarkChunkOnDisk(ck, count > 0, false)
 		end
 
 		self.obstacle_map_dirty_chunks = {}
@@ -2516,9 +3190,15 @@ function Navigation:AutoPilot()
 	self.local_avoidance_net_check_time = 0
 	-- Yaw smoothing reset
 	self.yaw_target_smoothed = nil
+	self.autopilot_low_gain_followups = 0
 
 	--- NEW: Initialize cell navigation system
 	self:InitializeSectorSystem()
+
+	-- Everything from here depends on the obstacle map being loaded along the route,
+	-- so it is wrapped up and run once the corridor below is in place.
+	-- (Body left at its original indentation to keep the diff readable.)
+	local function begin_navigation()
 
 	-- Determine navigation phases based on start/destination knowledge
 	local ap_start_known = self:IsSectorAreaKnown(current_position)
@@ -2899,23 +3579,41 @@ function Navigation:AutoPilot()
 			nav_target = self.autopilot_local_target
 		end
 
-		-- Phase transition: astar -> final_local when A* route is exhausted and destination needs local approach.
+		-- Phase transition: astar -> final_local when the A* route is exhausted and
+		-- the destination itself is not traversable.
+		--
+		-- Two gaps fixed here:
+		--  * The old `horiz_to_final > sector_size` lower bound created a dead zone
+		--    between destination_range (3m) and sector_size (10m). Inside it the
+		--    vehicle could neither arrive (needs < 3m) nor switch, so it hovered
+		--    forever with the final destination cell reported as an obstacle.
+		--  * `not astar_is_partial_route` blocked the handoff for exactly the case
+		--    that needs it. When the destination is a known obstacle A* can only
+		--    return a partial route; the followup gain check then rejects anything
+		--    under 50m and retries indefinitely, while arrival stays disabled
+		--    because the route is partial.
+		local max_handoff = self.final_local_max_handoff_distance or 150.0
+		local was_partial = self.astar_is_partial_route
+		local give_up_on_astar = (self.autopilot_low_gain_followups or 0)
+			>= (self.final_local_fallback_after_rejects or 3)
 		if self.autopilot_phase == "astar"
 			and self.autopilot_dest_requires_final_local
 			and self.route_plan_job == nil
-			and not self.astar_is_partial_route
 			and self.current_route_index > #self.current_global_route
-			and horiz_to_final > self.sector_size then
+			and (horiz_to_final <= max_handoff or give_up_on_astar) then
 			self.autopilot_phase           = "final_local"
 			self.autopilot_local_target    = ground_destination
 			self.autopilot_active_astar_destination = nil
+			self.astar_is_partial_route    = false
+			self.route_plan_next_followup_time = 0
 			self.local_avoidance_stuck_timer       = 0
 			self.local_avoidance_stuck_escape_time = 0
 			self.local_avoidance_net_check_dist    = nil
 			self.local_avoidance_net_check_pos     = nil
 			self.local_avoidance_net_check_time    = 0
-			self.log_obj:Record(LogLevel.Info,
-				"AutoPilot [astar->final_local]: A* route complete, switching to local avoidance for final leg")
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"AutoPilot [astar->final_local]: destination not traversable, handing off to local avoidance for final leg (%.1fm, partial=%s, low-gain retries=%d)",
+				horiz_to_final, tostring(was_partial), self.autopilot_low_gain_followups or 0))
 		end
 
 		-- Calculate destination vector toward current nav target (A* waypoint or final dest)
@@ -3230,6 +3928,17 @@ function Navigation:AutoPilot()
 		self.av_obj:MoveThruster(self:BuildAutopilotThrusterCommands(vehicle_angle, fix_direction_vector))
 	end)
 	return true
+	end
+
+	-- Route corridor preload. Leaving the chunks between here and the destination
+	-- unloaded is what made long-distance autopilot wander: unknown cells cost the
+	-- same as confirmed obstacles, so A* exhausted its iteration budget and handed
+	-- back a partial route, which then replanned every 0.5s. The AV is already in
+	-- AutoLeaving at this point, so the wait reads as a silent hover.
+	if self:StartRouteCorridorPreload(current_position, altitude_adjusted_destination, begin_navigation) then
+		return true
+	end
+	return begin_navigation()
 end
 
 --- Excute Leaving when auto pilot is on.
@@ -3428,6 +4137,8 @@ function Navigation:SuccessAutoPilot()
 	self.safe_streak_count      = 0
 	self.current_global_route   = {}
 	self.sector_penalty_cache   = nil
+	-- Unpin the route corridor so those chunks can be evicted again.
+	self:ReleaseRouteChunks()
 end
 
 --- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Failed.
@@ -3447,7 +4158,10 @@ function Navigation:InterruptAutoPilot()
 	self.route_plan_job         = nil
 	self.route_plan_next_followup_time = 0
 	self.astar_is_partial_route = false
+	self.autopilot_low_gain_followups = 0
 	self.sector_penalty_cache   = nil
+	-- Unpin the route corridor so those chunks can be evicted again.
+	self:ReleaseRouteChunks()
 end
 
 --- Set AV.is_failture_auto_pilot and get Failture AutoPilot Flag.

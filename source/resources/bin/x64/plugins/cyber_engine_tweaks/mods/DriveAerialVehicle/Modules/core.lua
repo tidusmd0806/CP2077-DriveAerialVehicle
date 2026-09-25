@@ -104,6 +104,9 @@ function Core:New()
     obj.translation_table_list = {}
     -- summon
     obj.current_purchased_vehicle_count = 0
+    -- garage polling (see Core:UpdateGarageInfo)
+    obj.garage_update_interval = 1.0
+    obj.last_garage_update_time = nil
     -- custom mappin
     obj.current_custom_mappin_position = Vector4.Zero()
     obj.fast_travel_position_list = {}
@@ -144,8 +147,9 @@ function Core:Init()
     -- Restore favorite destination from saved settings on startup
     self:RestoreFavoriteDestination()
 
-    -- Start staged obstacle map loading during mod startup so session start does not take the hit.
-    self:StartObstacleMapSessionPreload()
+    -- The obstacle-map resident cache is NOT started here. `onInit` runs before any
+    -- save is loaded, so the player position is unknown and the chunks cannot be
+    -- ordered by distance. It is started from the SessionStart observer instead.
 
     Cron.Every(DAV.time_resolution, function()
         self.event_obj:CheckAllEvents()
@@ -161,6 +165,9 @@ end
 --- Reset AV and Event object.
 function Core:Reset()
     self:StopAllButtonHolds()
+    -- A new session gets a fresh resident obstacle-map cache.
+    self.has_started_obstacle_map_preload = false
+    self.last_garage_update_time = 0
     self.av_obj = AV:New(self)
     self.av_obj:Init()
     self.event_obj:Init(self.av_obj)
@@ -198,7 +205,12 @@ function Core:StartObstacleMapSessionPreload()
     return false
 end
 
-function Core:EnsureObstacleMapPreloadTimer(tick_interval, files_per_tick)
+--- Ensure the resident obstacle-map cache maintenance timer is running.
+--- Unlike the old one-shot preload timer, this one is intentionally persistent:
+--- the resident window has to follow the player for the whole session. It is
+--- stopped by ReleaseObstacleMapSession() on shutdown. A tick with nothing to do
+--- costs one pass over the ~96-entry chunk inventory.
+function Core:EnsureObstacleMapPreloadTimer(tick_interval)
     if self.is_obstacle_map_preload_timer_active then
         return true
     end
@@ -210,23 +222,13 @@ function Core:EnsureObstacleMapPreloadTimer(tick_interval, files_per_tick)
             navigation_obj = self.av_obj.navigation_obj
         end
 
-        if navigation_obj == nil then
+        if navigation_obj == nil or navigation_obj.MaintainObstacleMapCache == nil then
             self.is_obstacle_map_preload_timer_active = false
             Cron.Halt(timer)
             return
         end
 
-        if not navigation_obj.is_obstacle_map_loading then
-            self.is_obstacle_map_preload_timer_active = false
-            Cron.Halt(timer)
-            return
-        end
-
-        local is_finished = navigation_obj:ProcessObstacleMapLoadBatch(files_per_tick)
-        if is_finished then
-            self.is_obstacle_map_preload_timer_active = false
-            Cron.Halt(timer)
-        end
+        navigation_obj:MaintainObstacleMapCache()
     end)
 
     return true
@@ -520,6 +522,22 @@ end
 
 --- Update Garage Info.
 function Core:UpdateGarageInfo(is_force_update)
+    -- Throttle (docs/PERFORMANCE_FIX_PLAN.md, fix (3)).
+    -- The 100Hz idle loop used to reach this every frame, and the two C# calls below
+    -- run *before* the count-based early return, so a late-game save (~150-200
+    -- unlocked vehicles) produced roughly 10,000 wrapped-object allocations per
+    -- second on top of the resident obstacle map. The garage list changes rarely,
+    -- so polling it once a second is plenty. os.clock() is CPU time, which means
+    -- the poll naturally backs off further when the process is CPU-bound.
+    if not is_force_update then
+        local now = os.clock()
+        if self.last_garage_update_time ~= nil
+                and (now - self.last_garage_update_time) < self.garage_update_interval then
+            return
+        end
+        self.last_garage_update_time = now
+    end
+
     local vehicle_system = Game.GetVehicleSystem()
     if vehicle_system == nil then
         self.log_obj:Record(LogLevel.Warning, "Vehicle System is nil")

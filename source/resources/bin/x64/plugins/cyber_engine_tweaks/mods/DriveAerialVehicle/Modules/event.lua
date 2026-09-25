@@ -95,6 +95,15 @@ function Event:SetObserve()
         DAV.core_obj:SetFastTravelPosition()
         self.current_situation = Def.Situation.Normal
 
+        -- The player exists now, so the resident obstacle-map cache can order
+        -- chunks by distance from where we actually are. Previously this ran from
+        -- Core:Init() (before the save was loaded) and pulled the whole 300MB map
+        -- into the Lua heap for the rest of the session.
+        DAV.core_obj:StartObstacleMapSessionPreload()
+        -- Refresh the garage once immediately so the very first summon sees the
+        -- right vehicles; afterwards the 1s throttle takes over.
+        DAV.core_obj:UpdateGarageInfo(true)
+
     end)
 
     GameUI.Observe("SessionEnd", function()
