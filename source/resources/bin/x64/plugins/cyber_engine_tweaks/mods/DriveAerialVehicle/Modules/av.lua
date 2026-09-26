@@ -667,8 +667,9 @@ function AV:Mount()
 		self.is_crystal_dome = true
 	end
 
-	-- Auto-start obstacle map recording only when enabled from the debug menu.
-	if DAV.debug_enable_obstacle_scan then
+	-- Auto-start obstacle map recording when the user setting or the debug flag
+	-- turns map learning on.
+	if self.navigation_obj:IsObstacleRecordingEnabled() then
 		self.navigation_obj:StartObstacleRecording()
 	end
 

@@ -135,22 +135,34 @@ function Navigation:New(av_obj)
 	obj.obstacle_map_resident_radius = 2		-- chunks kept resident around the player (~1000m)
 	obj.obstacle_map_evict_radius = 4			-- chunks further than this become evictable
 	obj.obstacle_map_load_budget_ms = 3.0		-- wall-clock budget per maintenance tick
+	obj.obstacle_map_probe_range = 20		-- chunk coords probed when listing the map dir
+							-- (20 chunks = 10km each way, well past the play area)
 	-- Chunks pinned while an autopilot route is active. The corridor is 1 chunk
 	-- wide: measured against the real map, a 1-wide corridor gives exactly the same
 	-- A* result as a 2-wide one or the full 96-chunk map (303 cells / 32k iters),
 	-- while the unpinned version fails (PARTIAL, 1616m short, 100k iters capped).
 	-- 32 covers any route the shipped map can express (~16 chunks worst case).
 	obj.obstacle_map_route_max_chunks = 32
-	-- While the AV hovers before departure we can spend more per tick, because the
-	-- player expects a pause there and nothing else is moving.
-	obj.obstacle_route_load_budget_ms = 15.0
-	obj.obstacle_route_tick = 0.02
+	-- Corridor streaming while the AV hovers before departure.
+	-- The budget is deliberately modest. A 15ms budget on a 20ms tick is a 75%
+	-- duty cycle, and a 60fps frame only has 16.7ms to give, so the render thread
+	-- got starved and the wait felt like a freeze rather than a pause.
+	-- 8ms per 50ms tick is 16% duty: measured hover of ~0.7s for a 0.6km route,
+	-- ~1.7s for 1.5km and ~2.1s for 2.8km, and even the 32-chunk cap fits inside
+	-- the timeout below.
+	obj.obstacle_route_load_budget_ms = 8.0
+	obj.obstacle_route_tick = 0.05
 	-- Never hold departure longer than this; plan with whatever is loaded by then.
 	obj.obstacle_route_wait_timeout = 15.0
 	obj.obstacle_map_route_chunks = {}
 	obj.obstacle_map_route_pending = nil
 	obj.route_corridor_timer = nil
 	obj.obstacle_map_cache_started = false
+	-- The radius window around the player is only kept warm once an aerial vehicle
+	-- is actually in play. Closed until the first autopilot departure (or an
+	-- explicit StartObstacleMapFill), so a loaded-but-on-foot player pays nothing
+	-- for the obstacle map. Learning is also off unless the user enables it.
+	obj.obstacle_map_fill_started = false
 	-- In-flight incremental parses, keyed by chunk_key. A chunk is "resident" only
 	-- once its parse finished, so a half-parsed chunk is never mistaken for a
 	-- complete one (and never evicted mid-read).
@@ -320,7 +332,7 @@ function Navigation:LoadObstacleMapChunkFile(path, is_diff)
 	end
 	local n = 0
 	for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-		local key = cellx .. "_" .. celly .. "_" .. cellz
+		local key = self:PackCellKey(tonumber(cellx), tonumber(celly), tonumber(cellz))
 		local ival = tonumber(val) or 0
 		local new_val
 		if ival >= 2 then
@@ -342,102 +354,50 @@ function Navigation:BuildObstacleMapLoadQueue()
 	self.obstacle_map_dirty_chunks = {}
 	self.obstacle_map_dirty_cells = {}
 
+	-- Derive the queue from the session inventory rather than shelling out to
+	-- `dir /b`. Refresh once because MigrateOldObstacleMap may have just renamed
+	-- files the cache has never seen.
 	local load_queue = {}
-	local used_enum = false
-	if io.popen then
-		local dir_win = self.obstacle_map_dir:gsub("/", "\\")
-		local dat_pipe = io.popen('dir /b "' .. dir_win .. '\\chunk_*.dat" 2>nul')
-		if dat_pipe then
-			for filename in dat_pipe:lines() do
-				local cx, cy = filename:match("^chunk_(-?%d+)_(-?%d+)%.dat$")
-				if cx and cy then
-					load_queue[#load_queue + 1] = {
-						path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".dat",
-						is_diff = false,
-					}
-				end
-			end
-			dat_pipe:close()
-			used_enum = true
+	for _, info in ipairs(self:GetAllChunksCached(true)) do
+		if info.has_dat then
+			load_queue[#load_queue + 1] = { path = info.path, is_diff = false }
 		end
-		local diff_pipe = io.popen('dir /b "' .. dir_win .. '\\chunk_*.diff" 2>nul')
-		if diff_pipe then
-			for filename in diff_pipe:lines() do
-				local cx, cy = filename:match("^chunk_(-?%d+)_(-?%d+)%.diff$")
-				if cx and cy then
-					load_queue[#load_queue + 1] = {
-						path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".diff",
-						is_diff = true,
-					}
-				end
-			end
-			diff_pipe:close()
+		if info.has_diff then
+			load_queue[#load_queue + 1] = { path = info.diff_path, is_diff = true }
 		end
 	end
 
-	if not used_enum then
-		for cx = -10, 10 do
-			for cy = -10, 10 do
-				load_queue[#load_queue + 1] = {
-					path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".dat",
-					is_diff = false,
-				}
-				load_queue[#load_queue + 1] = {
-					path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".diff",
-					is_diff = true,
-				}
-			end
-		end
-	end
-
-	return load_queue, used_enum and "enum" or "probe"
+	return load_queue, "cache"
 end
 
+--- Session-cached view of the chunk files that exist on disk.
+--- This used to run `dir /b` through io.popen on every call, which spawned a
+--- cmd.exe process during autopilot target resolution
+--- (FindNearestKnownSectorPos / FindNearestSafeOrDangerCellPos). The inventory is
+--- enumerated once by GetAllChunksCached() and kept current by MarkChunkOnDisk(),
+--- so this function no longer touches the filesystem at all.
 ---@return table chunk_list
 function Navigation:EnumerateObstacleMapDataChunks()
+	local cached = self:GetAllChunksCached()
+	if cached and #cached > 0 then
+		return cached
+	end
+
+	-- Nothing found on disk (fresh install, or the inventory probe came up empty).
+	-- Fall back to the chunks we are currently holding so callers still see them.
 	local chunk_list = {}
-	local seen = {}
-	local used_enum = false
-	if io.popen then
-		local dir_win = self.obstacle_map_dir:gsub("/", "\\")
-		local dat_pipe = io.popen('dir /b "' .. dir_win .. '\\chunk_*.dat" 2>nul')
-		if dat_pipe then
-			for filename in dat_pipe:lines() do
-				local cx, cy = filename:match("^chunk_(-?%d+)_(-?%d+)%.dat$")
-				if cx and cy then
-					local chunk_key = cx .. "_" .. cy
-					seen[chunk_key] = true
-					chunk_list[#chunk_list + 1] = {
-						chunk_x = tonumber(cx),
-						chunk_y = tonumber(cy),
-						chunk_key = chunk_key,
-						path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".dat",
-						diff_path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".diff",
-					}
-				end
-			end
-			dat_pipe:close()
-			used_enum = true
+	for chunk_key in pairs(self.obstacle_map_chunk_index or {}) do
+		local cx, cy = chunk_key:match("^(-?%d+)_(-?%d+)$")
+		if cx then
+			chunk_list[#chunk_list + 1] = {
+				chunk_x = tonumber(cx),
+				chunk_y = tonumber(cy),
+				chunk_key = chunk_key,
+				path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".dat",
+				diff_path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".diff",
+			}
 		end
 	end
-
-	if not used_enum then
-		for chunk_key, _ in pairs(self.obstacle_map_chunk_index or {}) do
-			if not seen[chunk_key] then
-				local cx, cy = chunk_key:match("^(-?%d+)_(-?%d+)$")
-				if cx and cy then
-					chunk_list[#chunk_list + 1] = {
-						chunk_x = tonumber(cx),
-						chunk_y = tonumber(cy),
-						chunk_key = chunk_key,
-						path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".dat",
-						diff_path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".diff",
-					}
-				end
-			end
-		end
-	end
-
 	return chunk_list
 end
 
@@ -524,7 +484,7 @@ function Navigation:LoadChunkCellsForNearestLookup(path, is_diff, loaded_cells)
 
 	local count = 0
 	for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-		local key = cellx .. "_" .. celly .. "_" .. cellz
+		local key = self:PackCellKey(tonumber(cellx), tonumber(celly), tonumber(cellz))
 		local ival = tonumber(val) or 0
 		local new_val
 		if ival >= 2 then
@@ -669,81 +629,77 @@ end
 --- `cmd.exe` over and over.
 ---@param force_refresh boolean|nil
 ---@return table list of {chunk_key, chunk_x, chunk_y, path, diff_path, has_dat, has_diff}
+--- Build a chunk descriptor from coordinates alone and cache the existence
+--- verdict. Chunk file names are fully determined by the chunk coordinates, so
+--- there is no need to list the directory: callers that only care about a handful
+--- of chunks (a route corridor, the resident window) pay two io.open calls per
+--- chunk once, instead of a full sweep. A MISS costs ~7.5us and is a real kernel
+--- syscall, so keeping the count down matters.
+---@return table chunk_info
+function Navigation:MakeChunkInfo(cx, cy)
+	local key = cx .. "_" .. cy
+	if g_all_chunks_by_key == nil then g_all_chunks_by_key = {} end
+	local info = g_all_chunks_by_key[key]
+	if info then return info end
+
+	info = {
+		chunk_key = key,
+		chunk_x = cx,
+		chunk_y = cy,
+		path = self.obstacle_map_dir .. "/chunk_" .. key .. ".dat",
+		diff_path = self.obstacle_map_dir .. "/chunk_" .. key .. ".diff",
+		has_dat = false,
+		has_diff = false,
+	}
+	local dat = io.open(info.path, "rb")
+	if dat then dat:close() info.has_dat = true end
+	local diff = io.open(info.diff_path, "rb")
+	if diff then diff:close() info.has_diff = true end
+
+	g_all_chunks_by_key[key] = info
+	-- Keep a previously built inventory in step with newly discovered chunks.
+	if g_all_chunks_cache then g_all_chunks_cache[#g_all_chunks_cache + 1] = info end
+	return info
+end
+
+--- Full inventory of chunk files on disk. Only needed by callers that must know
+--- which chunks exist everywhere (FindNearestObstacleMapChunk). Everything else
+--- should use MakeChunkInfo so this sweep never runs on a hot path.
+---
+--- This used to shell out to `dir /b` via io.popen. Spawning cmd.exe measured
+--- ~1s in-game right after a load, with the disk still thrashing, and showed up
+--- as a hitch the moment the player gained control.
 function Navigation:GetAllChunksCached(force_refresh)
 	if g_all_chunks_cache ~= nil and not force_refresh then
 		return g_all_chunks_cache
 	end
 
-	local by_key = {}
 	local list = {}
+	local prev_by_key = g_all_chunks_by_key
+	g_all_chunks_by_key = {}
+	g_all_chunks_cache = nil   -- stop MakeChunkInfo appending mid-build
 
-	local function touch(cx, cy, ext)
-		local key = cx .. "_" .. cy
-		local info = by_key[key]
-		if not info then
-			info = {
-				chunk_key = key,
-				chunk_x = tonumber(cx),
-				chunk_y = tonumber(cy),
-				path = self.obstacle_map_dir .. "/chunk_" .. key .. ".dat",
-				diff_path = self.obstacle_map_dir .. "/chunk_" .. key .. ".diff",
-				has_dat = false,
-				has_diff = false,
-			}
-			by_key[key] = info
-			list[#list + 1] = info
-		end
-		if ext == "diff" then
-			info.has_diff = true
-		else
-			info.has_dat = true
-		end
-	end
-
-	if io.popen then
-		local dir_win = self.obstacle_map_dir:gsub("/", "\\")
-		local patterns = { "chunk_*.dat", "chunk_*.diff" }
-		for _, pattern in ipairs(patterns) do
-			local pipe = io.popen('dir /b "' .. dir_win .. '\\' .. pattern .. '" 2>nul')
-			if pipe then
-				for filename in pipe:lines() do
-					local cx, cy, ext = filename:match("^chunk_(-?%d+)_(-?%d+)%.(%w+)$")
-					if cx and cy and ext then touch(cx, cy, ext) end
-				end
-				pipe:close()
-			end
-		end
-	end
-
-	if #list == 0 then
-		-- Fallback when io.popen is unavailable: probe the coordinate range.
-		-- Slower, but runs at most once per session.
-		for cx = -10, 10 do
-			for cy = -10, 10 do
-				local key = cx .. "_" .. cy
-				local info = {
-					chunk_key = key,
-					chunk_x = cx,
-					chunk_y = cy,
-					path = self.obstacle_map_dir .. "/chunk_" .. key .. ".dat",
-					diff_path = self.obstacle_map_dir .. "/chunk_" .. key .. ".diff",
-					has_dat = false,
-					has_diff = false,
-				}
-				local dat = io.open(info.path, "r")
-				if dat then dat:close() info.has_dat = true end
-				local diff = io.open(info.diff_path, "r")
-				if diff then diff:close() info.has_diff = true end
-				if info.has_dat or info.has_diff then
-					by_key[key] = info
-					list[#list + 1] = info
-				end
+	local range = self.obstacle_map_probe_range or 20
+	for cx = -range, range do
+		for cy = -range, range do
+			local info = self:MakeChunkInfo(cx, cy)
+			if info.has_dat or info.has_diff then
+				list[#list + 1] = info
 			end
 		end
 	end
 
 	g_all_chunks_cache = list
-	g_all_chunks_by_key = by_key
+
+	-- Descriptors created on demand outside the swept range stay valid; keep them.
+	if prev_by_key then
+		for k, info in pairs(prev_by_key) do
+			if g_all_chunks_by_key[k] == nil then
+				g_all_chunks_by_key[k] = info
+				list[#list + 1] = info
+			end
+		end
+	end
 	return list
 end
 
@@ -858,7 +814,7 @@ function Navigation:ParseChunkIncremental(chunk_info, budget_s)
 				st.fi = st.fi + 1
 			else
 				st.pos = e + 1
-				local key = a .. "_" .. b .. "_" .. c
+				local key = self:PackCellKey(tonumber(a), tonumber(b), tonumber(c))
 				local ival = tonumber(v) or 0
 				local new_val
 				if ival >= 2 then
@@ -952,17 +908,19 @@ end
 ---@return number chunks_loaded
 ---@return number pending_count  chunks still missing inside the radius after this tick
 function Navigation:EnsureResidentChunks(pcx, pcy)
-	local chunks = self:GetAllChunksCached()
 	local radius = self.obstacle_map_resident_radius or 0
 	local budget_s = (self.obstacle_map_load_budget_ms or 3.0) / 1000.0
 	local started = os.clock()
 
+	-- Walk the window grid directly rather than scanning the inventory: a
+	-- radius-2 window is 25 descriptors against an inventory of ~96, and each
+	-- existence verdict is cached after the first check. This keeps the full
+	-- directory sweep off the maintenance path entirely.
 	local pending = {}
-	for _, info in ipairs(chunks) do
-		if not self:IsChunkResident(info.chunk_key) then
-			local dx = info.chunk_x - pcx
-			local dy = info.chunk_y - pcy
-			if math.max(math.abs(dx), math.abs(dy)) <= radius then
+	for dx = -radius, radius do
+		for dy = -radius, radius do
+			local info = self:MakeChunkInfo(pcx + dx, pcy + dy)
+			if (info.has_dat or info.has_diff) and not self:IsChunkResident(info.chunk_key) then
 				pending[#pending + 1] = { info = info, dist2 = dx * dx + dy * dy }
 			end
 		end
@@ -1043,13 +1001,26 @@ function Navigation:MaintainObstacleMapCache()
 
 	-- A queued route corridor has priority over window maintenance: it is what the
 	-- autopilot is waiting on, and those chunks are pinned anyway.
+	-- Exactly one driver touches the queue at a time: while the departure gate owns
+	-- it (route_corridor_timer set) the gate drains at its own faster tick, and
+	-- this timer only picks up the remainder once the gate is gone.
 	local route_settled = true
 	if self.obstacle_map_route_pending and #self.obstacle_map_route_pending > 0 then
-		local budget_s = (self.obstacle_route_load_budget_ms or 15.0) / 1000.0
-		if self:DrainRouteCorridor(budget_s) > 0 then route_settled = false end
+		if self.route_corridor_timer == nil then
+			local budget_s = (self.obstacle_route_load_budget_ms or 15.0) / 1000.0
+			if self:DrainRouteCorridor(budget_s) > 0 then route_settled = false end
+		else
+			route_settled = false
+		end
 	end
 
-	local _, pending = self:EnsureResidentChunks(pcx, pcy)
+	-- The window follow only runs after the first autopilot departure. Before that
+	-- there is no vehicle whose surroundings matter, so no chunks are read.
+	local pending = 0
+	if self.obstacle_map_fill_started then
+		local _, pending_now = self:EnsureResidentChunks(pcx, pcy)
+		pending = pending_now
+	end
 	local evicted = self:EvictDistantChunks(pcx, pcy)
 
 	if pending == 0 and route_settled and not self.is_obstacle_map_loaded then
@@ -1074,7 +1045,6 @@ end
 function Navigation:PrepareRouteChunks(start_pos, end_pos)
 	if (self.obstacle_map_resident_radius or 0) <= 0 then return 0 end
 
-	self:GetAllChunksCached()
 	local a_cx, a_cy = self:PositionToChunkCoords(start_pos)
 	local b_cx, b_cy = self:PositionToChunkCoords(end_pos)
 	if a_cx == nil or b_cx == nil then return 0 end
@@ -1113,8 +1083,14 @@ function Navigation:PrepareRouteChunks(start_pos, end_pos)
 		end
 		self.obstacle_map_route_chunks[key] = true
 		if not self:IsChunkResident(key) then
-			local info = g_all_chunks_by_key and g_all_chunks_by_key[key]
-			if info then pending[#pending + 1] = info end
+			local cx, cy = key:match("^(-?%d+)_(-?%d+)$")
+			if cx then
+				-- Synthesise the descriptor on demand: no directory sweep here.
+				local info = self:MakeChunkInfo(tonumber(cx), tonumber(cy))
+				if info.has_dat or info.has_diff then
+					pending[#pending + 1] = info
+				end
+			end
 		end
 	end
 	self.obstacle_map_route_pending = pending
@@ -1163,6 +1139,9 @@ function Navigation:StartRouteCorridorPreload(start_pos, end_pos, on_ready)
 				"AutoPilot: corridor wait timed out, %d/%d chunks loaded - planning with what we have",
 				total - remaining, total))
 		end
+		-- The vehicle is about to move under its own navigation, so from here on the
+		-- radius window is worth keeping warm around it.
+		self:StartObstacleMapFill()
 		on_ready()
 	end
 
@@ -1288,29 +1267,36 @@ function Navigation:StartObstacleMapSessionPreload()
 		return true
 	end
 
-	-- Fresh inventory: chunks recorded earlier can have created new files.
-	local chunks = self:GetAllChunksCached(true)
+	-- Nothing heavy here any more. This used to build the chunk inventory with
+	-- io.popen, and the session log shows that costing ~1s after the loading
+	-- screen in every single run - a hitch exactly when the player gains control.
+	-- The inventory is now built lazily by the first real consumer (an autopilot
+	-- corridor or a mapping session), so a plain load does zero obstacle-map work.
 	self.obstacle_map_cache_started = true
-	self.obstacle_map_load_total = #chunks
-	self:SyncObstacleMapSessionState()
+	self.log_obj:Record(LogLevel.Info, string.format(
+		"Obstacle map session ready: no chunk work until first autopilot or mapping session. Map learning: %s",
+		self:IsObstacleRecordingEnabled() and "on" or "off"))
 
-	if #chunks == 0 then
-		self.is_obstacle_map_loaded = true
-		self:SyncObstacleMapSessionState()
-		self.log_obj:Record(LogLevel.Info, "Obstacle map cache started: no chunk files found")
-		return true
-	end
+	return self.av_obj.core_obj:EnsureObstacleMapPreloadTimer(self.obstacle_map_preload_tick)
+end
 
+--- Open the radius-window gate. Called on the first autopilot departure so the
+--- window starts following the vehicle from then on (useful for landing spots and,
+--- when learning is enabled, for recording).
+---
+--- This does NOT build the chunk inventory. The window walk uses MakeChunkInfo,
+--- so the only files probed are the ones inside the window itself.
+function Navigation:StartObstacleMapFill()
+	if self.obstacle_map_fill_started then return false end
+	self.obstacle_map_fill_started = true
 	local cell_size = tonumber(self.obstacle_cell_size) or 10.0
 	self.log_obj:Record(LogLevel.Info, string.format(
-		"Obstacle map resident cache started: %d chunks on disk, resident radius %d (~%dm), evict beyond %d, budget %.1fms/tick",
-		#chunks,
+		"Obstacle map window fill enabled (resident radius %d (~%dm), evict beyond %d, budget %.1fms/tick)",
 		self.obstacle_map_resident_radius,
 		self.obstacle_map_resident_radius * self.obstacle_map_chunk_cells * cell_size,
 		self.obstacle_map_evict_radius,
 		self.obstacle_map_load_budget_ms))
-
-	return self.av_obj.core_obj:EnsureObstacleMapPreloadTimer(self.obstacle_map_preload_tick)
+	return true
 end
 
 function Navigation:EnsureObstacleMapLoaded()
@@ -1333,6 +1319,7 @@ function Navigation:ReleaseObstacleMapSessionCache()
 	self:ClearObstacleMapLoadState()
 	self:ReleaseRouteChunks()
 	self.obstacle_map_cache_started = false
+	self.obstacle_map_fill_started = false
 	-- Close any in-flight read handles before dropping the inventory.
 	for _, st in pairs(self.obstacle_map_load_states) do
 		if st.fh then pcall(function() st.fh:close() end) end
@@ -1347,9 +1334,67 @@ function Navigation:ReleaseObstacleMapSessionCache()
 	self.log_obj:Record(LogLevel.Info, "Obstacle map session cache released")
 end
 
+--- Packed numeric cell key.
+--- Cell keys used to be "x_y_z" strings. Across the full map that is ~2.6M
+--- interned strings costing roughly 60 B/cell, plus a string hash on every
+--- lookup, and the same strings were keyed a second time in
+--- obstacle_map_chunk_index.
+---
+--- Layout (each field biased so it is never negative):
+---   sx, sy : 18 bits, bias 131072 -> +-131071 cells (+-1310 km at 10 m/cell)
+---   sz     : 10 bits, bias 256    -> -256 .. +767
+---   key = ((sx + 131072) * 2^18 + (sy + 131072)) * 2^10 + (sz + 256)
+--- Worst case ~2^46, well inside the 53-bit exact-integer range of a double.
+---
+--- Chunk keys stay as "cx_cy" strings; there are only ~96 of them.
+local KEY_SY_SHIFT = 262144  -- 2^18
+local KEY_SZ_SHIFT = 1024    -- 2^10
+local KEY_XY_BIAS  = 131072  -- 2^17
+local KEY_Z_BIAS   = 256
+
+---@param sx number
+---@param sy number
+---@param sz number
+---@return number|nil packed cell key
+function Navigation:PackCellKey(sx, sy, sz)
+	if sx == nil or sy == nil or sz == nil then return nil end
+	return ((sx + KEY_XY_BIAS) * KEY_SY_SHIFT + (sy + KEY_XY_BIAS)) * KEY_SZ_SHIFT + (sz + KEY_Z_BIAS)
+end
+
+--- Unpack a cell key. Also accepts legacy "x_y_z" strings, so anything still
+--- holding an old-style key keeps working instead of silently reading as unknown.
+---@param key number|string
+---@return number|nil sx
+---@return number|nil sy
+---@return number|nil sz
+function Navigation:UnpackCellKey(key)
+	if key == nil then return nil, nil, nil end
+	if type(key) == "number" then
+		local sz = (key % KEY_SZ_SHIFT) - KEY_Z_BIAS
+		local rem = math.floor(key / KEY_SZ_SHIFT)
+		local sy = (rem % KEY_SY_SHIFT) - KEY_XY_BIAS
+		local sx = math.floor(rem / KEY_SY_SHIFT) - KEY_XY_BIAS
+		return sx, sy, sz
+	end
+	local sx, sy, sz = tostring(key):match("^(-?%d+)_(-?%d+)_(-?%d+)$")
+	if not sx then return nil, nil, nil end
+	return tonumber(sx), tonumber(sy), tonumber(sz)
+end
+
+--- Human-readable form, for logs and the debug overlay.
+---@param key number|string|nil
+---@return string
+function Navigation:SectorKeyToString(key)
+	if key == nil then return "nil" end
+	if type(key) == "string" then return key end
+	local sx, sy, sz = self:UnpackCellKey(key)
+	if sx == nil then return tostring(key) end
+	return sx .. "_" .. sy .. "_" .. sz
+end
+
 --- Convert position to route-cell key
 ---@param position Vector4 Position in world space
----@return string|nil sector_key Format: "x_y_z", or nil if position is invalid
+---@return number|nil sector_key Packed numeric cell key, or nil if position is invalid
 function Navigation:PositionToSectorKey(position)
 	if not position then return nil end
 
@@ -1358,40 +1403,30 @@ function Navigation:PositionToSectorKey(position)
 	local sy = math.floor(position.y / node_size)
 	local sz = math.floor(position.z / node_size)
 
-	return string.format("%d_%d_%d", sx, sy, sz)
+	return self:PackCellKey(sx, sy, sz)
 end
 
---- Parse sector key "sx_sy_sz" to integer coordinates.
---- Uses self.astar_coord_cache when available (populated during A* run) to avoid
---- repeated regex parsing of the same keys within a single pathfinding call.
----@param key string Sector key
+--- Parse a cell key back to integer coordinates.
+--- Arithmetic unpack, so the old astar_coord_cache is no longer needed: there is
+--- no regex and no per-key table allocation any more.
+---@param key number|string cell key
 ---@return number|nil sx
 ---@return number|nil sy
 ---@return number|nil sz
 function Navigation:ParseSectorKey(key)
-	if self.astar_coord_cache then
-		local c = self.astar_coord_cache[key]
-		if c then return c[1], c[2], c[3] end
-	end
-	local sx, sy, sz = key:match("([^_]+)_([^_]+)_([^_]+)")
-	if not sx then return nil, nil, nil end
-	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
-	if self.astar_coord_cache then
-		self.astar_coord_cache[key] = {sx, sy, sz}
-	end
-	return sx, sy, sz
+	if not key then return nil, nil, nil end
+	return self:UnpackCellKey(key)
 end
 
 --- Get route-cell center position from key
----@param sector_key string Sector key "x_y_z"
+---@param sector_key number|string cell key
 ---@return Vector4|nil Sector center position
 function Navigation:SectorKeyToPosition(sector_key)
 	if not sector_key then return nil end
 
-	local sx, sy, sz = sector_key:match("([^_]+)_([^_]+)_([^_]+)")
+	local sx, sy, sz = self:UnpackCellKey(sector_key)
 	if not sx then return nil end
 
-	sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
 	local node_size = self.sector_size or self.obstacle_cell_size
 
 	return Vector4.new(
@@ -1425,7 +1460,7 @@ function Navigation:GetNeighborSectors(sector_key)
 	}
 
 	for _, offset in ipairs(offsets) do
-		local neighbor_key = string.format("%d_%d_%d",
+		local neighbor_key = self:PackCellKey(
 			sx + offset[1], sy + offset[2], sz + offset[3])
 		table.insert(neighbors, neighbor_key)
 	end
@@ -2324,10 +2359,26 @@ function Navigation:GetObstacleCellPriority(value)
 	return 0
 end
 
----@param key string Cell key "cx_cy_cz"
+--- Normalise whatever a caller hands us into the packed numeric form.
+--- Without this, a stray "x_y_z" string reaching a setter would create a parallel
+--- string-keyed entry that the chunk index, eviction and A* lookups would never
+--- agree with - the worst kind of split-brain for this data structure.
+---@param key number|string|nil
+---@return number|nil
+function Navigation:NormalizeCellKey(key)
+	if key == nil then return nil end
+	if type(key) == "number" then return key end
+	local sx, sy, sz = self:UnpackCellKey(key)
+	if sx == nil then return nil end
+	return self:PackCellKey(sx, sy, sz)
+end
+
+---@param key number|string Cell key
 ---@param value any true | "danger" | false
 ---@return boolean updated
 function Navigation:SetObstacleCellNoDirty(key, value)
+	key = self:NormalizeCellKey(key)
+	if key == nil then return false end
 	if self:GetObstacleCellPriority(value) > self:GetObstacleCellPriority(self.obstacle_map[key]) then
 		self.obstacle_map[key] = value
 		return true
@@ -2335,10 +2386,12 @@ function Navigation:SetObstacleCellNoDirty(key, value)
 	return false
 end
 
----@param key string Cell key "cx_cy_cz"
+---@param key number|string Cell key
 ---@param value any true | "danger" | false
 ---@return boolean true if the cell was actually updated
 function Navigation:SetObstacleCell(key, value)
+	key = self:NormalizeCellKey(key)
+	if key == nil then return false end
 	if self:GetObstacleCellPriority(value) > self:GetObstacleCellPriority(self.obstacle_map[key]) then
 		self.obstacle_map[key] = value
 		self:MarkCellDirty(key)
@@ -2357,13 +2410,13 @@ function Navigation:RecordObstacleHit(hit_pos)
 	local cy = math.floor(hit_pos.y / cs)
 	local cz = math.floor(hit_pos.z / cs)
 	-- Mark the exact hit cell as obstacle
-	self:SetObstacleCell(cx .. "_" .. cy .. "_" .. cz, true)
+	self:SetObstacleCell(self:PackCellKey(cx, cy, cz), true)
 	-- Mark all 26 neighbors as danger (priority check inside SetObstacleCell)
 	for dx = -1, 1 do
 		for dy = -1, 1 do
 			for dz = -1, 1 do
 				if not (dx == 0 and dy == 0 and dz == 0) then
-					self:SetObstacleCell((cx+dx) .. "_" .. (cy+dy) .. "_" .. (cz+dz), "danger")
+					self:SetObstacleCell(self:PackCellKey(cx + dx, cy + dy, cz + dz), "danger")
 				end
 			end
 		end
@@ -2379,7 +2432,7 @@ function Navigation:RecordDirectCollision()
 	local cx = math.floor(pos.x / cs)
 	local cy = math.floor(pos.y / cs)
 	local cz = math.floor(pos.z / cs)
-	local key = cx .. "_" .. cy .. "_" .. cz
+	local key = self:PackCellKey(cx, cy, cz)
 	if self:SetObstacleCell(key, true) then
 		self.log_obj:Record(LogLevel.Info, string.format(
 			"Direct collision recorded at cell (%d,%d,%d) pos=(%.1f,%.1f,%.1f)",
@@ -2390,7 +2443,7 @@ function Navigation:RecordDirectCollision()
 		for dy = -1, 1 do
 			for dz = -1, 1 do
 				if not (dx == 0 and dy == 0 and dz == 0) then
-					self:SetObstacleCell((cx+dx) .. "_" .. (cy+dy) .. "_" .. (cz+dz), "danger")
+					self:SetObstacleCell(self:PackCellKey(cx + dx, cy + dy, cz + dz), "danger")
 				end
 			end
 		end
@@ -2583,7 +2636,7 @@ function Navigation:CreateObstacleConvexHexahedronFromPoints(points)
 					z = (cz + 0.5) * cs,
 				}
 				if is_inside(center) then
-					if self:SetObstacleCell(string.format("%d_%d_%d", cx, cy, cz), true) then
+					if self:SetObstacleCell(self:PackCellKey(cx, cy, cz), true) then
 						updated_cells = updated_cells + 1
 					end
 				end
@@ -2607,16 +2660,18 @@ end
 ---@param cell_key string Cell key in format "cx_cy_cz"
 ---@return string|nil chunk_key e.g. "-4_2" (500m region in world space)
 function Navigation:CellKeyToChunkKey(cell_key)
-	local cx, cy = cell_key:match("^(-?%d+)_(-?%d+)")
+	local cx, cy = self:UnpackCellKey(cell_key)
 	if not cx then return nil end
 	local cc = self.obstacle_map_chunk_cells
-	return math.floor(tonumber(cx) / cc) .. "_" .. math.floor(tonumber(cy) / cc)
+	return math.floor(cx / cc) .. "_" .. math.floor(cy / cc)
 end
 
 --- Mark the chunk containing a cell as dirty (needs saving on next SaveObstacleMap).
 --- Also registers the cell in the chunk index for efficient per-chunk iteration.
 ---@param cell_key string Cell key "cx_cy_cz"
 function Navigation:MarkCellDirty(cell_key)
+	cell_key = self:NormalizeCellKey(cell_key)
+	if cell_key == nil then return end
 	local ck = self:CellKeyToChunkKey(cell_key)
 	if not ck then return end
 	self.obstacle_map_dirty_chunks[ck] = true
@@ -2695,7 +2750,7 @@ function Navigation:MigrateOldObstacleMap()
 
 	local n = 0
 	for cx, cy, cz, count in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-		local key = cx .. "_" .. cy .. "_" .. cz
+		local key = self:PackCellKey(tonumber(cx), tonumber(cy), tonumber(cz))
 		local cnt = tonumber(count)
 		self.obstacle_map[key] = {count = cnt}
 		-- Build chunk index and mark all chunks dirty for initial save
@@ -2740,8 +2795,11 @@ function Navigation:SaveObstacleMap()
 				local v = self.obstacle_map[cell_key]
 				if v ~= nil then
 					local vnum = (v == true) and 2 or (v == "danger" and 1 or 0)
-					lines[#lines + 1] = cell_key:gsub("_", " ") .. " " .. vnum
-					count = count + 1
+					local kx, ky, kz = self:UnpackCellKey(cell_key)
+					if kx then
+						lines[#lines + 1] = kx .. " " .. ky .. " " .. kz .. " " .. vnum
+						count = count + 1
+					end
 				end
 			end
 			if count > 0 then
@@ -2795,8 +2853,11 @@ function Navigation:IntegrateObstacleMapDiff()
 				local v = self.obstacle_map[cell_key]
 				if v ~= nil then
 					local vnum = (v == true) and 2 or (v == "danger" and 1 or 0)
-					lines[#lines + 1] = cell_key:gsub("_", " ") .. " " .. vnum
-					count = count + 1
+					local kx, ky, kz = self:UnpackCellKey(cell_key)
+					if kx then
+						lines[#lines + 1] = kx .. " " .. ky .. " " .. kz .. " " .. vnum
+						count = count + 1
+					end
 				end
 			end
 
@@ -2860,7 +2921,7 @@ function Navigation:LoadObstacleMap()
 			self:SyncRouteNodeSize()
 		local n = 0
 		for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-			local key = cellx .. "_" .. celly .. "_" .. cellz
+			local key = self:PackCellKey(tonumber(cellx), tonumber(celly), tonumber(cellz))
 			local ival = tonumber(val) or 0
 			-- 2=obstacle(true), 1=danger("danger"), 0=clear(false)
 			-- Also accept legacy 1=obstacle for old files (val==1 that meant obstacle)
@@ -2888,7 +2949,7 @@ function Navigation:LoadObstacleMap()
 		if not raw or raw == "" then return 0 end
 		local n = 0
 		for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-			local key = cellx .. "_" .. celly .. "_" .. cellz
+			local key = self:PackCellKey(tonumber(cellx), tonumber(celly), tonumber(cellz))
 			local ival = tonumber(val) or 0
 			local new_val
 			if ival >= 2 then
@@ -2909,61 +2970,21 @@ function Navigation:LoadObstacleMap()
 		local total_cells  = 0
 		local total_chunks = 0
 		local total_diff_cells = 0
-		local used_enum    = false
 
-		-- ==== Primary: enumerate via dir /b (no coordinate probing) ====
-		-- Lists only files that actually exist -> zero wasted io.open() calls.
-		if io.popen then
-			local dir_win = self.obstacle_map_dir:gsub("/", "\\")
-			local pipe = io.popen('dir /b "' .. dir_win .. '\\chunk_*.dat" 2>nul')
-			if pipe then
-				for filename in pipe:lines() do
-					local cx, cy = filename:match("^chunk_(-?%d+)_(-?%d+)%.dat$")
-					if cx and cy then
-						local path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".dat"
-						local n = load_chunk_file(path)
-						if n > 0 then
-							total_cells  = total_cells  + n
-							total_chunks = total_chunks + 1
-						end
-					end
+		-- Enumerate through the session inventory rather than shelling out to
+		-- `dir /b`, and drop the 441-probe coordinate fallback entirely.
+		for _, info in ipairs(self:GetAllChunksCached(true)) do
+			if info.has_dat then
+				local n = load_chunk_file(info.path)
+				if n > 0 then
+					total_cells  = total_cells  + n
+					total_chunks = total_chunks + 1
 				end
-				pipe:close()
-				used_enum = true
 			end
-
-			local diff_pipe = io.popen('dir /b "' .. dir_win .. '\\chunk_*.diff" 2>nul')
-			if diff_pipe then
-				for filename in diff_pipe:lines() do
-					local cx, cy = filename:match("^chunk_(-?%d+)_(-?%d+)%.diff$")
-					if cx and cy then
-						local path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".diff"
-						local n = load_chunk_diff_file(path)
-						if n > 0 then
-							total_diff_cells = total_diff_cells + n
-						end
-					end
-				end
-				diff_pipe:close()
-			end
-		end
-
-		-- ==== Fallback: coordinate probe loop (if io.popen unavailable) ====
-		-- Night City fits within [-10, 10]; 441 probes vs the old 1681.
-		if not used_enum then
-			for cx = -10, 10 do
-				for cy = -10, 10 do
-					local path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".dat"
-					local n = load_chunk_file(path)
-					if n > 0 then
-						total_cells  = total_cells  + n
-						total_chunks = total_chunks + 1
-					end
-					local diff_path = self.obstacle_map_dir .. "/chunk_" .. cx .. "_" .. cy .. ".diff"
-					local dn = load_chunk_diff_file(diff_path)
-					if dn > 0 then
-						total_diff_cells = total_diff_cells + dn
-					end
+			if info.has_diff then
+				local dn = load_chunk_diff_file(info.diff_path)
+				if dn > 0 then
+					total_diff_cells = total_diff_cells + dn
 				end
 			end
 		end
@@ -2973,8 +2994,8 @@ function Navigation:LoadObstacleMap()
 
 		if total_cells > 0 or total_diff_cells > 0 then
 			self.log_obj:Record(LogLevel.Info, string.format(
-				"Obstacle map loaded: %d base cells + %d diff cells from %d chunk files (%s)",
-				total_cells, total_diff_cells, total_chunks, used_enum and "enum" or "probe"))
+				"Obstacle map loaded: %d base cells + %d diff cells from %d chunk files",
+				total_cells, total_diff_cells, total_chunks))
 		end
 	end)
 	if not ok then
@@ -3012,9 +3033,10 @@ function Navigation:RecordObstacleScan()
 			local max_d = dist - cs
 			local step_d = cs
 			while step_d <= max_d do
-				local ck = math.floor((pos.x + nd.x * step_d) / cs) .. "_" ..
-							math.floor((pos.y + nd.y * step_d) / cs) .. "_" ..
-							math.floor((pos.z + nd.z * step_d) / cs)
+				local ck = self:PackCellKey(
+					math.floor((pos.x + nd.x * step_d) / cs),
+					math.floor((pos.y + nd.y * step_d) / cs),
+					math.floor((pos.z + nd.z * step_d) / cs))
 				self:SetObstacleCell(ck, false)
 				step_d = step_d + cs
 			end
@@ -3023,9 +3045,10 @@ function Navigation:RecordObstacleScan()
 			local max_d = range - cs
 			local step_d = cs
 			while step_d <= max_d do
-				local ck = math.floor((pos.x + nd.x * step_d) / cs) .. "_" ..
-							math.floor((pos.y + nd.y * step_d) / cs) .. "_" ..
-							math.floor((pos.z + nd.z * step_d) / cs)
+				local ck = self:PackCellKey(
+					math.floor((pos.x + nd.x * step_d) / cs),
+					math.floor((pos.y + nd.y * step_d) / cs),
+					math.floor((pos.z + nd.z * step_d) / cs))
 				self:SetObstacleCell(ck, false)
 				step_d = step_d + cs
 			end
@@ -3033,15 +3056,31 @@ function Navigation:RecordObstacleScan()
 	end
 	-- Also mark the cell the vehicle is currently occupying as confirmed clear.
 	local cs = self.obstacle_cell_size
-	local cur_key = math.floor(pos.x/cs) .. "_" .. math.floor(pos.y/cs) .. "_" .. math.floor(pos.z/cs)
+	local cur_key = self:PackCellKey(math.floor(pos.x / cs), math.floor(pos.y / cs), math.floor(pos.z / cs))
 	self:SetObstacleCell(cur_key, false)
 end
 
 --- Start continuous obstacle recording (independent of autopilot).
 --- Registers a Cron timer; subsequent calls while already running are no-ops.
+--- Whether map learning is turned on. Either the user-facing setting or the
+--- developer debug flag enables it.
+---@return boolean
+function Navigation:IsObstacleRecordingEnabled()
+	return (DAV.user_setting_table.is_enable_obstacle_recording and true or false)
+		or (DAV.debug_enable_obstacle_scan and true or false)
+end
+
 function Navigation:StartObstacleRecording()
 	if self.is_obstacle_map_recording then return end
+	if not self:IsObstacleRecordingEnabled() then
+		-- Nothing to do: the 5 Hz 32-ray scan and the periodic diff writes are
+		-- exactly what this costs, and they only make sense while mapping.
+		return
+	end
 	self.is_obstacle_map_recording = true
+	-- A mapping session wants the surroundings resident, both to avoid re-reading
+	-- files it is about to update and so the diff merge sees prior state.
+	self:StartObstacleMapFill()
 	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STARTED (merged with saved map)")
 	local scan_count = 0
 	Cron.Every(self.obstacle_record_interval, function(timer)
@@ -4723,9 +4762,8 @@ function Navigation:FindNearestKnownSectorPosByFullScan(origin_pos, direction_ve
 	end
 
 	for ckey, cell in pairs(self.obstacle_map) do
-		local cx, cy, cz = ckey:match("([^_]+)_([^_]+)_([^_]+)")
+		local cx, cy, cz = self:UnpackCellKey(ckey)
 		if cx then
-			cx, cy, cz = tonumber(cx), tonumber(cy), tonumber(cz)
 			if cell ~= nil and cell ~= true then
 				local cell_pos = Vector4.new((cx + 0.5) * cs, (cy + 0.5) * cs, (cz + 0.5) * cs, 1)
 				local dx = cell_pos.x - origin_pos.x

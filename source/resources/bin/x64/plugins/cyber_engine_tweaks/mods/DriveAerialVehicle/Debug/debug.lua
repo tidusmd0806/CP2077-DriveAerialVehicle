@@ -132,7 +132,7 @@ function Debug:RecordManualBlockPoint(index)
     self.manual_block_points[index] = { key = key, pos = center }
     self:RefreshManualBlockMarkers()
     self.last_manual_block_ok = true
-    self.last_manual_block_result = string.format("P%d recorded: %s", index, key)
+    self.last_manual_block_result = string.format("P%d recorded: %s", index, nav:SectorKeyToString(key))
 end
 
 function Debug:ResetManualBlockPoints()
@@ -485,8 +485,11 @@ function Debug:ImGuiAutoPilotInfo()
         if not pos then
             return "Unknown", "nil"
         end
-        local cell_key = nav_obj:PositionToSectorKey(pos) or "nil"
-        local cell = nav_obj.obstacle_map[cell_key]
+        local raw_key = nav_obj:PositionToSectorKey(pos)
+        if not raw_key then return "Unknown", "nil" end
+        -- Keys are packed numbers now; render them as "x_y_z" for the overlay.
+        local cell_key = nav_obj:SectorKeyToString(raw_key)
+        local cell = nav_obj.obstacle_map[raw_key]
         if cell == true then
             return "Obstacle", cell_key
         elseif cell == "danger" then
@@ -509,7 +512,7 @@ function Debug:ImGuiAutoPilotInfo()
     local route_idx = tonumber(nav_obj.current_route_index) or 0
     local route_wp_key = "-"
     if route_len > 0 and route_idx >= 1 and route_idx <= route_len then
-        route_wp_key = tostring(nav_obj.current_global_route[route_idx])
+        route_wp_key = nav_obj:SectorKeyToString(nav_obj.current_global_route[route_idx])
     end
     local current_pos = av_obj.GetPosition and av_obj:GetPosition() or nil
     local current_cell_status, current_cell_key = get_cell_status_at(current_pos)

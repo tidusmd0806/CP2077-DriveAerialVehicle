@@ -550,6 +550,26 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
+	option_table = DAV.NativeSettings.addSwitch("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_obstacle_recording"), DAV.core_obj:GetTranslationText("native_settings_advance_obstacle_recording_description"), DAV.user_setting_table.is_enable_obstacle_recording, true, function(state)
+		DAV.user_setting_table.is_enable_obstacle_recording = state
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		-- Apply immediately so a mapping session can be started or stopped without
+		-- remounting the vehicle.
+		if DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil then
+			if state then
+				if DAV.core_obj.av_obj:IsPlayerIn() then
+					DAV.core_obj.av_obj.navigation_obj:StartObstacleRecording()
+				end
+			else
+				DAV.core_obj.av_obj.navigation_obj:StopObstacleRecording()
+			end
+		end
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+
 	option_table = DAV.NativeSettings.addRangeInt("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_max_speed"), DAV.core_obj:GetTranslationText("native_settings_advance_max_speed_description"), 10, 220, 10, DAV.user_setting_table.max_speed, 220, function(value)
 		DAV.user_setting_table.max_speed = value
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)

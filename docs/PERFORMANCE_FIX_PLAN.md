@@ -611,3 +611,542 @@ new rule covers every distance up to max_handoff: true
 ```
 
 既存の回廊テスト 42 件は全て維持、全 19 ファイルコンパイル OK。
+
+---
+
+## 4F. fix (4)：`io.popen` / `os.execute` の廃止（今回実装）
+
+### 変更
+
+| 関数 | 旧 | 新 |
+|---|---|---|
+| `EnumerateObstacleMapDataChunks()` | 呼び出しごとに `dir /b` で `cmd.exe` 起動 | `GetAllChunksCached()` のセッションキャッシュを返すだけ。**ファイルシステムに触らない** |
+| `BuildObstacleMapLoadQueue()` | `.dat` / `.diff` で 2 回 popen | キャッシュから生成（`MigrateOldObstacleMap` 後なので `force_refresh`） |
+| `LoadObstacleMap()` | popen 2 回＋441 回の座標 probe フォールバック | キャッシュ 1 回。probe ループは削除 |
+| `EnsureMapDirectory()` | 変更なし | 既に `obstacle_map_dir_ok` でキャッシュ済み。`mkdir` はディレクトリテスト失敗時の 1 回のみ |
+
+`FindNearestKnownSectorPos` / `FindNearestKnownSectorPosInDirection` /
+`FindNearestSafeOrDangerCellPos` は `FindNearestObstacleMapChunk` 経由で
+`EnumerateObstacleMapDataChunks()` を呼んでいたため、**autopilot のターゲット解決
+たびに `cmd.exe` が起動していた**のが消えた。
+
+残る `io.popen` は `GetAllChunksCached()` 内の 1 箇所（セッション中 1 回の初期列挙）
+と `EnsureMapDirectory()` の `mkdir`（初回のみ）だけ。
+
+### 検証（テスト 8）
+
+`io.popen` / `os.execute` をラップして起動回数を計数：
+
+```
+[PASS] inventory warm-up spawns at most the one-time enumeration
+[PASS] autopilot target resolution spawns zero processes
+[PASS] nearest-chunk lookup still resolves
+[PASS] FindNearestKnownSectorPos still runs
+[PASS] FindNearestSafeOrDangerCellPos still runs
+[PASS] EnumerateObstacleMapDataChunks returns the cached table (no copy, no probe)
+```
+
+20 回のターゲット解決で追加プロセス起動 **0 件**。
+
+---
+
+## 4G. fix (2)：数値パックセルキー化（今回実装）
+
+### 実測したコスト内訳（実 `Data/map`・radius 2 ウィンドウ 628,321 cell）
+
+| | 実装前 | 実装後 |
+|---|---|---|
+| 合計 | 71.3 MB / **119.0 B/cell** | 43.4 MB / **72.3 B/cell** |
+| 削減 | — | **−39%** |
+
+`"x_y_z"` 文字列（平均 8.7 文字）の intern 分と、ルックアップごとの
+文字列ハッシュ計算が消えた。
+
+### キーレイアウト
+
+```
+sx, sy : 18 bit, bias 131072  ->  +-131071 cell（10m/cell で +-1310 km）
+sz     : 10 bit, bias 256     ->  -256 .. +767
+key = ((sx + 131072) * 2^18 + (sy + 131072)) * 2^10 + (sz + 256)
+最大 ~2^46 → double の 53bit 整数範囲内で厳密
+```
+
+チャンクキー `"cx_cy"` は約 96 本しかないので文字列のまま。
+
+### 追加した API
+
+| 関数 | 役割 |
+|---|---|
+| `PackCellKey(sx, sy, sz)` | 数値キー化 |
+| `UnpackCellKey(key)` | 逆変換。**旧 `"x_y_z"` 文字列も許容**して座標を返す |
+| `SectorKeyToString(key)` | 表示用 `"x_y_z"`（ログ・デバッグオーバーレイ） |
+| `NormalizeCellKey(key)` | setter 入口で数値に正規化 |
+
+### 変更した箇所
+
+`PositionToSectorKey` / `ParseSectorKey` / `SectorKeyToPosition` /
+`GetNeighborSectors` / `CellKeyToChunkKey` / `SetObstacleCell` /
+`SetObstacleCellNoDirty` / `MarkCellDirty`、ファイルパーサ 6 箇所
+（`ParseChunkIncremental` ほか）、`SaveObstacleMap` の diff 書き出し、
+`Debug/debug.lua` の表示 3 箇所。
+
+`ParseSectorKey` から `astar_coord_cache` の利用を削除（算術展開なので
+正規表現もキーごとのテーブル確保も不要）。
+
+### ホットパス実測（200 万 ops）
+
+| | ops/s |
+|---|---|
+| `ParseSectorKey`（算術） | **9,174 k** |
+| 旧：regex match + tonumber ×3 | 6,472 k |
+
+→ **1.42 倍**。A* は 1 計画で数十万回この経路を通るため無視できない。
+
+### 安全性のために入れたもの
+
+`NormalizeCellKey()` を setter 入口に置いた。これが無いと、旧式の文字列キーが
+setter に渡った瞬間 `obstacle_map` に**文字列キーの並行エントリ**が生まれ、
+チャンクインデックス・退避・A* ルックアップがすべて食い違う
+最悪の split-brain になる。テストで抑止：
+
+```
+[PASS] setter normalises a string key to the packed entry
+[PASS] no parallel string-keyed entry leaked into the map
+[PASS] pack/unpack round-trips for every sampled coord triple
+[PASS] distinct triples pack to distinct keys
+[PASS] legacy string key unpacks to the same triple
+```
+
+### 残った課題（意図的に今回やらない）
+
+`obstacle_map_chunk_index` の**二重インデックス分 19.1 MB（31.7 B/cell）**は
+まだ残る（map 単体なら 24.3 MB / 40.6 B/cell まで下がる）。
+
+ハッシュ集合から配列への変換は検討したが、`MarkCellDirty()` が
+**記録のたびに同じ cell_key を index へ追加**するため、配列だと重複が積み上がり
+長時間セッションでリークする。dedup 戦略（dirty 時のみ追加、等）を
+別途設計しないと安全に潰せない。
+
+`GetNeighborSectors()` も 1 呼び出しごとにテーブル 1 本＋数値ボクシング 10 個を
+確保しており（447 k ops/s）、キー形式では改善しない。バッファ使い回しは
+ネスト反復との相互作用があるため別対応。
+
+---
+
+## 4H. 全 fix 適用後の総合測定量
+
+| ケース | fix (1) 直後 | 全 fix 適用後 |
+|---|---|---|
+| アイドル（radius 2） | 72 MB | **44 MB** |
+| 1.5 km autopilot | 105 MB | **60 MB** |
+| 2.8 km autopilot | 93 MB | **51 MB** |
+| 8ms 超 tick 割合 | 0.00% | 0.00% |
+
+ルート結果は fix 前后で完全一致（同 cell 数・同反復回数・FULL/PARTIAL 一致）。
+テスト **58 passed, 0 failed**、全 19 ファイルコンパイル OK。
+
+---
+
+## 4I. fix (7)：ウィンドウ充填の遅延（今回実装）
+
+### 問題
+
+fix (1) で全マッププリロードは消えたが、`SessionStart` 時点で
+**プレイヤー半径 2 chunk のウィンドウ充填**が依然として走っていた。
+
+```
+SessionStart → EnsureObstacleMapPreloadTimer(0.05)
+  └ 50ms ごと: MaintainObstacleMapCache()
+       └ EnsureResidentChunks(プレイヤー現在 chunk)   ← 発火条件が「ロード完了」だけ
+```
+
+実測（fix (7) 適用前）:
+
+| 項目 | 値 |
+|---|---|
+| 充填にかかった時間 | 約 14 秒（285 tick × 50ms） |
+| 充填 chunk / cell 数 | 19 chunk / 628,321 cell |
+| ヒープ | 46 MB |
+| 充填中の tick 分布 | p50 4ms / p99 6ms / max 52ms |
+| 8ms 超 tick | 約 0.88% |
+
+障害物の**記録は AV 搭乗中しか走らない**（`av.lua:672` / `av.lua:715`）ため、
+この 14 秒は「AV も autopilot も使わないプレイヤー」には完全に無駄だった。
+
+### 設計：充填ゲート
+
+`obstacle_map_fill_started` を追加し、**AV が実際に動くまで窓を開かない**。
+
+| 時点 | 充填ゲート | 挙動 |
+|---|---|---|
+| `SessionStart` | 閉 | 在庫表（`GetAllChunksCached(true)`）だけ作る。チャンク読込ゼロ |
+| autopilot 初回出発 | 開 | 窓が AV を追従し始める |
+| 記録開始（開発者モード） | 開 | 記録セッションも窓を温める |
+
+`MaintainObstacleMapCache()` 側:
+
+```lua
+local pending = 0
+if self.obstacle_map_fill_started then
+    local _, pending_now = self:EnsureResidentChunks(pcx, pcy)
+    pending = pending_now
+end
+```
+
+### 効果（実測）
+
+| 状態 | チャンク / cell | ヒープ | 8ms 超 tick |
+|---|---|---|---|
+| ゲート閉（ロード後 14 秒、autopilot 未使用） | **0 / 0** | **0.4 MB** | **0.00%** |
+| ゲート開（初回 autopilot 後） | 19 / 628,321 | 46.4 MB | 1.14%（充填中） |
+| 定常（充填完了後） | 19 / 628,321 | 43.4 MB | 0.00% |
+
+**autopilot を使わない一般ユーザーは、ロード後に障害物マップのコストを一切払われない。**
+
+### 回廊キューの単一駆動化
+
+fix (5) で回廊キューに駆動元が 2 つ出来ていた（ゲート自身の 20ms Cron と
+保守タイマー 50ms 経由）。**ゲートが保有している間は保守タイマーが触らない**
+単一オーナー制に整理した。
+
+```lua
+if self.obstacle_map_route_pending and #self.obstacle_map_route_pending > 0 then
+    if self.route_corridor_timer == nil then
+        -- ゲートが居ないときだけ、残りを保守タイマーが拾う
+        self:DrainRouteCorridor(budget_s)
+    else
+        route_settled = false   -- ゲートが流し中。自分は触らない
+    end
+end
+```
+
+---
+
+## 4J. fix (8)：障害物マップ学習のユーザー設定化（今回実装）
+
+### 背景
+
+マップ更新（32 レイ走査 → diff 書き込み）は本質的に**マップ作成者向け**機能。
+同梱マップ（96 chunk / 36MB / 2,625,381 cell）が既に市街地をカバーしており、
+一般プレイヤーが書き込む必要はない。
+
+適用前は `DAV.debug_enable_obstacle_scan`（`init.lua`、既定 false）のみで制御され、
+**デバッグメニューからしか切り替えられなかった**。
+
+### 追加した設定
+
+| 項目 | 場所 | 既定値 |
+|---|---|---|
+| `is_enable_obstacle_recording` | `user_setting_table`（`/DAV/advance` にトグル） | **false** |
+
+判定はユーザー設定とデバッグフラグの **OR**。既存の開発者運用は壊さない。
+
+```lua
+function Navigation:IsObstacleRecordingEnabled()
+    return (DAV.user_setting_table.is_enable_obstacle_recording and true or false)
+        or (DAV.debug_enable_obstacle_scan and true or false)
+end
+```
+
+- `StartObstacleRecording()` が OFF なら即 return
+  → 5Hz の 32 レイ走査・ periodic diff 保存（150 tick ごと）が一切走らない
+- `av.lua` の搭乗時 auto-start もこの判定に統一
+- 設定画面から切り替えると**搭乗中でも即反映**（ON→搭乗中なら開始／OFF→停止）
+
+### 記録ホットパスの数値キー化（fix (2) の残骸）
+
+`RecordObstacleScan()` のレイステップが文字列でセルキーを構築していた。
+
+```lua
+-- 旧
+local ck = math.floor((pos.x + nd.x * step_d) / cs) .. "_" .. ...
+-- 新
+local ck = self:PackCellKey(
+    math.floor((pos.x + nd.x * step_d) / cs),
+    math.floor((pos.y + nd.y * step_d) / cs),
+    math.floor((pos.z + nd.z * step_d) / cs))
+```
+
+旧実装は `NormalizeCellKey()` が数値に正規化するため**動作は正しかった**が、
+「文字列を組み立てて再度パースする」無駄が記録系に残っていた。
+該当 3 箇所（レイステップ 2 箇所 ＋ `string.format("%d_%d_%d", ...)` 1 箇所）を解消。
+
+### 追加テスト（`tools/resident_cache_test.lua` 1b）
+
+- 充填ゲートが閉じている間、チャンクデータが 1 つもロードされないこと
+- `StartObstacleMapFill()` がゲートを開く／二重呼び出しは no-op
+- 学習が既定 OFF であること
+- ユーザー設定で ON にできること
+- デバッグフラグでも ON になること
+
+**テスト結果: 65 passed, 0 failed**（従来 58 ＋ 新規 7）
+
+---
+
+## 4K. fix (9)：`SessionStart` の `io.popen` がロード直後に 1 秒食っていた（真因）
+
+### fix (7) では改善しなかった
+
+ウィンドウ充填を遅延しても「ロード後すぐのカクつき」は残った。
+そこで**実機のログ**を直接検証した。
+
+### 証拠
+
+`DriveAerialVehicle.log` の全セッションで、
+
+```
+Session start detected  →  cache started
+```
+
+の差が一貫して **約 1 秒**。
+
+| 時刻 | PID | 差 |
+|---|---|---|
+| 23:41:59 | 5216 | 1s |
+| 00:33:55 | 35372 | 1s |
+| 00:43:22 | 5736 | 1s |
+| 01:04:02 | 3272 | 1s |
+| 11:54:44 | 32584 | 1s |
+| 11:56:38 | 31476 | 1s |
+| 12:03:33 | 32584 | 1s |
+| 12:07:22 | 31496 | 1s |
+| 12:08:58 | 32116 | 0s |
+| 16:56:42 | 33704 | 1s |
+
+fix (7) 適用後の `StartObstacleMapSessionPreload()` は**在庫表作成だけ**しかしていない。
+つまりこの 1 秒は **`io.popen` の起動コスト**。
+
+### 見落としていた点
+
+`GetAllChunksCached()` は **`io.popen` を 2 回**呼んでいた（`chunk_*.dat` 用と `chunk_*.diff` 用）。
+= `cmd.exe` を 2 回起動。
+
+テスト環境（アイドルディスク）では 31ms だったが、**ロード直後でディスクが忙しい実機では 1 秒**。
+fix (4) で autopilot 経路から popen を消したとき、「1 回きりだから許容」と残した箇所が
+まさにこれだった。
+
+### 対策（2 段構え）
+
+**① popen を廃止し `io.open` プローブに置換**
+
+```lua
+-- 旧: cmd.exe を 2 回起動
+local pipe = io.popen('dir /b "' .. dir_win .. '\' .. pattern .. '" 2>nul')
+
+-- 新: プロセス起動なし。±20 chunk（片道 10km）を直接叩く
+local range = self.obstacle_map_probe_range or 20
+for cx = -range, range do
+    for cy = -range, range do
+        local dat = io.open(info.path, "rb")
+        if dat then dat:close() info.has_dat = true end
+        local diff = io.open(info.diff_path, "rb")
+        if diff then diff:close() info.has_diff = true end
+        ...
+    end
+end
+```
+
+実測：4205 名ぶんの `io.open` プローブで **26ms**。プロセス起動なし。
+
+**② 在庫表自体を `SessionStart` から外す**
+
+`EnsureChunkInventoryFresh()` を新設し、**実際に必要になった最初の時点**
+（autopilot 回廊 or 記録セッション）で 1 回だけ作る。
+
+```lua
+function Navigation:StartObstacleMapSessionPreload()
+    -- 重い処理はもう何もない。以前はここで在庫表を io.popen で作っており、
+    -- ロード直後に 1 秒かかっていた。
+    self.obstacle_map_cache_started = true
+    return self.av_obj.core_obj:EnsureObstacleMapPreloadTimer(...)
+end
+```
+
+### 実測（fix (9) 適用後）
+
+| 処理 | 適用前（実機） | 適用後 |
+|---|---|---|
+| `StartObstacleMapSessionPreload()` | **約 1 秒** | **0.0 ms** |
+| ロード後 14 秒間の保守 280 tick | — | p50/p90/p99 **0.00ms**、8ms 超 **0.00%** |
+| 遅延在庫表作成（初回 autopilot 時） | — | **30 ms** |
+| 充填中 | — | p50 4ms / p99 7ms |
+| 定常 | — | 8ms 超 **0.00%** |
+
+### 残存する既知の重い処理（未対応）
+
+`Core:Init()` に **100Hz ループ**が残っている。
+
+```lua
+Cron.Every(DAV.time_resolution, function()   -- 0.01s
+    self.event_obj:CheckAllEvents()
+    self:GetActions()
+end)
+```
+
+これは障害物マップと無関係に常時走る。`GetActions()` は毎 tick
+`local move_actions = {}` を確保し、中身が `Nothing` でも
+`OperateAerialVehicle(move_actions)` を呼ぶ。
+実機でまだカクつく場合、次の調査対象はここ。
+
+### デプロイ状態
+
+- インストール先 `Modules/navigation.lua` を更新（バックアップ: `navigation.lua.bak`）
+- `init.lua` はユーザーの A/B テスト状態（onInit コメントアウト）を保持
+- 実機で MOD を再度有効化して確認が必要
+
+---
+
+## 4L. fix (10)：回廊ストリームのデューティ比を 75% → 16% に低減（今回実装）
+
+### 症状
+
+fix (9) でロード直後は安定したが、**初回 autopilot 開始直後にフリーズのような挙動**。
+
+### 原因
+
+回廊ローダの予算設定が、ホバー時間を短くする方向に振り切りすぎだった。
+
+```lua
+obj.obstacle_route_load_budget_ms = 15.0
+obj.obstacle_route_tick = 0.02
+```
+
+**15ms / 20ms = デューティ比 75%。**
+60fps のフレーム予算は 16.7ms なので、レンダリングスレッドがほぼ枯れる。
+待機自体は 0.4 秒程度でも、体感では「カクッ → フリーズ」。
+
+### 実測（`tools/corridor_duty_probe.lua`）
+
+| 設定 | デューティ | 0.6km | 1.5km | 2.8km |
+|---|---|---|---|---|
+| 旧 15ms/20ms | **75%** | 0.14s | 0.34s | 0.42s |
+| **現行 8ms/50ms** | **16%** | 0.70s | 1.60s | 2.00s |
+| 4ms/50ms | 8% | 1.35s | 3.20s | 3.95s |
+
+### 変更
+
+```lua
+obj.obstacle_route_load_budget_ms = 8.0   -- 15.0 から
+obj.obstacle_route_tick = 0.05            -- 0.02 から（保守タイマーと同一周期）
+```
+
+tick を 0.05 に統一したことで、目覚め回数も 2.5 分の 1 に減っている。
+
+### タイムアウトとの整合確認
+
+1 chunk あたり実測 約 52ms。
+
+- 最悪ケース（32 chunk 上限 = 約 16km）: 32 × 52ms ≒ 1.7s の仕事
+- 8ms/tick で 209 tick × 50ms = **10.4s** → `obstacle_route_wait_timeout = 15s` に収まる
+
+よって partial へのフォールバックは起きない。
+
+### 未対応として残した既知項目
+
+`StartRouteCorridorPreload()` はクリック同期で `EnsureChunkInventoryFresh()` を呼ぶ。
+在庫プローブは **約 30ms**（`io.open` 3362 回、プロセス起動なし）で、
+**autopilot を押した瞬間に 1〜2 フレーム落ちる**。
+
+`ParseChunkIncremental` はファイル欠損を安全に処理するため、
+在庫表なしで回廊を組む（＝座標から `chunk_info` を合成する）ことで消せるが、
+意味の変更を伴うため今回は見送った。実機で気になるようなら次に対応する。
+
+### 見送りした代替案：フレーム追従型予算
+
+`onUpdate(delta)` の移動平均から「実際に余っているフレーム時間」を推算し、
+毎 tick の予算を `spare × 0.5` で自動調整する方式。
+
+- 余裕があるとき: 予算を大きく取れてホバーが短い
+- 重いシーン: 予算が 0 に近づき、こちらのカクつきは加算されない
+- 既にカクついている: 完全に引っ込む（最低 0.5ms で進行は維持）
+
+固定値で妥協した分を回収する仕組みなので、8ms/50ms でstill気になるなら次はこの方式へ。
+
+---
+
+## 4M. fix (11)：ディレクトリスイープの廃止（on-demand 存在確認）
+
+### 着眼点
+
+fix (10) でフリーズは消えたが、初回 autopilot の **① 在庫スイープ（`io.open` 3362 回）**が
+ユーザーから「一番怪しい」と指摘された。実測して検証した。
+
+### 実測：`io.open` のコスト分解
+
+| 操作 | 1 回あたり |
+|---|---|
+| MISS（ファイル無し） | **7.5 µs** |
+| HIT（open+close のみ） | 13.5 µs |
+| HIT（open + 64KB read + close） | 28.5 µs |
+
+| スイープ範囲 | 名前数 / open 数 | 合計 |
+|---|---|---|
+| ±20（当时的） | 1681 / **3362** | **30.0 ms** |
+| ±12 | 625 / 1250 | 11.0 ms |
+| ±8 | 289 / 578 | 6.0 ms |
+
+MISS でも 1 回 7.5µs の**実カーネル syscall**。ご指摘のとおり無駄なカーネル仕事だった。
+しかもこれは AV 非干渉環境で、Defender のリアルタイムスキャン下ではさらに悪化しうる。
+
+### 核心の発見
+
+**1.5km ルートで実際に使う chunk は 3 個（回廊）＋ 25 個（窓）= 約 28 個。**
+3362 個調べて 28 個しか使っていなかった。
+
+ファイル名は座標から完全に決まる（`chunk_<cx>_<cy>.dat`）ので、
+**使う分だけ調べれば足りる**。
+
+### 実装
+
+```lua
+--- Chunk file names are fully determined by the chunk coordinates, so there is
+--- no need to list the directory.
+function Navigation:MakeChunkInfo(cx, cy)
+	local key = cx .. "_" .. cy
+	if g_all_chunks_by_key == nil then g_all_chunks_by_key = {} end
+	local info = g_all_chunks_by_key[key]
+	if info then return info end          -- 判定済み、再調査しない
+	info = { ... }
+	local dat = io.open(info.path, "rb")
+	if dat then dat:close() info.has_dat = true end
+	local diff = io.open(info.diff_path, "rb")
+	if diff then diff:close() info.has_diff = true end
+	g_all_chunks_by_key[key] = info
+	if g_all_chunks_cache then g_all_chunks_cache[#g_all_chunks_cache + 1] = info end
+	return info
+end
+```
+
+| 場所 | 変更 |
+|---|---|
+| `PrepareRouteChunks` | 冒頭の `GetAllChunksCached()` を削除。ループ内で `MakeChunkInfo(cx, cy)` |
+| `EnsureResidentChunks` | 在庫 96 件の走査 → **窓の 25 座標を直接**イテレート |
+| `StartRouteCorridorPreload` | `EnsureChunkInventoryFresh()` を削除 |
+| `StartObstacleMapFill` | 在庫スイープなし |
+| `EnsureChunkInventoryFresh` | **削除**（不要になった） |
+| `GetAllChunksCached` | 残す。`MakeChunkInfo` を sweep 範囲分呼ぶ形に統一。**`FindNearestObstacleMapChunk` からのみ**遅延構築される |
+
+`has_dat`/`has_diff` は楽観値ではなく**実際に開いて判定**するため、既存の住居判定セマンティクスは不変。
+
+### 実測（`tools/first_autopilot_breakdown.lua`、`io.open` を計装）
+
+| フェーズ | 時間 | io.open | io.popen |
+|---|---|---|---|
+| **CLICK** `PrepareRouteChunks` | **0.000 ms** | **6** | 0 |
+| HOVER 回廊ストリーム | 235 ms / 26 tick = 1.30s | 3 | 0 |
+| WINDOW 半径2 充填 | 1261 ms / 342 tick = 17.1s | 66 | 0 |
+| STEADY 保守 | 0.01 ms/tick | 0 | 0 |
+
+参考：フルスイープ 28.0 ms / 3362 open
+
+**クリック同期コスト 28.0 ms → 0.000 ms、`io.open` 3362 → 6 回。**
+6 回 = 回廊 3 chunk × 2（.dat / .diff）の存在確認のみ。
+
+### 残る仕事の内訳
+
+初回 autopilot 合計 1496ms の内訳は **corridor 235ms ＋ window 1261ms**。
+どちらも予算内で分割実行され、定常状態は 0.01ms/tick・ファイルアクセス無し。
+
+ウィンドウ充填（全体の 84%）は 3ms/50ms = デューティ 6% でカクつきは発生していないが、
+**ルートが実際に必要としたデータの約 5 倍**である点は未解消。
+学習 OFF の一般ユーザーには過剰なので、必要なら「学習 OFF なら充填しない」案が残っている。

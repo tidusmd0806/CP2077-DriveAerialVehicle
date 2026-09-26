@@ -18,6 +18,8 @@ DAV = {
     is_ready = false,
     time_resolution = 0.01,
     is_debug_mode = false,
+    -- Developer switch, kept for the debug menu. The user-facing control is
+    -- user_setting_table.is_enable_obstacle_recording; either one enables it.
     debug_enable_obstacle_scan = false,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
@@ -116,6 +118,12 @@ DAV.user_setting_table = {
     is_enable_destruction = true,
     is_enable_landing_vfx = true,
     is_enable_idle_gravity = true,
+    --- obstacle map
+    -- Learning new obstacles by raycasting is really a developer/mapping tool:
+    -- the shipped map already covers the city, and general players never need to
+    -- write to it. Off by default so the 5 Hz scan and the periodic diff writes
+    -- never run unless someone is deliberately mapping.
+    is_enable_obstacle_recording = false,
     --- input
     keybind_table = DAV.default_keybind_table,
     heli_keybind_table = DAV.default_heli_keybind_table,

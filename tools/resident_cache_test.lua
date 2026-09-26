@@ -24,7 +24,11 @@ Game = {
 }
 
 json = { decode = function() return {} end, encode = function() return "{}" end }
-DAV = { user_setting_table = { garage_info_list = {} }, is_debug_mode = false }
+DAV = {
+    user_setting_table = { garage_info_list = {}, is_enable_obstacle_recording = false },
+    is_debug_mode = false,
+    debug_enable_obstacle_scan = false,
+}
 spdlog = { info = function() end }
 
 -- Minimal Cron stub mirroring External/Cron.lua semantics:
@@ -156,6 +160,25 @@ for _, c in ipairs(chunks) do
 end
 print(string.format("       chunks=%d  with .dat=%d  with .diff=%d", #chunks, n_dat, n_diff))
 
+print("=== 1b. window fill is deferred until the gate opens ===")
+setPlayer(HOME_X, HOME_Y, 0)
+for _ = 1, 20 do nav:MaintainObstacleMapCache() end
+check("no chunk data loaded while the fill gate is closed",
+    resident() == 0, "resident=" .. resident())
+check("fill gate reports closed", nav.obstacle_map_fill_started == false)
+check("StartObstacleMapFill opens the gate", nav:StartObstacleMapFill() == true)
+check("opening the gate twice is a no-op", nav:StartObstacleMapFill() == false)
+check("map learning is off by default",
+    nav:IsObstacleRecordingEnabled() == false)
+DAV.user_setting_table.is_enable_obstacle_recording = true
+check("map learning turns on with the user setting",
+    nav:IsObstacleRecordingEnabled() == true)
+DAV.user_setting_table.is_enable_obstacle_recording = false
+DAV.debug_enable_obstacle_scan = true
+check("map learning turns on with the debug flag",
+    nav:IsObstacleRecordingEnabled() == true)
+DAV.debug_enable_obstacle_scan = false
+
 print("=== 2. resident window around the player ===")
 setPlayer(HOME_X, HOME_Y, 0)
 local radius = nav.obstacle_map_resident_radius
@@ -256,9 +279,57 @@ end
 for _, c in ipairs(nav:GetAllChunksCached()) do
     if c.chunk_key == "0_0" then nav:LoadResidentChunk(c) end
 end
+local packed_10_10_5 = nav:PackCellKey(10, 10, 5)
 check("reloaded chunk keeps the recorded cell",
-    nav.obstacle_map["10_10_5"] == true,
+    nav.obstacle_map[packed_10_10_5] == true,
+    "got " .. tostring(nav.obstacle_map[packed_10_10_5]))
+check("no parallel string-keyed entry leaked into the map",
+    nav.obstacle_map["10_10_5"] == nil,
     "got " .. tostring(nav.obstacle_map["10_10_5"]))
+
+print("=== 5b. packed cell key round-trip ===")
+local cases = { {0,0,0}, {-1,-1,-1}, {10,10,5}, {-261,15,5}, {-3000,-3000,88}, {2999,2999,0} }
+local all_ok, first_bad = true, nil
+for _, c in ipairs(cases) do
+    local k = nav:PackCellKey(c[1], c[2], c[3])
+    local ux, uy, uz = nav:UnpackCellKey(k)
+    if ux ~= c[1] or uy ~= c[2] or uz ~= c[3] then
+        all_ok = false
+        first_bad = string.format("(%d,%d,%d) -> %s", c[1], c[2], c[3], tostring(k))
+    end
+end
+check("pack/unpack round-trips for every sampled coord triple", all_ok, first_bad or "")
+check("legacy string key unpacks to the same triple",
+    (function()
+        local x, y, z = nav:UnpackCellKey("-261_15_5")
+        return x == -261 and y == 15 and z == 5
+    end)())
+check("string and numeric forms normalise to the same key",
+    nav:NormalizeCellKey("-261_15_5") == nav:PackCellKey(-261, 15, 5))
+check("SectorKeyToString renders the readable form",
+    nav:SectorKeyToString(nav:PackCellKey(-261, 15, 5)) == "-261_15_5")
+check("distinct triples pack to distinct keys",
+    nav:PackCellKey(1, 2, 3) ~= nav:PackCellKey(1, 3, 2)
+    and nav:PackCellKey(1, 2, 3) ~= nav:PackCellKey(2, 2, 3)
+    and nav:PackCellKey(1, 2, 3) ~= nav:PackCellKey(1, 2, 4))
+-- a string passed to a setter must land on the packed key, not beside it
+nav:SetObstacleCell("-1_-1_-1", "danger")
+check("setter normalises a string key to the packed entry",
+    nav.obstacle_map[nav:PackCellKey(-1, -1, -1)] == "danger"
+    and nav.obstacle_map["-1_-1_-1"] == nil)
+check("CellKeyToChunkKey works on a packed key",
+    nav:CellKeyToChunkKey(nav:PackCellKey(120, -40, 3)) == "2_-1")
+check("PositionToSectorKey returns a number",
+    type(nav:PositionToSectorKey(Vector4.new(1234, -567, 89, 1))) == "number")
+check("SectorKeyToPosition round-trips through PositionToSectorKey",
+    (function()
+        local p = Vector4.new(1234, -567, 89, 1)
+        local c = nav:SectorKeyToPosition(nav:PositionToSectorKey(p))
+        -- cell (123, -57, 8) -> centre (1235, -565, 85) at 10 m cells
+        return math.abs(c.x - 1235) < 1e-6
+            and math.abs(c.y - (-565)) < 1e-6
+            and math.abs(c.z - 85) < 1e-6
+    end)())
 
 print("=== 6. route corridor preload ===")
 setPlayer(HOME_X, HOME_Y, 0)
@@ -355,6 +426,51 @@ check("radius 0 disables windowing without error",
 nav.obstacle_map_resident_radius = radius
 check("unknown chunk_key eviction is a safe no-op",
     pcall(function() nav:UnloadResidentChunk("999_999") end))
+
+print("=== 8. no process spawning on the autopilot path ===")
+setPlayer(HOME_X, HOME_Y, 0)
+nav.obstacle_map_resident_radius = radius
+drain(3000)
+
+-- Instrument the process-spawning entry points so any regression shows up here.
+local real_popen, real_exec = io.popen, os.execute
+local spawns = {}
+io.popen = function(cmd, ...)
+    spawns[#spawns + 1] = tostring(cmd)
+    return real_popen and real_popen(cmd, ...)
+end
+os.execute = function(cmd, ...)
+    spawns[#spawns + 1] = tostring(cmd)
+    return real_exec and real_exec(cmd, ...)
+end
+
+-- Warm the inventory the way a real session does.
+nav:GetAllChunksCached()
+local after_warm = #spawns
+
+-- These all used to spawn cmd.exe on every call while resolving an autopilot target.
+local nearest = nav:FindNearestObstacleMapChunk(Vector4.new(0, 0, 20, 1), nil)
+local ok1 = pcall(function() nav:FindNearestKnownSectorPos(Vector4.new(0, 0, 20, 1)) end)
+local ok2 = pcall(function() nav:FindNearestSafeOrDangerCellPos(Vector4.new(0, 0, 20, 1)) end)
+for _ = 1, 20 do
+    nav:FindNearestObstacleMapChunk(Vector4.new(-1234, 567, 20, 1), nil)
+    nav:EnumerateObstacleMapDataChunks()
+end
+local after = #spawns
+
+io.popen, os.execute = real_popen, real_exec
+
+check("inventory warm-up spawns at most the one-time enumeration", after_warm <= 2,
+    "spawns=" .. after_warm)
+check("autopilot target resolution spawns zero processes",
+    after == after_warm,
+    "extra=" .. (after - after_warm) .. ": " ..
+    table.concat(spawns, " | ", after_warm + 1, after))
+check("nearest-chunk lookup still resolves", nearest ~= nil)
+check("FindNearestKnownSectorPos still runs", ok1)
+check("FindNearestSafeOrDangerCellPos still runs", ok2)
+check("EnumerateObstacleMapDataChunks returns the cached table (no copy, no probe)",
+    nav:EnumerateObstacleMapDataChunks() == nav:GetAllChunksCached())
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end
