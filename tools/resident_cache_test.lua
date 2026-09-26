@@ -472,5 +472,65 @@ check("FindNearestSafeOrDangerCellPos still runs", ok2)
 check("EnumerateObstacleMapDataChunks returns the cached table (no copy, no probe)",
     nav:EnumerateObstacleMapDataChunks() == nav:GetAllChunksCached())
 
+print("=== 9. final_local no-progress watchdog ===")
+-- The repulsion field can balance the goal attraction around an obstacle-dense
+-- destination, so the AV closes in and gets shoved back in a loop. The watchdog
+-- must fire when we stop closing in, and must NOT fire while we are still closing.
+nav:ResetFinalLocalProgressWatchdog()
+check("9. watchdog starts empty",
+    nav.final_local_best_dist == nil and nav.final_local_no_progress_since == nil)
+
+-- 9a. first call just establishes the baseline
+local stalled, best = nav:UpdateFinalLocalProgressWatchdog(50.0, 0.0)
+check("9a. first call establishes baseline, not stalled", stalled == false)
+check("9a. baseline recorded", nav.final_local_best_dist == 50.0)
+
+-- 9b. steady approach must never stall
+nav:ResetFinalLocalProgressWatchdog()
+local stalled_ever = false
+local d = 60.0
+for i = 1, 80 do                       -- 40 s of steady closing
+    d = d - 0.5
+    local s = nav:UpdateFinalLocalProgressWatchdog(d, i * 0.5)
+    if s then stalled_ever = true end
+end
+check("9b. steady closing never triggers the watchdog (40s)", stalled_ever == false)
+-- Progress only counts when it beats the best by a full epsilon, so with 0.5m
+-- steps the recorded best quantises to every other step (60 - 39*1.0 = 21 -> 20.5).
+check("9b. best tracks the closest approach within one epsilon",
+    nav.final_local_best_dist >= 20.0 and nav.final_local_best_dist <= 21.0,
+    "best=" .. tostring(nav.final_local_best_dist))
+
+-- 9c. oscillation inside the epsilon band must NOT count as progress
+nav:ResetFinalLocalProgressWatchdog()
+nav:UpdateFinalLocalProgressWatchdog(50.0, 0.0)
+local fired_at = nil
+for i = 1, 60 do
+    local osc = (i % 2 == 0) and 50.4 or 49.4   -- 1.0m swing, epsilon is 1.0
+    local s = nav:UpdateFinalLocalProgressWatchdog(osc, i * 0.5)
+    if s and fired_at == nil then fired_at = i * 0.5 end
+end
+check("9c. oscillation triggers the watchdog", fired_at ~= nil)
+check("9c. fires only once stalled past the timeout",
+    fired_at ~= nil and fired_at >= nav.final_local_no_progress_timeout,
+    "fired_at=" .. tostring(fired_at) .. " timeout=" .. tostring(nav.final_local_no_progress_timeout))
+
+-- 9d. real progress resets the clock and delays the fire.
+-- Timings are derived from the configured timeout so the test survives tuning it.
+nav:ResetFinalLocalProgressWatchdog()
+local T = nav.final_local_no_progress_timeout
+nav:UpdateFinalLocalProgressWatchdog(50.0, 0.0)
+nav:UpdateFinalLocalProgressWatchdog(40.0, 3.0)   -- genuine 10m gain
+local s_before = nav:UpdateFinalLocalProgressWatchdog(40.5, 3.0 + T - 0.5)
+check("9d. a real gain restarts the clock (not stalled just before the timeout)", s_before == false)
+local s_after = nav:UpdateFinalLocalProgressWatchdog(40.5, 3.0 + T + 0.5)
+check("9d. fires past the timeout measured from the last real gain", s_after == true)
+
+-- 9e. reset clears the state so a new approach starts clean
+nav:ResetFinalLocalProgressWatchdog()
+local s_after_reset = nav:UpdateFinalLocalProgressWatchdog(40.5, 99.0)
+check("9e. after reset the first call is not stalled", s_after_reset == false)
+check("9e. after reset the baseline is the new distance", nav.final_local_best_dist == 40.5)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end

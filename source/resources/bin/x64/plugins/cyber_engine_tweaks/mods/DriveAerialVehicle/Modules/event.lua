@@ -419,6 +419,10 @@ function Event:CheckInAV()
             end
             self.hud_obj:HideCustomHint()
             self.hud_obj:EnableManualMeter(false, false)
+            -- CheckHUD stops running once the situation leaves InVehicle, so put
+            -- the normal speed unit label back here or it stays on the autopilot
+            -- distance unit after you get out.
+            self.hud_obj:ToggleOriginalMPHDisplay(false)
             self.av_obj.engine_obj:EnableOriginalPhysics(true)
             self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
             if self:IsAutoMode() then
@@ -440,21 +444,26 @@ function Event:CheckHUD()
     if not success then
         self.log_obj:Record(LogLevel.Critical, result)
     end
+    -- The game repaints the speedometer unit label on its own, continuously, so
+    -- swapping it to a distance unit during autopilot just fights the HUD and
+    -- flickers. Show the real speed in both modes and let the RPM dial carry the
+    -- autopilot progress instead.
+    self.hud_obj:ToggleOriginalMPHDisplay(false)
+    local current_speed = self.av_obj:GetCurrentSpeed()
+
     if self:IsAutoMode() then
-        self.hud_obj:ToggleOriginalMPHDisplay(true)
         self.hud_obj:EnableManualMeter(true, true)
+        self.hud_obj:SetSpeedMeterValue(current_speed)
         local nav_obj = self.av_obj.navigation_obj
         local initial_length = math.floor(tonumber(nav_obj and nav_obj.initial_destination_length) or 1)
         local current_length = math.floor(tonumber(nav_obj and nav_obj.dest_remaining_to_final) or 0)
         if initial_length < 1 then
             initial_length = 1
         end
-        self.hud_obj:SetSpeedMeterValue(current_length)
+        -- RPM is the autopilot progress gauge: 1 at departure, 11 on arrival.
         self.hud_obj:SetRPMMeterValue(math.floor(10 * (1 - current_length / initial_length) + 1))
     else
-        self.hud_obj:ToggleOriginalMPHDisplay(false)
         self.hud_obj:EnableManualMeter(true, self.av_obj.is_enable_manual_rpm_meter)
-        local current_speed = self.av_obj:GetCurrentSpeed()
         self.hud_obj:SetSpeedMeterValue(current_speed)
         local rpm_count = self.av_obj.engine_obj:GetRPMCount()
         self.hud_obj:SetRPMMeterValue(math.abs(rpm_count))
@@ -679,6 +688,12 @@ end
 
 --- Check if player is in auto mode.
 ---@return boolean
+--- Situation check with no C# round trip. The meter overrides fire on every speed
+--- and rpm change event, so they must not depend on IsPlayerMounted().
+function Event:IsInAVSituation()
+    return self.current_situation == Def.Situation.InVehicle
+end
+
 function Event:IsAutoMode()
     if self.av_obj.is_auto_pilot then
         return true

@@ -75,6 +75,18 @@ function Navigation:New(av_obj)
 	obj.astar_danger_penalty = 6.0
 	obj.astar_clear_penalty = 0.8
 	obj.final_local_arrival_range = 8.0
+	-- final_local watchdog. Local avoidance is a repulsion field: goal attraction
+	-- (weight 1.5) against obstacle repulsion. Around a destination boxed in by
+	-- obstacles the two can balance out, and the AV closes in and gets shoved back
+	-- in a loop. The stuck-escape ascent is deliberately disabled near the goal, so
+	-- nothing else breaks that cycle and it hovers forever. If we stop closing in
+	-- for this long, stop fighting it and commit to landing from wherever we are.
+	obj.final_local_no_progress_timeout = 3.0
+	-- Improvement that counts as "making progress", in metres. Without a floor a
+	-- few centimetres of drift would reset the watchdog forever.
+	obj.final_local_progress_epsilon = 1.0
+	obj.final_local_best_dist = nil
+	obj.final_local_no_progress_since = nil
 
 	-- Local avoidance state
 	obj.is_deadend_escape_active = false
@@ -1932,6 +1944,35 @@ function Navigation:StepRoutePlanJob(job, step_iterations)
 		job.iterations, job.start_key or "nil", job.end_key or "nil", job.heap_size, self:CountTableEntries(job.closed_set)))
 end
 
+--- Decide whether the final_local approach has stalled.
+--- Returns stalled, best_dist_seen_before_this_call. Updates the tracking fields
+--- as a side effect, so call it exactly once per tick while in final_local.
+---@param horiz_dist number horizontal metres to the ground destination
+---@param current_time number seconds
+---@return boolean stalled
+---@return number|nil best_dist
+function Navigation:UpdateFinalLocalProgressWatchdog(horiz_dist, current_time)
+	local best = self.final_local_best_dist
+	local epsilon = self.final_local_progress_epsilon or 1.0
+	if best == nil or horiz_dist <= best - epsilon then
+		self.final_local_best_dist = horiz_dist
+		self.final_local_no_progress_since = current_time
+		return false, best
+	end
+	local stalled_for = current_time - (self.final_local_no_progress_since or current_time)
+	if stalled_for >= (self.final_local_no_progress_timeout or 10.0) then
+		return true, best
+	end
+	return false, best
+end
+
+--- Reset the final_local no-progress watchdog. Called whenever the phase becomes
+--- final_local so the clock starts at the handoff, and on interrupt.
+function Navigation:ResetFinalLocalProgressWatchdog()
+	self.final_local_best_dist = nil
+	self.final_local_no_progress_since = nil
+end
+
 function Navigation:ResetLocalAvoidanceRuntime()
 	self.local_avoidance_stuck_timer = 0
 	self.local_avoidance_stuck_escape_time = 0
@@ -3347,6 +3388,7 @@ function Navigation:AutoPilot()
 			-- No suitable known cells: navigate entire route with local avoidance
 			self.autopilot_phase        = "final_local"
 			self.autopilot_local_target = self.autopilot_ground_destination
+			self:ResetFinalLocalProgressWatchdog()
 			if should_skip_astar_for_unknown_pair then
 				self.log_obj:Record(LogLevel.Info,
 					"AutoPilot [final_local]: start/destination both UNKNOWN and direct route is shorter than reaching a front-known sector - full local avoidance mode")
@@ -3375,6 +3417,7 @@ function Navigation:AutoPilot()
 				-- No reachable known cells: fallback to full local avoidance
 				self.autopilot_phase        = "final_local"
 				self.autopilot_local_target = self.autopilot_ground_destination
+				self:ResetFinalLocalProgressWatchdog()
 				self.log_obj:Record(LogLevel.Info,
 					"AutoPilot [final_local]: no clear/danger cells near destination - full local avoidance mode")
 			end
@@ -3650,6 +3693,7 @@ function Navigation:AutoPilot()
 			self.local_avoidance_net_check_dist    = nil
 			self.local_avoidance_net_check_pos     = nil
 			self.local_avoidance_net_check_time    = 0
+			self:ResetFinalLocalProgressWatchdog()
 			self.log_obj:Record(LogLevel.Info, string.format(
 				"AutoPilot [astar->final_local]: destination not traversable, handing off to local avoidance for final leg (%.1fm, partial=%s, low-gain retries=%d)",
 				horiz_to_final, tostring(was_partial), self.autopilot_low_gain_followups or 0))
@@ -3698,6 +3742,26 @@ function Navigation:AutoPilot()
 			self:AutoLanding(landing_height, ground_destination.z)
 			Cron.Halt(timer)
 			return
+		end
+
+		-- final_local no-progress watchdog.
+		-- Around a destination boxed in by obstacles the repulsion field can match
+		-- the goal attraction, so the AV closes in and gets shoved back in a loop.
+		-- The stuck-escape ascent is deliberately off near the goal, so nothing else
+		-- breaks the cycle. Once we stop closing in for long enough, stop fighting
+		-- it and land from wherever we happen to be.
+		if self.autopilot_phase == "final_local" then
+			local stalled, best = self:UpdateFinalLocalProgressWatchdog(horiz_to_final, current_time)
+			if stalled then
+				self.log_obj:Record(LogLevel.Warning, string.format(
+					"AutoPilot [final_local]: no closer than %.1fm for %.1fs in obstacle-dense area - committing to landing",
+					best or 0.0, self.final_local_no_progress_timeout or 10.0))
+				self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
+				self:AutoLanding(current_position.z - ground_destination.z, ground_destination.z)
+				self:ResetFinalLocalProgressWatchdog()
+				Cron.Halt(timer)
+				return
+			end
 		end
 
 		-- Navigation: A* phase follows waypoints directly (no local avoidance).
@@ -4198,6 +4262,7 @@ function Navigation:InterruptAutoPilot()
 	self.route_plan_next_followup_time = 0
 	self.astar_is_partial_route = false
 	self.autopilot_low_gain_followups = 0
+	self:ResetFinalLocalProgressWatchdog()
 	self.sector_penalty_cache   = nil
 	-- Unpin the route corridor so those chunks can be evicted again.
 	self:ReleaseRouteChunks()

@@ -1150,3 +1150,208 @@ end
 ウィンドウ充填（全体の 84%）は 3ms/50ms = デューティ 6% でカクつきは発生していないが、
 **ルートが実際に必要としたデータの約 5 倍**である点は未解消。
 学習 OFF の一般ユーザーには過剰なので、必要なら「学習 OFF なら充填しない」案が残っている。
+
+---
+
+## 4N. fix (12)：final_local の障害物密集地スタック（今回実装）
+
+### 症状
+
+`final_local` で目的地に近づくとき、周辺に障害物が多いと**近づいては離れを繰り返してスタック**する。
+
+### 原因
+
+`ComputeLocalAvoidanceDirection` は反発場（repulsion field）导航：
+
+```lua
+local goal_weight = 1.5
+local nav_x = dest_dir.x * goal_weight + rep_x
+```
+
+**目的地引力 1.5 と障害物反発が釣り合う**と、AV は近づいては押し戻されるループに入る。
+
+さらに悪いことに、stuck-escape の上昇退避は**目的地付近では意図的に無効**：
+
+```lua
+if (not near_final_local_goal) and self.local_avoidance_stuck_timer >= ... then
+```
+
+これは「到着直前に緊急上昇しないため」の正当な処置だが、結果として**このループを抜ける手段が何もなくなる**。
+
+### 対策：無進捗ウォッチドッグ
+
+「一定時間近づかないなら、いま居る場所から着陸する」。
+
+```lua
+function Navigation:UpdateFinalLocalProgressWatchdog(horiz_dist, current_time)
+	local best = self.final_local_best_dist
+	local epsilon = self.final_local_progress_epsilon or 1.0
+	if best == nil or horiz_dist <= best - epsilon then
+		self.final_local_best_dist = horiz_dist
+		self.final_local_no_progress_since = current_time
+		return false, best
+	end
+	local stalled_for = current_time - (self.final_local_no_progress_since or current_time)
+	if stalled_for >= (self.final_local_no_progress_timeout or 10.0) then
+		return true, best
+	end
+	return false, best
+end
+```
+
+| 設定 | 値 | 意味 |
+|---|---|---|
+| `final_local_no_progress_timeout` | 10.0 s | これ以上近づかなければ着陸 |
+| `final_local_progress_epsilon` | 1.0 m | 「進んだ」とみなす最小距離 |
+
+`epsilon` が無いと、数 cm のドリフトで毎回リセットされ**永遠に発火しない**。
+逆に大きすぎると実際の進捗を見逃す。1.0m が妥当。
+
+### リセット箇所
+
+`autopilot_phase = "final_local"` になる 3 箇所すべてと `InterruptAutoPilot()` で
+`ResetFinalLocalProgressWatchdog()` を呼び、**ハンドオフ時点から時計を始める**。
+
+- 既知セル皆無のフルローカル回避開始
+- 目的地周辺に既知セルが無い場合のフォールバック
+- `astar -> final_local` ハンドオフ
+- `InterruptAutoPilot()`
+
+### テスト（`tools/resident_cache_test.lua` セクション 9）
+
+| ケース | 期待 |
+|---|---|
+| 安定して近づき続ける（40 秒） | 発火しない |
+| epsilon 内での振動 | タイムアウト後に発火 |
+| 実際の進捗（10m 前進）後 | 時計がリセットされ 12s では発火しない → 14s で発火 |
+| リセット後 | 新品の距離がベースラインになる |
+
+---
+
+## 4O. fix (13)：autopilot 中のメータが km/h と距離で高速点滅（今回実装）
+
+### 症状
+
+自動操縦中はメータが「距離」表示になるのが期待値だが、**km/h と距離が高速に切り替わる**。
+
+### 原因 1：単位変換の誤用
+
+`CheckHUD()` は残距離（メートル）を `SetSpeedMeterValue()` に渡していたが、
+この関数は**常に m/s → km/h の変換を行う**：
+
+```lua
+speed_value = speed_value * 3.6   -- m/s to km/h
+```
+
+残距離 100m が **360** と表示されていた。
+
+### 原因 2：上書きガードが C# 呼び出しに依存
+
+```lua
+Override("hudCarController", "OnSpeedValueChanged", function(_, speedValue, wrappedMethod)
+    if not DAV.core_obj.event_obj:IsInVehicle() or not self.is_manually_setting_speed then
+        result = wrappedMethod(speedValue)   -- ゲーム本体が km/h を描画
+    end
+```
+
+`IsInVehicle()` は `AV:IsPlayerIn()` → `entity:IsPlayerMounted()`（C# round trip）を含む。
+**一瞬 false を返すとゲーム本体の描画が通ってしまい**、我々の距離表示と交互になって点滅する。
+
+### 対策
+
+**① 変換なしの専用セッタを追加**
+
+```lua
+--- While autopilot is up this shows remaining distance, which is already in the
+--- unit we want to print. Running it through SetSpeedMeterValue would multiply
+--- the metres by 3.6 as if it were m/s.
+function HUD:SetDistanceMeterValue(distance_value)
+    ...
+    inkTextRef.SetText(self.hud_car_controller.SpeedValue, math.floor(distance_value))
+end
+```
+
+**② ガードを C# 呼び出しなしの状況判定に変更**
+
+```lua
+--- Situation check with no C# round trip. The meter overrides fire on every speed
+--- and rpm change event, so they must not depend on IsPlayerMounted().
+function Event:IsInAVSituation()
+    return self.current_situation == Def.Situation.InVehicle
+end
+```
+
+`OnSpeedValueChanged` / `OnRpmValueChanged` 両方に適用。
+`is_manually_setting_speed` は搭乗時 true・降車時 false で正確に追従しているため、
+`IsPlayerMounted()` を条件から外してもセーフティは保たれる（かつ C# 往復も消える）。
+
+### テスト結果
+
+**76 passed, 0 failed**（新規 11 件追加）／ 19/19 コンパイル OK
+
+---
+
+## 4P. fix (14)：autopilot 中の速度メータは通常どおり速度を表示（今回実装）
+
+### 方針転換
+
+`ToggleOriginalMPHDisplay` で単位ラベルを距離表記に差し替える試みは、**ゲーム側が
+ラベルを継続的に書き換えているため根本的に勝ち目がなかった**。
+
+戦うのをやめ、次の割り切りにした：
+
+| メータ | 自動操縦中 | 手動時 |
+|---|---|---|
+| **速度** | **実際の速度**（手動と同じ） | 実際の速度 |
+| **RPM** | **進捗ゲージ**（出発 1 → 到着 11） | 実際の RPM |
+
+進捗情報は速度ではなく RPM が担う。既存の RPM 進捗ロジックはそのまま。
+
+### 変更
+
+`Event:CheckHUD()` を「速度は共通・RPM だけ分岐」に整理した。
+
+```lua
+-- The game repaints the speedometer unit label on its own, continuously, so
+-- swapping it to a distance unit during autopilot just fights the HUD and
+-- flickers. Show the real speed in both modes and let the RPM dial carry the
+-- autopilot progress instead.
+self.hud_obj:ToggleOriginalMPHDisplay(false)
+local current_speed = self.av_obj:GetCurrentSpeed()
+
+if self:IsAutoMode() then
+    self.hud_obj:EnableManualMeter(true, true)
+    self.hud_obj:SetSpeedMeterValue(current_speed)
+    ...
+    -- RPM is the autopilot progress gauge: 1 at departure, 11 on arrival.
+    self.hud_obj:SetRPMMeterValue(math.floor(10 * (1 - current_length / initial_length) + 1))
+else
+    self.hud_obj:EnableManualMeter(true, self.av_obj.is_enable_manual_rpm_meter)
+    self.hud_obj:SetSpeedMeterValue(current_speed)
+    self.hud_obj:SetRPMMeterValue(math.abs(rpm_count))
+end
+```
+
+`ToggleOriginalMPHDisplay(false)` を分岐の外に出したので、自動操縦中も単位は通常の
+mph / km/h のまま。**ゲームが書く値と我々が表示する値が一致する**ので矛盾は起きない。
+
+### 併せて削除
+
+`HUD:SetDistanceMeterValue()`（前回追加した変換なしセッタ）は呼び出し元がなくなり
+死んだため削除。`--- Set RPM Meter Value` の docstring が誤位置になっていたのも復した。
+
+### 前回までの HUD 修正で有効だったもの
+
+以下は方針転換後もそのまま有効なので残した：
+
+- **`GetMPHTextWidget()` によるウィジェットキャッシュ** — `dynamic` コンテナの深いパスは
+  断片的に失敗していた。キャッシュで C# 呼び出しを削減し、失敗を自己修復化
+- **エッジトリガー化** — 書き終えたら二度と書かない。100Hz の無駄な書き込みが消えた
+- **失敗ログを Debug → Warning に格上げ** — `MasterLogLevel = Info` のため
+  Debug レベルでは**どんな失敗も隐形**だった（今回の調査を長期化させた主因）
+- **HUD 再初期化時のキャッシュ無効化** — `OnInitialize` / `OnMountingEvent`
+- **降車後のラベル復元** — `CheckHUD` は降車後に走らないため exit 経路で明示
+
+### テスト
+
+**76 passed, 0 failed** ／ 19/19 コンパイル OK
