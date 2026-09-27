@@ -9,7 +9,7 @@ Requirements:
     pip install lupa
 
 Usage:
-    python tools/run_resident_cache_test.py
+    python tests/run_resident_cache_test.py
 
 NOTE: this repo lives under a path containing non-ASCII characters, and Lua's
 io.open on Windows uses the ANSI codepage, so the test stages the mod and the
@@ -60,7 +60,7 @@ def main():
     shutil.copytree(MOD, mod_dst)
     shutil.rmtree(map_dst, ignore_errors=True)
     shutil.copytree(os.path.join(MOD, "Data", "map"), map_dst)
-    shutil.copy(os.path.join(REPO, "tools", "resident_cache_test.lua"), WORKDIR)
+    shutil.copy(os.path.join(REPO, "tests", "resident_cache_test.lua"), WORKDIR)
 
     # The runtime is packed-only now, so the fixture needs packed chunks. Pack the
     # copied text chunks the same way the shipped map was built.

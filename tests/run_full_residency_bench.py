@@ -5,7 +5,7 @@ Full-residency benchmark, run once per representation in a SEPARATE process.
 Sharing a process makes the second run's GC state depend on the first run's
 ~180 MB of freed tables, which swamps the effect being measured.
 
-    python tools/run_full_residency_bench.py
+    python tests/run_full_residency_bench.py
 
 Requirements: pip install lupa
 """
@@ -60,7 +60,7 @@ def main():
 
     runner = os.path.join(WORKDIR, "_runner.py")
     with open(runner, "w", encoding="utf-8") as fh:
-        fh.write("R_TEST = r%r\n" % os.path.join(REPO, "tools", "full_residency_bench.lua"))
+        fh.write("R_TEST = r%r\n" % os.path.join(REPO, "tests", "full_residency_bench.lua"))
         fh.write("R_MOD = r%r\n" % mod_dst)
         fh.write("R_TEXTMAP = r%r\n" % text_dst)
         fh.write("R_BINMAP = r%r\n" % bin_dst)
@@ -69,7 +69,7 @@ def main():
 
     for mode in ("legacy", "packed"):
         with open(runner, "w", encoding="utf-8") as fh:
-            fh.write("R_TEST = r%r\n" % os.path.join(REPO, "tools", "full_residency_bench.lua"))
+            fh.write("R_TEST = r%r\n" % os.path.join(REPO, "tests", "full_residency_bench.lua"))
             fh.write("R_MOD = r%r\n" % mod_dst)
             fh.write("R_TEXTMAP = r%r\n" % text_dst)
             fh.write("R_BINMAP = r%r\n" % bin_dst)

@@ -5,7 +5,7 @@ Full-map residency benchmark: table-per-cell (current) vs flat byte grid (v4).
 Stages everything under an ASCII workdir because Lua's io.open on Windows uses the
 ANSI codepage and the repo path contains non-ASCII characters.
 
-    python tools/run_grid_residency_bench.py
+    python tests/run_grid_residency_bench.py
 
 Requirements: pip install lupa
 """
@@ -41,13 +41,15 @@ def stage(workdir):
     mod_dst = os.path.join(workdir, "mod")
     text_dst = os.path.join(workdir, "textmap")
     bin_dst = os.path.join(workdir, "binmap")
-    tools_dst = os.path.join(workdir, "tools")
+    tests_dst = os.path.join(workdir, "tests")
 
-    for d in (mod_dst, text_dst, bin_dst, tools_dst):
+    for d in (mod_dst, text_dst, bin_dst, tests_dst):
         shutil.rmtree(d, ignore_errors=True)
     shutil.copytree(MOD, mod_dst)
     shutil.copytree(os.path.join(MOD, "Data", "map"), text_dst)
-    shutil.copytree(os.path.join(REPO, "tools"), tools_dst)
+    # The benches dofile grid_proto.lua / grid_slice_proto.lua out of this dir,
+    # so it has to be the tests dir now that the prototypes live there.
+    shutil.copytree(os.path.join(REPO, "tests"), tests_dst)
 
     # Build the binary grids into the ASCII workdir.
     rc = subprocess.call([sys.executable, os.path.join(REPO, "tools", "mapbin_pack.py"),
@@ -56,17 +58,17 @@ def stage(workdir):
     if rc != 0:
         sys.exit(rc)
     return {"base": workdir, "mod": mod_dst, "text": text_dst,
-            "bin": bin_dst, "tools": tools_dst}
+            "bin": bin_dst, "tests": tests_dst}
 
 
 def run(script, wd):
     runner = os.path.join(wd["base"], "_runner.py")
     with open(runner, "w", encoding="utf-8") as fh:
-        fh.write("R_TEST = r%r\n" % os.path.join(wd["tools"], script))
+        fh.write("R_TEST = r%r\n" % os.path.join(wd["tests"], script))
         fh.write("R_MOD = r%r\n" % wd["mod"])
         fh.write("R_TEXTMAP = r%r\n" % wd["text"])
         fh.write("R_BINMAP = r%r\n" % wd["bin"])
-        fh.write("R_TOOLS = r%r\n" % wd["tools"])
+        fh.write("R_TOOLS = r%r\n" % wd["tests"])
         fh.write(RUNNER_SRC)
     return subprocess.call([sys.executable, runner])
 

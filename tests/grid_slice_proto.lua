@@ -28,7 +28,7 @@ Slice.UNKNOWN, Slice.CLEAR, Slice.DANGER, Slice.BLOCKED = 0, 1, 2, 3
 
 --- Writes a slice absorbs before it is folded into a fresh image string.
 --- Small = cheap memory, more rebuilds. Large = fewer rebuilds, fatter delta
---- tables. Measured at 64 and 512 in tools/grid_slice_bench.lua.
+--- tables. Measured at 64 and 512 in tests/grid_slice_bench.lua.
 Slice.COMPACT_MIN = 64
 
 function Slice:New(opts)

@@ -6,7 +6,7 @@
 -- the no-downgrade rule, eviction being inert, the learned-cell flush, and A*
 -- route equality.
 --
--- Run with:  python tools/run_grid_integration_test.py
+-- Run with:  python tests/run_grid_integration_test.py
 -- =============================================================================
 
 local MODDIR, TEXTMAP, BINMAP, EMPTYMAP = ...

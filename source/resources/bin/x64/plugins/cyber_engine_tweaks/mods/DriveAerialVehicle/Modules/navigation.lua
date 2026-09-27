@@ -211,7 +211,7 @@ function Navigation:New(av_obj)
 	-- not reached disk yet. Set false to fall back to the streaming behaviour.
 	obj.obstacle_map_full_residency = true
 	-- Above this many learned cells in RAM, fold them into the base image and drop
-	-- them from the table. Measured (tools/grid_learning_budget_bench.lua): with a
+	-- them from the table. Measured (tests/grid_learning_budget_bench.lua): with a
 	-- 95k-cell overlay the p99.9 tick is 1.9 ms and nothing exceeds 8 ms; at
 	-- 1.9M cells it is 3.9 ms with occasional 19 ms spikes. 200k keeps us in the
 	-- flat part of the curve while being far more new knowledge than a normal

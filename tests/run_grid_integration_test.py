@@ -6,7 +6,7 @@ Stages three map directories under an ASCII workdir - text-only, bin-only and
 empty - so the test can compare the new path against the legacy loader and prove
 the fallback still works.
 
-    python tools/run_grid_integration_test.py
+    python tests/run_grid_integration_test.py
 
 Requirements: pip install lupa
 """
@@ -67,7 +67,7 @@ def main():
 
     runner = os.path.join(wd, "_runner.py")
     with open(runner, "w", encoding="utf-8") as fh:
-        fh.write("R_TEST = r%r\n" % os.path.join(REPO, "tools", script))
+        fh.write("R_TEST = r%r\n" % os.path.join(REPO, "tests", script))
         fh.write("R_MOD = r%r\n" % mod_dst)
         fh.write("R_TEXTMAP = r%r\n" % text_dst)
         fh.write("R_BINMAP = r%r\n" % bin_dst)

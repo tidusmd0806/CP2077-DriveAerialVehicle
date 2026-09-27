@@ -3,7 +3,7 @@
 --
 -- Compares the shipped representation (one Lua table entry per cell, packed
 -- numeric keys, plus a duplicate chunk index) against the flat byte-grid
--- representation (tools/grid_proto.lua, DAVOB4) for:
+-- representation (tests/grid_proto.lua, DAVOB4) for:
 --
 --   1. full-map load time
 --   2. live Lua heap after full residency
@@ -12,7 +12,7 @@
 --   4. read throughput on the hot path
 --   5. a real long-distance A* run
 --
--- Run with:  python tools/run_grid_residency_bench.py
+-- Run with:  python tests/run_grid_residency_bench.py
 -- =============================================================================
 
 local MODDIR, TEXTMAP, BINMAP, TOOLSDIR = ...

@@ -281,7 +281,7 @@ obj.obstacle_map_route_chunks   = {}   -- autopilot ルートが要求した chu
 
 ### 4-2. 実装中に見つかり修正したバグ
 
-テスト（`tools/run_resident_cache_test.py`）で実際に検出・修正したもの：
+テスト（`tests/run_resident_cache_test.py`）で実際に検出・修正したもの：
 
 1. **増分リーダが diff を読み飛ばしていた**
    ファイル読み完了時に `st.fi` をインクリメントしていたため、後続の `.diff` を
@@ -341,11 +341,11 @@ Lua 5.4 / pause=110 / stepmul=150。
 
 ## 4B. リグレッションテスト
 
-`tools/run_resident_cache_test.py`（`pip install lupa` が必要）で実行できる。
+`tests/run_resident_cache_test.py`（`pip install lupa` が必要）で実行できる。
 実際の `Modules/navigation.lua` を Lua 5.4 上で動かし、実 `Data/map` に対して検証。
 
 ```
-python tools/run_resident_cache_test.py     # 42 passed, 0 failed
+python tests/run_resident_cache_test.py     # 42 passed, 0 failed
 ```
 
 カバーしている項目：
@@ -600,7 +600,7 @@ sector_size       = 10.0m
 
 ### 検証
 
-`tools/diagnose_route_unknown.lua` に実設定値による解析を追加：
+`tests/diagnose_route_unknown.lua` に実設定値による解析を追加：
 
 ```
 destination_range=3.0m  sector_size=10.0m  max_handoff=150.0m
@@ -871,7 +871,7 @@ local ck = self:PackCellKey(
 「文字列を組み立てて再度パースする」無駄が記録系に残っていた。
 該当 3 箇所（レイステップ 2 箇所 ＋ `string.format("%d_%d_%d", ...)` 1 箇所）を解消。
 
-### 追加テスト（`tools/resident_cache_test.lua` 1b）
+### 追加テスト（`tests/resident_cache_test.lua` 1b）
 
 - 充填ゲートが閉じている間、チャンクデータが 1 つもロードされないこと
 - `StartObstacleMapFill()` がゲートを開く／二重呼び出しは no-op
@@ -1015,7 +1015,7 @@ obj.obstacle_route_tick = 0.02
 60fps のフレーム予算は 16.7ms なので、レンダリングスレッドがほぼ枯れる。
 待機自体は 0.4 秒程度でも、体感では「カクッ → フリーズ」。
 
-### 実測（`tools/corridor_duty_probe.lua`）
+### 実測（`tests/corridor_duty_probe.lua`）
 
 | 設定 | デューティ | 0.6km | 1.5km | 2.8km |
 |---|---|---|---|---|
@@ -1128,7 +1128,7 @@ end
 
 `has_dat`/`has_diff` は楽観値ではなく**実際に開いて判定**するため、既存の住居判定セマンティクスは不変。
 
-### 実測（`tools/first_autopilot_breakdown.lua`、`io.open` を計装）
+### 実測（`tests/first_autopilot_breakdown.lua`、`io.open` を計装）
 
 | フェーズ | 時間 | io.open | io.popen |
 |---|---|---|---|
@@ -1217,7 +1217,7 @@ end
 - `astar -> final_local` ハンドオフ
 - `InterruptAutoPilot()`
 
-### テスト（`tools/resident_cache_test.lua` セクション 9）
+### テスト（`tests/resident_cache_test.lua` セクション 9）
 
 | ケース | 期待 |
 |---|---|
@@ -1453,7 +1453,7 @@ overlay から除去する。fold 時に `known_count` と状態集計のキャ�
 
 **未知セル由来の経路失敗が構造的に消える**のが主目的。
 
-### 実測（`tools/run_full_residency_bench.py`）
+### 実測（`tests/run_full_residency_bench.py`）
 
 各表現を**別プロセスで**測定。同一プロセスだと 2 番目の run の GC 状態が
 1 番目の free した 180 MB に汚染され、測りたい効果が埋没する。
@@ -1493,7 +1493,7 @@ A* の長距離（4.6 km）は両モードほぼ同等（2.3〜2.7 秒、分散�
 
 ### テスト
 
-- 新規統合テスト `tools/grid_integration_test.lua`（**52 passed, 0 failed**）
+- 新規統合テスト `tests/grid_integration_test.lua`（**52 passed, 0 failed**）
   - base image ロード / 全常駐 / 96 チャンク
   - 旧テキストローダとの 20 万セル一致
   - learned の優先、降格拒否（base image に対しても）
@@ -1502,7 +1502,7 @@ A* の長距離（4.6 km）は両モードほぼ同等（2.3〜2.7 秒、分散�
   - 最近傍探索が**ファイル open ゼロ**で RAM から解決
   - フラッシュ → 書き出し → 再ロードで学習内容が生存
   - セッション破棄でイメージ解放
-- 既存回帰 `tools/run_resident_cache_test.py`（**76 passed, 0 failed**）
+- 既存回帰 `tests/run_resident_cache_test.py`（**76 passed, 0 failed**）
 - 全 20 Lua ファイルコンパイル OK
 
 ---
@@ -1718,8 +1718,8 @@ end
 
 ### テスト
 
-- 統合 `tools/grid_integration_test.lua` — **66 passed, 0 failed**
-- 既存回帰 `tools/run_resident_cache_test.py` — **76 passed, 0 failed**
+- 統合 `tests/grid_integration_test.lua` — **66 passed, 0 failed**
+- 既存回帰 `tests/run_resident_cache_test.py` — **76 passed, 0 failed**
 - 構文ゲート `tools/check_lua_syntax.py` — **20 files, 0 problems**
 
 ---
@@ -1923,7 +1923,7 @@ end
 
 ### テスト
 
-`tools/grid_integration_test.lua` section 15（20 項目追加）:
+`tests/grid_integration_test.lua` section 15（20 項目追加）:
 
 - grid レベル: 新設 / タイトな窓 / known 計上 / 窓成長 / 既存セル保持
 - nav レベル: packed 範囲外への記録 → `.bin` 書き出し → overlay ドレイン
@@ -2012,9 +2012,9 @@ inベントリ列挙 / セルキー往復 / 頑健性 / プロセス起動ガー
 | 実行 | 結果 |
 |---|---|
 | `python tools/check_lua_syntax.py` | 40 files, 0 problems |
-| `python tools/run_grid_integration_test.py` | 101 passed, 0 failed |
-| `python tools/run_resident_cache_test.py` | 33 passed, 0 failed |
-| `python tools/run_grid_integration_test.py probe_smoke.lua` | 15 passed, 0 failed |
+| `python tests/run_grid_integration_test.py` | 101 passed, 0 failed |
+| `python tests/run_resident_cache_test.py` | 33 passed, 0 failed |
+| `python tests/run_grid_integration_test.py probe_smoke.lua` | 15 passed, 0 failed |
 
 ---
 
@@ -2163,6 +2163,6 @@ end
 | 実行 | 結果 |
 |---|---|
 | `python tools/check_lua_syntax.py` | 40 files, 0 problems |
-| `python tools/run_grid_integration_test.py` | **110 passed, 0 failed** |
-| `python tools/run_resident_cache_test.py` | 33 passed, 0 failed |
-| `python tools/run_grid_integration_test.py probe_smoke.lua` | 15 passed, 0 failed |
+| `python tests/run_grid_integration_test.py` | **110 passed, 0 failed** |
+| `python tests/run_resident_cache_test.py` | 33 passed, 0 failed |
+| `python tests/run_grid_integration_test.py probe_smoke.lua` | 15 passed, 0 failed |

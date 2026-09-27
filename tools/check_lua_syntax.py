@@ -115,14 +115,16 @@ def check_luajit_dialect(path):
 
 
 def main():
-    # Default to the mod sources AND the test/bench Lua under tools/. The test
-    # files are real LuaJIT too -- a `#` comment sneaked into one once and the
-    # gate missed it because tools/ was never walked.
+    # Default to the mod sources AND the test/bench Lua under tests/ and tools/.
+    # The test files are real LuaJIT too -- a `#` comment sneaked into one once
+    # and the gate missed it because those dirs were never walked.
     if len(sys.argv) > 1:
         roots = [sys.argv[1]]
     else:
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         roots = [MOD_DEFAULT,
-                 os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools")]
+                 os.path.join(repo, "tests"),
+                 os.path.join(repo, "tools")]
         roots = [r for r in roots if os.path.isdir(r)]
     if not roots:
         sys.exit("no such directory")

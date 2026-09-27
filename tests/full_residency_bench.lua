@@ -8,7 +8,7 @@
 --   MODE = "legacy"  Data/map v3 text  -> obstacle_map tables
 --   MODE = "packed"  Data/map_bin v4   -> resident base image
 --
--- Run with:  python tools/run_full_residency_bench.py
+-- Run with:  python tests/run_full_residency_bench.py
 local MODDIR, TEXTMAP, BINMAP, EMPTYMAP, MODE = ...
 
 Vector4 = {}
