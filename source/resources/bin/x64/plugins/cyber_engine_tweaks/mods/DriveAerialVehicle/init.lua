@@ -13,19 +13,19 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicle",
-	version = "3.2.3",
+	version = "3.3.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
     is_debug_mode = false,
     -- Developer switch, kept for the debug menu. The user-facing control is
     -- user_setting_table.is_enable_obstacle_recording; either one enables it.
-    debug_enable_obstacle_scan = false,
+    is_debug_enable_obstacle_scan = false,
     -- PROBE: temporary autopilot freeze instrumentation (Modules/profprobe.lua).
     -- Any single call at or above warn_ms logs one line with the autopilot state,
-    -- plus an aggregate table every 15 s. Set debug_profile_autopilot to false to
+    -- plus an aggregate table every 15 s. Set is_debug_profile_autopilot to false to
     -- stop measuring without removing the probe.
-    debug_profile_autopilot = true,
+    is_debug_profile_autopilot = false,
     debug_profile_warn_ms = 8.0,
     -- common
     user_setting_path = "Data/user_setting_v3.json",

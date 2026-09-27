@@ -127,6 +127,7 @@ function Navigation:New(av_obj)
 	obj.obstacle_map_dirty_cells = {}
 	obj.obstacle_map_chunk_index = core_obj.session_obstacle_map_chunk_index or {}
 	obj.obstacle_map_dir_ok = false
+	obj.obstacle_map_bin_dir_ok = false
 	obj.route_save_path = "Data/last_route.json"
 	obj.is_obstacle_map_recording = false
 	obj.obstacle_record_interval = 0.2
@@ -257,7 +258,7 @@ function Navigation:New(av_obj)
 
 	-- PROBE: wire the probe into this instance's logger and give it a context
 	-- line so every warn says what the autopilot was doing.
-	Prof.enabled = (DAV.debug_profile_autopilot ~= false)
+	Prof.enabled = (DAV.is_debug_profile_autopilot ~= false)
 	Prof.warn_ms = tonumber(DAV.debug_profile_warn_ms) or 8.0
 	Prof.attach(function(lvl, msg)
 		obj.log_obj:Record(LogLevel[lvl] or LogLevel.Info, msg)
@@ -420,58 +421,6 @@ function Navigation:FinalizeObstacleMapLoad(log_message)
 		self.log_obj:Record(LogLevel.Info, log_message)
 	end
 	return true
-end
-
-function Navigation:LoadObstacleMapChunkFile(path, is_diff)
-	local file = io.open(path, "r")
-	if not file then return 0 end
-	local raw = file:read("*all")
-	file:close()
-	if not raw or raw == "" then return 0 end
-	if not is_diff then
-		local cs = raw:match("^DAV_OBMAP v3 cell_size=([%d%.]+)")
-		if not cs then return 0 end
-		self.obstacle_cell_size = tonumber(cs) or 10.0
-		self:SyncRouteNodeSize()
-	end
-	local n = 0
-	for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-		local key = self:PackCellKey(tonumber(cellx), tonumber(celly), tonumber(cellz))
-		local ival = tonumber(val) or 0
-		local new_val
-		if ival >= 2 then
-			new_val = true
-		elseif ival == 1 then
-			new_val = "danger"
-		else
-			new_val = false
-		end
-		self:SetObstacleCellNoDirty(key, new_val)
-		self:RegisterCellInChunkIndex(key)
-		n = n + 1
-	end
-	return n
-end
-
-function Navigation:BuildObstacleMapLoadQueue()
-	self:MigrateOldObstacleMap()
-	self.obstacle_map_dirty_chunks = {}
-	self.obstacle_map_dirty_cells = {}
-
-	-- Derive the queue from the session inventory rather than shelling out to
-	-- `dir /b`. Refresh once because MigrateOldObstacleMap may have just renamed
-	-- files the cache has never seen.
-	local load_queue = {}
-	for _, info in ipairs(self:GetAllChunksCached(true)) do
-		if info.has_dat then
-			load_queue[#load_queue + 1] = { path = info.path, is_diff = false }
-		end
-		if info.has_diff then
-			load_queue[#load_queue + 1] = { path = info.diff_path, is_diff = true }
-		end
-	end
-
-	return load_queue, "cache"
 end
 
 --- Session-cached view of the chunk files that exist on disk.
@@ -756,53 +705,27 @@ function Navigation:PositionToChunkCoords(position)
 	return math.floor(position.x / chunk_world_size), math.floor(position.y / chunk_world_size)
 end
 
---- Enumerate every chunk that exists on disk (.dat and/or .diff), once per session.
---- The result is cached file-side because it is identical for every Navigation
---- instance and enumerating it repeatedly is what made the old loader spawn
---- `cmd.exe` over and over.
----@param force_refresh boolean|nil
----@return table list of {chunk_key, chunk_x, chunk_y, path, diff_path, has_dat, has_diff}
---- Build a chunk descriptor from coordinates alone and cache the existence
---- verdict. Chunk file names are fully determined by the chunk coordinates, so
---- there is no need to list the directory: callers that only care about a handful
---- of chunks (a route corridor, the resident window) pay two io.open calls per
---- chunk once, instead of a full sweep. A MISS costs ~7.5us and is a real kernel
---- syscall, so keeping the count down matters.
----@return table chunk_info
+--- Build a packed-chunk descriptor from coordinates alone and cache the
+--- existence verdict. Chunk file names are fully determined by the chunk
+--- coordinates, so there is no need to list the directory.
+---
+--- Packed only. The obstacle map ships as DAVOB4 and nothing reads the legacy
+--- text formats at runtime, so there is no .dat/.diff probe here -- those
+--- probes existed solely to feed the streaming loader.
+---@return table chunk_info {chunk_key, chunk_x, chunk_y, bin_path, has_bin}
 function Navigation:MakeChunkInfo(cx, cy)
 	local key = cx .. "_" .. cy
 	if g_all_chunks_by_key == nil then g_all_chunks_by_key = {} end
 	local info = g_all_chunks_by_key[key]
-	if info then
-		-- An entry seeded from the manifest knows only that the packed file
-		-- exists. Complete the probe now that somebody is actually asking about
-		-- the text files.
-		if info.probed == false then
-			info.probed = true
-			local d = io.open(info.path, "rb")
-			if d then d:close() info.has_dat = true end
-			local f = io.open(info.diff_path, "rb")
-			if f then f:close() info.has_diff = true end
-		end
-		return info
-	end
+	if info then return info end
 
 	info = {
 		chunk_key = key,
 		chunk_x = cx,
 		chunk_y = cy,
-		path = self.obstacle_map_dir .. "/chunk_" .. key .. ".dat",
-		diff_path = self.obstacle_map_dir .. "/chunk_" .. key .. ".diff",
 		bin_path = self.obstacle_map_bin_dir .. "/chunk_" .. key .. ".bin",
-		has_dat = false,
-		has_diff = false,
 		has_bin = false,
-		probed = true,
 	}
-	local dat = io.open(info.path, "rb")
-	if dat then dat:close() info.has_dat = true end
-	local diff = io.open(info.diff_path, "rb")
-	if diff then diff:close() info.has_diff = true end
 	local bin = io.open(info.bin_path, "rb")
 	if bin then bin:close() info.has_bin = true end
 
@@ -833,10 +756,7 @@ function Navigation:GetAllChunksCached(force_refresh)
 	for cx = -range, range do
 		for cy = -range, range do
 			local info = self:MakeChunkInfo(cx, cy)
-			-- has_bin matters as much as has_dat here: with only packed data on
-			-- disk, filtering on the text formats yields an empty inventory and the
-			-- base image never loads.
-			if info.has_dat or info.has_diff or info.has_bin then
+			if info.has_bin then
 				list[#list + 1] = info
 			end
 		end
@@ -856,14 +776,12 @@ function Navigation:GetAllChunksCached(force_refresh)
 	return list
 end
 
---- Record that a diff file now exists for this chunk.
---- The resident-cache inventory is enumerated once per session, so a diff written
---- later would be invisible and an evicted chunk would come back missing its
---- freshly recorded obstacles.
+--- Record that a packed chunk now exists on disk for this chunk coordinate.
+--- The inventory is enumerated once per session, so a chunk minted later (a
+--- learned-cell fold outside the shipped map) would otherwise stay invisible to
+--- every lookup that reads the inventory.
 ---@param chunk_key string
----@param has_dat boolean|nil
----@param has_diff boolean|nil
-function Navigation:MarkChunkOnDisk(chunk_key, has_dat, has_diff)
+function Navigation:MarkChunkOnDisk(chunk_key)
 	if not g_all_chunks_by_key then return end
 	local info = g_all_chunks_by_key[chunk_key]
 	if not info then
@@ -873,11 +791,7 @@ function Navigation:MarkChunkOnDisk(chunk_key, has_dat, has_diff)
 			chunk_key = chunk_key,
 			chunk_x = tonumber(cx),
 			chunk_y = tonumber(cy),
-			path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".dat",
-			diff_path = self.obstacle_map_dir .. "/chunk_" .. chunk_key .. ".diff",
 			bin_path = self.obstacle_map_bin_dir .. "/chunk_" .. chunk_key .. ".bin",
-			has_dat = false,
-			has_diff = false,
 			has_bin = false,
 		}
 		g_all_chunks_by_key[chunk_key] = info
@@ -885,8 +799,7 @@ function Navigation:MarkChunkOnDisk(chunk_key, has_dat, has_diff)
 			g_all_chunks_cache[#g_all_chunks_cache + 1] = info
 		end
 	end
-	if has_dat ~= nil then info.has_dat = has_dat end
-	if has_diff ~= nil then info.has_diff = has_diff end
+	info.has_bin = true
 end
 
 --- Incrementally parse one chunk (base file + diff) into the resident cache,
@@ -945,7 +858,7 @@ function Navigation:ParseChunkIncremental(chunk_info, budget_s)
 					if not spec.is_diff then
 						local cs = st.raw:match("^DAV_OBMAP v3 cell_size=([%d%.]+)")
 						if not cs then
-							-- Not a v3 base chunk; skip it like LoadObstacleMapChunkFile does.
+							-- Not a v3 base chunk; skip it.
 							-- Only here do we advance: a successfully read file is advanced
 							-- past once its cells have been parsed below.
 							st.raw = nil
@@ -1021,7 +934,7 @@ function Navigation:IsChunkResident(chunk_key)
 end
 
 --- Drop one chunk's cells from the resident cache. The chunk stays on disk and can
---- be pulled back in later by EnsureResidentChunks().
+--- be pulled back in later when a lookup needs it.
 ---@param chunk_key string
 ---@return number cells_freed
 function Navigation:UnloadResidentChunk(chunk_key)
@@ -1057,97 +970,6 @@ function Navigation:IsChunkEvictable(chunk_key, pcx, pcy, evict_radius)
 	local dx = math.abs(tonumber(cx) - pcx)
 	local dy = math.abs(tonumber(cy) - pcy)
 	return math.max(dx, dy) > evict_radius
-end
-
---- Load not-yet-resident chunks inside `obstacle_map_resident_radius`, nearest
---- first, until this tick's wall-clock budget is spent. This is what keeps a
---- ~31ms chunk parse from ever landing in a single frame.
----@param pcx number
----@param pcy number
----@return number chunks_loaded
----@return number pending_count  chunks still missing inside the radius after this tick
-function Navigation:EnsureResidentChunks(pcx, pcy)
-	-- Full residency: the base image already covers every chunk, so there is
-	-- nothing to pull in.
-	if self:IsFullResidencyActive() then return 0, 0 end
-
-	local radius = self.obstacle_map_resident_radius or 0
-	local budget_s = (self.obstacle_map_load_budget_ms or 3.0) / 1000.0
-	local started = os.clock()
-
-	-- Walk the window grid directly rather than scanning the inventory: a
-	-- radius-2 window is 25 descriptors against an inventory of ~96, and each
-	-- existence verdict is cached after the first check. This keeps the full
-	-- directory sweep off the maintenance path entirely.
-	local pending = {}
-	for dx = -radius, radius do
-		for dy = -radius, radius do
-			local info = self:MakeChunkInfo(pcx + dx, pcy + dy)
-			if (info.has_dat or info.has_diff) and not self:IsChunkResident(info.chunk_key) then
-				pending[#pending + 1] = { info = info, dist2 = dx * dx + dy * dy }
-			end
-		end
-	end
-
-	if #pending == 0 then return 0, 0 end
-	table.sort(pending, function(a, b) return a.dist2 < b.dist2 end)
-
-	local loaded = 0
-	for _, entry in ipairs(pending) do
-		local done = self:ParseChunkIncremental(entry.info, budget_s)
-		if done then
-			loaded = loaded + 1
-		end
-		if (os.clock() - started) >= budget_s then
-			break
-		end
-	end
-	return loaded, #pending - loaded
-end
-
---- Evict chunks that drifted outside `obstacle_map_evict_radius` and are not needed
---- by the active autopilot route. Dirty chunks are flushed to disk first so no
---- recorded obstacle data is lost.
----@param pcx number
----@param pcy number
----@return number chunks_evicted
-function Navigation:EvictDistantChunks(pcx, pcy)
-	-- Never evict under full residency. `obstacle_map` now holds *learned* cells,
-	-- not a copy of the base image, so dropping them would destroy recorded
-	-- obstacles that have not reached disk yet.
-	if self:IsFullResidencyActive() then return 0 end
-
-	local evict_radius = self.obstacle_map_evict_radius
-		or ((self.obstacle_map_resident_radius or 0) + 2)
-
-	local targets = {}
-	for chunk_key in pairs(self.obstacle_map_chunk_index) do
-		-- Never touch a chunk that is still being parsed.
-		if self.obstacle_map_load_states[chunk_key] == nil
-				and self:IsChunkEvictable(chunk_key, pcx, pcy, evict_radius) then
-			targets[#targets + 1] = chunk_key
-		end
-	end
-	if #targets == 0 then return 0 end
-
-	-- A dirty chunk must reach disk before its cells leave memory.
-	local needs_flush = false
-	for _, chunk_key in ipairs(targets) do
-		if self.obstacle_map_dirty_chunks[chunk_key] then
-			needs_flush = true
-			break
-		end
-	end
-	if needs_flush then
-		self:SaveObstacleMap()
-	end
-
-	local evicted = 0
-	for _, chunk_key in ipairs(targets) do
-		self:UnloadResidentChunk(chunk_key)
-		evicted = evicted + 1
-	end
-	return evicted
 end
 
 --- Fold one chunk's learned cells into the resident base image, persist the new
@@ -1396,9 +1218,17 @@ function Navigation:LoadBaseImageStep(budget_ms)
 		end
 		if #list == 0 then
 			self.base_image_pending = false
-			self.log_obj:Record(LogLevel.Info,
-				"Base image: no packed chunks under " .. tostring(self.obstacle_map_bin_dir)
-				.. " - staying on the streaming path")
+			-- Loud, and deliberately not a silent degrade. The obstacle map is a
+			-- packed-only asset now: with no Data/map_bin there is no obstacle data
+			-- at all, every destination reads as unknown, and the autopilot has
+			-- nothing to plan with. Saying so beats running invisibly broken.
+			self.log_obj:Record(LogLevel.Error,
+				"NO PACKED OBSTACLE MAP: no chunk_*.bin found under "
+				.. tostring(self.obstacle_map_bin_dir)
+				.. ". The obstacle map is UNAVAILABLE - autopilot has no obstacle "
+				.. "data and every destination will read as unknown. "
+				.. "Run tools/mapbin_pack.py to build Data/map_bin "
+				.. "(it merges the legacy .dat base and any .diff deltas).")
 			return 0
 		end
 
@@ -1419,37 +1249,12 @@ function Navigation:LoadBaseImageStep(budget_ms)
 	if self.base_image_warming then
 		local inv = g_all_chunks_cache or {}
 		local i = self.base_image_warm_index or 1
-		-- Under the full-residency setting nothing reads has_dat/has_diff: the
-		-- corridor is skipped and the text fallback is never taken. So seed the
-		-- entries from the manifest instead of probing them -- 288 io.open
-		-- (~576 ms measured) disappears. MakeChunkInfo completes the probe lazily
-		-- if anything ever does ask. Gated on the setting, not on
-		-- IsFullResidencyActive(), which needs is_base_image_loaded and so is
-		-- still false while we are loading.
-		local seed = self.base_image_from_manifest
-			and self.obstacle_map_full_residency
+		-- MakeChunkInfo is packed-only now: one io.open per chunk instead of the
+		-- three it used to do. Warming 96 chunks costs ~96 opens rather than the
+		-- 288 (~576 ms measured) the dat/diff probes required, so there is no
+		-- longer a seeded-vs-probed distinction to maintain.
 		while i <= #list do
-			local e = list[i]
-			if seed then
-				local key = e.cx .. "_" .. e.cy
-				if g_all_chunks_by_key == nil then g_all_chunks_by_key = {} end
-				local info = {
-					chunk_key = key,
-					chunk_x = e.cx,
-					chunk_y = e.cy,
-					path = self.obstacle_map_dir .. "/chunk_" .. key .. ".dat",
-					diff_path = self.obstacle_map_dir .. "/chunk_" .. key .. ".diff",
-					bin_path = e.path,
-					has_dat = false,
-					has_diff = false,
-					has_bin = true,
-					probed = false,
-				}
-				g_all_chunks_by_key[key] = info
-				inv[#inv + 1] = info
-			else
-				inv[#inv + 1] = self:MakeChunkInfo(e.cx, e.cy)
-			end
+			inv[#inv + 1] = self:MakeChunkInfo(list[i].cx, list[i].cy)
 			i = i + 1
 			if (os.clock() - started) >= budget then break end
 		end
@@ -1530,61 +1335,29 @@ function Navigation:MaintainObstacleMapCache()
 	if player_pos == nil then return true end
 
 	-- Pull the packed base image in first, on the budget. Until it is resident we
-	-- deliberately do nothing else: filling the radius window from text chunks in
-	-- the meantime would pour millions of cells into the learned table, which is
-	-- the exact shape this module exists to eliminate.
-	-- `base_image_pending == false` means the sweep found no packed data at all,
-	-- in which case we must fall through to the streaming path rather than spin
-	-- forever waiting for an image that will never arrive.
+	-- deliberately do nothing else: filling the window from text chunks in the
+	-- meantime would pour millions of cells into the learned table, which is the
+	-- exact shape this module exists to eliminate.
 	if not self.is_base_image_loaded then
+		if self.base_image_pending == false then
+			-- No packed data at all. LoadBaseImageStep already raised this; there
+			-- is nothing to retry and nothing to stream.
+			return true
+		end
 		self:LoadBaseImageStep(self.obstacle_base_image_budget_ms or 12.0)
-		if self.base_image_pending ~= false then
-			return false
-		end
-	elseif self:IsFullResidencyActive() then
-		-- Under full residency the only maintenance left is keeping the learned-
-		-- cell table from growing without bound.
-		self:FlushLearnedCellsToImage()
-		if not self.is_obstacle_map_loaded then
-			self.is_obstacle_map_loaded = true
-			self:SyncObstacleMapSessionState()
-		end
-		return true
+		return false
 	end
 
-	local pcx, pcy = self:PositionToChunkCoords(player_pos)
-	if pcx == nil then return true end
-
-	-- A queued route corridor has priority over window maintenance: it is what the
-	-- autopilot is waiting on, and those chunks are pinned anyway.
-	-- Exactly one driver touches the queue at a time: while the departure gate owns
-	-- it (route_corridor_timer set) the gate drains at its own faster tick, and
-	-- this timer only picks up the remainder once the gate is gone.
-	local route_settled = true
-	if self.obstacle_map_route_pending and #self.obstacle_map_route_pending > 0 then
-		if self.route_corridor_timer == nil then
-			local budget_s = (self.obstacle_route_load_budget_ms or 15.0) / 1000.0
-			if self:DrainRouteCorridor(budget_s) > 0 then route_settled = false end
-		else
-			route_settled = false
-		end
-	end
-
-	-- The window follow only runs after the first autopilot departure. Before that
-	-- there is no vehicle whose surroundings matter, so no chunks are read.
-	local pending = 0
-	if self.obstacle_map_fill_started then
-		local _, pending_now = self:EnsureResidentChunks(pcx, pcy)
-		pending = pending_now
-	end
-	local evicted = self:EvictDistantChunks(pcx, pcy)
-
-	if pending == 0 and route_settled and not self.is_obstacle_map_loaded then
+	-- The base image covers every chunk, so the only maintenance left is keeping
+	-- the learned-cell table from growing without bound. The old radius-window /
+	-- eviction / route-corridor streaming is gone: with a packed-only inventory
+	-- there is nothing left for it to read.
+	self:FlushLearnedCellsToImage()
+	if not self.is_obstacle_map_loaded then
 		self.is_obstacle_map_loaded = true
 		self:SyncObstacleMapSessionState()
 	end
-
-	return pending == 0 and evicted == 0 and route_settled
+	return true
 end
 
 --- Pin the chunks an autopilot route crosses, and load the destination chunk
@@ -1792,36 +1565,6 @@ function Navigation:ReleaseRouteChunks()
 		self.obstacle_map_load_states[key] = nil
 	end
 	self.obstacle_map_route_chunks = {}
-end
-
-function Navigation:ProcessObstacleMapLoadBatch(max_files)
-	if not self.is_obstacle_map_loading then
-		return true, 0, 0
-	end
-
-	local processed_files = 0
-	local loaded_cells = 0
-	local queue = self.obstacle_map_load_queue or {}
-	while self.obstacle_map_load_index <= #queue and processed_files < max_files do
-		local job = queue[self.obstacle_map_load_index]
-		self.obstacle_map_load_index = self.obstacle_map_load_index + 1
-		processed_files = processed_files + 1
-		loaded_cells = loaded_cells + self:LoadObstacleMapChunkFile(job.path, job.is_diff)
-		self.obstacle_map_loaded_files = self.obstacle_map_loaded_files + 1
-	end
-
-	self.obstacle_map_dirty_chunks = {}
-	self.obstacle_map_dirty_cells = {}
-	self:SyncObstacleMapSessionState()
-
-	if self.obstacle_map_load_index > #queue then
-		self:FinalizeObstacleMapLoad(string.format(
-			"Obstacle map loaded: %d files processed over staged preload",
-			self.obstacle_map_loaded_files))
-		return true, processed_files, loaded_cells
-	end
-
-	return false, processed_files, loaded_cells
 end
 
 --- Start the resident obstacle-map chunk cache for this session.
@@ -3378,29 +3121,51 @@ end
 
 --- Ensure the Data/map directory exists for chunked storage.
 ---@return boolean success
+--- Is `dir` present and writable?
+--- CET's Lua sandbox strips os.execute and io.popen, so the "mkdir through the
+--- shell" fallback this used to have was a hard error: `attempt to call field
+--- 'execute' (a nil value)`. That killed every single save once Data/map was
+--- removed by the packed-only migration -- SaveObstacleMap gated on the text
+--- directory, threw before reaching the packed branch, and .bin never got
+--- written. Nothing here may shell out.
+---@param dir string
+---@return boolean
+function Navigation:EnsureDirWritable(dir)
+	if dir == nil or dir == "" then return false end
+	local test = dir .. "/.dirtest"
+	local f = io.open(test, "w")
+	if f == nil then return false end
+	f:close()
+	os.remove(test)
+	return true
+end
+
+--- The packed directory is the only one that matters under full residency.
+---@return boolean
+function Navigation:EnsureBinDirectory()
+	if self.obstacle_map_bin_dir_ok then return true end
+	if self:EnsureDirWritable(self.obstacle_map_bin_dir) then
+		self.obstacle_map_bin_dir_ok = true
+		return true
+	end
+	self.log_obj:Record(LogLevel.Error,
+		"Cannot write packed obstacle map directory: " .. tostring(self.obstacle_map_bin_dir) ..
+		" -- learned cells cannot be saved")
+	return false
+end
+
+--- Legacy text directory probe, for the non-residency path only. It must never
+--- gate the packed save; that is what broke saving entirely.
+---@return boolean
 function Navigation:EnsureMapDirectory()
 	if self.obstacle_map_dir_ok then return true end
-	-- Try writing a test file to check if directory exists
-	local test_path = self.obstacle_map_dir .. "/.dirtest"
-	local f = io.open(test_path, "w")
-	if f then
-		f:close()
-		os.remove(test_path)
+	if self:EnsureDirWritable(self.obstacle_map_dir) then
 		self.obstacle_map_dir_ok = true
 		return true
 	end
-	-- Attempt to create the directory
-	local dir_win = self.obstacle_map_dir:gsub("/", "\\")
-	os.execute('mkdir "' .. dir_win .. '" 2>nul')
-	f = io.open(test_path, "w")
-	if f then
-		f:close()
-		os.remove(test_path)
-		self.obstacle_map_dir_ok = true
-		self.log_obj:Record(LogLevel.Info, "Created map directory: " .. self.obstacle_map_dir)
-		return true
-	end
-	self.log_obj:Record(LogLevel.Error, "Failed to create map directory: " .. self.obstacle_map_dir)
+	self.log_obj:Record(LogLevel.Warning,
+		"Legacy map directory not writable: " .. tostring(self.obstacle_map_dir) ..
+		" (ignored under full residency)")
 	return false
 end
 
@@ -3463,13 +3228,18 @@ function Navigation:SaveObstacleMap()
 		self.log_obj:Record(LogLevel.Debug, "SaveObstacleMap skipped: no dirty cells")
 		return
 	end
-	if not self:EnsureMapDirectory() then return end
 
 	-- Under full residency the packed image is the single store: fold every dirty
 	-- chunk into it and write v4. The legacy append-only .diff stream is not read
 	-- back on this path, so writing it would only grow files nothing consumes while
 	-- the data that matters sits in a format the loader ignores.
+	--
+	-- This branch is checked BEFORE any directory gate, and gates on the packed
+	-- directory only. Gating on the legacy text directory here is what broke
+	-- saving outright: once Data/map was deleted, EnsureMapDirectory threw on the
+	-- sandboxed os.execute and the packed branch was never reached.
 	if self:IsFullResidencyActive() then
+		if not self:EnsureBinDirectory() then return end
 		local n_chunks, n_cells = 0, 0
 		-- Removing the current key from a table during pairs() is legal in Lua,
 		-- and FoldDirtyChunkToImage clears each key as it lands.
@@ -3489,6 +3259,8 @@ function Navigation:SaveObstacleMap()
 		end
 		return
 	end
+
+	if not self:EnsureMapDirectory() then return end
 
 	local ok, err = pcall(function()
 		local n_saved = 0
@@ -3516,9 +3288,6 @@ function Navigation:SaveObstacleMap()
 					file:close()
 					n_saved = n_saved + 1
 					n_cells = n_cells + count
-					-- Keep the resident-cache inventory aware of the new diff, otherwise
-					-- an evicted chunk reloads from .dat only and loses these cells.
-					self:MarkChunkOnDisk(ck, nil, true)
 				end
 			end
 		end
@@ -3532,215 +3301,6 @@ function Navigation:SaveObstacleMap()
 	if not ok then
 		self.log_obj:Record(LogLevel.Warning, "SaveObstacleMap failed: " .. tostring(err))
 	end
-end
-
---- Integrate append-only diff logs into base chunk files.
---- Rewrites chunk_*.dat from current in-memory map and removes chunk_*.diff.
----@return boolean success
-function Navigation:IntegrateObstacleMapDiff()
-	if next(self.obstacle_map) == nil then
-		self.log_obj:Record(LogLevel.Debug, "IntegrateObstacleMapDiff skipped: in-memory map is empty")
-		return false
-	end
-	if not self:EnsureMapDirectory() then
-		return false
-	end
-
-	local ok, err = pcall(function()
-		local n_dat = 0
-		local n_diff_removed = 0
-		local n_cells = 0
-
-		for ck, cell_set in pairs(self.obstacle_map_chunk_index) do
-			local lines = {"DAV_OBMAP v3 cell_size=" .. tostring(self.obstacle_cell_size)}
-			local count = 0
-			for cell_key, _ in pairs(cell_set) do
-				local v = self.obstacle_map[cell_key]
-				if v ~= nil then
-					local vnum = (v == true) and 2 or (v == "danger" and 1 or 0)
-					local kx, ky, kz = self:UnpackCellKey(cell_key)
-					if kx then
-						lines[#lines + 1] = kx .. " " .. ky .. " " .. kz .. " " .. vnum
-						count = count + 1
-					end
-				end
-			end
-
-			if count > 0 then
-				local dat_path = self.obstacle_map_dir .. "/chunk_" .. ck .. ".dat"
-				local dat_file = io.open(dat_path, "w")
-				if dat_file then
-					dat_file:write(table.concat(lines, "\n"))
-					dat_file:close()
-					n_dat = n_dat + 1
-					n_cells = n_cells + count
-				end
-			end
-
-			local diff_path = self.obstacle_map_dir .. "/chunk_" .. ck .. ".diff"
-			if os.remove(diff_path) then
-				n_diff_removed = n_diff_removed + 1
-			end
-			-- Reflect the new on-disk state in the resident-cache inventory.
-			self:MarkChunkOnDisk(ck, count > 0, false)
-		end
-
-		self.obstacle_map_dirty_chunks = {}
-		self.obstacle_map_dirty_cells = {}
-
-		self.log_obj:Record(LogLevel.Info, string.format(
-			"Obstacle map diff integrated: %d base chunks rewritten, %d cells, %d diff files removed",
-			n_dat, n_cells, n_diff_removed))
-	end)
-
-	if not ok then
-		self.log_obj:Record(LogLevel.Warning, "IntegrateObstacleMapDiff failed: " .. tostring(err))
-		return false
-	end
-	return true
-end
-
---- Load obstacle map from chunked files in Data/map/.
---- On first call, migrates legacy obstacle_map.dat if present.
---- Uses directory enumeration (dir /b) to discover only existing chunk files,
---- avoiding the overhead of probing all coordinate combinations.
---- MERGE mode: existing in-memory entries are kept; disk entries that don't
---- exist in memory yet are added.
-function Navigation:LoadObstacleMap()
-	-- First, try to migrate legacy single-file format
-	self:MigrateOldObstacleMap()
-	self.obstacle_map_dirty_chunks = {}
-	self.obstacle_map_dirty_cells = {}
-
-	-- Shared helper: parse and load one chunk file into obstacle_map.
-	-- Returns number of cells loaded (0 if file missing or invalid).
-	local function load_chunk_file(path)
-		local file = io.open(path, "r")
-		if not file then return 0 end
-		local raw = file:read("*all")
-		file:close()
-		if not raw or raw == "" then return 0 end
-		local cs = raw:match("^DAV_OBMAP v3 cell_size=([%d%.]+)")
-		if not cs then return 0 end
-		self.obstacle_cell_size = tonumber(cs) or 10.0
-			self:SyncRouteNodeSize()
-		local n = 0
-		for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-			local key = self:PackCellKey(tonumber(cellx), tonumber(celly), tonumber(cellz))
-			local ival = tonumber(val) or 0
-			-- 2=obstacle(true), 1=danger("danger"), 0=clear(false)
-			-- Also accept legacy 1=obstacle for old files (val==1 that meant obstacle)
-			local new_val
-			if ival >= 2 then
-				new_val = true
-			elseif ival == 1 then
-				new_val = "danger"
-			else
-				new_val = false
-			end
-			-- Merge load into memory without creating dirty-save entries.
-			self:SetObstacleCellNoDirty(key, new_val)
-			self:RegisterCellInChunkIndex(key)
-			n = n + 1
-		end
-		return n
-	end
-
-	local function load_chunk_diff_file(path)
-		local file = io.open(path, "r")
-		if not file then return 0 end
-		local raw = file:read("*all")
-		file:close()
-		if not raw or raw == "" then return 0 end
-		local n = 0
-		for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-			local key = self:PackCellKey(tonumber(cellx), tonumber(celly), tonumber(cellz))
-			local ival = tonumber(val) or 0
-			local new_val
-			if ival >= 2 then
-				new_val = true
-			elseif ival == 1 then
-				new_val = "danger"
-			else
-				new_val = false
-			end
-			self:SetObstacleCellNoDirty(key, new_val)
-			self:RegisterCellInChunkIndex(key)
-			n = n + 1
-		end
-		return n
-	end
-
-	local ok, err = pcall(function()
-		local total_cells  = 0
-		local total_chunks = 0
-		local total_diff_cells = 0
-
-		-- ---- Base image: DAVOB4 binary chunks -------------------------------
-		-- One read("*a") per chunk and the whole map is resident. No per-cell Lua
-		-- work, so this is disk-bound: the full 96-chunk map measures 264 ms
-		-- against 3.8 s for the text parse it replaces, and it lands as ~200 live
-		-- GC objects instead of ~8 million.
-		local bin_list = {}
-		for _, info in ipairs(self:GetAllChunksCached(true)) do
-			if info.has_bin then
-				bin_list[#bin_list + 1] = {
-					cx = info.chunk_x, cy = info.chunk_y, path = info.bin_path,
-				}
-			end
-		end
-		if #bin_list > 0 then
-			local loaded = self.obstacle_grid:load_all(bin_list)
-			self.is_base_image_loaded = loaded > 0
-			total_chunks = loaded
-			total_cells = self.obstacle_grid.cells_known
-		end
-
-		-- ---- Fallback: legacy v3 text base ----------------------------------
-		-- Ships working without packed data. Slower and heavier, but only reached
-		-- when Data/map_bin is absent, so nobody with the packed map pays for it.
-		if not self.is_base_image_loaded then
-			for _, info in ipairs(self:GetAllChunksCached(true)) do
-				if info.has_dat then
-					local n = load_chunk_file(info.path)
-					if n > 0 then
-						total_cells  = total_cells  + n
-						total_chunks = total_chunks + 1
-					end
-				end
-			end
-		end
-
-		-- ---- Learned deltas --------------------------------------------------
-		-- Diffs always land in the learned table so the existing save/diff logic
-		-- keeps working untouched, and CellStateAtKey lets them override the base
-		-- image.
-		for _, info in ipairs(self:GetAllChunksCached(true)) do
-			if info.has_diff then
-				local dn = load_chunk_diff_file(info.diff_path)
-				if dn > 0 then
-					total_diff_cells = total_diff_cells + dn
-				end
-			end
-		end
-
-		self.obstacle_map_dirty_chunks = {}
-		self.obstacle_map_dirty_cells = {}
-
-		if total_cells > 0 or total_diff_cells > 0 then
-			self.log_obj:Record(LogLevel.Info, string.format(
-				"Obstacle map loaded: %d base cells + %d diff cells from %d chunk files",
-				total_cells, total_diff_cells, total_chunks))
-		end
-	end)
-	if not ok then
-		self.log_obj:Record(LogLevel.Warning, "LoadObstacleMap failed: " .. tostring(err))
-	end
-	self:SyncRouteNodeSize()
-	self.av_obj.core_obj.session_obstacle_map_cache = self.obstacle_map
-	self.av_obj.core_obj.session_obstacle_map_chunk_index = self.obstacle_map_chunk_index
-	self.av_obj.core_obj.session_obstacle_cell_size = self.obstacle_cell_size
-	self.av_obj.core_obj.session_obstacle_grid = self.obstacle_grid
 end
 
 --- Cast rays using the same Fibonacci sphere pattern as local avoidance (N=32).
@@ -3803,7 +3363,7 @@ end
 ---@return boolean
 function Navigation:IsObstacleRecordingEnabled()
 	return (DAV.user_setting_table.is_enable_obstacle_recording and true or false)
-		or (DAV.debug_enable_obstacle_scan and true or false)
+		or (DAV.is_debug_enable_obstacle_scan and true or false)
 end
 
 function Navigation:StartObstacleRecording()
@@ -3852,7 +3412,12 @@ end
 function Navigation:StopObstacleRecording()
 	if not self.is_obstacle_map_recording then return end
 	self.is_obstacle_map_recording = false
-	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STOPPED")
+	-- A mapping session ends here, so flush it. The periodic save inside the scan
+	-- timer is deliberately skipped while autopilot is running, and mapping flights
+	-- are exactly when recording happens -- without this, everything the session
+	-- learned sits in RAM until some later unrelated save, or is lost on a crash.
+	self:SaveObstacleMap()
+	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STOPPED (flushed)")
 end
 
 --- Get Height between ground and vehicle
@@ -6155,8 +5720,7 @@ do
 		{ "PrepareRouteChunks",                       "map.prepare_chunks" },
 		{ "StartRouteCorridorPreload",                "map.corridor" },
 		{ "DrainRouteCorridor",                       "map.corridor_drain" },
-		{ "EnsureResidentChunks",                     "map.ensure_resident" },
-		{ "EvictDistantChunks",                       "map.evict" },
+		{ "PrepareRouteChunks",                       "map.prepare_chunks" },
 		{ "ParseChunkIncremental",                    "map.chunk_parse" },
 		{ "LoadResidentChunkIncremental",             "map.resident_parse" },
 		{ "GetAllChunksCached",                       "map.inventory" },

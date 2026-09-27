@@ -53,11 +53,9 @@ V_UNKNOWN, V_CLEAR, V_DANGER, V_BLOCKED = 0, 1, 2, 3
 TEXT_TO_GRID = {0: V_CLEAR, 1: V_DANGER}
 
 
-def parse_text_chunk(path):
-    """Return (cell_size, [(cx, cy, cz, grid_value), ...])."""
-    with open(path, "rb") as fh:
-        raw = fh.read()
-    if not raw.startswith(b"DAV_OBMAP v3"):
+def _parse_cells(raw, magic):
+    """Parse a text chunk body with the given magic. Returns (cell_size, cells)."""
+    if not raw.startswith(magic):
         return None, []
     head = raw[:64].decode("ascii", "replace")
     cell_size = 10.0
@@ -77,6 +75,28 @@ def parse_text_chunk(path):
             continue
         cells.append((cx, cy, cz, TEXT_TO_GRID.get(v, V_BLOCKED)))
     return cell_size, cells
+
+
+def parse_text_chunk(path):
+    """Return (cell_size, [(cx, cy, cz, grid_value), ...])."""
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    return _parse_cells(raw, b"DAV_OBMAP v3")
+
+
+def parse_diff_chunk(path):
+    """Parse a legacy append-only delta log (DAV_OBMAP_DIFF v1).
+
+    These matter because the packed image is built from .dat alone: any delta
+    that was never integrated into the base is simply absent from the .bin, and
+    under full residency nothing reads the .diff back. Merging them here is what
+    keeps recorded obstacles from silently vanishing on the switch to packed.
+    """
+    if not os.path.isfile(path):
+        return None, []
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    return _parse_cells(raw, b"DAV_OBMAP_DIFF v1")
 
 
 def pack_chunk(cx, cy, cells, zmin=None, zmax=None):
@@ -120,6 +140,7 @@ def main():
     os.makedirs(dst, exist_ok=True)
 
     total_in = total_out = total_cells = n = 0
+    n_diff_files = n_diff_cells = 0
     manifest = []
     for name in sorted(os.listdir(src)):
         if not (name.startswith("chunk_") and name.endswith(".dat")):
@@ -134,6 +155,20 @@ def main():
         if cell_size is None:
             print(f"skip {name}: not v3", file=sys.stderr)
             continue
+
+        # Layer the delta log on top of the base snapshot. The delta is newer, so
+        # it wins per cell. Without this the packed map silently loses every
+        # recorded cell that had not been integrated into the .dat yet.
+        diff_path = os.path.join(src, f"chunk_{key}.diff")
+        _, diff_cells = parse_diff_chunk(diff_path)
+        if diff_cells:
+            by_pos = {(c[0], c[1], c[2]): c for c in cells}
+            for c in diff_cells:
+                by_pos[(c[0], c[1], c[2])] = c
+            cells = list(by_pos.values())
+            n_diff_files += 1
+            n_diff_cells += len(diff_cells)
+
         out, zmin, levels = pack_chunk(cx, cy, cells, args.zmin, args.zmax)
         out_path = os.path.join(dst, f"chunk_{cx}_{cy}.bin")
         with open(out_path, "wb") as fh:
@@ -145,6 +180,9 @@ def main():
         n += 1
 
     print(f"packed {n} chunks, {total_cells} cells")
+    if n_diff_files:
+        print(f"  merged {n_diff_cells} delta cells from {n_diff_files} .diff file(s) "
+              f"into the base")
 
     # Chunk manifest: the game otherwise discovers chunks by probing every
     # coordinate in the probe range, and a FAILED io.open costs ~0.7 ms under

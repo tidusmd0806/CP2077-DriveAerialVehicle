@@ -12,11 +12,11 @@ local gpos = Vector4.new(100, 100, 50, 1)
 Game = { GetPlayer = function() return { GetWorldPosition = function() return gpos end } end }
 json = { decode = function() return {} end, encode = function() return "{}" end }
 DAV = {
-	debug_profile_autopilot = true,     -- PROBE ON
+	is_debug_profile_autopilot = true,     -- PROBE ON
 	debug_profile_warn_ms = 1.0,
 	user_setting_table = { garage_info_list = {}, is_enable_obstacle_recording = false,
 	                     astar_calculation_precision = 100 },
-	is_debug_mode = false, debug_enable_obstacle_scan = false,
+	is_debug_mode = false, is_debug_enable_obstacle_scan = false,
 }
 spdlog = { info = function() end }
 Cron = { Every = function() return 1 end, Halt = function() end }

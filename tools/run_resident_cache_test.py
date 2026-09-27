@@ -42,7 +42,7 @@ g["print"] = pp
 
 src = open(R_TEST, encoding="utf-8").read()
 fn = L.eval("function(...) " + src + " end")
-fn(R_MOD, R_MAP)
+fn(R_MOD, R_MAP, R_BINMAP)
 """
 
 
@@ -55,17 +55,32 @@ def main():
     os.makedirs(WORKDIR, exist_ok=True)
     mod_dst = os.path.join(WORKDIR, "mod")
     map_dst = os.path.join(WORKDIR, "testmap")
+    bin_dst = os.path.join(WORKDIR, "testbin")
     shutil.rmtree(mod_dst, ignore_errors=True)
     shutil.copytree(MOD, mod_dst)
     shutil.rmtree(map_dst, ignore_errors=True)
     shutil.copytree(os.path.join(MOD, "Data", "map"), map_dst)
     shutil.copy(os.path.join(REPO, "tools", "resident_cache_test.lua"), WORKDIR)
 
+    # The runtime is packed-only now, so the fixture needs packed chunks. Pack the
+    # copied text chunks the same way the shipped map was built.
+    shutil.rmtree(bin_dst, ignore_errors=True)
+    rc = subprocess.call([sys.executable, os.path.join(REPO, "tools", "mapbin_pack.py"),
+                         "--src", map_dst, "--dst", bin_dst,
+                         "--zmin", "-4", "--zmax", "127"])
+    if rc != 0:
+        return rc
+
+    # The staged mod copy must not auto-discover packed data from its own tree;
+    # the test points at bin_dst explicitly.
+    shutil.rmtree(os.path.join(mod_dst, "Data", "map_bin"), ignore_errors=True)
+
     runner = os.path.join(WORKDIR, "_runner.py")
     with open(runner, "w", encoding="utf-8") as fh:
         fh.write("R_TEST = r%r\n" % os.path.join(WORKDIR, "resident_cache_test.lua"))
         fh.write("R_MOD = r%r\n" % mod_dst)
         fh.write("R_MAP = r%r\n" % map_dst)
+        fh.write("R_BINMAP = r%r\n" % bin_dst)
         fh.write(RUNNER_SRC)
 
     return subprocess.call([sys.executable, runner])

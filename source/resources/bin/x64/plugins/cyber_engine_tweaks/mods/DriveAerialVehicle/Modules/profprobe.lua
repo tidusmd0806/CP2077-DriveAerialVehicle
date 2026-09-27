@@ -7,7 +7,7 @@
 --   3. grep for `PROBE(` in navigation.lua and drop those call sites
 --
 -- Runtime controls (CET console / config):
---   DAV.debug_profile_autopilot = false   -- stop measuring
+--   DAV.is_debug_profile_autopilot = false   -- stop measuring
 --   DAV.debug_profile_warn_ms   = 8.0     -- per-call log threshold
 --
 -- Output:

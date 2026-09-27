@@ -25,10 +25,10 @@ function setPlayer(x, y, z) g_player_pos = Vector4.new(x, y, z, 1) end
 Game = { GetPlayer = function() return { GetWorldPosition = function() return g_player_pos end } end }
 json = { decode = function() return {} end, encode = function() return "{}" end }
 DAV = {
-	debug_profile_autopilot = false,
+	is_debug_profile_autopilot = false,
 	user_setting_table = { garage_info_list = {}, is_enable_obstacle_recording = false },
 	is_debug_mode = false,
-	debug_enable_obstacle_scan = false,
+	is_debug_enable_obstacle_scan = false,
 }
 spdlog = { info = function() end }
 
@@ -120,13 +120,18 @@ end
 print("=== 1. load the packed base image ===")
 ------------------------------------------------------------
 local nav = new_nav(BINMAP)
-nav:LoadObstacleMap()
+local g0 = 0
+while not nav.is_base_image_loaded and g0 < 5000 do
+	nav:LoadBaseImageStep(1000.0); g0 = g0 + 1
+end
 
 check("base image loaded", nav.is_base_image_loaded == true)
 check("full residency active", nav:IsFullResidencyActive() == true)
 check("all 96 chunks resident", nav.obstacle_grid.chunk_n == 96,
 	"got " .. nav.obstacle_grid.chunk_n)
-check("every known cell accounted for", nav.obstacle_grid.cells_known == 2625381,
+-- 2625384 = the 2625381 base cells plus 3 that were UNKNOWN in the .dat and
+-- only became known via the .diff merge mapbin_pack.py now performs.
+check("every known cell accounted for", nav.obstacle_grid.cells_known == 2625384,
 	"got " .. nav.obstacle_grid.cells_known)
 local sc_clear, sc_danger, sc_blocked = nav.obstacle_grid:count_states()
 check("state tallies sum to cells_known",
@@ -134,7 +139,7 @@ check("state tallies sum to cells_known",
 	string.format("%d+%d+%d vs %d", sc_clear, sc_danger, sc_blocked,
 		nav.obstacle_grid.cells_known))
 check("tallies match the shipped distribution",
-	sc_clear == 1283526 and sc_danger == 933888 and sc_blocked == 407967,
+	sc_clear == 1283488 and sc_danger == 933926 and sc_blocked == 407970,
 	string.format("clear=%d danger=%d blocked=%d", sc_clear, sc_danger, sc_blocked))
 settle()
 print(string.format("       base image heap: %.1f MB", heap_mb()))
@@ -142,9 +147,43 @@ print(string.format("       base image heap: %.1f MB", heap_mb()))
 ------------------------------------------------------------
 print("=== 2. read equivalence with the legacy text loader ===")
 ------------------------------------------------------------
-local legacy = new_nav(EMPTYMAP, TEXTMAP)
-legacy:LoadObstacleMap()
-check("legacy text map loaded", next(legacy.obstacle_map) ~= nil)
+-- The runtime no longer carries a text loader, so the comparison baseline is
+-- read here in the test. Text v3 numbering: 0=clear, 1=danger, >=2=blocked --
+-- deliberately NOT the packed numbering, which is why this comparison matters.
+local function loadTextMap(tdir, range)
+	local t = {}
+	range = range or 20
+	for cx = -range, range do
+		for cy = -range, range do
+			local f = io.open(tdir .. "/chunk_" .. cx .. "_" .. cy .. ".dat", "r")
+			if f then
+				local raw = f:read("*a"); f:close()
+				for line in raw:gmatch("[^\n]+") do
+					local x, y, z, v = line:match("^%s*(-?%d+)%s+(-?%d+)%s+(-?%d+)%s+(%d+)%s*$")
+					if x then
+						x, y, z, v = tonumber(x), tonumber(y), tonumber(z), tonumber(v)
+						t[nav:PackCellKey(x, y, z)] =
+							(v >= 2) and true or (v == 1 and "danger" or false)
+					end
+				end
+			end
+		end
+	end
+	return t
+end
+local legacy = loadTextMap(TEXTMAP)
+check("legacy text map loaded", next(legacy) ~= nil)
+
+-- A Navigation whose only data layer is that text-loaded table, so the A* and
+-- nearest-lookup comparisons below still run against the legacy shape.
+local legacy_nav = new_nav(EMPTYMAP, TEXTMAP)
+legacy_nav.obstacle_map = legacy
+local legacy_n = 0
+for _ in pairs(legacy) do legacy_n = legacy_n + 1 end
+legacy_nav.obstacle_map_learned_count = legacy_n
+check("legacy-shaped nav reads the text data",
+	legacy_nav.obstacle_map_learned_count > 2000000,
+	"got " .. legacy_nav.obstacle_map_learned_count)
 
 local mismatches, compared = 0, 0
 math.randomseed(20260926)
@@ -154,7 +193,7 @@ for _ = 1, 200000 do
 	local cz = math.random(-5, 95)
 	local k = nav:PackCellKey(cx, cy, cz)
 	local a = nav:CellStateAtKey(k)
-	local b = legacy.obstacle_map[k]
+	local b = legacy[k]
 	compared = compared + 1
 	if a ~= b then
 		mismatches = mismatches + 1
@@ -215,14 +254,13 @@ if teach_x then
 end
 
 ------------------------------------------------------------
-print("=== 5. eviction is inert under full residency ===")
+print("=== 5. learned cells survive a far move ===")
 ------------------------------------------------------------
 -- Learned cells are not a copy of the base image, so evicting them would destroy
--- recorded obstacles. EvictDistantChunks must refuse outright.
+-- recorded obstacles. There is no eviction step in the packed path at all now,
+-- which is the strongest form of the guarantee -- assert the observable property.
 setPlayer(-2750, 250, 50)   -- far from every learned cell above
 local before = nav.obstacle_map_learned_count
-local evicted = nav:EvictDistantChunks(-6, 0)
-check("EvictDistantChunks evicts nothing", evicted == 0, "got " .. tostring(evicted))
 check("learned cells survive", nav.obstacle_map_learned_count == before)
 check("learned cell still readable after far move",
 	teach_x ~= nil and nav:CellStateAtKey(nav:PackCellKey(teach_x, teach_y, teach_z)) == true)
@@ -234,8 +272,6 @@ print("=== 6. route corridor is skipped when everything is resident ===")
 local queued = nav:PrepareRouteChunks(
 	Vector4.new(100, 100, 50, 1), Vector4.new(-2610, 150, 50, 1))
 check("no corridor chunks queued", queued == 0, "got " .. tostring(queued))
-local ensure_loaded, ensure_pending = nav:EnsureResidentChunks(0, 0)
-check("EnsureResidentChunks is a no-op", ensure_loaded == 0 and ensure_pending == 0)
 
 ------------------------------------------------------------
 print("=== 7. A* routes match the legacy full-text map ===")
@@ -248,7 +284,7 @@ local routes = {
 }
 for _, r in ipairs(routes) do
 	local a = nav:PlanGlobalRoute(r[1], r[2])
-	local b = legacy:PlanGlobalRoute(r[1], r[2])
+	local b = legacy_nav:PlanGlobalRoute(r[1], r[2])
 	local same = #a == #b
 	if same then
 		for i = 1, #a do if a[i] ~= b[i] then same = false break end end
@@ -461,20 +497,15 @@ while not seednav.is_base_image_loaded and guard < 5000 do
 	guard = guard + 1
 end
 local sinv = seednav:GetAllChunksCached()
-check("seeded inventory has the packed flag", sinv[1].has_bin == true)
-check("seeded inventory is unprobed (no text-file opens)",
-	sinv[1].probed == false, "probed=" .. tostring(sinv[1].probed))
--- Ask about the text files and the probe must complete on demand.
+check("inventory entry is packed-only",
+	sinv[1].has_bin == true and sinv[1].has_dat == nil and sinv[1].has_diff == nil,
+	"has_dat=" .. tostring(sinv[1].has_dat) .. " has_diff=" .. tostring(sinv[1].has_diff))
+-- Cached lookups must not touch the filesystem at all now.
 open_reset()
-local probed = seednav:MakeChunkInfo(sinv[1].chunk_x, sinv[1].chunk_y)
-check("MakeChunkInfo completes the seeded probe lazily",
-	probed.probed == true and open_n() == 2, "opens=" .. open_n())
-check("lazy probe reports a definite text-file state",
-	type(probed.has_dat) == "boolean" and type(probed.has_diff) == "boolean",
-	tostring(probed.has_dat) .. "/" .. tostring(probed.has_diff))
-open_reset()
-seednav:MakeChunkInfo(sinv[1].chunk_x, sinv[1].chunk_y)
-check("a completed entry never re-probes", open_n() == 0, "opened " .. open_n())
+for i = 1, #sinv do
+	seednav:MakeChunkInfo(sinv[i].chunk_x, sinv[i].chunk_y)
+end
+check("cached inventory lookups open nothing", open_n() == 0, "opened " .. open_n())
 
 print("=== 15. learned cells outside the base image persist to .bin ===")
 ------------------------------------------------------------
@@ -554,6 +585,108 @@ check("reloaded cell is still blocked", rnav:CellStateAtKey(k) == true,
 -- And no .diff was written on the residency path.
 check("no .diff written under full residency",
 	#slurp(BINMAP .. "/chunk_" .. OUT_CX .. "_" .. OUT_CY .. ".diff") == 0)
+
+print("=== 16. the destructive diff-integration path is gone ===")
+------------------------------------------------------------
+-- IntegrateObstacleMapDiff rewrote chunk_*.dat from `obstacle_map` and then
+-- os.remove()d the .diff. Under the packed model obstacle_map holds only the
+-- learned overlay, so that operation destroyed the base snapshot along with any
+-- delta that had not been integrated anywhere. Removing it is the guarantee.
+check("IntegrateObstacleMapDiff no longer exists",
+	Navigation.IntegrateObstacleMapDiff == nil,
+	type(Navigation.IntegrateObstacleMapDiff))
+check("LoadObstacleMap no longer exists",
+	Navigation.LoadObstacleMap == nil, type(Navigation.LoadObstacleMap))
+check("the streaming window loader is gone",
+	Navigation.EnsureResidentChunks == nil and Navigation.EvictDistantChunks == nil,
+	type(Navigation.EnsureResidentChunks) .. "/" .. type(Navigation.EvictDistantChunks))
+check("and the packed path is what remains",
+	type(Navigation.FoldDirtyChunkToImage) == "function"
+	and type(Navigation.LoadBaseImageStep) == "function"
+	and type(Navigation.ReadBinManifest) == "function")
+
+print("=== 17. saving survives the CET sandbox with no legacy text dir ===")
+------------------------------------------------------------
+-- The regression this pins down. Data/map is gone under the packed-only
+-- migration, so EnsureMapDirectory's test write fails. The old code then fell
+-- through to os.execute('mkdir ...') -- and CET's Lua sandbox has no
+-- os.execute. Every save threw *before* reaching the packed branch, so
+-- recording ran, learned cells piled up, and .bin never changed.
+local snav = new_nav(BINMAP)
+local g17 = 0
+while not snav.is_base_image_loaded and g17 < 5000 do
+	snav:LoadBaseImageStep(1000.0); g17 = g17 + 1
+end
+check("sandbox nav is fully resident", snav:IsFullResidencyActive() == true)
+
+-- No legacy text directory anywhere, exactly like the installed mod.
+snav.obstacle_map_dir = BINMAP .. "__no_such_text_dir__"
+snav.obstacle_map_dir_ok = false
+check("legacy dir really is absent",
+	not (snav:EnsureDirWritable(snav.obstacle_map_dir)))
+
+-- CET strips these. Leaving them nil means any use raises rather than silently
+-- working, which is the whole bug made visible.
+local real_exec, real_popen = os.execute, io.popen
+os.execute, io.popen = nil, nil
+
+-- Teach a cell the base image currently calls clear.
+local function find_clear_cell(nav, skip)
+	for z = 0, 200, 2 do
+		for y = -200, 200, 11 do
+			for x = -200, 200, 11 do
+				local k = nav:PackCellKey(x, y, z)
+				if not (skip and skip[k]) and nav:CellStateAtKey(k) == false then
+					return k
+				end
+			end
+		end
+	end
+	return nil
+end
+local pk = find_clear_cell(snav, nil)
+check("found a clear cell to teach", pk ~= nil)
+
+local ok17, err17 = pcall(function()
+	snav:SetObstacleCell(pk, true)
+	snav:SaveObstacleMap()
+end)
+check("save does not throw with os.execute nil", ok17, tostring(err17))
+
+-- Prove it landed on disk, not just in RAM.
+local rnav = new_nav(BINMAP)
+local g17b = 0
+while not rnav.is_base_image_loaded and g17b < 5000 do
+	rnav:LoadBaseImageStep(1000.0); g17b = g17b + 1
+end
+check("taught cell survives a reload", rnav:CellStateAtKey(pk) == true,
+	tostring(rnav:CellStateAtKey(pk)))
+
+-- And stopping a mapping session must flush rather than leave the cells in RAM.
+-- The periodic save is skipped while autopilot runs, and mapping flights are
+-- exactly when recording happens.
+snav.is_obstacle_map_recording = true
+local pk2 = find_clear_cell(snav, { [pk] = true })
+if pk2 then
+	snav:SetObstacleCell(pk2, true)
+	check("dirty cell pending before stop",
+		next(snav.obstacle_map_dirty_cells) ~= nil)
+	local ok_stop = pcall(function() snav:StopObstacleRecording() end)
+	check("StopObstacleRecording does not throw", ok_stop)
+	check("StopObstacleRecording flushed the dirty cells",
+		next(snav.obstacle_map_dirty_cells) == nil)
+	local rnav2 = new_nav(BINMAP)
+	local g17c = 0
+	while not rnav2.is_base_image_loaded and g17c < 5000 do
+		rnav2:LoadBaseImageStep(1000.0); g17c = g17c + 1
+	end
+	check("stop-flushed cell survives a reload", rnav2:CellStateAtKey(pk2) == true,
+		tostring(rnav2:CellStateAtKey(pk2)))
+else
+	check("found a second clear cell", false, "none found")
+end
+
+os.execute, io.popen = real_exec, real_popen
 
 ------------------------------------------------------------
 print(string.format("\n%d passed, %d failed", pass, fail))

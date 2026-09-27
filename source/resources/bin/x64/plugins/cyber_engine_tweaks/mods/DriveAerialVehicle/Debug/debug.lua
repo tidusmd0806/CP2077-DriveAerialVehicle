@@ -623,7 +623,7 @@ function Debug:ImGuiObstacleMap()
         ImGui.PushStyleColor(ImGuiCol.Button, 0.7, 0.1, 0.1, 1.0)
         if ImGui.Button("STOP Recording") then
             av_obj.navigation_obj:StopObstacleRecording()
-            DAV.debug_enable_obstacle_scan = false
+            DAV.is_debug_enable_obstacle_scan = false
         end
         ImGui.PopStyleColor(1)
         ImGui.SameLine()
@@ -632,24 +632,13 @@ function Debug:ImGuiObstacleMap()
         ImGui.PushStyleColor(ImGuiCol.Button, 0.1, 0.5, 0.1, 1.0)
         if ImGui.Button("START Recording") then
             av_obj.navigation_obj:StartObstacleRecording()
-            DAV.debug_enable_obstacle_scan = true
+            DAV.is_debug_enable_obstacle_scan = true
         end
         ImGui.PopStyleColor(1)
     end
 
     ImGui.SameLine()
-    ImGui.Text("Auto-start: " .. tostring(DAV.debug_enable_obstacle_scan))
-
-    ImGui.SameLine()
-    if ImGui.Button("Integrate Diff -> Base") then
-        self.last_obstacle_diff_integrate_ok = av_obj.navigation_obj:IntegrateObstacleMapDiff()
-    end
-
-    if self.last_obstacle_diff_integrate_ok == true then
-        ImGui.TextDisabled("Diff integration: success")
-    elseif self.last_obstacle_diff_integrate_ok == false then
-        ImGui.TextDisabled("Diff integration: failed (see CET log)")
-    end
+    ImGui.Text("Auto-start: " .. tostring(DAV.is_debug_enable_obstacle_scan))
 
     ImGui.Separator()
 

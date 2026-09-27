@@ -11,7 +11,7 @@ function Vector4.Distance(a, b) return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2+(a.z-b.
 Game = { GetPlayer = function() return { GetWorldPosition = function() return Vector4.new(100, 100, 50, 1) end } end }
 json = { decode = function() return {} end, encode = function() return "{}" end }
 DAV = {
-	debug_profile_autopilot = false, user_setting_table = { garage_info_list = {}, astar_calculation_precision = 100 } }
+	is_debug_profile_autopilot = false, user_setting_table = { garage_info_list = {}, astar_calculation_precision = 100 } }
 spdlog = { info = function() end }
 local timers, nid = {}, 1
 Cron = { Every = function(to,a,b) local cb,args=a,b if type(cb)~="function" then cb,args=b,a end

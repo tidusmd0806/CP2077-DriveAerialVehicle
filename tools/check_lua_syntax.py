@@ -115,17 +115,26 @@ def check_luajit_dialect(path):
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else MOD_DEFAULT
-    if not os.path.isdir(root):
-        sys.exit(f"no such directory: {root}")
+    # Default to the mod sources AND the test/bench Lua under tools/. The test
+    # files are real LuaJIT too -- a `#` comment sneaked into one once and the
+    # gate missed it because tools/ was never walked.
+    if len(sys.argv) > 1:
+        roots = [sys.argv[1]]
+    else:
+        roots = [MOD_DEFAULT,
+                 os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools")]
+        roots = [r for r in roots if os.path.isdir(r)]
+    if not roots:
+        sys.exit("no such directory")
 
     rt51 = lua51.LuaRuntime()
     files = []
-    for base, dirs, names in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in ("Data", ".git", "map", "map_bin")]
-        for nm in sorted(names):
-            if nm.endswith(".lua"):
-                files.append(os.path.join(base, nm))
+    for root in roots:
+        for base, dirs, names in os.walk(root):
+            dirs[:] = [d for d in dirs if d not in ("Data", ".git", "map", "map_bin")]
+            for nm in sorted(names):
+                if nm.endswith(".lua"):
+                    files.append(os.path.join(base, nm))
 
     bad = 0
     for path in files:

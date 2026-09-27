@@ -30,7 +30,7 @@ local BODY_BASE   = HDR + 1
 -- string metatable's __index first.
 local byte        = string.byte
 local char        = string.char
-local tunpack     = table.unpack
+local tunpack     = unpack
 
 -- Four states, matching what the old table representation could express
 -- (nil / false / "danger" / true).
@@ -150,7 +150,7 @@ end
 ---     than the table hit it saves)
 ---@return number one of Grid.UNKNOWN / CLEAR / DANGER / BLOCKED
 function Grid:get(cx, cy, cz)
-	local c = self.chunks[((cx // CHUNK_CELLS) + 512) * 1024 + ((cy // CHUNK_CELLS) + 512)]
+	local c = self.chunks[((math.floor(cx / CHUNK_CELLS)) + 512) * 1024 + ((math.floor(cy / CHUNK_CELLS)) + 512)]
 	if c == nil then return Grid.UNKNOWN end
 
 	local lz = cz - c.zmin
@@ -172,7 +172,7 @@ end
 ---@param v number Grid.CLEAR / DANGER / BLOCKED
 ---@return boolean changed
 function Grid:set(cx, cy, cz, v)
-	local ccx, ccy = cx // CHUNK_CELLS, cy // CHUNK_CELLS
+	local ccx, ccy = math.floor(cx / CHUNK_CELLS), math.floor(cy / CHUNK_CELLS)
 	local key = ck(ccx, ccy)
 	local c = self.chunks[key]
 	if c == nil then

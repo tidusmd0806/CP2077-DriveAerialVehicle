@@ -8,8 +8,22 @@ Loads:
   - Data/map/chunk_*.dat       (legacy text v3, fallback)
   - Data/last_route.json       (optional)
 
-Renders a native VTK window (no browser) with obstacle/danger/clear points
-and the latest A* route. Includes an in-window Reload button and R hotkey.
+Renders a native VTK window (no browser) with the obstacle map and the latest
+A* route. Includes an in-window Reload button and R hotkey.
+
+By default the blocked cells are drawn as the *surface* of the voxel set rather
+than as points, so buildings and terrain read as the solid shapes they actually
+are -- which is the whole point when you are trying to judge whether a route is
+flyable. The no-fly volume gets a translucent shell wrapped around those
+solids, and --zmin/--zmax slice a height band out so you can look at one floor
+of the city on its own.
+
+    --mode surface   solid voxel skin (default)
+    --mode points    the old point cloud
+    --mode both      surfaces with points on top
+    --danger-style off / shell / edges
+    --zmin 100 --zmax 300      look at one altitude band
+    --flat-color     plain red instead of the height ramp
 
 The packed path is what the game actually reads, so this shows the same thing
 the autopilot sees - including chunks minted at runtime by a learned-cell fold,
@@ -18,6 +32,7 @@ which are recorded in Data/map_bin/manifest.txt.
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -248,6 +263,171 @@ def load_bin_map(bin_dir: Path):
     return cell_size, states, stats
 
 
+# ---------------------------------------------------------------------------
+# Voxel -> surface extraction
+#
+# The map is a 10 m voxel grid and the blocked cells are buildings and terrain.
+# Drawn as points they read as a red fog; drawn as the *skin* of the voxel set
+# they read as the structures themselves. Only faces between a filled voxel and
+# an empty neighbour are emitted, so the inside of a solid block costs nothing:
+# 410k blocked cells become ~920k quads rather than 2.5M cubes.
+#
+# Each quad gets its own four points and a winding chosen so the face normal
+# points *away* from the filled cell. That matters -- with a single fixed winding
+# roughly half the geometry is inverted and shades black under a light source,
+# which looks like holes in the buildings rather than buildings.
+#
+# Note the axis-1 wrinkle: moveaxis(1, 0) is an odd permutation, so the
+# right-handed cross product flips sign relative to axes 0 and 2. Hence the
+# per-axis table instead of one rule for all three.
+# ---------------------------------------------------------------------------
+_QUAD = ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 1.0), (0.0, 0.0, 1.0))
+# Does the listed winding put the normal on the +axis side?
+_LISTED_IS_POSITIVE = {0: True, 1: False, 2: True}
+
+
+def build_voxel_surface(mask, origin, cell_size, against=None):
+    """Boundary quads of a boolean voxel mask.
+
+    mask    -- bool ndarray (nx, ny, nz), True = solid cell
+    origin  -- (ox, oy, oz) cell index of mask[0, 0, 0]
+    cell_size -- metres per cell
+    against -- optional mask of the same shape whose cells suppress any face that
+               touches them. Used for the danger shell: a danger face that sits
+               right against a building is coplanar with that building's own
+               face, and drawing both gives z-fighting. It also halves the quad
+               count, 1.69M down to 0.80M on the shipped map.
+
+    Returns (points, faces, z_scalar) ready for pv.PolyData, or (None, None, None)
+    when nothing is emitted. z_scalar carries each point's world height so callers
+    can colour by elevation.
+    """
+    import numpy as np
+
+    ox, oy, oz = origin
+    quad = np.asarray(_QUAD, dtype=np.float64)
+    pts_chunks = []
+    n_total = 0
+
+    for ax in (0, 1, 2):
+        m = np.moveaxis(mask, ax, 0)
+        lo, hi = m[:-1], m[1:]
+        others = [a for a in (0, 1, 2) if a != ax]
+        if against is None:
+            ag_lo = ag_hi = None
+        else:
+            g = np.moveaxis(against, ax, 0)
+            ag_lo, ag_hi = g[:-1], g[1:]
+        for filled, want_positive in ((lo, True), (hi, False)):
+            sel = filled & (lo != hi)
+            if ag_lo is not None:
+                # drop the face if either side of it belongs to `against`
+                sel = sel & ~ag_lo & ~ag_hi
+            s, u, v = np.nonzero(sel)
+            if s.size == 0:
+                continue
+            use = quad if (_LISTED_IS_POSITIVE[ax] == want_positive) else quad[::-1]
+            n = s.size
+            p = np.empty((n, 4, 3), dtype=np.float64)
+            # the quad lies in the plane just past the split, offset 0 along ax
+            p[..., ax] = (s + 1)[:, None]
+            p[..., others[0]] = u[:, None] + use[None, :, 1]
+            p[..., others[1]] = v[:, None] + use[None, :, 2]
+            p[..., 0] = (p[..., 0] + ox) * cell_size
+            p[..., 1] = (p[..., 1] + oy) * cell_size
+            p[..., 2] = (p[..., 2] + oz) * cell_size
+            pts_chunks.append(p.reshape(n * 4, 3).astype(np.float32))
+            n_total += n
+
+    if n_total == 0:
+        return None, None, None
+
+    points = np.concatenate(pts_chunks, axis=0)
+    idx = np.arange(n_total * 4, dtype=np.int64).reshape(n_total, 4)
+    faces = np.column_stack([np.full(n_total, 4, dtype=np.int64), idx]).ravel()
+    return points, faces, points[:, 2].copy()
+
+
+def _cell_index(xs, ys, zs, cell_size, zlo=None, zhi=None):
+    import numpy as np
+    gx = np.floor(np.asarray(xs) / cell_size).astype(np.int64)
+    gy = np.floor(np.asarray(ys) / cell_size).astype(np.int64)
+    gz = np.floor(np.asarray(zs) / cell_size).astype(np.int64)
+    if zlo is not None:
+        keep = gz >= math.floor(zlo / cell_size)
+        gx, gy, gz = gx[keep], gy[keep], gz[keep]
+    if zhi is not None:
+        keep = gz <= math.floor(zhi / cell_size)
+        gx, gy, gz = gx[keep], gy[keep], gz[keep]
+    return gx, gy, gz
+
+
+def union_cell_bounds(sets, cell_size, zlo=None, zhi=None):
+    """Common (ox, oy, oz, nx, ny, nz) covering every point set given.
+
+    Both the blocked and danger masks have to sit on the same grid for one to be
+    able to punch faces out of the other, so the extents are agreed up front
+    rather than each mask picking its own.
+    """
+    lo = [None, None, None]
+    hi = [None, None, None]
+    for s in sets:
+        if s is None or len(s[0]) == 0:
+            continue
+        gx, gy, gz = _cell_index(s[0], s[1], s[2], cell_size, zlo, zhi)
+        if gx.size == 0:
+            continue
+        for i, g in enumerate((gx, gy, gz)):
+            mn, mx = int(g.min()), int(g.max())
+            lo[i] = mn if lo[i] is None else min(lo[i], mn)
+            hi[i] = mx if hi[i] is None else max(hi[i], mx)
+    if lo[0] is None:
+        return None
+    return (lo[0], lo[1], lo[2],
+            hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1)
+
+
+def state_mask(xs, ys, zs, cell_size, exclude=None, zlo=None, zhi=None, bounds=None):
+    """World-coordinate cell centres -> a dense boolean mask plus its origin.
+
+    `exclude` is another set of centres to punch out of the mask. `zlo` / `zhi`
+    are world-metre bounds for slicing a floor in isolation. `bounds` pins the
+    grid to a shared extent (see union_cell_bounds); cells outside it are dropped.
+    """
+    import numpy as np
+
+    if len(xs) == 0:
+        return None, None
+    gx, gy, gz = _cell_index(xs, ys, zs, cell_size, zlo, zhi)
+    if gx.size == 0:
+        return None, None
+
+    if bounds is not None:
+        ox, oy, oz, nx, ny, nz = bounds
+        keep = ((gx >= ox) & (gx < ox + nx)
+               & (gy >= oy) & (gy < oy + ny)
+               & (gz >= oz) & (gz < oz + nz))
+        gx, gy, gz = gx[keep], gy[keep], gz[keep]
+        if gx.size == 0:
+            return None, None
+    else:
+        ox = int(gx.min())
+        oy = int(gy.min())
+        oz = int(gz.min())
+        nx = int(gx.max()) - ox + 1
+        ny = int(gy.max()) - oy + 1
+        nz = int(gz.max()) - oz + 1
+    mask = np.zeros((nx, ny, nz), dtype=bool)
+    mask[gx - ox, gy - oy, gz - oz] = True
+
+    if exclude is not None and len(exclude[0]):
+        ex, ey, ez = _cell_index(exclude[0], exclude[1], exclude[2], cell_size)
+        mx = ((ex >= ox) & (ex < ox + nx) & (ey >= oy) & (ey < oy + ny)
+              & (ez >= oz) & (ez < oz + nz))
+        mask[ex[mx] - ox, ey[mx] - oy, ez[mx] - oz] = False
+    return mask, (ox, oy, oz)
+
+
 def resolve_map_source(path: Path, force: str | None = None):
     """Pick packed or text loading from whatever `path` points at.
 
@@ -381,6 +561,7 @@ def collect_visual_data(data_path: Path, route_path: Path, no_obstacles: bool, n
     obs_xs, obs_ys, obs_zs = [], [], []
     dng_xs, dng_ys, dng_zs = [], [], []
     cxs, cys, czs = [], [], []
+    cell_size = 10.0
 
     if no_obstacles and no_clear:
         if verbose:
@@ -448,11 +629,31 @@ def collect_visual_data(data_path: Path, route_path: Path, no_obstacles: bool, n
         "cxs": cxs,
         "cys": cys,
         "czs": czs,
+        "cell_size": cell_size,
         "route": route,
     }
 
 
-def render_pyvista(data: dict, out_path: Path | None, show_clear: bool, reload_loader=None):
+# Rendering palette. Blocked keeps the red collision semantic but is drawn as a
+# shaded solid. The height ramp stays inside the red family on purpose: an
+# earlier version opened on slate blue for low cells, which made every
+# street-level obstacle read as terrain-coloured background instead of
+# something you would hit.
+BLOCKED_COLOR = "#c9313c"
+DANGER_COLOR = "#ff9f43"
+CLEAR_COLOR = "#7ee8a2"
+HEIGHT_CMAP = ["#5c1018", "#8e1c22", "#c4392b", "#e8763a", "#f7d488"]
+
+
+def render_pyvista(data: dict, out_path: Path | None, show_clear: bool,
+                  reload_loader=None, mode: str = "surface",
+                  height_color: bool = True, zlo=None, zhi=None,
+                  show_edges: bool = False, offscreen=None,
+                  danger_opacity: float = 0.12,
+                  danger_color: str = DANGER_COLOR,
+                  danger_style: str = "shell",
+                  ground: bool = True,
+                  focus_route: bool = False):
     try:
         import numpy as np
         import pyvista as pv
@@ -460,10 +661,25 @@ def render_pyvista(data: dict, out_path: Path | None, show_clear: bool, reload_l
         print("pyvista not installed. Run: pip install pyvista", file=sys.stderr)
         sys.exit(1)
 
-    plotter = pv.Plotter(window_size=(1600, 900), title="DriveAerialVehicle - Obstacle Map (PyVista)")
+    plotter = pv.Plotter(window_size=(1600, 900), title="DriveAerialVehicle - Obstacle Map (PyVista)",
+                        off_screen=bool(offscreen))
     plotter.set_background("#0d0d1a")
     plotter.add_axes(line_width=1, color="white")
+    # VTK's default light rides with the camera, which is enough for flat-shaded
+    # voxels, but a second fixed key light keeps faces lit that the camera grazes
+    # edge-on -- without it those read as black gaps in the buildings.
+    try:
+        import vtkmodules.vtkRenderingCore as _vrc
+        key = _vrc.vtkLight()
+        key.SetLightTypeToSceneLight()
+        key.SetPosition(0.35, 0.45, 0.85)
+        key.SetIntensity(0.55)
+        key.SetColor(1.0, 0.97, 0.92)
+        plotter.renderer.add_light(key)
+    except Exception:
+        pass
     route_actor_names = []
+    surface_actor_names = []
 
     def remove_actor(name: str):
         try:
@@ -500,12 +716,104 @@ def render_pyvista(data: dict, out_path: Path | None, show_clear: bool, reload_l
         czs = cur["czs"]
         route = cur["route"]
 
-        if show_clear:
-            set_points("pts_clear", cxs, cys, czs, "#88ddaa", 2, 0.18)
+        cell_size = cur.get("cell_size", 10.0) or 10.0
+        want_surface = mode in ("surface", "both")
+        want_points = mode in ("points", "both")
+        surf_quads = {"blocked": 0, "danger": 0}
+
+        # ---- surfaces: the actual shapes of the collision volume ----------
+        for nm in surface_actor_names:
+            remove_actor(nm)
+        surface_actor_names.clear()
+
+        if want_surface:
+            # One shared grid for both masks so the blocked set can punch faces
+            # out of the danger shell.
+            bnd = union_cell_bounds(
+                [(obs_xs, obs_ys, obs_zs), (dng_xs, dng_ys, dng_zs)],
+                cell_size, zlo, zhi)
+            bm, bor = state_mask(obs_xs, obs_ys, obs_zs, cell_size,
+                                zlo=zlo, zhi=zhi, bounds=bnd)
+            if bm is not None:
+                p, f, zsc = build_voxel_surface(bm, bor, cell_size)
+                if p is not None:
+                    mesh = pv.PolyData(p, f)
+                    kw = dict(lighting=True, name="surf_blocked",
+                            line_width=0.6, show_edges=show_edges)
+                    if height_color:
+                        kw.update(scalars=zsc, cmap=HEIGHT_CMAP,
+                                 edge_color="#20090e",
+                                 scalar_bar_args=dict(
+                                     title="height (m)", vertical=True,
+                                     height=0.5, width=0.035,
+                                     position_x=0.905, position_y=0.25,
+                                     title_font_size=11, label_font_size=10,
+                                     color="#ccccee",
+                                     background_color="#14142a"))
+                    else:
+                        kw.update(color=BLOCKED_COLOR)
+                    plotter.add_mesh(mesh, **kw)
+                    surface_actor_names.append("surf_blocked")
+                    surf_quads["blocked"] = len(f) // 5
+
+            # Danger wraps around the buildings rather than cutting through them,
+            # so the no-fly volume reads as one continuous shell. Backface
+            # culling halves the overdraw, which matters at ~800k quads.
+            dm, dor = state_mask(dng_xs, dng_ys, dng_zs, cell_size,
+                                zlo=zlo, zhi=zhi, bounds=bnd)
+            if dm is not None and danger_style != "off":
+                p, f, _ = build_voxel_surface(dm, dor, cell_size,
+                                             against=(bm if bm is not None else None))
+                if p is not None:
+                    mesh = pv.PolyData(p, f)
+                    if danger_style == "edges":
+                        # Wireframe of the same shell: shows the envelope's
+                        # structure without tinting the whole scene.
+                        plotter.add_mesh(mesh, style="wireframe", color=danger_color,
+                                       line_width=0.4, opacity=danger_opacity * 2.2,
+                                       name="surf_danger")
+                    else:
+                        plotter.add_mesh(mesh, color=danger_color,
+                                       opacity=danger_opacity,
+                                       lighting=False, backface_culling=True,
+                                       name="surf_danger")
+                    surface_actor_names.append("surf_danger")
+                    surf_quads["danger"] = len(f) // 5
+
+            # z=0 reference lattice, so a height slice still tells you which way
+            # is up and how far above the street you are looking.
+            if ground:
+                try:
+                    arrays = [a for a in (obs_xs, obs_ys, dng_xs, dng_ys, cxs, cys) if len(a)]
+                    if arrays:
+                        x0 = min(float(np.min(a)) for a in arrays[0::2])
+                        x1 = max(float(np.max(a)) for a in arrays[0::2])
+                        y0 = min(float(np.min(a)) for a in arrays[1::2])
+                        y1 = max(float(np.max(a)) for a in arrays[1::2])
+                        step = max(cell_size * 10.0, 100.0)
+                        nx = max(int((x1 - x0) // step) + 1, 2)
+                        ny = max(int((y1 - y0) // step) + 1, 2)
+                        lat = pv.ImageData(dimensions=(nx, ny, 1),
+                                         origin=(x0, y0, 0.0),
+                                         spacing=(step, step, 1.0))
+                        plotter.add_mesh(lat, style="wireframe", color="#263252",
+                                       line_width=0.5, name="ground_grid")
+                        surface_actor_names.append("ground_grid")
+                except Exception:
+                    pass
+
+        # ---- points: the legacy view, still useful for spotting density ----
+        if want_points:
+            if show_clear:
+                set_points("pts_clear", cxs, cys, czs, CLEAR_COLOR, 2, 0.18)
+            else:
+                remove_actor("pts_clear")
+            set_points("pts_danger", dng_xs, dng_ys, dng_zs, DANGER_COLOR, 2, 0.30)
+            set_points("pts_obstacle", obs_xs, obs_ys, obs_zs, BLOCKED_COLOR, 3, 0.70)
         else:
             remove_actor("pts_clear")
-        set_points("pts_danger", dng_xs, dng_ys, dng_zs, "#ffbb77", 2, 0.30)
-        set_points("pts_obstacle", obs_xs, obs_ys, obs_zs, "#dd2233", 3, 0.70)
+            remove_actor("pts_danger")
+            remove_actor("pts_obstacle")
 
         clear_route_actors()
 
@@ -569,7 +877,13 @@ def render_pyvista(data: dict, out_path: Path | None, show_clear: bool, reload_l
             register_route_actor("route_start")
             register_route_actor("route_goal")
 
-        stats = f"Obstacle: {len(obs_xs)}\nDanger: {len(dng_xs)}\nClear: {len(cxs)}"
+        stats = f"Obstacle: {len(obs_xs)}  Danger: {len(dng_xs)}  Clear: {len(cxs)}"
+        if want_surface:
+            stats += (f"\n[surface] blocked {surf_quads['blocked']:,} quads"
+                      f" / danger {surf_quads['danger']:,} quads")
+        if zlo is not None or zhi is not None:
+            stats += f"\nheight slice: {zlo if zlo is not None else '-inf'} .. " \
+                    f"{zhi if zhi is not None else '+inf'} m"
         if route and route.get("segments"):
             stats += f"\nRoute Segments: {len(route['segments'])}"
         if route:
@@ -584,6 +898,26 @@ def render_pyvista(data: dict, out_path: Path | None, show_clear: bool, reload_l
         plotter.add_text(stats, position="upper_left", font_size=10, color="#ddddee", name="stats_text")
 
     draw(data)
+
+    # Fit the whole map first. focus_route then overrides with a tighter framing.
+    # Note pyvista's show() has no reset_camera kwarg -- it is the act of
+    # assigning camera_position that marks the camera as modified and stops VTK
+    # from auto-fitting on the first render.
+    plotter.reset_camera()
+    if focus_route and data.get("route") and data["route"]["xs"]:
+        try:
+            r = data["route"]
+            rp = np.column_stack([r["xs"], r["ys"], r["zs"]]).astype(float)
+            c = rp.mean(axis=0)
+            span = float((rp.max(axis=0) - rp.min(axis=0)).max())
+            d = max(span * 2.0, 500.0)
+            plotter.camera_position = [
+                (c[0] - d * 0.45, c[1] - d * 0.75, c[2] + d * 1.05),
+                (float(c[0]), float(c[1]), float(c[2])),
+                (0.0, 0.0, 1.0),
+            ]
+        except Exception:
+            pass
 
     if reload_loader and out_path is None:
         busy = {"v": False}
@@ -607,7 +941,10 @@ def render_pyvista(data: dict, out_path: Path | None, show_clear: bool, reload_l
     if out_path:
         suffix = out_path.suffix.lower()
         if suffix in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}:
-            plotter.show(auto_close=False)
+            if not offscreen:
+                plotter.show(auto_close=False)
+            else:
+                plotter.render()
             plotter.screenshot(str(out_path))
             plotter.close()
             print(f"Saved to {out_path}")
@@ -634,6 +971,34 @@ def main():
     parser.add_argument("--out", type=Path, default=None, metavar="FILE", help="Save to image file")
     parser.add_argument("--no-obstacles", action="store_true", help="Hide obstacle cells (show route only)")
     parser.add_argument("--no-clear", action="store_true", help="Hide confirmed-clear cells")
+    parser.add_argument("--mode", choices=("surface", "points", "both"), default="surface",
+                      help="surface = solid voxel skin, reads as real buildings and "
+                           "terrain (default). points = the old point cloud. "
+                           "both = surfaces with the points on top.")
+    parser.add_argument("--flat-color", action="store_true",
+                      help="Plain red for blocked instead of the height colour ramp")
+    parser.add_argument("--edges", action="store_true",
+                      help="Stroke the quad edges over the surface")
+    parser.add_argument("--zmin", type=float, default=None, metavar="M",
+                      help="Draw only cells at or above this world height (metres)")
+    parser.add_argument("--zmax", type=float, default=None, metavar="M",
+                      help="Draw only cells at or below this world height (metres)")
+    parser.add_argument("--no-ground", action="store_true",
+                      help="Skip the z=0 reference grid")
+    parser.add_argument("--danger-style", choices=("shell", "edges", "off"),
+                      default="shell",
+                      help="How the no-fly volume reads: translucent shell "
+                           "(default), wireframe, or hidden")
+    parser.add_argument("--danger-opacity", type=float, default=0.10, metavar="A",
+                      help="Opacity of the danger shell (default 0.10)")
+    parser.add_argument("--danger-color", default=DANGER_COLOR,
+                      help="Colour of the danger shell (default %s)" % DANGER_COLOR)
+    parser.add_argument("--offscreen", action="store_true",
+                      help="Render without opening a window (needed over SSH / "
+                           "for scripted screenshots)")
+    parser.add_argument("--focus-route", action="store_true",
+                      help="Frame the camera on the route instead of the whole "
+                           "6 km map -- the route is a speck otherwise")
     args = parser.parse_args()
 
     if args.bin is not None and args.text is not None:
@@ -666,7 +1031,17 @@ def main():
     reload_loader = None if args.out else (
         lambda: collect_visual_data(data_path, route_path, args.no_obstacles,
                                   args.no_clear, verbose=False, force_mode=force_mode))
-    render_pyvista(data, args.out, show_clear, reload_loader)
+    render_pyvista(data, args.out, show_clear, reload_loader,
+                  mode=args.mode,
+                  height_color=not args.flat_color,
+                  zlo=args.zmin, zhi=args.zmax,
+                  show_edges=args.edges,
+                  offscreen=args.offscreen or bool(args.out),
+                  danger_opacity=args.danger_opacity,
+                  danger_color=args.danger_color,
+                  danger_style=args.danger_style,
+                  ground=not args.no_ground,
+                  focus_route=args.focus_route)
 
 
 if __name__ == "__main__":

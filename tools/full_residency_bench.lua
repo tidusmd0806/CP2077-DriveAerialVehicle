@@ -20,9 +20,9 @@ local gpos = Vector4.new(100, 100, 50, 1)
 Game = { GetPlayer = function() return { GetWorldPosition = function() return gpos end } end }
 json = { decode = function() return {} end, encode = function() return "{}" end }
 DAV = {
-	debug_profile_autopilot = false, user_setting_table = { garage_info_list = {}, is_enable_obstacle_recording = false,
+	is_debug_profile_autopilot = false, user_setting_table = { garage_info_list = {}, is_enable_obstacle_recording = false,
 	                          astar_calculation_precision = 100 },
-	is_debug_mode = false, debug_enable_obstacle_scan = false }
+	is_debug_mode = false, is_debug_enable_obstacle_scan = false }
 spdlog = { info = function() end }
 Cron = { Every = function() return 1 end, Halt = function() end }
 
@@ -75,7 +75,12 @@ print(string.format("=== MODE = %s ===", MODE))
 settle()
 local base = mb()
 local t0 = clk()
-nav:LoadObstacleMap()
+-- Packed-only runtime: drain the budgeted base-image loader.
+local guard = 0
+while not nav.is_base_image_loaded and guard < 100000 do
+	nav:LoadBaseImageStep(1e9)
+	guard = guard + 1
+end
 local load_ms = clk() - t0
 settle()
 local live = mb() - base

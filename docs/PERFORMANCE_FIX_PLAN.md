@@ -830,7 +830,7 @@ end
 同梱マップ（96 chunk / 36MB / 2,625,381 cell）が既に市街地をカバーしており、
 一般プレイヤーが書き込む必要はない。
 
-適用前は `DAV.debug_enable_obstacle_scan`（`init.lua`、既定 false）のみで制御され、
+適用前は `DAV.is_debug_enable_obstacle_scan`（`init.lua`、既定 false）のみで制御され、
 **デバッグメニューからしか切り替えられなかった**。
 
 ### 追加した設定
@@ -844,7 +844,7 @@ end
 ```lua
 function Navigation:IsObstacleRecordingEnabled()
     return (DAV.user_setting_table.is_enable_obstacle_recording and true or false)
-        or (DAV.debug_enable_obstacle_scan and true or false)
+        or (DAV.is_debug_enable_obstacle_scan and true or false)
 end
 ```
 
@@ -1935,3 +1935,234 @@ end
 既存回帰   : 76 passed, 0 failed
 構文ゲート  : 21 files, 0 problems
 ```
+
+---
+
+## 4V. 実行時を packed のみに統一（テキスト形式の削除）
+
+### 動機
+`Data/map_bin` + `manifest.txt` が本番化して以降、`.dat` / `.diff` は実行時に
+**一切読まれていない**。残っているのは観測上のノイズと、誤作動の危険だけだった。
+
+特に危険だったのが `IntegrateObstacleMapDiff`。`obstacle_map` から `.dat` を
+**書き直し**、その後 `.diff` を `os.remove()` する。full residency 下では
+`obstacle_map` は学習オーバーレイ（数千セル）しか持たないので、これを呼ぶと
+  - 完全なベース・スナップショットが数セルに縮み
+  - まだ統合されていない `.diff` の差分が削除される
+実際に `.diff` に 42 セルが `.bin` 未統合で残っており、消えると恒久損失だった。
+
+### 削除したもの（`Modules/navigation.lua` から 398 行）
+| 関数 | 理由 |
+|---|---|
+| `LoadObstacleMap` | 呼び出し元ゼロ（死コード）。テキスト一括ロード |
+| `LoadObstacleMapChunkFile` | 同上のチャンク版 |
+| `BuildObstacleMapLoadQueue` | ストリーミング用キュー構築 |
+| `ProcessObstacleMapLoadBatch` | 1 バッチ=1 ファイルのテキスト解析 |
+| `IntegrateObstacleMapDiff` | **破壊的**。上記 |
+| `EnsureResidentChunks` | 窓方式のウィンドウ充填 |
+| `EvictDistantChunks` | 窓方式の退避 |
+
+`Debug/debug.lua` の `Integrate Diff -> Base` ボタンも削除。
+
+### 簡素化したもの
+- `MakeChunkInfo` — `.bin` だけを調べる。`path` / `diff_path` / `has_dat` /
+  `has_diff` / `probed` を廃止。1 チャンク 3 回だった `io.open` が 1 回に。
+- `GetAllChunksCached` — `has_bin` のチャンクのみ返す。
+- `MarkChunkOnDisk(chunk_key)` — 引数簡素化。
+- `MaintainObstacleMapCache` — packed のみ：
+  未ロードなら `LoadBaseImageStep`、済なら学習フラッシュして `true`。
+  窓追従・退避・廊下ドレインは無し。
+- `packed_chunks()`（`mapbin_pack.py`）— `.dat` に `.diff` を**マージしてから**
+  パックする。順序はセル単位で diff 優先。
+
+### packed が無い場合の挙動
+従来は「テキストへフォールバック」。今は **明示エラー**：
+
+```
+NO PACKED OBSTACLE MAP: no chunk_*.bin found under Data/map_bin
+Run tools/mapbin_pack.py --src Data/map --dst Data/map_bin --zmin -4 --zmax 127
+```
+
+フォールバック先が無いことを隠さず、対処方法をそのまま出す。
+
+### 残る `.dat` の位置づけ
+`mapbin_pack.py` の**入力専用**。配布物には含めなくてよい。
+実行時は読まない。ライブの `Data/map` に残る 2 個の `.diff` も、
+内容はすでに `.bin` へ統合済みなので削除して問題ない。
+
+### テストへの影響
+`resident_cache_test.lua` は窓方式の回帰テストだったため、廃止セクション
+（窓充填・退避・廊下プリロード）を除去し、有効な 4 セクションに再構成：
+inベントリ列挙 / セルキー往復 / 頑健性 / プロセス起動ガード / watchdog。
+ランナーは packed を用意して `obstacle_map_bin_dir` を明示的に渡す
+（既定値 `Data/map_bin` はゲームの CWD 基準なので、ハーネスでは解決できない）。
+
+`grid_integration_test.lua` は 16 番を「破壊的パスが存在しないこと」の
+構造ガードに置き換えた。
+
+### 構文ゲートの網羅性を改善
+`tools/check_lua_syntax.py` の既定対象が mod ディレクトリだけで、
+`tools/*.lua` が検査外だった。テスト Lua も実 LuaJIT なので追加したところ、
+即座に `#` コメント（Python 記法）の混入を検出した。
+加えて遺棄プロトタイプ 3 ファイルの `//` と `table.unpack` を修正。
+
+**40 ファイル / 0 問題**
+
+### 最終テスト状態
+| 実行 | 結果 |
+|---|---|
+| `python tools/check_lua_syntax.py` | 40 files, 0 problems |
+| `python tools/run_grid_integration_test.py` | 101 passed, 0 failed |
+| `python tools/run_resident_cache_test.py` | 33 passed, 0 failed |
+| `python tools/run_grid_integration_test.py probe_smoke.lua` | 15 passed, 0 failed |
+
+---
+
+## 5. `visualize_obstacle_map.py` — 点群からソリッド面へ
+
+### 問題
+衝突セルを点で描いていたため、建物も地形も「赤い霧」にしか見えなかった。
+地図作りには「あの塊がビルで、この隙間が通路」と立体で読み取れる必要がある。
+
+### 対応：ボクセル表面の抽出
+衝突セル集合の**外皮だけ**を出した。埋まったセルと空のセルの境目の面のみ生成
+するので、 solidity なブロックの内部はコストゼロ。
+
+| | 点描画 | 面描画 |
+|---|---|---|
+| blocked 410,579 cell | 41 万点 | **921,090 quad** |
+| danger 933,962 cell | 93 万点 | **801,806 quad**（除外後） |
+
+抽出は numpy で 0.11 秒、全体のレンダリングは 2 秒。
+
+### 実装で注意した点
+- **面の向き（winding）を面ごとに決めている。** 一様な winding にすると
+  半分くらいの面が内側を向いて、光源下で黒く潰れ、建物に穴が開いている
+ ように見えた。
+- **`moveaxis(1, 0)` は奇置換**なので、軸 0・2 と外積の符号が反転する。
+  3 軸共通の規則にはできず、軸ごとの表になっている。
+- **danger シェルは建物に接する面を除外**した。建物の面と同一平面上に
+  重なるため z-fighting の原因になる。除外で quad は 1,690,837 → 801,806 と
+  半減し、描画も軽くなった。
+  （blocked と danger はセルが重複しないので、マスクから抜くのでは不十分で、
+   **面レベル**で除く必要がある。）
+
+### 追加したオプション
+```
+--mode surface|points|both    既定 surface。points は従来の点群
+--danger-style shell|edges|off  no-fly 体積の見え方
+--danger-opacity A            シェルの不透明度（既定 0.10）
+--zmin M --zmax M             高度帯でスライスして一層だけ見る
+--flat-color                  高度ランプをやめて単色赤
+--edges                       面にワイヤーフレームを重ねる
+--no-ground                   z=0 基準グリッドを消す
+--focus-route                 カメラをルートに寄せる
+--offscreen                   ウィンドウを開かずレンダリング
+```
+
+### 効果が高かったもの
+- **高度カラーランプ**。低い所を濃い赤、高い所を明るいクリームに。
+  最初は低い所をスレート青にしていたが、地上レベルの障害物が
+  「背景の地形」に見えて障害物だと分からなくなった。赤系で統一して解決。
+- **`--zmin/--zmax` のスライス**。100〜300m で見ると、タワー群・高架道路・
+  円形構造物など中層の構造がはっきり読める。
+- **`--focus-route`**。地図が約 6km あるため 900m のルートは点に等しい。
+  カメラをルートに合わせると、建物の間をどう抜けたかがそのまま見える。
+
+### バックアップ
+変更前のスクリプトは `tools/visualize_obstacle_map.py.bak` に残してある。
+
+### 修正: `show(reset_camera=...)` は pyvista 0.49 に存在しない
+初版は `plotter.show(reset_camera=reset_cam)` を使っていたが、pyvista 0.49 の
+`show()` にその引数はない（`title / window_size / interactive / auto_close /
+cpos / ...` のみ）。`--out` 経由でテストしていたため対話分岐が一度も実行されず、
+ウィンドウを開いた時に初めて落ちた。
+
+正しくは **`plotter.reset_camera()` を明示的に呼び、focus_route のときだけ
+`camera_position` で上書き**する。`camera_position` を代入すること自体が
+カメラを「変更済み」として扱い、VTK が最初のレンダリングで自動フィットするのを
+抑える。`show()` に引数を渡す必要はない。
+
+```python
+plotter.reset_camera()                 # 全体に合わせる
+if focus_route and route and route["xs"]:
+    plotter.camera_position = [eye, route_centre, (0, 0, 1)]
+plotter.show()
+```
+
+検証: `reset_camera` 呼び出し 1 回、その後 focus 時の focal point はルート中心
+(10, 5, 20) に一致。対話分岐を monkeypatch で実行し、`show()` の kwargs が
+空であることを確認。ライブフォルダでも同じく OK。
+
+---
+
+## 6. packed-only 移行で保存が全死していた（`os.execute` は CET に無い）
+
+### 症状
+記録を有効にしても `.bin` の mtime が動かない。ログには `STARTED` / `STOPPED`
+だけ並んで `saved (packed)` が 1 件も出ない。
+
+```
+[13:14:36] Obstacle map recording STARTED (merged with saved map)
+[13:15:42] navigation.lua:3136: attempt to call field 'execute' (a nil value)
+[13:16:12] navigation.lua:3136: attempt to call field 'execute' (a nil value)
+[13:16:42] navigation.lua:3136: attempt to call field 'execute' (a nil value)
+... 30 秒ごと ...
+```
+
+### 原因
+`SaveObstacleMap` は residency 分岐に入る**前**に `EnsureMapDirectory()` で
+ゲートしていた。そして packed-only 移行で `Data/map` を消したため：
+
+1. `io.open("Data/map/.dirtest", "w")` が失敗（ディレクトリが存在しない）
+2. フォールバックの `os.execute('mkdir ...')` へ進む
+3. **CET の Lua サンドボックスに `os.execute` は無い** → nil 呼び出しで例外
+4. `SaveObstacleMap` は packed 分岐に到達する前で死ぬ → `.bin` は永遠に書かれない
+
+`Data/map` が存在していた間は 2 に到達しないので、この欠陥は表面化しなかった。
+移行の「テキスト形式を消した」部分が、保存経路を一緒に壊していた。
+
+### 修正
+- `EnsureDirWritable(dir)` を新設。**シェルに一切頼らない**書き込み_probe のみ。
+- `EnsureBinDirectory()` を新設。residency 下の保存は**packed ディレクトリだけ**
+  を見る。
+- `SaveObstacleMap` の residency 分岐を**どのディレクトリ・ゲートよりも前**に
+  移動。テキスト dir の状態が packed 保存を止める経路を無くした。
+- `EnsureMapDirectory()` は非 residency 経路専用の probe に格下げ。失敗しても
+  Warning を出して packed 保存には影響しない。
+
+### 追加で塞いだ穴：記録停止時に flush していなかった
+`StopObstacleRecording()` はフラグを落とすだけで保存しなかった。一方 periodic
+save は **autopilot 稼働中は意図的にスキップ**される：
+
+```lua
+if not self.av_obj.is_auto_pilot then
+    self:SaveObstacleMap()
+else
+    -- "periodic save skipped (autopilot active)"
+end
+```
+
+マッピング飛行はまさに autopilot 中なので、periodic save はほぼ永遠に来ない。
+セッションが学んだセルは RAM に残り、クラッシュすれば消える。
+`StopObstacleRecording()` から `SaveObstacleMap()` を呼ぶようにした。
+
+### 回帰テスト（integration 17 節）
+サンドボックス条件をそのまま再現する：
+
+- `obstacle_map_dir` を存在しないパスにする
+- `os.execute = nil` / `io.popen = nil`（CET と同じ）
+- クリアなセルを 1 つ teaching → `SaveObstacleMap()`
+- 例外が出ないこと、**リロードしてそのセルが blocked で読めること**
+- 第 2 のセルで `StopObstacleRecording()` → dirty が空になり、リロードでも残ること
+
+`os.execute` を nil にして pcall が通ること自体が「保存経路が一度も呼んでいない」
+ことの証明になっている。
+
+### 最終テスト状態
+| 実行 | 結果 |
+|---|---|
+| `python tools/check_lua_syntax.py` | 40 files, 0 problems |
+| `python tools/run_grid_integration_test.py` | **110 passed, 0 failed** |
+| `python tools/run_resident_cache_test.py` | 33 passed, 0 failed |
+| `python tools/run_grid_integration_test.py probe_smoke.lua` | 15 passed, 0 failed |

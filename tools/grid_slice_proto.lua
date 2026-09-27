@@ -20,7 +20,7 @@ local SLICE_BYTES = 2500          -- 50 x 50
 local CHUNK_CELLS = 50
 local HDR, BODY_BASE = 16, 17
 local byte, char, concat = string.byte, string.char, table.concat
-local tunpack = table.unpack
+local tunpack = unpack
 
 local Slice = {}
 Slice.__index = Slice
@@ -103,7 +103,7 @@ end
 
 --- Hot read: chunk -> z slice -> byte.
 function Slice:get(cx, cy, cz)
-	local c = self.chunks[((cx // CHUNK_CELLS) + 512) * 1024 + ((cy // CHUNK_CELLS) + 512)]
+	local c = self.chunks[((math.floor(cx / CHUNK_CELLS)) + 512) * 1024 + ((math.floor(cy / CHUNK_CELLS)) + 512)]
 	if c == nil then return 0 end
 	local lz = cz - c.zmin
 	if lz < 0 or lz >= c.zlevels then return 0 end
@@ -148,7 +148,7 @@ end
 --- Write one learned cell.
 ---@return boolean changed
 function Slice:set(cx, cy, cz, v)
-	local ccx, ccy = cx // CHUNK_CELLS, cy // CHUNK_CELLS
+	local ccx, ccy = math.floor(cx / CHUNK_CELLS), math.floor(cy / CHUNK_CELLS)
 	local k = ((ccx + 512) * 1024) + (ccy + 512)
 	local c = self.chunks[k]
 	if c == nil then

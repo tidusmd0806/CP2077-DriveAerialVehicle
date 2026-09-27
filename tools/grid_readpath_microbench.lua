@@ -10,7 +10,7 @@ function Vector4.Distance(a, b) return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^
 Game = { GetPlayer = function() return { GetWorldPosition = function() return Vector4.new(0, 0, 0, 1) end } end }
 json = { decode = function() return {} end, encode = function() return "{}" end }
 DAV = {
-	debug_profile_autopilot = false, user_setting_table = {}, is_debug_mode = false, debug_enable_obstacle_scan = false }
+	is_debug_profile_autopilot = false, user_setting_table = {}, is_debug_mode = false, is_debug_enable_obstacle_scan = false }
 spdlog = { info = function() end }
 Cron = { Every = function() return 1 end, Halt = function() end }
 
@@ -80,7 +80,7 @@ end
 
 -- Variant D: // + bound byte, no chunk cache.
 local function v_nocache(x, y, z)
-	local c = grid.chunks[((x // 50 + 512) * 1024) + (y // 50 + 512)]
+	local c = grid.chunks[((math.floor(x / 50) + 512) * 1024) + (math.floor(y / 50) + 512)]
 	if c == nil then return 0 end
 	local lz = z - c.zmin
 	if lz < 0 or lz >= c.zlevels then return 0 end
