@@ -1,3 +1,4 @@
 user_setting*.json
 last_route.json
 *.diff
+*.pyc

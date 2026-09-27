@@ -20,6 +20,10 @@ function HUD:New()
     obj.hud_phone_controller = nil
     obj.is_manually_setting_speed = false
     obj.is_manually_setting_rpm = false
+    -- speedometer unit label (mph_text). Cached because the deep widget path is
+    -- fragile, and remembered so we only write it when it actually changes.
+    obj.mph_text_widget = nil
+    obj.is_mph_display_on = nil
     -- input hint
     obj.is_keyboard_input = true
     obj.input_hint_mapping_table = {}
@@ -101,7 +105,11 @@ function HUD:SetOverride()
 
         Override("hudCarController", "OnSpeedValueChanged", function(_, speedValue, wrappedMethod)
             local result = true
-            if not DAV.core_obj.event_obj:IsInVehicle() or not self.is_manually_setting_speed then
+            -- Gate on the situation, not on IsInVehicle(). IsInVehicle() calls
+            -- IsPlayerMounted() in C#, and a momentary false there lets the game
+            -- paint km/h over our distance readout, which shows up as the number
+            -- flickering between the two during autopilot.
+            if not DAV.core_obj.event_obj:IsInAVSituation() or not self.is_manually_setting_speed then
                 result = wrappedMethod(speedValue)
             end
             return result
@@ -109,7 +117,7 @@ function HUD:SetOverride()
 
         Override("hudCarController", "OnRpmValueChanged", function(_, rpmValue, wrappedMethod)
             local result = true
-            if not DAV.core_obj.event_obj:IsInVehicle() or not self.is_manually_setting_rpm then
+            if not DAV.core_obj.event_obj:IsInAVSituation() or not self.is_manually_setting_rpm then
                 result = wrappedMethod(rpmValue)
             end
             return result
@@ -130,10 +138,16 @@ function HUD:SetObserve()
 
         Observe("hudCarController", "OnInitialize", function(this)
             self.hud_car_controller = this
+            -- A fresh HUD means the cached label widget is stale, and the game has
+            -- just written its own unit text, so forget what we last set too.
+            self.mph_text_widget = nil
+            self.is_mph_display_on = nil
         end)
 
         Observe("hudCarController", "OnMountingEvent", function(this)
             self.hud_car_controller = this
+            self.mph_text_widget = nil
+            self.is_mph_display_on = nil
         end)
 
         -- hide unnecessary input hint
@@ -498,27 +512,79 @@ end
 
 --- Toggle Original MPH Display On/Off
 ---@param on boolean
+--- Resolve the speedometer unit label once and cache it.
+--- The `dynamic` container swaps children as the HUD state changes, so walking
+--- the whole path on every call both costs four C# calls per tick and
+--- intermittently misses the widget. That miss used to be logged at Debug, which
+--- MasterLogLevel filters out, so it was invisible: the label simply flipped back
+--- to km/h mid-autopilot.
+function HUD:GetMPHTextWidget()
+    if self.mph_text_widget ~= nil then
+        return self.mph_text_widget
+    end
+    if self.hud_car_controller == nil then
+        return nil
+    end
+
+    local ok, widget = pcall(function()
+        return self.hud_car_controller:GetRootCompoundWidget()
+            :GetWidget("maindashcontainer")
+            :GetWidget("dynamic")
+            :GetWidget("mph_text")
+    end)
+
+    if ok and widget ~= nil then
+        self.mph_text_widget = widget
+        return widget
+    end
+    return nil
+end
+
+--- Switch the speedometer unit label between the autopilot distance unit and the
+--- normal mph / km/h unit.
+--- Edge triggered: we only write when the wanted state differs from what we last
+--- set, and we keep trying each call until the widget resolves. That removes the
+--- 100 Hz writes and makes a transient lookup miss self-healing instead of
+--- leaving the wrong unit on screen.
 function HUD:ToggleOriginalMPHDisplay(on)
     if self.hud_car_controller == nil then
         self.log_obj:Record(LogLevel.Warning, "ToggleOriginalMPHDisplay: hud_car_controller is nil, skipping operation")
         return
     end
 
+    -- Already showing what we want: nothing to do.
+    if self.is_mph_display_on == on then
+        return
+    end
+
+    local mph_text = self:GetMPHTextWidget()
+    if mph_text == nil then
+        -- Do not latch the state; the next call retries until it lands.
+        self.log_obj:Record(LogLevel.Warning,
+            "ToggleOriginalMPHDisplay: mph_text widget not resolvable yet, will retry")
+        return
+    end
+
+    local text
+    if on then
+        text = GetLocalizedText("LocKey#78030")
+    elseif GameSettings.Get("/interface/SpeedometerUnits") == "UI-Settings-UnitImperial" then
+        text = GetLocalizedText("LocKey#95281")
+    else
+        text = GetLocalizedText("LocKey#95356")
+    end
+
     local success, error_msg = pcall(function()
-        local mph_text = self.hud_car_controller:GetRootCompoundWidget():GetWidget("maindashcontainer"):GetWidget("dynamic"):GetWidget("mph_text")
-        if on then
-            mph_text:SetText(GetLocalizedText("LocKey#78030"))
-        else
-            if GameSettings.Get("/interface/SpeedometerUnits") == "UI-Settings-UnitImperial" then
-                mph_text:SetText(GetLocalizedText("LocKey#95281"))
-            else
-                mph_text:SetText(GetLocalizedText("LocKey#95356"))
-            end
-        end
+        mph_text:SetText(text)
     end)
 
-    if not success then
-        self.log_obj:Record(LogLevel.Debug, "ToggleOriginalMPHDisplay: GetRootCompoundWidget operation failed - " .. tostring(error_msg))
+    if success then
+        -- Only remember it once the write actually landed.
+        self.is_mph_display_on = on
+    else
+        self.mph_text_widget = nil   -- the cached handle is bad, re-resolve next time
+        self.log_obj:Record(LogLevel.Warning,
+            "ToggleOriginalMPHDisplay: SetText failed, will retry - " .. tostring(error_msg))
     end
 end
 

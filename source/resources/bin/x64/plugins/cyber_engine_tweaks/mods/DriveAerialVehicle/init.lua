@@ -13,12 +13,20 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicle",
-	version = "3.2.2",
+	version = "3.3.0",
     -- system
     is_ready = false,
     time_resolution = 0.01,
     is_debug_mode = false,
-    debug_enable_obstacle_scan = false,
+    -- Developer switch, kept for the debug menu. The user-facing control is
+    -- user_setting_table.is_enable_obstacle_recording; either one enables it.
+    is_debug_enable_obstacle_scan = false,
+    -- PROBE: temporary autopilot freeze instrumentation (Modules/profprobe.lua).
+    -- Any single call at or above warn_ms logs one line with the autopilot state,
+    -- plus an aggregate table every 15 s. Set is_debug_profile_autopilot to false to
+    -- stop measuring without removing the probe.
+    is_debug_profile_autopilot = false,
+    debug_profile_warn_ms = 8.0,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
@@ -116,6 +124,12 @@ DAV.user_setting_table = {
     is_enable_destruction = true,
     is_enable_landing_vfx = true,
     is_enable_idle_gravity = true,
+    --- obstacle map
+    -- Learning new obstacles by raycasting is really a developer/mapping tool:
+    -- the shipped map already covers the city, and general players never need to
+    -- write to it. Off by default so the 5 Hz scan and the periodic diff writes
+    -- never run unless someone is deliberately mapping.
+    is_enable_obstacle_recording = false,
     --- input
     keybind_table = DAV.default_keybind_table,
     heli_keybind_table = DAV.default_heli_keybind_table,

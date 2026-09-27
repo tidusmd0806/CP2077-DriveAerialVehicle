@@ -132,7 +132,7 @@ function Debug:RecordManualBlockPoint(index)
     self.manual_block_points[index] = { key = key, pos = center }
     self:RefreshManualBlockMarkers()
     self.last_manual_block_ok = true
-    self.last_manual_block_result = string.format("P%d recorded: %s", index, key)
+    self.last_manual_block_result = string.format("P%d recorded: %s", index, nav:SectorKeyToString(key))
 end
 
 function Debug:ResetManualBlockPoints()
@@ -485,8 +485,11 @@ function Debug:ImGuiAutoPilotInfo()
         if not pos then
             return "Unknown", "nil"
         end
-        local cell_key = nav_obj:PositionToSectorKey(pos) or "nil"
-        local cell = nav_obj.obstacle_map[cell_key]
+        local raw_key = nav_obj:PositionToSectorKey(pos)
+        if not raw_key then return "Unknown", "nil" end
+        -- Keys are packed numbers now; render them as "x_y_z" for the overlay.
+        local cell_key = nav_obj:SectorKeyToString(raw_key)
+        local cell = nav_obj:CellStateAtKey(raw_key)
         if cell == true then
             return "Obstacle", cell_key
         elseif cell == "danger" then
@@ -509,7 +512,7 @@ function Debug:ImGuiAutoPilotInfo()
     local route_idx = tonumber(nav_obj.current_route_index) or 0
     local route_wp_key = "-"
     if route_len > 0 and route_idx >= 1 and route_idx <= route_len then
-        route_wp_key = tostring(nav_obj.current_global_route[route_idx])
+        route_wp_key = nav_obj:SectorKeyToString(nav_obj.current_global_route[route_idx])
     end
     local current_pos = av_obj.GetPosition and av_obj:GetPosition() or nil
     local current_cell_status, current_cell_key = get_cell_status_at(current_pos)
@@ -591,10 +594,10 @@ function Debug:ImGuiObstacleMap()
     ImGui.Text("Data is used by A* route planner to avoid known obstacle areas.")
     ImGui.Separator()
 
-    -- Stats (ternary map: true=obstacle / "danger"=adjacent / false=clear / nil=unknown)
-    local obstacle_count = 0
-    local danger_count   = 0
-    local clear_count    = 0
+    -- Stats. The base image is resident in the grid; learned cells sit in a
+    -- small overlay table that takes precedence over it.
+    local g = nav_obj.obstacle_grid
+    local obstacle_count, danger_count, clear_count = g:count_states()
     for _, v in pairs(nav_obj.obstacle_map) do
         if v == true then
             obstacle_count = obstacle_count + 1
@@ -608,6 +611,8 @@ function Debug:ImGuiObstacleMap()
     ImGui.Text(string.format("Danger cells   : %d  (adjacent to obstacle)", danger_count))
     ImGui.Text(string.format("Clear cells    : %d", clear_count))
     ImGui.Text(string.format("Total cells    : %d", obstacle_count + danger_count + clear_count))
+    ImGui.Text(string.format("Base image     : %d chunks, %d cells (resident)", g.chunk_n, g.cells_known))
+    ImGui.Text(string.format("Learned overlay: %d cells", nav_obj.obstacle_map_learned_count or 0))
     ImGui.Text(string.format("Cell size           : %.0f m", nav_obj.obstacle_cell_size))
     ImGui.Text(string.format("Record range        : %.0f m", nav_obj.obstacle_record_range))
     ImGui.Text(string.format("Record interval     : %.2f s", nav_obj.obstacle_record_interval))
@@ -618,7 +623,7 @@ function Debug:ImGuiObstacleMap()
         ImGui.PushStyleColor(ImGuiCol.Button, 0.7, 0.1, 0.1, 1.0)
         if ImGui.Button("STOP Recording") then
             av_obj.navigation_obj:StopObstacleRecording()
-            DAV.debug_enable_obstacle_scan = false
+            DAV.is_debug_enable_obstacle_scan = false
         end
         ImGui.PopStyleColor(1)
         ImGui.SameLine()
@@ -627,24 +632,13 @@ function Debug:ImGuiObstacleMap()
         ImGui.PushStyleColor(ImGuiCol.Button, 0.1, 0.5, 0.1, 1.0)
         if ImGui.Button("START Recording") then
             av_obj.navigation_obj:StartObstacleRecording()
-            DAV.debug_enable_obstacle_scan = true
+            DAV.is_debug_enable_obstacle_scan = true
         end
         ImGui.PopStyleColor(1)
     end
 
     ImGui.SameLine()
-    ImGui.Text("Auto-start: " .. tostring(DAV.debug_enable_obstacle_scan))
-
-    ImGui.SameLine()
-    if ImGui.Button("Integrate Diff -> Base") then
-        self.last_obstacle_diff_integrate_ok = av_obj.navigation_obj:IntegrateObstacleMapDiff()
-    end
-
-    if self.last_obstacle_diff_integrate_ok == true then
-        ImGui.TextDisabled("Diff integration: success")
-    elseif self.last_obstacle_diff_integrate_ok == false then
-        ImGui.TextDisabled("Diff integration: failed (see CET log)")
-    end
+    ImGui.Text("Auto-start: " .. tostring(DAV.is_debug_enable_obstacle_scan))
 
     ImGui.Separator()
 
