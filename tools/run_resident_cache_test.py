@@ -27,7 +27,7 @@ MOD = os.path.join(REPO, "source", "resources", "bin", "x64", "plugins",
 
 RUNNER_SRC = """\
 import sys
-import lupa.lua54 as lua
+import lupa.lua51 as lua  # CET runs LuaJIT (Lua 5.1 semantics); 5.4 would accept code the game rejects
 
 L = lua.LuaRuntime()
 g = L.globals()
@@ -48,7 +48,7 @@ fn(R_MOD, R_MAP)
 
 def main():
     try:
-        import lupa.lua54  # noqa: F401
+        import lupa.lua51  # noqa: F401
     except ImportError:
         sys.exit("lupa is required:  pip install lupa")
 

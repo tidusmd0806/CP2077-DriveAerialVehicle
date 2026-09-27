@@ -10,7 +10,8 @@ function Vector4.Distance(a, b) return math.sqrt((a.x-b.x)^2 + (a.y-b.y)^2 + (a.
 local gpos = Vector4.new(-1473, -1009, 46, 1)
 Game = { GetPlayer = function() return { GetWorldPosition = function() return gpos end } end }
 json = { decode = function() return {} end, encode = function() return "{}" end }
-DAV = { user_setting_table = { garage_info_list = {}, is_enable_obstacle_recording = false },
+DAV = {
+	debug_profile_autopilot = false, user_setting_table = { garage_info_list = {}, is_enable_obstacle_recording = false },
         debug_enable_obstacle_scan = false }
 spdlog = { info = function() end }
 Cron = { Every = function() return 1 end, Halt = function() end }
@@ -25,9 +26,9 @@ local function since(base_o, base_p) return g_open_count - base_o, g_popen_count
 
 local function preload(n)
     local f = assert(raw_open(MODDIR .. "/" .. n, "r")); local b = f:read("*a"); f:close()
-    package.preload[n] = load(b, n)
+    package.preload[n] = (loadstring or load)(b, n)
 end
-preload("Etc/log.lua"); preload("Etc/utils.lua"); preload("Modules/navigation.lua")
+preload("Etc/log.lua"); preload("Etc/utils.lua"); preload("Modules/profprobe.lua"); preload("Modules/navigation.lua")
 Log = require("Etc/log.lua")
 local Navigation = require("Modules/navigation.lua")
 

@@ -10,7 +10,8 @@ function Vector4.Length(v) return math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z) end
 function Vector4.Distance(a, b) return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2+(a.z-b.z)^2) end
 Game = { GetPlayer = function() return { GetWorldPosition = function() return Vector4.new(100, 100, 50, 1) end } end }
 json = { decode = function() return {} end, encode = function() return "{}" end }
-DAV = { user_setting_table = { garage_info_list = {}, astar_calculation_precision = 100 } }
+DAV = {
+	debug_profile_autopilot = false, user_setting_table = { garage_info_list = {}, astar_calculation_precision = 100 } }
 spdlog = { info = function() end }
 local timers, nid = {}, 1
 Cron = { Every = function(to,a,b) local cb,args=a,b if type(cb)~="function" then cb,args=b,a end
@@ -20,9 +21,9 @@ Cron = { Every = function(to,a,b) local cb,args=a,b if type(cb)~="function" then
 
 local function preload(n)
     local f = assert(io.open(MODDIR .. "/" .. n, "r")); local b = f:read("*a"); f:close()
-    package.preload[n] = load(b, n)
+    package.preload[n] = (loadstring or load)(b, n)
 end
-preload("Etc/log.lua"); preload("Etc/utils.lua"); preload("Modules/navigation.lua")
+preload("Etc/log.lua"); preload("Etc/utils.lua"); preload("Modules/profprobe.lua"); preload("Modules/navigation.lua")
 Log = require("Etc/log.lua")
 local Navigation = require("Modules/navigation.lua")
 local core = { log_obj = Log:New() }

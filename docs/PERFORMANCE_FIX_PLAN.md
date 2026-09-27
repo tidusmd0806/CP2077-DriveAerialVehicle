@@ -1355,3 +1355,583 @@ mph / km/h のまま。**ゲームが書く値と我々が表示する値が一�
 ### テスト
 
 **76 passed, 0 failed** ／ 19/19 コンパイル OK
+
+---
+
+## 4Q. fix (15)：障害物マップの全 RAM 常駐（base image 化）（今回実装）
+
+### 問題
+
+fix (9)〜(14) でストリーミング関連のコストは潰したが、**長距離 / 複雑な
+autopilot での一時的なフリーズ**と**目的地が到達不能になる問題**は残っていた。
+原因はストリーミングではなく **表現形式**そのものにあった。
+
+v3 テキストマップを全ロードすると:
+
+| 項目 | 値 |
+|---|---|
+| 生データ | 34.98 MB（テキスト） |
+| セル数 | 2,625,381 |
+| ロード時間 | 5.8〜6.2 秒 |
+| ロード後ライブヒープ | **181.9 MB** |
+| 1 セルあたり | **約 69 B** |
+| GC ライブオブジェクト数 | **約 800 万** |
+
+セル 1 つが「キー文字列 + タブレコード + 値」で数個の GC オブジェクトになる。
+バイト数ではなく **GC オブジェクト数**がフリーズの本体だった。
+
+### 対策：1 セル 1 バイトの不変イメージ
+
+`Modules/obstacle_grid.lua` を新規追加し、チャンクを Lua の**不変文字列**
+1 本として保持する。
+
+```
+off  size  field
+0      6   magic  "DAVOB4"
+6      1   z_levels
+7      1   zmin_bias        (z_min + 128)
+8      2   cell_size_cm     (u16 LE)
+10     4   known_count      (u32 LE)
+14     2   reserved
+16     …   body = z_levels * 50 * 50 バイト
+```
+
+```
+index = 16 + (z - zmin) * 2500 + (sy - chunk_sy * 50) * 50 + (sx - chunk_sx * 50)
+```
+
+状態は `0=unknown / 1=clear / 2=danger / 3=blocked`。
+v3 からの写像は `0→clear, 1→danger, >=2→blocked`。
+
+- 全チャンク常駐で **96 画像 + 96 レコード + 索引 1 個 ≒ 200 GC オブジェクト**
+  （800 万 → 200）
+- ロードはチャンクあたり `read("*a")` 1 回。セル単位の Lua パースはゼロ
+- z は固定窓 `[-4, 127]`（132 層）で統一し、チャンク毎の再写像を排除
+- チャンクキーは整数 `((cx+512)*1024)+(cy+512)`。文字列連結なし
+
+### 読み書きの分離
+
+- **base image（不変）**：出荷済みマップ。`obstacle_grid`
+- **learned overlay（可変）**：走行中に学習したセルだけを持つ `obstacle_map`
+
+読み取りは `Navigation:CellStateAtKey(key)` に集約し、
+**learned → base image** の順で解決して従来の値域
+（`true` / `"danger"` / `false` / `nil`）に変換する。
+
+書き込みは `CellStateAtKey` の**実効状態**と比較するため、
+「障害物を clear に降格しない」規則は base image に対しても成立する。
+
+`learned_count` が 0 のときは overlay lookup を丸ごと飛ばす。
+A* の最熱経路で必ず外れるハッシュ検索が消えるため、これ単体で数 % 効く。
+
+### 既知セルの走査は索引を持たせない
+
+「チャンク内の既知セル全部」が要る経路（最近傍探索など）のために
+索引を持つと、260 万要素の Lua 配列で **42 MB** になった。
+そこで索引を廃し、画像を直接 `"find(\"[^%z]\")"` で歩く。
+未知セルの連続は C レベルのスキャン 1 回で飛ぶため、コストは許容範囲。
+
+> **はまった点**：走査開始を `1` にするとヘッダの非ゼロバイトを
+> 「セル」として拾う。ヘッダの `0x03`（cell_size 上位）が
+> **負の index の blocked セル**として復号され、存在しないはずの
+> 障害物が最近傍探索に混入した。開始位置は必ず `BODY_BASE`。
+
+### 学習セルのフラッシュ
+
+`obstacle_map_learned_flush_cells`（既定 200,000）を超えると、
+脏チャンク 1 個の学習セルを base image に畳み込み、`.bin` に永続化して
+overlay から除去する。fold 時に `known_count` と状態集計のキャッシュを更新。
+
+### ストリーミングは無効化
+
+全常駐時は `IsFullResidencyActive()` が true になり、以下はすべて no-op：
+
+- `EnsureResidentChunks`
+- `PrepareRouteChunks`（回廊プリロード）
+- `EvictDistantChunks`
+- `MaintainObstacleMapCache`（フラッシュのみ実行して idle を返す）
+
+**未知セル由来の経路失敗が構造的に消える**のが主目的。
+
+### 実測（`tools/run_full_residency_bench.py`）
+
+各表現を**別プロセスで**測定。同一プロセスだと 2 番目の run の GC 状態が
+1 番目の free した 180 MB に汚染され、測りたい効果が埋没する。
+
+| | legacy（v3 テーブル） | packed（base image） |
+|---|---|---|
+| ロード | 5783 / 6152 ms | **345 / 373 ms**（約 15 倍速） |
+| マップライブヒープ | 181.9 MB | **31.4 MB**（5.8 倍小） |
+| 読み処理量 | 376 / 436 ns/op | **260 / 280 ns/op**（約 1.5 倍速） |
+| GC ライブ | 206.2 MB | 55.8 MB |
+
+GC テール（ワースト設定 `pause=110 stepmul=150 alloc=256KB/tick`）:
+
+| | p99 | p99.9 | max | ≥8ms |
+|---|---|---|---|---|
+| legacy | 9.07 / 9.34 ms | 15.96 / 15.00 ms | 26.24 / 26.70 ms | **1.29% / 1.25%** |
+| packed | **2.17 / 2.00 ms** | **5.76 / 4.62 ms** | **15.59 / 7.91 ms** | **0.05% / 0.00%** |
+
+**8ms 超の発生率が約 25 分の 1**。フリーズの体感要因が消えた。
+
+A* の長距離（4.6 km）は両モードほぼ同等（2.3〜2.7 秒、分散大）。
+これは A* 自身の open/closed セットが生成する大量の一時テーブルが支配で、
+今回の対象外。ルートは全経路で**旧実装とノード列が完全一致**。
+
+### 学んだこと（次回の指針）
+
+- **Lua のメモリ問題はバイト数ではなく GC オブジェクト数で測る。**
+  181 MB / 800 万オブジェクト → 31 MB / 200 オブジェクトでテールが消えた
+- **不変データは `string` に限る。** 読み取りは `string.byte` で、
+  GC の対象にならない
+- **互換値域を保つファサードはタダではない。** `get_packed` 経由の
+  二段ディスパッチは A* で数 % 効いたので、最熱関数にはインライン展開した
+- **`z < 0` の早期 return はマップを実際に確認してから書く。**
+  本マップは z = -3 を含み、20 万サンプル中 432 セルが黙って消えた
+- **ベンチはプロセスを分けないと意味がない。** 同一プロセスの 2 番目は
+  前の GC 断片化を測っている
+
+### テスト
+
+- 新規統合テスト `tools/grid_integration_test.lua`（**52 passed, 0 failed**）
+  - base image ロード / 全常駐 / 96 チャンク
+  - 旧テキストローダとの 20 万セル一致
+  - learned の優先、降格拒否（base image に対しても）
+  - eviction / 回廊の不活性
+  - A* ルートの完全一致（2.8 / 6.4 / 4.6 km）
+  - 最近傍探索が**ファイル open ゼロ**で RAM から解決
+  - フラッシュ → 書き出し → 再ロードで学習内容が生存
+  - セッション破棄でイメージ解放
+- 既存回帰 `tools/run_resident_cache_test.py`（**76 passed, 0 failed**）
+- 全 20 Lua ファイルコンパイル OK
+
+---
+
+## 4R. 本番投入で mod が初期化不能になった（Lua バージョン取り違え）
+
+### 症状
+
+```
+Error: Cannot load module 'Modules/navigation.lua':
+  navigation.lua:2641: unexpected symbol near '/'
+Modules/av.lua:18: attempt to index upvalue 'Navigation' (a nil value)
+```
+
+mod の初期化が完了しなくなった。
+
+### 真因：**CET は LuaJIT（Lua 5.1 セマンティクス）だった**
+
+調査全程でランタイムを **Lua 5.4 だと思い込んでいた**。実際は LuaJIT で、
+5.2 以降の構文は**構文エラー**になる。
+
+私が新規追加したコードの 5.4 依存：
+
+| 構文 | 5.4 | LuaJIT / 5.1 | 影響 |
+|---|---|---|---|
+| `a // b`（整数除算） | ○ | **×** 構文エラー | mod 初期化不能 |
+| `table.unpack` | ○ | **×** nil | fold 全滅 |
+| `unpack`（素） | ×（削除済） | ○ | — |
+
+`//` は 7 箇所あった：
+
+- `navigation.lua` `CellStateAtKey` ×3
+- `obstacle_grid.lua` `get` / `get_packed` / `walk_chunk` ×4
+
+### なぜテストを全部通過したのか（**調査側の欠陥**）
+
+2 重の見逃しがあった。
+
+1. **ランナーが `lupa.lua54` を使っていた**
+   → 5.4 でパースしているので `//` が通ってしまう。
+   ゲームで落ちるコードがテストでは緑になる。
+
+2. **構文チェックが例外を握りつぶしていた**
+   ```python
+   lua.eval("function(s) return load(s) end")(src)   # 戻り値を捨てていた
+   ```
+   Lua の `load` は失敗時に例外を投げず `nil, msg` を**返す**。
+   戻り値を捨てているので**永遠に「0 failures」**になる。
+   「全 20 ファイルコンパイル OK」は最初から意味をなしていなかった。
+
+### 対策
+
+**構文ゲートを新設：`tools/check_lua_syntax.py`**
+
+- `lupa.lua51` で**実際にコンパイル**し、`compile()` の例外を検知する
+- 5.1 で落ちるが LuaJIT が許す `goto` / `::label::` は
+  置換してから再パースし、**誤検出せず拡張として表示**
+- コメントと文字列リテラルを空白化してからパターン照合
+  （`"<< Recording active >>` のような文字列内の `<<` で誤爆した）
+- 5.2+ 構文をパターンで弾く：
+  `//`、`table.unpack`、`table.pack`、`table.move`、`math.maxinteger`、
+  `math.tointeger`、`math.type`、`utf8.`、`<const>`、`<close>`、
+  `\x41`、`\z`、16 進浮動小数、ビット演算子
+
+**全テストランナーを `lupa.lua51` に移行**
+
+```python
+import lupa.lua51 as lua  # CET runs LuaJIT (Lua 5.1 semantics);
+                         # 5.4 would accept code the game rejects
+```
+
+テスト側の `preload` も `load(str)` → `(loadstring or load)(str)` に修正
+（5.1 の `load` は関数しか取らない）。
+
+### 修正内容
+
+- `//` → `math.floor(a / b)` に全置換
+- `string.char(table.unpack(buf, 1, SLICE))` →
+  **事前構築した 256 文字テーブル + `table.concat`** に変更
+
+  ```lua
+  local CHAR = {}
+  for i = 0, 255 do CHAR[i] = string.char(i) end
+  ...
+  buf[i] = CHAR[v or old]
+  local new_slice = table.concat(buf, "", 1, SLICE)
+  ```
+
+  `table.unpack` の不在だけでなく、**1 回に 2500 引数を渡す**呼び出し自体が
+  LuaJIT では脆い。concat の方が速い。
+
+### 5.1 での再測定の注意
+
+`lupa.lua51` は **C 実装の Lua 5.1** であり LuaJIT ではない。
+GC も JIT も別物なので、上の 4Q の絶対値はそのまま当てはまらない。
+
+| | legacy | packed |
+|---|---|---|
+| ロード | 9289 ms | **415 ms**（約 22 倍） |
+| マップライブヒープ | 302.9 MB | **31.9 MB**（9.5 倍小） |
+| 読み処理量 | 572 ns/op | **498 ns/op** |
+
+`math.floor` に落としても packed が読み処理量で勝っている。
+GC テールは 5.1 の増分 GC が緩く両モード 0.00% で**判別不能**
+（5.4 の GC より鋭敏さに差があるため、テールの絶対値はゲーム内で確認する）。
+
+### 学んだこと
+
+- **まずターゲットランタイムを確定させろ。** 「CET = Lua 5.4」という
+  思い込みが調査全体を汚染した。`//` を書き始めた時点で気づくべきだった
+- **テストが緑であることと、コードが正しいことは別。**
+  テストが間違った VM で走っているなら緑は何も保証しない
+- **`load` は失敗を返すのであって throw しない。**
+  構文チェッカーは戻り値を見ないと**常に成功と報告する**
+- **LuaJIT 相手には `table.concat` + 文字テーブルが安全。**
+  大量引数の `string.char(unpack(...))` は避ける
+- **`goto`/`continue` は LuaJIT 拡張。** 素の 5.1 パーサは弾くので、
+  ゲート作る時は除外扱いが必要
+
+---
+
+## 4S. base image が実フローで一度もロードされていなかった
+
+### 症状
+
+`//` を直して再ロードしたところ、autopilot が正しく動かない。
+ログに `AutoPilot [start_local]: start in UNKNOWN cell` が並び、
+`AutoPilot: streaming 2 corridor chunks before departure` と
+`Obstacle map window fill enabled` が出ている
+＝ **full residency が有効になっていない**。
+しかも `Obstacle map loaded: N base cells ...` のログが一切ない。
+
+### 真因：**`LoadObstacleMap()` は死んだコードだった**
+
+```
+$ grep -rn ":LoadObstacleMap()" --include=*.lua .
+Modules/navigation.lua:3209:function Navigation:LoadObstacleMap()
+```
+
+**呼び出し元がゼロ。** 定義しかない。
+
+私は base image ロードを全部この関数の中に書いた。だから：
+
+- テストは `nav:LoadObstacleMap()` を直接呼ぶので**緑**
+- ゲームは別の経路なので base image は**永遠にロードされない**
+- `is_base_image_loaded` は false のまま → full residency 不入 →
+  従来どおりテキストチャンクのストリーミングが走る
+- 窓フィルは初回 autopilot 以降しか始まらないので、
+  出発時点の周辺セルが UNKNOWN → ルート選択失敗
+
+### 実際の起動フロー
+
+| 関数 | 役割 |
+|---|---|
+| `StartObstacleMapSessionPreload` | 起動直後。重い処理はゼロ。タイマー起動のみ |
+| `MaintainObstacleMapCache` | **唯一の定期ドライバ**（`Core:EnsureObstacleMapPreloadTimer`） |
+| `StartObstacleMapFill` | 初回 autopilot で窓フォロー開始 |
+| `ProcessObstacleMapLoadBatch` | 旧 staged preload（キュー駆動） |
+| `LoadObstacleMap` | **未使用** |
+
+### 対策：`MaintainObstacleMapCache` を base image のドライバにする
+
+`Navigation:LoadBaseImageStep(budget_ms)` を追加し、
+**予算内で少しずつ**チャンクを読み込む。
+
+```lua
+if not self.is_base_image_loaded then
+    self:LoadBaseImageStep(self.obstacle_base_image_budget_ms or 12.0)
+    if self.base_image_pending ~= false then
+        return false          -- まだロード中、他のことはしない
+    end
+elseif self:IsFullResidencyActive() then
+    self:FlushLearnedCellsToImage()
+    return true
+end
+```
+
+**ロード完了まで窓フィルを止める**のが要点。先にテキストチャンクを
+`obstacle_map` に流入させると、何百万セルが learned overlay に入り、
+このモジュールが存在的に消したはずの形に戻ってしまう。
+
+`base_image_pending == false`（＝パックデータ無し）なら
+フォールスルーして従来どおりストリーミング。
+**ここを `return false` にしたままにすると、パックデータのない環境で
+窓フィルが永久に止まった**（既存テスト 8 件が落ちて判明）。
+
+### sweep も予算内に分散
+
+`GetAllChunksCached(true)` は 41×41 = 1681 チャンク × 3 `io.open`
+＝ **約 5000 回のファイル open を 1 フレームに落とす**。
+これは今回除去してきたヒッチと同種なので、自前のスイープカーソルで
+1 回に数行ずつ進めるようにした。
+
+### 出発ゲート
+
+`PrepareRouteChunks` は、まだロード中なら
+`FinishBaseImageLoad(1500)` で同期的に終わらせてから出発する。
+通常はメンテナンスタイマー（既定 50ms 間隔・12ms 予算）が
+**約 1.5 秒で 96 チャンクを読み終える**ので、
+プレイヤーが autopilot を押す頃には終わっている。
+
+### 教訓
+
+- **新機能を既存関数に足す前に、その関数が実際に呼ばれているか確認しろ。**
+  `grep "関数名()"` 一発で分かる話だった
+- **テストが直接呼ぶ経路と、ゲームが通る経路は別物。**
+  「テスト緑＝ゲームで動く」ではない。今回 2 回目同じ轍
+- 対策として統合テストに **section 13** を追加：
+  `LoadObstacleMap` を**一度も呼ばない** nav を
+  `MaintainObstacleMapCache` のティックだけで full residency に到達させ、
+  96 チャンク・全セルが載ることを検証。
+  併せて「パックデータ無しで永久に待たない」ことも検証
+
+### テスト
+
+- 統合 `tools/grid_integration_test.lua` — **66 passed, 0 failed**
+- 既存回帰 `tools/run_resident_cache_test.py` — **76 passed, 0 failed**
+- 構文ゲート `tools/check_lua_syntax.py` — **20 files, 0 problems**
+
+---
+
+## 4T. A* → final_local の引き渡しが一度も発火していなかった
+
+### 症状
+
+記録外エリアの目的地に向かっても A* がマップ端で止まり、
+その先へ進まない／衝突を繰り返す。
+
+### 調査
+
+まず目的地をセルキーから復号した:
+
+```
+dest_cell 35248930744585 -> cell (240,-70,9)  world (2400,-700,90)  chunk (4,-2)
+マップの chunk x = [-6 .. 2]        ← chunk (4,-2) は存在しない
+```
+
+で、**目的地は記録範囲から 1.2km 外**。…だがそれは問題では**なかった**。
+
+**設計上、記録外は「A* の探索境界」にすぎない。**
+A* は既知空間のルートを走り、その先は `start_local` と同じ
+ローカル回避ロジックで目的地へ向かう。
+`start_local` が未知スタートから既知セルまで 391m をローカル回避で走るのと同じこと。
+
+### 真因：`final_local_max_handoff_distance = 150` が引き渡しを止めていた
+
+```lua
+if self.autopilot_phase == "astar"
+    and self.autopilot_dest_requires_final_local
+    and self.route_plan_job == nil
+    and self.current_route_index > #self.current_global_route
+    and (horiz_to_final <= max_handoff or give_up_on_astar) then   -- max_handoff = 150
+```
+
+`horiz_to_final` は**実際の目的地までの水平距離**。今回のケース **1210m**。
+
+- `1210 > 150` → 窓に入らない
+- `give_up_on_astar` は「A* が低ゲインで 3 回却下された」時のみ
+- ところが今回は A* が**毎回成功**している（解決済みプロキシ＝マップ端
+  cell (119,-72,5) まで 7 cell を計画）ので却下も発生しない
+
+→ **エスケープハッチが両方とも閉じて、引き渡しが永久に来ない。**
+
+ログ全体で `astar->final_local` の出現回数は **0 回**。
+
+### さらに悪い二次効果
+
+ルートを使い切ても phase が `astar` のままなので、
+
+```lua
+if self.autopilot_phase == "astar" and #self.current_global_route > 0 then
+    -- Pure A* waypoint following   ← 障害物回避なしの直進
+```
+
+の分岐に入り、`nav_target = final_destination`（＝1.2km 先の実際の目的地）に
+**障害物回避ゼロで直進**する。
+ログの `Collision Detected` はこれ。
+
+### 修正
+
+**A* がこれ以上計画できない状態**を明示して引き渡し条件に追加した。
+
+```lua
+local astar_out_of_road = self.autopilot_dest_is_unknown == true
+if self.autopilot_phase == "astar"
+    and self.autopilot_dest_requires_final_local
+    and self.route_plan_job == nil
+    and self.current_route_index > #self.current_global_route
+    and (horiz_to_final <= max_handoff or give_up_on_astar or astar_out_of_road) then
+```
+
+目的地セル自体が未知なら、ルートを使い切った時点で A* は**文字手上がり**
+である。フォローアップを追加しても到達しうるはずがない。
+だから距離に関係なく引き渡して、残りは `start_local` と同じローカル回避に任せる。
+
+- 目的地が既知／traversable → 条件に入らない（従来どおり）
+- 目的地が未知だが 150m 以内 → 従来どおりの窓で引き渡し
+- 目的地が未知で遠い → **新規条件で引き渡し**
+
+ログに `dest-unknown=` を追加して追跡可能にした。
+
+### 教訓
+
+- **「マップ外＝到達不能」ではなかった。** 記録外は A* の境界であって、
+  その先はローカル回避が走る。設計を読み違えた
+- **上限（cap）を足す時は、その cap に引っかかった時の脱出経路が
+  実際に発火するか確認する。** 「低ゲイン 3 回で諦める」は
+  A* が成功し続けると一度も来ない
+- **ルートを使い切った phase で「障害物なし直進」分岐に入るのは危険。**
+  spent route は速やかにローカル回避へ渡すべき
+
+---
+
+## 4U. .dat / .diff から .bin への一元化
+
+### 質問
+
+packed (`DAVOB4`) へ移行したのだから `.dat` / `.diff` は不要では？
+
+### 調査結果：読み込み側は不要、書き込み側にギャップがあった
+
+| ファイル | 役割 | residency 下で**読む** | **書く** |
+|---|---|---|---|
+| `.bin` | packed base image | **YES（これだけ）** | YES（学習 fold） |
+| `.dat` | legacy v3 テキスト base | **NO**（dead `LoadObstacleMap` の fallback 内のみ） | `IntegrateObstacleMapDiff` のみ |
+| `.diff` | 追記専用の学習差分 | **NO** | **YES（`SaveObstacleMap` が今も追記）** |
+
+`.dat` の読み出し経路は `LoadObstacleMap`（呼び出し元ゼロの dead code）に
+しか存在しない。よって**読み込み側で `.dat` は完全に不要**。
+
+**ただし `.diff` は「書かれるのに読まれない」状態になっていた。**
+
+### 実際のデータ損失ギャップ
+
+```
+記録 → obstacle_map (overlay) + dirty_cells
+        ├─ SaveObstacleMap()        → .diff に追記   ← 書く
+        └─ FlushLearnedCellsToImage → .bin に fold   ← 条件付き
+```
+
+`FlushLearnedCellsToImage` は `.bin` を持つ chunk だけ選別していた：
+
+```lua
+if n > 0 and self.obstacle_grid:has_chunk(cx, cy) and ...
+```
+
+そして `fold_cells` は：
+
+```lua
+if c == nil or cells == nil or #cells == 0 then return false end
+```
+
+**＝新規 chunk を作れない。**
+
+結果、**packed 範囲外に記録した障害物は `.diff` にしか存在せず、
+`.diff` は residency 経路で読まれないので再起動時に失われていた。**
+
+なお既存の `.diff` 2 個（`chunk_-4_-1`, `chunk_-4_-6`）はどちらも packed
+範囲内だったので、現時点での実害はなかった。
+
+### 修正
+
+**1. `ObstacleGrid:new_chunk(ccx, ccy, zlo, zhi)`** — 空 chunk を新設
+
+z 窓は呼び出し側のセルに合わせて**タイトに**作る。デフォルト全 132 レベル
+（330KB）ではなく、疎なチャンクは KB 単位で済む。
+
+**2. `ObstacleGrid:ensure_z_range(c, zlo, zhi)`** — z 窓の成長
+
+後から高い高度のセルが来たら、前面/背面にゼロスライスを挿して拡大する。
+窓外のセルは UNKNOWN と読めるため、拡大しないと黙ってデータを落とす。
+
+**3. `fold_cells` が欠損チャンクを新設／既存は成長させる**
+
+**4. `Navigation:FoldDirtyChunkToImage(chunk_key)`** — 永続化の単一路径
+
+fold + `save_chunk` + overlay クリア + マニフェスト更新を 1 箇所にまとめた。
+
+**5. `FlushLearnedCellsToImage` から `has_chunk()` フィルタを削除**
+
+**6. `SaveObstacleMap` は residency 下で `.bin` に fold し、`.diff` を書かない**
+
+```lua
+if self:IsFullResidencyActive() then
+    for ck in pairs(self.obstacle_map_dirty_cells) do
+        local n = self:FoldDirtyChunkToImage(ck)
+        ...
+    end
+    return
+end
+```
+
+**7. マニフェストへの新チャンク登録**
+
+`ReadBinManifest` が `bin_manifest_set` を保持し、新チャンクが出たら
+`RewriteBinManifest` で書き戻す。ヘッダの count も真値に保つ。
+
+### はまった点
+
+`RewriteBinManifest` が**内部キー形式 `40_40` のまま書き出し**、
+`ReadBinManifest` が期待する空白区切り `40 40` をパースできないという
+バグを作った。ヘッダ count は 97 になるのに中身が読めず、
+
+```
+[FAIL] manifest lists the new chunk
+[FAIL] reloaded nav sees 97 chunks  got 96
+```
+
+と分かりにくい形で出た（sweep フォールバックが 96 を見つけてしまったため）。
+`k:gsub("_", " ")` で修正。
+
+### 残すもの
+
+- **`.dat` は repo に保持**。`tools/mapbin_pack.py` の入力であり、
+  これが無いとマップの再生成・拡張ができない
+- 配布物（ゲームフォルダ）からは外せる
+- `.diff` への書き込みは residency 下では止まるため、肥大化しない
+
+### テスト
+
+`tools/grid_integration_test.lua` section 15（20 項目追加）:
+
+- grid レベル: 新設 / タイトな窓 / known 計上 / 窓成長 / 既存セル保持
+- nav レベル: packed 範囲外への記録 → `.bin` 書き出し → overlay ドレイン
+  → マニフェスト更新 → **別 nav で再ロードして同じ値が読める**
+- residency 下で `.diff` が書されないこと
+
+```
+統合       : 101 passed, 0 failed
+既存回帰   : 76 passed, 0 failed
+構文ゲート  : 21 files, 0 problems
+```

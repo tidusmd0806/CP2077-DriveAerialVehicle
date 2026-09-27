@@ -11,6 +11,7 @@ local gpos = Vector4.new(100, 100, 50, 1)
 Game = { GetPlayer = function() return { GetWorldPosition = function() return gpos end } end }
 json = { decode = function() return {} end, encode = function() return "{}" end }
 DAV = {
+	debug_profile_autopilot = false,
     user_setting_table = { garage_info_list = {}, is_enable_obstacle_recording = false },
     debug_enable_obstacle_scan = false,
 }
@@ -19,9 +20,9 @@ Cron = { Every = function() return 1 end, Halt = function() end }
 
 local function preload(n)
     local f = assert(io.open(MODDIR .. "/" .. n, "r")); local b = f:read("*a"); f:close()
-    package.preload[n] = load(b, n)
+    package.preload[n] = (loadstring or load)(b, n)
 end
-preload("Etc/log.lua"); preload("Etc/utils.lua"); preload("Modules/navigation.lua")
+preload("Etc/log.lua"); preload("Etc/utils.lua"); preload("Modules/profprobe.lua"); preload("Modules/navigation.lua")
 Log = require("Etc/log.lua")
 local Navigation = require("Modules/navigation.lua")
 

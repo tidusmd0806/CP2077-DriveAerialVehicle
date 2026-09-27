@@ -489,7 +489,7 @@ function Debug:ImGuiAutoPilotInfo()
         if not raw_key then return "Unknown", "nil" end
         -- Keys are packed numbers now; render them as "x_y_z" for the overlay.
         local cell_key = nav_obj:SectorKeyToString(raw_key)
-        local cell = nav_obj.obstacle_map[raw_key]
+        local cell = nav_obj:CellStateAtKey(raw_key)
         if cell == true then
             return "Obstacle", cell_key
         elseif cell == "danger" then
@@ -594,10 +594,10 @@ function Debug:ImGuiObstacleMap()
     ImGui.Text("Data is used by A* route planner to avoid known obstacle areas.")
     ImGui.Separator()
 
-    -- Stats (ternary map: true=obstacle / "danger"=adjacent / false=clear / nil=unknown)
-    local obstacle_count = 0
-    local danger_count   = 0
-    local clear_count    = 0
+    -- Stats. The base image is resident in the grid; learned cells sit in a
+    -- small overlay table that takes precedence over it.
+    local g = nav_obj.obstacle_grid
+    local obstacle_count, danger_count, clear_count = g:count_states()
     for _, v in pairs(nav_obj.obstacle_map) do
         if v == true then
             obstacle_count = obstacle_count + 1
@@ -611,6 +611,8 @@ function Debug:ImGuiObstacleMap()
     ImGui.Text(string.format("Danger cells   : %d  (adjacent to obstacle)", danger_count))
     ImGui.Text(string.format("Clear cells    : %d", clear_count))
     ImGui.Text(string.format("Total cells    : %d", obstacle_count + danger_count + clear_count))
+    ImGui.Text(string.format("Base image     : %d chunks, %d cells (resident)", g.chunk_n, g.cells_known))
+    ImGui.Text(string.format("Learned overlay: %d cells", nav_obj.obstacle_map_learned_count or 0))
     ImGui.Text(string.format("Cell size           : %.0f m", nav_obj.obstacle_cell_size))
     ImGui.Text(string.format("Record range        : %.0f m", nav_obj.obstacle_record_range))
     ImGui.Text(string.format("Record interval     : %.2f s", nav_obj.obstacle_record_interval))

@@ -25,6 +25,7 @@ Game = {
 
 json = { decode = function() return {} end, encode = function() return "{}" end }
 DAV = {
+	debug_profile_autopilot = false,
     user_setting_table = { garage_info_list = {}, is_enable_obstacle_recording = false },
     is_debug_mode = false,
     debug_enable_obstacle_scan = false,
@@ -74,11 +75,12 @@ local function preload(name)
     if not f then error("cannot open " .. path) end
     local body = f:read("*a")
     f:close()
-    package.preload[name] = load(body, name)
+    package.preload[name] = (loadstring or load)(body, name)
 end
 preload("Etc/log.lua")
 preload("Etc/utils.lua")
-preload("Modules/navigation.lua")
+preload("Modules/obstacle_grid.lua")
+preload("Modules/profprobe.lua"); preload("Modules/navigation.lua")
 
 Log = require("Etc/log.lua")
 local Navigation = require("Modules/navigation.lua")
