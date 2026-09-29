@@ -43,6 +43,10 @@ function Navigation:New(av_obj)
 	obj.dest_dir_vector_norm = 1
 	obj.dest_remaining_to_final = 1
 	obj.pre_speed_list = {x = 0, y = 0, z = 0}
+	-- Ground-probe cache. GetHeight() is a synchronous raycast and several
+	-- callers want the same value in the same frame; see GetHeight.
+	obj._height = nil
+	obj._height_frame = nil
 	obj.autopilot_exception_area_list = {}
 	obj.collision_check_side_distance = 2.5
 	obj.collision_check_front_distance = 3.5
@@ -3420,10 +3424,45 @@ function Navigation:StopObstacleRecording()
 	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STOPPED (flushed)")
 end
 
---- Get Height between ground and vehicle
+--- Get Height between ground and vehicle.
+---
+--- The ground probe is a synchronous world raycast. It used to run once per
+--- caller: Event:CheckHeight and Engine:CalculateIdleMode both ask for it inside
+--- the same 100Hz tick, and this function resolved the vehicle position twice on
+--- the way (once directly, once again inside AV:GetGroundPosition).
+---
+--- The vehicle cannot move inside a frame - physics steps between frames - so
+--- every caller in one frame is asking for the same number. Cache it per frame,
+--- the same way AV:GetEntity caches the entity handle.
+---
+--- With no DAV.frame_seq there is nothing to reason about freshness against, so
+--- the cache is bypassed rather than risk serving a stale height forever.
 ---@return number height
 function Navigation:GetHeight()
-	return self.av_obj:GetPosition().z - self.av_obj:GetGroundPosition()
+	local frame = DAV.frame_seq
+	if frame ~= nil and self._height_frame == frame then
+		return self._height
+	end
+	local position = self.av_obj:GetPosition()
+	if position == nil then
+		return 0
+	end
+	-- Hand the position we already resolved down; GetGroundPosition needs it and
+	-- would otherwise pay for another GetPosition.
+	local height = position.z - self.av_obj:GetGroundPosition(position)
+	if frame ~= nil then
+		self._height = height
+		self._height_frame = frame
+	end
+	return height
+end
+
+--- Drop the cached ground-probe result.
+--- Called whenever the vehicle entity changes, so a freshly spawned craft can
+--- never inherit the previous one's height inside the same frame.
+function Navigation:InvalidateHeightCache()
+	self._height = nil
+	self._height_frame = nil
 end
 
 

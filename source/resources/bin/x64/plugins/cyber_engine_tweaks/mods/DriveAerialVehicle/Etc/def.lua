@@ -81,6 +81,12 @@ Def.Situation = {
     TalkingOff = 4,
 }
 
+--- Reverse map for the per-situation cost ledger (Event.EnableSituationLedger).
+Def.SituationName = {}
+for situation_name, situation_value in pairs(Def.Situation) do
+    Def.SituationName[situation_value] = situation_name
+end
+
 ---@enum Def.DoorOperation
 Def.DoorOperation = {
 	Change = 0,
@@ -125,6 +131,16 @@ Def.EngineControlType = {
     AddForce = 1,
     FluctuationVelocity = 2,
     Blocking = 3
+}
+
+--- Gamepad axes the mod actually consumes.
+--- The axis input proxy fires on every axis event in the game (~4 per frame:
+--- mouse, menus, walking), and nothing outside this set can ever reach an
+--- action. Both the proxy and Core:ConvertAxisAction drop non-members up front
+--- so neither has to build or walk a candidate list per event.
+Def.AxisKeySet = {
+    IK_Pad_LeftAxisX = true,
+    IK_Pad_LeftAxisY = true,
 }
 
 return Def

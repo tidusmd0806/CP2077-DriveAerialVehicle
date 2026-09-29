@@ -2,6 +2,11 @@ local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
 local Sound = require("Modules/sound.lua")
 local UI = require("Modules/ui.lua")
+-- PROBE: per-situation cost ledger (see Event.EnableSituationLedger at the
+-- bottom of this file). Remove with that function.
+local Prof = require("Modules/profprobe.lua")
+local AV = require("Modules/av.lua")
+local Engine = require("Modules/engine.lua")
 local Event = {}
 Event.__index = Event
 
@@ -35,6 +40,27 @@ function Event:New()
     obj.is_locked_showing_meter = false
     obj.check_input_count = 0
     obj.is_ltbf_flight_active = false
+
+    -- Entry-area choice hub state (see CheckInEntryArea).
+    -- ShowChoice() rebuilds every seat caption, re-resolves localisation and
+    -- re-activates the hub: ~40 C# transitions per call. It used to run on
+    -- every 100 Hz tick for as long as the player stood near the parked AV,
+    -- i.e. ~4000 transitions/second to re-display an unchanged dialog.
+    obj.shown_seat_index = nil
+    obj.choice_last_shown_time = 0
+    -- Safety net only. The InteractionUIBase overrides keep the hub injected
+    -- while the player is in range, so this mostly never fires; it exists so a
+    -- hub the game dropped on its own is recovered within a second.
+    obj.choice_keepalive_interval = 1.0
+
+    -- Checks whose answer only changes on a human timescale. They were wired to
+    -- the 100 Hz situation loop because that was the loop available, not
+    -- because they need 100 Hz.
+    obj.distance_check_interval = 0.5
+    obj.last_distance_check_time = 0
+    obj.locked_save_check_interval = 0.1
+    obj.last_locked_save_check_time = 0
+    obj.last_landing_vfx_height = nil
 
     return setmetatable(obj, self)
 
@@ -135,7 +161,7 @@ function Event:SetObserve()
                             self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for Thruster check")
                             return
                         end
-                        local entity = Game.FindEntityByID(self.av_obj.entity_id)
+                        local entity = self.av_obj:GetEntity()
                         local mesh_fl = entity:FindComponentByName("ThrusterFL")
                         local mesh_fr = entity:FindComponentByName("ThrusterFR")
                         local mesh_bl = entity:FindComponentByName("ThrusterBL")
@@ -376,12 +402,27 @@ function Event:CheckLanded()
 end
 
 --- Check player is in entry area.
+--- Edge-triggered: the hub is pushed when the player enters the area, when the
+--- selected seat changes, or when the keep-alive is due -- not every tick.
 function Event:CheckInEntryArea()
     if self.av_obj:IsPlayerInEntryArea() then
         self.log_obj:Record(LogLevel.Trace, "InEntryArea detected")
-        self.hud_obj:ShowChoice(self.selected_seat_index)
-    else
+        -- interaction_hub is the HUD's own record of what it pushed; nil means
+        -- nothing is shown. Reading it here instead of keeping a second flag
+        -- means a HideChoice() from anywhere else is noticed and re-shown.
+        local shown = (self.hud_obj.interaction_hub ~= nil)
+        local now = os.clock()
+        if not shown
+            or self.shown_seat_index ~= self.selected_seat_index
+            or (self.choice_keepalive_interval > 0
+                and (now - self.choice_last_shown_time) >= self.choice_keepalive_interval) then
+            self.hud_obj:ShowChoice(self.selected_seat_index)
+            self.shown_seat_index = self.selected_seat_index
+            self.choice_last_shown_time = now
+        end
+    elseif self.hud_obj.interaction_hub ~= nil then
         self.hud_obj:HideChoice()
+        self.shown_seat_index = nil
     end
 end
 
@@ -549,7 +590,15 @@ function Event:CheckDespawn()
 end
 
 --- Check distance between player and AV.
+--- The only effect is turning the engine sound on/off across a 30 m threshold,
+--- so a half-second resolution is invisible. At 100 Hz this was four C#
+--- transitions per tick (GetPlayer, GetWorldPosition, GetPosition, Distance).
 function Event:CheckDistance()
+    local now = os.clock()
+    if (now - self.last_distance_check_time) < self.distance_check_interval then
+        return
+    end
+    self.last_distance_check_time = now
     local player_pos = Game.GetPlayer():GetWorldPosition()
     local av_pos = self.av_obj:GetPosition()
     local distance = Vector4.Distance(player_pos, av_pos)
@@ -568,10 +617,16 @@ end
 function Event:CheckHeight()
     local height = self.av_obj.navigation_obj:GetHeight()
     if height < self.projection_max_height_offset + self.av_obj.minimum_distance_to_ground then
-        local height_offset = - height + self.av_obj.projection_offset.z
-        self.av_obj:SetLandingVFXPosition(Vector4.new(self.av_obj.projection_offset.x, self.av_obj.projection_offset.y, height_offset, 1))
+        -- The VFX offset only needs writing when the measured height moved.
+        -- A parked AV reports the same height 100 times a second.
+        if self.last_landing_vfx_height ~= height then
+            self.last_landing_vfx_height = height
+            local height_offset = - height + self.av_obj.projection_offset.z
+            self.av_obj:SetLandingVFXPosition(Vector4.new(self.av_obj.projection_offset.x, self.av_obj.projection_offset.y, height_offset, 1))
+        end
         self.av_obj:ProjectLandingWarning(true)
     else
+        self.last_landing_vfx_height = nil
         self.av_obj:ProjectLandingWarning(false)
     end
 end
@@ -618,6 +673,13 @@ end
 
 --- Check if save is locked. if locked, remove lock.
 function Event:CheckLockedSave()
+    -- TalkingOff lasts a few seconds; the save-lock state does not need to be
+    -- polled at 100 Hz while it does.
+    local now = os.clock()
+    if (now - self.last_locked_save_check_time) < self.locked_save_check_interval then
+        return
+    end
+    self.last_locked_save_check_time = now
     local res, _ = Game.IsSavingLocked()
     if res then
         self.log_obj:Record(LogLevel.Info, "Locked save detected. Remove lock")
@@ -788,6 +850,91 @@ function Event:SelectChoice(direction)
         end
         self.av_obj.seat_index = self.selected_seat_index
     end
+end
+
+-- PROBE: per-situation cost ledger (opt-in).
+--
+-- Turns the aggregate in the log into "<situation>/<method>", which is what
+-- answers "is Waiting really more expensive than InVehicle, and which check is
+-- paying for it?".  Enable with DAV.is_debug_situation_ledger = true (init.lua)
+-- before the mod loads; the table prints every Prof.summary_every seconds.
+--
+-- To remove the probe entirely: delete this block, the require of
+-- Modules/profprobe.lua at the top, and the call in init.lua.
+
+--- Enable the ledger. Idempotent.
+---@param core_class table|nil Core class table (init.lua passes it; Core is not
+---        reachable from here otherwise)
+---@return boolean started
+function Event.EnableSituationLedger(core_class)
+    if Event._situation_ledger_on then
+        return false
+    end
+    Event._situation_ledger_on = true
+    Prof.situation_enabled = true
+
+    local function label(self)
+        local ev = self
+        if ev ~= nil and ev.event_obj ~= nil then
+            ev = ev.event_obj
+        end
+        local s = ev ~= nil and ev.current_situation or nil
+        return (Def.SituationName and Def.SituationName[s]) or tostring(s)
+    end
+
+    local function label_from_global()
+        local core = DAV.core_obj
+        local ev = core ~= nil and core.event_obj or nil
+        local s = ev ~= nil and ev.current_situation or nil
+        return (Def.SituationName and Def.SituationName[s]) or tostring(s)
+    end
+
+    Prof.wrap_by_situation(Event, {
+        "CheckAllEvents",
+        "CheckGarage",
+        "CheckLanded",
+        "CheckInEntryArea",
+        "CheckInAV",
+        "CheckHUD",
+        "CheckEngine",
+        "CheckDoor",
+        "CheckCombat",
+        "CheckDestroyed",
+        "CheckDespawn",
+        "CheckDistance",
+        "CheckHeight",
+        "CheckInput",
+        "CheckAutoModeChange",
+        "CheckFailAutoPilot",
+        "CheckLockedSave",
+        "CheckPerspective",
+    }, label)
+
+    Prof.wrap_by_situation(AV, {
+        "Operate",
+        "GetEulerAngles",
+        "IsPlayerInEntryArea",
+        "MoveThruster",
+        "GetGroundPosition",
+    }, label_from_global)
+
+    Prof.wrap_by_situation(Engine, {
+        "Update",
+        "Run",
+        "CalculateAddVelocity",
+        "CalculateIdleMode",
+        "ChangeVelocity",
+        "AddForce",
+    }, label_from_global)
+
+    if core_class ~= nil then
+        Prof.wrap_by_situation(core_class, {
+            "GetActions",
+            "OperateAerialVehicle",
+        }, label_from_global)
+    end
+
+    return true
 end
 
 return Event

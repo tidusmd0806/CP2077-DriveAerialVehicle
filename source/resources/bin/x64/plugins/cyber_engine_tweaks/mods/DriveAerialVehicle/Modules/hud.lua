@@ -24,6 +24,14 @@ function HUD:New()
     -- fragile, and remembered so we only write it when it actually changes.
     obj.mph_text_widget = nil
     obj.is_mph_display_on = nil
+    -- Retry pacing for the label above. The dash container swaps children during
+    -- boarding, so the lookup misses for a second or so at a time while this
+    -- function is driven by CheckHUD at the full loop rate. Without pacing it
+    -- was ~40 failed C# widget lookups and 13 Warning lines per boarding.
+    obj.mph_retry_interval = 0.1
+    obj.mph_next_lookup_time = 0
+    obj.mph_requested_on = nil
+    obj.mph_miss_logged = false
     -- input hint
     obj.is_keyboard_input = true
     obj.input_hint_mapping_table = {}
@@ -142,12 +150,18 @@ function HUD:SetObserve()
             -- just written its own unit text, so forget what we last set too.
             self.mph_text_widget = nil
             self.is_mph_display_on = nil
+            self.mph_next_lookup_time = 0
+            self.mph_requested_on = nil
+            self.mph_miss_logged = false
         end)
 
         Observe("hudCarController", "OnMountingEvent", function(this)
             self.hud_car_controller = this
             self.mph_text_widget = nil
             self.is_mph_display_on = nil
+            self.mph_next_lookup_time = 0
+            self.mph_requested_on = nil
+            self.mph_miss_logged = false
         end)
 
         -- hide unnecessary input hint
@@ -543,9 +557,10 @@ end
 --- Switch the speedometer unit label between the autopilot distance unit and the
 --- normal mph / km/h unit.
 --- Edge triggered: we only write when the wanted state differs from what we last
---- set, and we keep trying each call until the widget resolves. That removes the
---- 100 Hz writes and makes a transient lookup miss self-healing instead of
---- leaving the wrong unit on screen.
+--- set. A lookup miss is not latched, so it self-heals instead of leaving the
+--- wrong unit on screen -- but the retry is paced (fix 22): at most one attempt
+--- per `mph_retry_interval` while unresolved, and only the first miss of an
+--- episode is logged. A new request always gets an immediate attempt.
 function HUD:ToggleOriginalMPHDisplay(on)
     if self.hud_car_controller == nil then
         self.log_obj:Record(LogLevel.Warning, "ToggleOriginalMPHDisplay: hud_car_controller is nil, skipping operation")
@@ -557,11 +572,31 @@ function HUD:ToggleOriginalMPHDisplay(on)
         return
     end
 
+    -- A different target is a new episode: retry now, and allow one more
+    -- Warning if it turns out to be unresolvable.
+    if self.mph_requested_on ~= on then
+        self.mph_requested_on = on
+        self.mph_next_lookup_time = 0
+        self.mph_miss_logged = false
+    end
+
+    local now = os.clock()
+    -- Cached handle costs nothing, so only the unresolved case is throttled.
+    if self.mph_text_widget == nil and now < self.mph_next_lookup_time then
+        return
+    end
+
     local mph_text = self:GetMPHTextWidget()
     if mph_text == nil then
-        -- Do not latch the state; the next call retries until it lands.
-        self.log_obj:Record(LogLevel.Warning,
-            "ToggleOriginalMPHDisplay: mph_text widget not resolvable yet, will retry")
+        self.mph_next_lookup_time = now + self.mph_retry_interval
+        if self.mph_miss_logged then
+            self.log_obj:Record(LogLevel.Debug,
+                "ToggleOriginalMPHDisplay: mph_text widget still not resolvable, retrying")
+        else
+            self.mph_miss_logged = true
+            self.log_obj:Record(LogLevel.Warning,
+                "ToggleOriginalMPHDisplay: mph_text widget not resolvable yet, will retry (further misses logged at Debug)")
+        end
         return
     end
 
@@ -581,10 +616,19 @@ function HUD:ToggleOriginalMPHDisplay(on)
     if success then
         -- Only remember it once the write actually landed.
         self.is_mph_display_on = on
+        self.mph_next_lookup_time = 0
+        self.mph_miss_logged = false
     else
         self.mph_text_widget = nil   -- the cached handle is bad, re-resolve next time
-        self.log_obj:Record(LogLevel.Warning,
-            "ToggleOriginalMPHDisplay: SetText failed, will retry - " .. tostring(error_msg))
+        self.mph_next_lookup_time = now + self.mph_retry_interval
+        if not self.mph_miss_logged then
+            self.mph_miss_logged = true
+            self.log_obj:Record(LogLevel.Warning,
+                "ToggleOriginalMPHDisplay: SetText failed, will retry - " .. tostring(error_msg))
+        else
+            self.log_obj:Record(LogLevel.Debug,
+                "ToggleOriginalMPHDisplay: SetText still failing - " .. tostring(error_msg))
+        end
     end
 end
 

@@ -146,7 +146,7 @@ function UI:OpenAutopilotPopup()
 				self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for current position")
 				current_position_name = ""
 			end
-			local entity = Game.FindEntityByID(self.av_obj.entity_id)
+			local entity = self.av_obj:GetEntity()
 			if entity ~= nil then
 				local current_nearby_ft_index, current_nearby_ft_distance = DAV.core_obj:FindNearestFastTravelPosition(entity:GetWorldPosition())
 				local current_nearby_ft_name = DAV.core_obj:GetNearbyLocation(current_nearby_ft_index)

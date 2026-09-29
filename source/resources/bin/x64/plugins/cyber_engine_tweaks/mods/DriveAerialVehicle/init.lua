@@ -13,7 +13,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicle",
-	version = "3.3.0",
+	version = "3.3.1",
     -- system
     is_ready = false,
     time_resolution = 0.01,
@@ -27,10 +27,23 @@ DAV = {
     -- stop measuring without removing the probe.
     is_debug_profile_autopilot = false,
     debug_profile_warn_ms = 8.0,
+    -- PROBE: per-situation cost ledger (Event.EnableSituationLedger).
+    -- Aggregates every situation check, AV accessor and engine call under
+    -- "<situation>/<method>" and prints the table every 15 s. This is the
+    -- instrument that answers "is Waiting really heavier than InVehicle?".
+    -- Independent of is_debug_profile_autopilot.
+    is_debug_situation_ledger = false,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
     import_path = "Import",
+    -- Frame counter, bumped once per rendered frame in onUpdate.
+    -- AV:GetEntity() keys its entity-handle cache off this, so the whole mod
+    -- resolves the vehicle entity at most once per frame instead of once per
+    -- accessor call. Bumped here (not in a Cron timer) because onUpdate runs
+    -- every frame even while menus are up, so the counter can never stall and
+    -- leave a stale handle cached. See docs/PERF_ANALYSIS_init441.md fix (1).
+    frame_seq = 0,
     -- vehicle record
     excalibur_record = "Vehicle.av_rayfield_excalibur_dav",
     manticore_record = "Vehicle.av_militech_manticore_dav",
@@ -386,20 +399,43 @@ registerForEvent("onHook", function()
         OnAxisInput = {
             args = {'handle:AxisInputEvent'},
             callback = function(event)
-                local key = event:GetKey().value
-                local value = event:GetValue()
-                if math.abs(value) > DAV.axis_dead_zone then
-                    if key:find("IK_Pad") then
-                        local current_situation = Def.Situation.Idle
-                        if DAV.core_obj ~= nil then
-                            current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
-                        end
-                        if current_situation == Def.Situation.InVehicle or current_situation == Def.Situation.Waiting or current_situation == Def.Situation.Normal then
-                            DAV.core_obj:ConvertAxisAction(key, value)
-                        end
-                    else
-                    end
+                -- Cheapest gate first. This proxy fires on every axis event in
+                -- the game (~4 per frame measured: mouse, menus, walking).
+                -- The situation check is pure Lua; reading the event costs three
+                -- C# round trips. The old order paid those before ever asking
+                -- whether the AV is in a state that uses axis input.
+                local core = DAV.core_obj
+                if core == nil then
+                    return
                 end
+                local event_obj = core.event_obj
+                if event_obj == nil then
+                    return
+                end
+                local situation = event_obj.current_situation
+                if situation ~= Def.Situation.InVehicle
+                        and situation ~= Def.Situation.Waiting
+                        and situation ~= Def.Situation.Normal then
+                    return
+                end
+
+                -- GetValue is cheaper than GetKey, which returns a wrapper whose
+                -- .value has to be read again, so screen on magnitude first.
+                local value = event:GetValue()
+                local magnitude = value < 0 and -value or value
+                if magnitude <= DAV.axis_dead_zone then
+                    return
+                end
+
+                -- Only the two left-stick axes can ever reach an action. Before,
+                -- every other IK_Pad axis fell through ConvertAxisAction to a
+                -- no-op after it built a candidate table and walked it twice.
+                local key = event:GetKey().value
+                if not Def.AxisKeySet[key] then
+                    return
+                end
+
+                core:ConvertAxisAction(key, value)
             end
         }
     })
@@ -421,6 +457,14 @@ registerForEvent('onInit', function()
 
     DAV.core_obj:Init()
 
+    -- PROBE: per-situation cost ledger. Wrapping the class tables after Init
+    -- is fine -- instances resolve methods through the metatable, so they pick
+    -- up the wrapped versions too.
+    if DAV.is_debug_situation_ledger then
+        require('Modules/event.lua').EnableSituationLedger(Core)
+        print('[DAV][Info] Situation cost ledger enabled.')
+    end
+
     if io.open("debug.txt", "r") then
         DAV.is_debug_mode = true
         print("[DAV][Info] Debug mode enabled by debug.txt.")
@@ -439,6 +483,7 @@ registerForEvent("onDraw", function()
 end)
 
 registerForEvent('onUpdate', function(delta)
+    DAV.frame_seq = (DAV.frame_seq or 0) + 1
     Cron.Update(delta)
     if DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil and DAV.core_obj.av_obj.engine_obj ~= nil then
         DAV.core_obj.av_obj.engine_obj:Update(delta)

@@ -67,18 +67,39 @@ function Log:SetLevel(level, file_name)
     end
 end
 
+--- Whether a record at `level` would actually be emitted.
+---
+--- Record() makes its decision *after* the caller has already built the message,
+--- so a caller that builds the message by concatenation pays for every `..` even
+--- when the level is filtered out. On a hot path (PlayerPuppet.OnAction runs on
+--- every input action in the game) that is pure garbage.
+---
+--- Gate on this before concatenating:
+---   if self.log_obj:IsEnabled(LogLevel.Debug) then
+---       self.log_obj:Record(LogLevel.Debug, "a" .. b .. c)
+---   end
+---
+--- This mirrors *both* of Record()s guards -- the level threshold and the
+--- `level <= Debug` block that actually wraps spdlog -- so gating never suppresses
+--- a line Record() would have printed. LogLevel.Nothing passes the threshold but
+--- sits outside that block, hence the second term.
+---@param level LogLevel
+---@return boolean
+function Log:IsEnabled(level)
+    local setting_level = self.setting_level
+    if MasterLogLevel > setting_level then
+        setting_level = MasterLogLevel
+    end
+    return level <= setting_level and level <= LogLevel.Debug
+end
+
 --- Record a message to the log file with automatic caller information
 ---@param level LogLevel
 ---@param message string
 ---@param context string|nil Optional context information (e.g., function name, operation)
 ---@param skip_caller boolean|nil If true, skip automatic caller info (for performance)
 function Log:Record(level, message, context, skip_caller)
-    local setting_level = self.setting_level
-    if MasterLogLevel > setting_level then
-        setting_level = MasterLogLevel
-    end
-
-    if level > setting_level then
+    if not self:IsEnabled(level) then
         return
     end
     

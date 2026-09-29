@@ -26,6 +26,12 @@ Prof.enabled       = true
 Prof.warn_ms       = 8.0
 Prof.summary_every = 15.0
 
+-- Independent switch for the per-situation ledger (wrap_by_situation below).
+-- It has to be separate because Navigation:New() reassigns Prof.enabled from
+-- DAV.is_debug_profile_autopilot on every AV re-init, which would silently
+-- switch the ledger off mid-session.
+Prof.situation_enabled = false
+
 local sections = {}
 local order    = {}
 local last_summary = 0
@@ -83,6 +89,13 @@ function Prof.dump(title)
 	emit("  ============================================")
 end
 
+--- Names of every section recorded so far, in first-seen order.
+---@return string[]
+function Prof.section_names()
+	return order
+end
+
+--- Reset all counters.
 function Prof.reset()
 	sections = {}
 	order = {}
@@ -121,15 +134,14 @@ function Prof.begin(name)
 	return clock_ms()
 end
 
---- Close a timed section.
----@param name string
----@param t0 number token from Prof.begin
----@param ctxfun optional function appended to the warn line
----@param ... forwarded to ctxfun, and only when the call is actually slow, so a
----          fast call allocates nothing. Lets callers pass `Prof.fmt_args, ...`
----          straight through instead of building a closure per call.
-function Prof.finish(name, t0, ctxfun, ...)
-	if not Prof.enabled or t0 == nil then return end
+--- Close a timed section regardless of Prof.enabled.
+---
+--- The situation ledger needs this because Navigation:New() reassigns
+--- Prof.enabled from DAV.is_debug_profile_autopilot on every AV re-init, which
+--- would silently stop the ledger mid-session. The ledger's own switch is
+--- Prof.situation_enabled, checked by the wrapper.
+function Prof.finish_forced(name, t0, ctxfun, ...)
+	if t0 == nil then return end
 	local now = clock_ms()
 	local ms = now - t0
 
@@ -165,6 +177,18 @@ function Prof.finish(name, t0, ctxfun, ...)
 	end
 end
 
+--- Close a timed section.
+---@param name string
+---@param t0 number token from Prof.begin
+---@param ctxfun optional function appended to the warn line
+---@param ... forwarded to ctxfun, and only when the call is actually slow, so a
+---          fast call allocates nothing. Lets callers pass `Prof.fmt_args, ...`
+---          straight through instead of building a closure per call.
+function Prof.finish(name, t0, ctxfun, ...)
+	if not Prof.enabled then return end
+	return Prof.finish_forced(name, t0, ctxfun, ...)
+end
+
 --- Time a function call in one line.
 function Prof.call(name, fn, ctxfun)
 	if not Prof.enabled then return fn() end
@@ -192,11 +216,60 @@ function Prof.wrap_methods(tbl, targets)
 			tbl[mname] = function(self, ...)
 				if not Prof.enabled then return orig(self, ...) end
 				local t0 = clock_ms()
-				local a, b, c, d, e = orig(self, ...)
+				-- Eight slots: anything that returns more than five (e.g.
+				-- CalculateAddVelocity's six) must not be truncated here.
+				local a, b, c, d, e, f, g, h = orig(self, ...)
 				Prof.finish(pname, t0, Prof.fmt_args, ...)
-				return a, b, c, d, e
+				return a, b, c, d, e, f, g, h
 			end
 			wrapped[#wrapped + 1] = mname
+		end
+	end
+	return wrapped
+end
+
+--- Which (class table -> method name) pairs have already been situation-wrapped.
+--- Lua 5.1 / LuaJIT functions cannot carry fields, so the guard lives here.
+--- Weak keys so a discarded class table does not pin anything.
+local situation_wrapped = setmetatable({}, { __mode = "k" })
+
+--- Wrap methods with the aggregate keyed by a situation label.
+---
+--- Same machinery as wrap_methods, but each section is named
+--- "<situation>/<method>", so the summary answers "which situation pays for
+--- this?" rather than "which function is slow?".  Wrapping the top-level
+--- entry point (CheckAllEvents, OperateAerialVehicle) yields the whole
+--- situation's cost in a single row.
+---
+--- Gated on Prof.situation_enabled, not Prof.enabled, so the two probes can be
+--- toggled independently.
+---@param tbl table class table holding the methods
+---@param names string[] method names
+---@param situation_fn function called with self, returns the label
+---@return table names actually wrapped
+function Prof.wrap_by_situation(tbl, names, situation_fn)
+	local done = situation_wrapped[tbl]
+	if done == nil then
+		done = {}
+		situation_wrapped[tbl] = done
+	end
+	local wrapped = {}
+	for _, name in ipairs(names) do
+		local orig = tbl[name]
+		if type(orig) == "function" and not done[name] then
+			local proxy = function(self, ...)
+				if not Prof.situation_enabled then return orig(self, ...) end
+				local t0 = clock_ms()
+				-- Eight return slots: CalculateAddVelocity returns six, and a proxy
+				-- that truncates to five silently drops `yaw`.
+				local a, b, c, d, e, f, g, h = orig(self, ...)
+				local ok, label = pcall(situation_fn, self)
+				Prof.finish_forced((ok and tostring(label) or "?") .. "/" .. name, t0)
+				return a, b, c, d, e, f, g, h
+			end
+			done[name] = true
+			tbl[name] = proxy
+			wrapped[#wrapped + 1] = name
 		end
 	end
 	return wrapped

@@ -395,15 +395,33 @@ function Core:GetTranslationText(text)
     return translated_text
 end
 
+--- Turn a JSON exception array into a lookup set.
+--- The JSON files stay plain arrays (user editable); we only index them once here
+--- so the hot path is a hash lookup instead of a linear scan over up to 17 strings.
+---@param list table|nil
+---@return table
+local function to_exception_set(list)
+    local set = {}
+    if list then
+        for _, name in ipairs(list) do
+            set[name] = true
+        end
+    end
+    return set
+end
+
 --- Set Input Listener.
 function Core:SetInputListener()
-    local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
-    local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
-    local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
+    local exception_in_entry_area_set = to_exception_set(Utils:ReadJson("Data/exception_in_entry_area_input.json"))
+    local exception_in_veh_set = to_exception_set(Utils:ReadJson("Data/exception_in_veh_input.json"))
+    local exception_in_popup_set = to_exception_set(Utils:ReadJson("Data/exception_in_popup_input.json"))
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
-
-        if self.event_obj.current_situation ~= Def.Situation.Waiting and self.event_obj.current_situation ~= Def.Situation.InVehicle then
+        -- Read the situation once and reuse it. IsInVehicle() / IsInEntryArea()
+        -- each re-read current_situation and then pay a C# round trip, and this
+        -- hook fires on every input action in the game (~3.3/frame measured).
+        local situation = self.event_obj.current_situation
+        if situation ~= Def.Situation.Waiting and situation ~= Def.Situation.InVehicle then
             return
         end
 
@@ -411,50 +429,48 @@ function Core:SetInputListener()
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
 
-        if self.event_obj:IsInVehicle() then
-            for _, exception in pairs(exception_in_veh_list) do
-                if action_name == exception then
-                    consumer:Consume()
-                    break
-                end
+        -- Equivalent to Event:IsInVehicle(), which is
+        --   current_situation == InVehicle and av_obj:IsPlayerIn()
+        -- Nothing between the read above and here can mutate the situation, so
+        -- re-reading it inside IsInVehicle() bought nothing.
+        if situation == Def.Situation.InVehicle and self.av_obj:IsPlayerIn() then
+            if exception_in_veh_set[action_name] then
+                consumer:Consume()
             end
             local player = Game.GetPlayer()
             if player ~= nil and player:PSIsInDriverCombat() then
-                    -- block exit vehicle when player is in combat
+                -- block exit vehicle when player is in combat
                 if action_name == "Exit" and not self.is_locked_action_in_combat then
                     self.is_locked_action_in_combat = true
                     consumer:Consume()
                 end
-                if not self.av_obj:IsMountedCombatSeat() then
-                    -- block combat seat action
-                    for _, exception in pairs(exception_in_popup_list) do
-                        if action_name == exception then
-                            consumer:Consume()
-                            break
-                        end
-                    end
+                -- block combat seat action. Ordered so that IsMountedCombatSeat()
+                -- (a C# round trip) is only paid for actions that are actually
+                -- popup exceptions, which is the rare case.
+                if exception_in_popup_set[action_name] and not self.av_obj:IsMountedCombatSeat() then
+                    consumer:Consume()
                 end
             else
                 self.is_locked_action_in_combat = false
             end
-            if self.event_obj:IsInMenuOrPopupOrPhoto() or self.event_obj:IsAutoMode() then
-                for _, exception in pairs(exception_in_popup_list) do
-                    if action_name == exception then
-                        consumer:Consume()
-                        break
-                    end
-                end
+            if exception_in_popup_set[action_name]
+                    and (self.event_obj:IsInMenuOrPopupOrPhoto() or self.event_obj:IsAutoMode()) then
+                consumer:Consume()
             end
-        elseif self.event_obj:IsInEntryArea() then
-            for _, exception in pairs(exception_in_entry_area_list) do
-                if action_name == exception then
-                    consumer:Consume()
-                    break
-                end
+        -- Equivalent to Event:IsInEntryArea(), which is
+        --   current_situation == Waiting and av_obj:IsPlayerInEntryArea()
+        elseif situation == Def.Situation.Waiting and self.av_obj:IsPlayerInEntryArea() then
+            if exception_in_entry_area_set[action_name] then
+                consumer:Consume()
             end
         end
 
-        self.log_obj:Record(LogLevel.Debug, "Action Name: " .. action_name .. " Type: " .. action_type .. " Value: " .. action_value)
+        -- Gate the concatenation. Record() drops Debug below the configured level,
+        -- but it drops it *after* the caller built the string, so without this
+        -- guard every action allocated ~4 throwaway strings.
+        if self.log_obj:IsEnabled(LogLevel.Debug) then
+            self.log_obj:Record(LogLevel.Debug, "Action Name: " .. action_name .. " Type: " .. action_type .. " Value: " .. action_value)
+        end
 
         self:StorePlayerAction(action_name, action_type, action_value)
 
@@ -621,9 +637,8 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
         end
     end
 
-    local cmd_list = {}
-
-    cmd_list = self:ConvertActionList(action_name, action_type, action_value)
+    -- Was `local cmd_list = {}` immediately overwritten one line later.
+    local cmd_list = self:ConvertActionList(action_name, action_type, action_value)
 
     if cmd_list[1] ~= Def.ActionList.Nothing then
         self.queue_obj:Enqueue(cmd_list)
@@ -1020,28 +1035,21 @@ end
 ---@param key string
 ---@param value number
 function Core:ConvertAxisAction(key, value)
+    -- Shared membership set with the input proxy. The old body built
+    -- `{"IK_Pad_LeftAxisX", "IK_Pad_LeftAxisY"}` on every call and walked it
+    -- once per flight mode; this allocates nothing and reads flight_mode once.
+    if not Def.AxisKeySet[key] then
+        return
+    end
     if self.av_obj.is_blocking_operation then
         self.log_obj:Record(LogLevel.Trace, "Operation is blocked in ConvertAxisAction")
         return
     end
-    local keybind_name = ""
-    local axis_key_list = {"IK_Pad_LeftAxisX", "IK_Pad_LeftAxisY"}
-    if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
-        for _, keybind in ipairs(axis_key_list) do
-            if key == keybind then
-                keybind_name = keybind
-                self:ConvertAVAxisAction(keybind_name, value)
-                return
-            end
-        end
-    elseif self.av_obj.engine_obj.flight_mode == Def.FlightMode.Helicopter then
-        for _, keybind in ipairs(axis_key_list) do
-            if key == keybind then
-                keybind_name = keybind
-                self:ConvertHeliAxisAction(keybind_name, value)
-                return
-            end
-        end
+    local flight_mode = self.av_obj.engine_obj.flight_mode
+    if flight_mode == Def.FlightMode.AV then
+        self:ConvertAVAxisAction(key, value)
+    elseif flight_mode == Def.FlightMode.Helicopter then
+        self:ConvertHeliAxisAction(key, value)
     end
 end
 
@@ -1107,12 +1115,25 @@ end
 --- Operate Aerial Vehicle.
 ---@param actions table
 function Core:OperateAerialVehicle(actions)
-    if not self.is_locked_operation then
-        if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
-            self.av_obj:Operate(actions)
-        elseif self.event_obj:IsWaiting() then
-            self.av_obj:Operate({{Def.ActionList.Idle, 1}})
-        end
+    if self.is_locked_operation then
+        return
+    end
+
+    -- No menu, popup or photo mode. This guard used to sit on the InVehicle
+    -- branch only, and the Waiting branch missed it. `Engine:Update` returns
+    -- early while a menu is up, so nothing computed here can reach physics --
+    -- the whole control pass was provably dead work. Field log (fix 21):
+    -- 95% of Waiting ticks happened with a menu open, and every one of them
+    -- still ran CalculateAddVelocity -> CalculateIdleMode -> GetGroundPosition,
+    -- i.e. one synchronous ground raycast per tick, measured at 270 ticks/s.
+    if self.event_obj:IsInMenuOrPopupOrPhoto() then
+        return
+    end
+
+    if self.event_obj:IsInVehicle() then
+        self.av_obj:Operate(actions)
+    elseif self.event_obj:IsWaiting() then
+        self.av_obj:Operate({{Def.ActionList.Idle, 1}})
     end
 end
 

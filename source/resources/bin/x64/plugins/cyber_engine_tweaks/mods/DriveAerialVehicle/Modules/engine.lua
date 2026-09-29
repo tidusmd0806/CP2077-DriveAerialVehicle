@@ -241,16 +241,20 @@ end
 
 --- Calculate linearly velocity.
 ---@param action_command_list table
+---@param skip_linear boolean|nil Idle only: skip the hover/height term. Callers
+---        that discard x/y/z (DespawnFromGround feeds only the angular half to
+---        OnlyAngularRun) use this to avoid an IsOnGround probe, a velocity
+---        read and a ground raycast whose result is thrown away.
 ---@return number x
 ---@return number y
 ---@return number z
 ---@return number roll
 ---@return number pitch
 ---@return number yaw
-function Engine:CalculateAddVelocity(action_command_list)
+function Engine:CalculateAddVelocity(action_command_list, skip_linear)
     if action_command_list[1] == Def.ActionList.Idle then
         self.rpm_count = 0
-        return self:CalculateIdleMode()
+        return self:CalculateIdleMode(skip_linear)
     end
 
     if (action_command_list[1] == Def.ActionList.Forward or action_command_list[1] == Def.ActionList.Up or action_command_list[1] == Def.ActionList.HAccelerate or action_command_list[1] == Def.ActionList.HUp) and self.rpm_count <= self.rpm_max_count then
@@ -683,16 +687,17 @@ function Engine:CalculateHelicopterMode(action_command_list)
 end
 
 --- Calculate velocity for idle mode
+---@param skip_linear boolean|nil see Engine:CalculateAddVelocity
 ---@return number x
 ---@return number y
 ---@return number z
 ---@return number roll
 ---@return number pitch
 ---@return number yaw
-function Engine:CalculateIdleMode()
+function Engine:CalculateIdleMode(skip_linear)
     local x,y,z,roll,pitch = 0,0,0,0,0
 
-    if DAV.user_setting_table.is_enable_idle_gravity and not self.av_obj.navigation_obj:IsCollision() then
+    if not skip_linear and DAV.user_setting_table.is_enable_idle_gravity and not self.av_obj.navigation_obj:IsCollision() then
         local vel_vec, _ = self:GetDirectionAndAngularVelocity()
         local height = self.av_obj.navigation_obj:GetHeight()
         local dest_height = self.av_obj.minimum_distance_to_ground
