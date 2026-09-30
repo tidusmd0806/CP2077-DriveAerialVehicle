@@ -148,6 +148,47 @@ function Utils:ReadJson(fill_path)
    return result
 end
 
+--- Decoded configuration files, kept in memory after the first read.
+--- These files are static at runtime: they are shipped with the mod and only
+--- change when the user edits them by hand (which requires a restart anyway).
+--- ReadJson() goes to disk every single call, and several of them sit on the
+--- boarding path (see docs/PERF_ANALYSIS_enter_exit.md): a file open, a full
+--- read and a JSON decode on the frame the player is already paying for a
+--- HUD swap, a mount animation and a physics handover.
+JSON_CACHE = {}
+
+--- Read a json file once and serve the decoded table from memory afterwards.
+---
+--- The cached table is shared, so callers must treat it as read-only.
+--- `Utils:ReadJsonCached(...)` + a filtered copy is the pattern used wherever
+--- the old code mutated what it read.
+---
+--- A missing or broken file is cached too (as `false`), so a typo in a config
+--- path costs one failed open for the session instead of one per call.
+---@param fill_path string
+---@return table | nil
+function Utils:ReadJsonCached(fill_path)
+   local cached = JSON_CACHE[fill_path]
+   if cached == nil then
+      cached = self:ReadJson(fill_path) or false
+      JSON_CACHE[fill_path] = cached
+   end
+   if cached == false then
+      return nil
+   end
+   return cached
+end
+
+--- Drop one cached config (or all of them) so the next read hits the disk.
+---@param fill_path string|nil nil drops the whole cache
+function Utils:InvalidateJsonCache(fill_path)
+   if fill_path == nil then
+      JSON_CACHE = {}
+   else
+      JSON_CACHE[fill_path] = nil
+   end
+end
+
 --- Write json file.
 ---@param fill_path string
 ---@param write_data table

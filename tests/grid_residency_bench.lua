@@ -47,6 +47,8 @@ local function preload(name, path)
 end
 preload("Etc/log.lua", MODDIR .. "/Etc/log.lua")
 preload("Etc/utils.lua", MODDIR .. "/Etc/utils.lua")
+preload("Etc/timescale.lua", MODDIR .. "/Etc/timescale.lua")
+TimeScale = require("Etc/timescale.lua")
 preload("Modules/obstacle_grid.lua", MODDIR .. "/Modules/obstacle_grid.lua")
 preload("Modules/navigation.lua", MODDIR .. "/Modules/navigation.lua")
 Log = require("Etc/log.lua")

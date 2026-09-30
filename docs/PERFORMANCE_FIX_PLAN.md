@@ -2166,3 +2166,433 @@ end
 | `python tests/run_grid_integration_test.py` | **110 passed, 0 failed** |
 | `python tests/run_resident_cache_test.py` | 33 passed, 0 failed |
 | `python tests/run_grid_integration_test.py probe_smoke.lua` | 15 passed, 0 failed |
+
+---
+
+## 6. fix (11): `time_resolution` をユーザー設定として公開（今回実装）
+
+### 背景
+
+§4C では `DAV.time_resolution = 0.01` を「変更しない」としていた。
+理由は **この値が CPU の予算ではなく飛行制御ループのサンプリング周期 `dt` そのもの**
+で、変えると離着陸の停止位置がずれるためだった。
+
+ユーザー側から「環境に合わせて下げたい」という要望があったため、
+**全量を dt 基準に揃えた上で**設定公開した。
+
+### 設計
+
+新規 `Etc/timescale.lua` が唯一の権限を持つ。
+
+| 関数 | 用途 |
+|---|---|
+| `TimeScale:Get()` | 現在の周期（秒） |
+| `TimeScale.DEFAULT_HZ` / `DEFAULT_RESOLUTION` | **出荷既定 20 Hz / 0.05 s** |
+| `TimeScale:Scale()` | ベース(0.01)に対する倍率 `dt_scale` |
+| `TimeScale:Ticks(seconds)` | 秒 → tick 数 |
+| `TimeScale:PerTick(v)` | ベース tick あたりの増分 → 現在周期での増分 |
+| `TimeScale:Lead(speed, max_lead)` | 1 tick 中に進む距離＝判定の反応盲点。**`max_lead` は実質必須**（下記） |
+| `TimeScale:HzToResolution(hz)` | ユーザー入力 Hz → クランプ済み周期 |
+| `TimeScale:GetHz()` | 現在値を整数 Hz で返す（スライダー表示用） |
+| `TimeScale:Clamp(v)` | 1/120 〜 1/10 s（= 10〜120 Hz）にクランプ。nil/NaN は**出荷既定 20 Hz** にフォールバック |
+
+`TimeScale` は `Utils` / `Def` / `Engine` と同じ `X.__index = X` + `function X:Method()` スタイル。
+制御ループは 1 つしか存在しないのでシングルトンとしてクラステーブル自体に対して呼ぶ
+（`TimeScale:Set(...)`）。`.` で残っているのは `BASE_RESOLUTION` / `DEFAULT_HZ` /
+`MIN_HZ` / `MAX_HZ` / `MODE_*` などの**データ定数**のみ。
+（`Cron.Every` の `.` は psiberx 製の外部モジュールなので別枠）
+`DAV.time_resolution` / `DAV.dt_scale` は `TimeScale:Set()` が常時同期する。
+**実行時に直接代入してはいけない。**
+
+### 何をスケールし、何をしないか
+
+**スケールする（tick あたりの累積量）**
+
+| 箇所 | 量 |
+|---|---|
+| `engine.lua` | `rpm_count_step` / `rpm_restore_step` |
+| `engine.lua` | `heli_lift_acceleration` の加算（`z` 項ではない） |
+| `av.lua` | `thruster_angle_step` / `thruster_angle_restore` |
+| 全域 | tick カウント・タイムアウト → `TimeScale:Ticks(秒)` |
+
+**スケールしない（すでに秒基準＝レート目標）**
+
+`Engine:Update` は毎フレーム `force = direction_velocity * mass` /
+`torque = (cmd - actual) * gain` を渡しており、指令量は秒基準。
+
+- `acceleration` / `vertical_acceleration` / `left_right_acceleration` [m/s²]
+- `horizontal_air_resistance_const` / `vertical_air_resistance_const` [1/s]
+  - 終端速度 `a/c = 1.5/0.015 = 100 m/s ≈ max_speed 220mph` が単位の根拠
+- `*_change_amount` / `*_restore_amount` / `rotate_roll_change_amount`
+- `CalculateIdleMode` の `damping` / `height_gain`
+- `FluctuationVelocity` の `step_width_per_second`（明示的に /s）
+
+これらを掛えると理由なく `dt_scale` 倍強くなる。
+
+### 離着陸の停止位置：反応盲点の補正
+
+制御ループは高度を 1 tick に 1 回しか読まない。 therefore 判定を見た時点で
+機体はすでに `speed * dt` 進んでいる。
+
+```lua
+local lead = TimeScale:Lead(descent_speed)
+if self:GetHeight() - lead <= self.av_obj.minimum_distance_to_ground then
+```
+
+`<` ではなく `<=` にしているのは、周期と物理ステップが整数倍でちょうど揃う
+境界で lead が移動量と相殺し、厳密比較だと 1 tick 遅れ発火になるため。
+
+同様に `AutoLeaving`（上昇）でも `lead` を前方に足し、
+`IsWall` の探知距離にも `+ lead` を加算した。
+
+### 引き算した安全ネット（LandingTriggerHeight）
+
+当初 `LandingTriggerHeight()` を入れて「減速開始点を、スクリプト高度と
+**実減速で止まる必要距離**の大きい側で発火」させたが、**誤りだったので削除した**。
+
+`autopilot_acceleration = max(1.0, speed * 0.063)` は 25 m/s で **1.575 m/s²**
+しかなく、停止距離 `v²/2a = 625/3.15 = 198 m` となる。100 m 高度に対して
+198 m なので**全高度で即フレア**が発火し、降下は 5 m/s に張り付く。
+実減速が小さすぎるため、この「安全ネット」は安全ではなく単なる誤作動だった。
+
+→ 元の `deceleration_height`（`min(h*0.5, 80)`）+ lead に戻した。
+
+### lead は無制限にしてはいけない（真のバグ）
+
+`lead = descent_speed × dt` を `Engine:GetVelocity()` の返り値を信じて
+そのまま使っていたのが**「はるか上空で着陸完了する」の直接原因**。
+
+物理ハンドルからの速度取得は、スポーン直後・テレポート直後などに
+一時的に大きな値を返すことがある。500 m/s を 20 Hz で拾うと
+
+```
+lead = 500 × 0.05 = 25 m
+高度 20 m で: 20 - 25 = -5 <= 1.2  →  即停止（地上 19 m 上で）
+```
+
+**修正**：`TimeScale:Lead(speed, max_lead)` に上限引数を追加し、
+**守っている距離自身を上限**として渡す。
+
+| 呼び出し | 上限 |
+|---|---|
+| `AutoLanding` | `minimum_distance_to_ground`（1.2 m） |
+| `SpawnToSky` | `minimum_distance_to_ground`（1.2 m） |
+| `AutoLeaving` | `check_cell_distance`（5.0 m） |
+
+「補正量は、補正対象より大きくなってはいけない」という原則。
+100 Hz・25 m/s では lead = 0.25 m で上限に当たらないので通常動作は不変。
+
+### 修正した時制バグ（放置すると必ず壊れていた箇所）
+
+| 箇所 | 修正前 | 修正後 |
+|---|---|---|
+| `av.lua` | `up_timeout = 350`（素 tick。0.01 タイマーなので偶然 3.5s） | `up_timeout = 3.5 -- s` + `TimeScale:Ticks()` |
+| `av.lua` | `timer.tick > 350`（unmount） | `unmount_timeout = 3.5 -- s` |
+| `core.lua` | `max_move_hold_count = 50000` | `max_move_hold_seconds = 500` |
+| `av.lua` | `Cron.Every(0.01, ...)` ハードコード 2 箇所 | `DAV.time_resolution` に統一 |
+| `event.lua` | `math.floor(2 / DAV.time_resolution)` | `TimeScale:Ticks(2)` |
+
+tick 数の閾値は**シーケンス開始時にローカルへ退避**している。
+実行中にユーザーが設定を変えると締切が動くため。
+
+### 設定
+
+`user_setting_v3.json` に 2 キー追加（NativeSettings の Advance 段）：
+
+- `time_resolution` — **10〜120 Hz の連続値**（NativeSettings は Hz スライダー、
+  5 Hz 刻み、**既定 20 Hz**）。保存値は秒（周期）なので JSON 直編集も可。
+  `TimeScale:HzToResolution()` / `GetHz()` / `ResolutionToHz()` が変換を担当し、
+  範囲外は `TimeScale.Clamp` が 1/120 〜 1/10 に吸収する。
+- `time_scale_measured` — オフ時は設定値で補正（＝従来の挙動）。
+  オンの時は実際の経過時間で補正。Cron はフレームより速く発火しないため、
+  処理が追いつかない環境で挙動が一定になる。反面 100fps 未満では体感も変わる。
+
+**`BASE_RESOLUTION`（チューニング基準）は 0.01 のまま据え置き。**
+ここを動かすと全定数が無言で再スケールするため、既定値とは別定数にしてある。
+
+**出荷既定は 20 Hz（`DEFAULT_RESOLUTION = 0.05`）で、`dt_scale == 5.0`。**
+つまり既定構成では制御ループはチューニング時より 5 倍粗く、
+その差分を lead 補正と `PerTick` で埋めている形になる。
+既存ユーザーは `user_setting_v3.json` の `version` 不一致時にこの既定値へ移行する。
+
+### 実効レートの注意
+
+Cron は 1 レンダリングフレームに最大 1 回しか発火しない
+（`delay -= delta; if delay <= 0 then fire`）。
+したがって実効レートは `min(1/resolution, fps)`。
+30fps 環境で 100 Hz を指定しても 33 Hz にしかならないので、
+その場合は `time_scale_measured` をオンにするか 33 Hz を選ぶ。
+
+### 回帰テスト
+
+新規 `tests/timescale_landing_test.lua`（`python tests/run_timescale_landing_test.py`）
+
+- **A. 単位換算** — Ticks / Lead / PerTick / Clamp / プリセット往復 / measured モード
+- **B. 着陸停止点** — 物理 600Hz に対し **120/100/80/60/50/40/33/25/20/10 Hz**
+  × 進入速度 5/12/25 m/s をスイープ。
+  補正なしは 25 m/s @20Hz 以下で **停止高度 -0.04m（地面を貫通）**、
+  補正ありは全 30 組合せでクリアランス 1.2m を割らない。
+  さらに補正後の散布が `speed × (1/10 − 1/120)` の理論値以内に収まることを検証。
+- **C. 静的ガード** — `Cron.Every(0.01`、`/ DAV.time_resolution`、
+  `timer.tick <N|>N` の素 tick 比較がソースに残っていたら失敗。
+
+### 最終テスト状態（fix 11 後）
+
+| 実行 | 結果 |
+|---|---|
+| `python tools/check_lua_syntax.py` | 49 files, 0 problems |
+| `python tests/run_timescale_landing_test.py` | **188 passed, 0 failed** |
+| `python tests/run_meter_cadence_test.py` | 42 passed, 0 failed |
+| `python tests/run_situation_cost_test.py` | 54 passed, 0 failed |
+| `python tests/run_enter_exit_cost_test.py` | 52 passed, 0 failed |
+| `python tests/run_onaction_cost_test.py` | 40 passed, 0 failed |
+| `python tests/run_axis_proxy_cost_test.py` | 31 passed, 0 failed |
+| `python tests/run_entity_cache_test.py` | 30 + 31 passed, 0 failed |
+
+### 既定 20 Hz 化による影響（要実機確認度が上がる）
+
+既定が `dt_scale == 5.0` になるため、**何も設定していないユーザーも
+5 倍粗い制御レートで飛ぶ**。テストで担保しているのは停止位置だけなので、
+実機では以下を必ず確認する：
+
+1. 手動飛行の操縦感（0.05 s のゼロ次保持遅入による発振・ overshoot）
+2. ホバーの収束（`CalculateIdleMode` の P/D が 5 倍遅い保持で破綻しないか）
+3. RPM / スラスター角 / 着陸 SE の追従
+
+気に入らなければスライダーで 50〜100 Hz に戻せばよく、
+`BASE_RESOLUTION` を触っていないので**どの Hz でも元のチューニングに
+正確に-scaling-される**ことがテスト済み。
+
+### 降下タイムアウトを固定 20 s に（fix 12）
+
+実機ログで `AutoPilot Success for timeout` が確認できたため確定した。
+
+**原因**：予算が `(height / autopilot_speed) * 1.8` で、
+**着陸開始時点から巡航速度で降下している前提**だった。
+
+| 量 | 値 |
+|---|---|
+| 降下開始速度 | `SetDirectionVelocity(0, 0, -0.5)` = 0.5 m/s |
+| 加速度 | `autopilot_acceleration = max(1.0, speed*0.063)` = **1.575 m/s²** @25m/s |
+| 巡航到達に必要な降下距離 | `(v² − v0²) / 2a` = **198 m** |
+
+典型的な 50 m 着陸では予算（3.6 s）が**巡航到達前に切れ**、
+**地上 38 m で「着陸完了」**になっていた。100 Hz でも 20 Hz でも同じ。
+
+**修正**：`Navigation.landing_timeout_seconds = 20`（固定）に変更。
+
+この値は**安全ネットであってタイミング目標ではない**。実際の着陸は
+ground / `target_z` / collision の各分岐で終了し、20 s は
+「地上が決して検出されない場所（void・水上）で降下し続ける」
+ケースだけを拾う。
+
+**20 s がカバーする降下距離**（降下プロファイルを実積分して算出）
+
+| 巡航速度 | カバー高度 |
+|---|---|
+| 5 m/s | ~43 m |
+| 10 m/s | ~105 m |
+| 25 m/s | ~160 m |
+| 35 m/s | ~390 m |
+| 50 m/s | ~590 m |
+
+実際の着陸高度は `autopilot_leaving_height = max(20, speed*2)`
+（25 m/s で 50 m）なので全速度域で余裕がある。
+
+**効果（テスト D 節、AutoLanding 判定連鎖 + Engine fluctuation の完全ミラー）**
+
+```
+旧予算   20m @100Hz -> stop=17.6m TIMEOUT     20s固定   20m @100Hz -> stop= 1.2m ground
+旧予算   50m @100Hz -> stop=38.0m TIMEOUT     20s固定   50m @100Hz -> stop= 1.2m ground
+旧予算  100m @ 20Hz -> stop=55.5m TIMEOUT     20s固定  100m @ 20Hz -> stop= 1.2m ground
+旧予算  200m @ 20Hz -> stop=47.6m TIMEOUT     20s固定  150m @ 20Hz -> stop= 1.2m ground
+```
+
+旧予算は 8/8 全ケースでタイムアウト。20 s 固定は 12/12 全ケースで接地
+（100 Hz / 33 Hz / 20 Hz）。
+
+**既知の上限（テストで固定）**：25 m/s 巡航で 200 m 降下は約 23.6 s かかり、
+20 s より先に接地しない。本 Mod の対象高度より十分高いが、
+将来降下プロファイルを変えたときに気づけるようテストで押さえてある。
+
+### 召喚降下のタイムアウト（fix 13）
+
+autopilot 着陸が直った後、**車両召喚時の着陸地点が高い**という報告。
+同じクラスのバグだが**定数が別**だった。`AV.down_timeout = 5`。
+
+**降下プロファイル**（`spawn_height=20`, `down_speed=-5.0`）
+
+| 区間 | 速度 | 所要 |
+|---|---|---|
+| 20 m → 10 m | `down_speed` 5 m/s | 2.0 s |
+| 10 m → 4 m | `-2 m/s²` で 1 m/s へ減速 | 2.0 s |
+| 4 m → 1.2 m | 1 m/s 維持 | 2.8 s |
+| | **合計** | **6.8 s** |
+
+`down_timeout = 5` は**守るべき降下より短かった**ため、全召喚が
+ground 分岐ではなくタイムアウト分岐で **地上約 3 m 上**で止まっていた。
+
+**修正**：`down_timeout = 10`（余裕 ~50%）。
+
+```
+旧(5s)  @100Hz -> stop=3.00m TIMEOUT      新(10s)  @100Hz -> stop=1.24m ground  6.76s
+旧(5s)  @ 33Hz -> stop=3.12m TIMEOUT      新(10s)  @ 33Hz -> stop=1.34m ground  6.79s
+旧(5s)  @ 20Hz -> stop=3.20m TIMEOUT      新(10s)  @ 20Hz -> stop=1.45m ground  6.75s
+```
+
+`spawn_height` はハードコード（ユーザー設定なし）なのでプロファイルは固定で、
+10 s は全ケースで安全。テスト E 節でプロファイルを実測し、
+`spawn_height` / `down_speed` / フレア定数を変えて 10 s を超えたら
+検知するようにしてある。
+
+### 加速音の停止ディバウンス（fix 14）
+
+`time_resolution` を 100 Hz → 20 Hz に上げたことで、
+**前進時の追加エンジン音（`dav_av_accel_start`）が鳴らなくなった**。
+
+> **訂正**：当初 `timeToLive = 1.5` を「音の寿命」と解釈し、
+> 「エッジ 1 回では 1.5 s で音が消える」と書いたが**誤り**。
+> `timeToLive` は**フェード時間**で、音は鳴り続ける。
+> それに伴い keep-alive 方式は取り下げた。
+
+**実際の機構：一時的な空キューが誤 STOP を生む**
+
+`ControlSound` は **drain 済みのアクションキュー**から
+加速中フラグをラッチする。このキューは**過渡的な信号**で、
+ある tick で移動コマンドが見えるかどうかは、
+
+- ボタン保持プロデューサの Cron タイマ
+- 制御ループコンシューマの Cron タイマ
+- フレームレート
+
+の**位相関係**で決まる。位相がずれると**キーを押し続けているのに
+その tick のキューが空**になり、旧コードはそれを即 `Stop` イベントに
+変換していた。→ **加速中に音の ON/OFF が繰り返され、
+1.5 s フェードを抜ける前に毎回消える。**
+
+100 Hz ではプロデューサが毎フレーム enqueue していたため
+このギャップが発生せず、症状が出なかった。
+
+**修正**：停止条件に**猶予（ディバウンス）**を入れる。
+
+```lua
+obj.sound_stop_grace_seconds = 0.3
+-- ControlSound 内
+local grace_ticks = TimeScale:Ticks(self.sound_stop_grace_seconds)
+-- コマンドが見えたら即ラッチ、見えなくなっても grace_ticks 連続して
+-- 経るまで Stop を発火しない
+```
+
+| | 1 tick のギャップ | grace-1 tick | 実際のリリース |
+|---|---|---|---|
+| 旧 | **STOP** | STOP | STOP |
+| 新 | イベント無し | イベント無し | STOP（1 回） |
+
+猶予は `TimeScale:Ticks()` で**実時間 0.3 s**に固定しているため、
+解像度を変えても体感が変わらない（100 Hz=30 tick / 33 Hz=10 tick / 20 Hz=6 tick）。
+
+**追加で修正した餓え**：旧コードは `if/elseif` 一本鎖で、
+加速ブランチがスラスターブランチを**餓させていた**
+（加速エッジが処理されるたび `return` していた）。
+両レイヤーを独立に処理するよう変更した。
+
+**診断ログ**：停止時に猶予 tick 数を記録するようにしたので、
+実機ログで誤 STOP の有無を即確定できる。
+
+```
+Stop Acceleration Sound after 7 idle ticks
+```
+
+**実機での見方**：加速中にこのログが出る → まだ誤 STOP がある
+（`sound_stop_grace_seconds` を上げる）。出ないのに音が鳴らない →
+`ControlSound` の外（音声リソース／イベント配線）が原因。
+
+### 副次的に発見した誤削除（fix 15）
+
+ui.lua の obstacle recording スイッチから
+`Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)` が
+**誤って削除されていた**（このセッションの編集で消えた）。
+音とは無関係だが、設定が保存されず再起動で元に戻るバグだったので復元した。
+
+### 制御ループの低域通過とリレーの dt 非依存化（fix 16）
+
+20 Hz 化により**安定化リレーと autopilot の旋回で、目標角度へ近づく動きが
+若干不安定**になった。原因は 2 種類あった。
+
+#### (1) per-tick 低域通過フィルタの時定数が 5 倍になっていた
+
+`x = x + (target - x) * alpha` を 1 tick に 1 回実行する形は
+1 次フィルタで、極は `(1 - alpha)`、**時定数は `-dt / ln(1 - alpha)`**。
+つまり **`alpha` は `dt` とセットで意味を持つ**。
+`dt` を 5 倍にしても `alpha` を固定のままにすると、
+フィルタは実時間ベースで **5 倍鈍くなる**。
+
+| 箇所 | 係数 | 100Hz の時定数 | 20Hz（修正前） |
+|---|---|---|---|
+| `yaw_smooth_alpha`（旋回目標） | 0.06 | 0.162 s | **0.808 s** |
+| `transition_rate`（inertia/blend） | 0.15 | 0.062 s | **0.308 s** |
+
+**旋回目標が 0.8 秒遅れる**＝機体は「1 秒前に要求された方角」を
+追いかけ続けることになり、接近時にオーバーシュートを繰り返す。
+これがふらつきの正体。
+
+**修正**：極を再マッピングする `TimeScale:SmoothAlpha()` を新設。
+
+```lua
+alpha_eff = 1 - (1 - alpha) ** (dt / BASE_RESOLUTION)
+```
+
+| alpha | 100Hz | 33Hz | 20Hz | 10Hz | 時定数 |
+|---|---|---|---|---|---|
+| 0.06 | 0.0600 | 0.1710 | 0.2661 | 0.4614 | **全解像度 0.162 s** |
+| 0.15 | 0.1500 | 0.3889 | 0.5563 | 0.8031 | **全解像度 0.062 s** |
+
+`BASE_RESOLUTION` では恒等（調整基準の不変を保証）。
+
+#### (2) 安定化リストアが素のリレーだった
+
+```lua
+if roll > deadband then local_roll = -restore_amount   -- 距離と無関係にフルレート
+```
+
+リレーは**どれだけ目標に近いかに関係なく、1 tick 分フルレートをコミット**する。
+コミットされる超過量は `レート × dt` なので **tick に比例して増える**。
+20 Hz では補正が着地するまでに機体は 5 倍進んでおり、
+デッドバンド端で Settling せずに揺れる。
+
+**修正**：**バウンダリレイヤー**を追加。デッドバンド端に向かって
+コマンドレートを線形に 0 へ減衰させる。
+
+```lua
+obj.restore_boundary_deg = 1.0   -- 基準解像度での層の厚み
+-- 層の幅は dt_scale 倍 → 粗いループの分だけ余分に広げる
+boundary = restore_boundary_deg * dt_scale
+rate = full_rate * (excess / boundary)     -- 層内
+```
+
+| 解像度 | 層の幅 |
+|---|---|
+| 100 Hz | 1.0° |
+| 33 Hz | 3.0° |
+| 20 Hz | 5.0° |
+
+**適用箇所**（3 か所すべて、`Engine:Run` / `Engine:OnlyAngularRun` /
+`Engine:CalculateIdleMode` の roll・pitch）。
+
+幅を `dt_scale` 倍にした意図：**100 Hz では調整基準とほぼ同じ挙動**に留まり、
+粗くなった分だけ平滑化が効く。`restore_boundary_deg = 0` で
+従来（素のリレー）に戻せる。
+
+### 未検証（実機が必要）
+
+Lua 側から `FlyAVSystem` の C# 実装（別リポジトリ `RED4ext_DAV`）は見えず、
+`ChangeVelocity` / `AddForce` が impulse 系か真の力積かは断定できない。
+終端速度の整合から **レート基準（秒基準）と判断**したが、
+20〜25 Hz で実際に離着陸して以下を確認する必要がある：
+
+1. 着陸停止位置が 100 Hz と比べて数 10cm 以内に収まるか
+2. RPM の上がり下がりが体感で同じか
+3. スラスター角度の追従速度が同じか
+
+ずれる場合は `TimeScale.PerTick` を掛かっている 3 箇所
+（rpm / thruster / heli_lift）だけを外して再確認する。

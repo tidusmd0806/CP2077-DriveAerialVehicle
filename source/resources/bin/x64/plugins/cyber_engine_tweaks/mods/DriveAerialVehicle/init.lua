@@ -7,6 +7,7 @@
 Cron = require('External/Cron.lua')
 Def = require("Etc/def.lua")
 Log = require("Etc/log.lua")
+TimeScale = require("Etc/timescale.lua")
 
 local Core = require('Modules/core.lua')
 local Debug = require('Debug/debug.lua')
@@ -16,7 +17,13 @@ DAV = {
 	version = "3.3.1",
     -- system
     is_ready = false,
-    time_resolution = 0.01,
+    -- Control loop period. Live value, mirrored from user_setting_table.time_resolution
+    -- by TimeScale:Set(). Do not assign here at runtime -- go through TimeScale so
+    -- dt_scale stays consistent. See Etc/timescale.lua.
+    time_resolution = TimeScale.DEFAULT_RESOLUTION,
+    -- Multiplier applied to every per-tick accumulator (rpm ramp, thruster angle,
+    -- heli lift). 1.0 at the shipped 0.01 resolution.
+    dt_scale = 1.0,
     is_debug_mode = false,
     -- Developer switch, kept for the debug menu. The user-facing control is
     -- user_setting_table.is_enable_obstacle_recording; either one enables it.
@@ -132,6 +139,16 @@ DAV.user_setting_table = {
     autopilot_speed = 25,  -- Autopilot speed in m/s (5-50)
     astar_calculation_precision = 100,  -- A* calculation precision 1-100 (maps to 200-100000 iterations)
     is_enable_history = true,
+    --- performance
+    -- Control loop period in seconds (default 0.05 == 20 Hz). Lower = smoother,
+    -- more CPU. The flight model is rate-corrected for this value, so
+    -- takeoff/landing stop points do not drift when it changes, but a value
+    -- above your frame rate cannot be honoured (Cron fires at most once per
+    -- rendered frame). Range 1/120 .. 1/10 s, enforced by TimeScale:Clamp.
+    time_resolution = TimeScale.DEFAULT_RESOLUTION,
+    -- "nominal"  : scale by the configured resolution (default, matches tuning)
+    -- "measured" : scale by the real elapsed time between ticks
+    time_scale_mode = "nominal",
     --- general
     language_index = 1,
     is_enable_destruction = true,

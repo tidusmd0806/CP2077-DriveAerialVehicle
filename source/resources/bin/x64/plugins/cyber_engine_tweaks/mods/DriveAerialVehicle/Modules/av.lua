@@ -24,8 +24,21 @@ function AV:New(core_obj)
 	-- summon
 	obj.spawn_distance = 5.5
 	obj.spawn_height = 20
-	obj.down_timeout = 5 -- s
-	obj.up_timeout = 350
+	-- Was 5 s, which was shorter than the descent it guards, so every summon
+	-- ended on the timeout instead of on the ground. The profile is:
+	--   20m -> 10m at down_speed (5 m/s)          = 2.0 s
+	--   10m ->  4m flaring at 2 m/s^2 toward 1   = 2.0 s
+	--    4m -> 1.2m holding 1 m/s               = 2.8 s
+	--                                        -------
+	--                                   needs    6.8 s
+	-- The old 5 s budget fired with the craft ~3 m above the ground -- the
+	-- "summon lands too high" report. 10 s leaves ~50% headroom.
+	obj.down_timeout = 10 -- s
+	-- Was `350` -- a raw tick count that only meant 3.5 s because the timer that
+	-- reads it was hardcoded to Cron.Every(0.01). Now a duration, converted with
+	-- TimeScale:Ticks() like every other timeout.
+	obj.up_timeout = 3.5 -- s
+	obj.unmount_timeout = 3.5 -- s
 	obj.down_speed = -5.0
 	-- autopilot
 	obj.destination_range = 3
@@ -97,6 +110,13 @@ function AV:New(core_obj)
 	obj.engine_audio_name = nil
 	obj.is_acceleration_sound = false
 	obj.is_thruster_sound = false
+	-- How long the acceleration / thruster sound is held on after the action
+	-- commands stop appearing. Absorbs the one-tick gaps produced by the
+	-- button-hold / control-loop phase relationship, which otherwise turn into
+	-- spurious Stop events mid-acceleration. See AV:ControlSound.
+	obj.sound_stop_grace_seconds = 0.3
+	obj.acceleration_sound_idle_ticks = 0
+	obj.thruster_sound_idle_ticks = 0
 	-- truster
 	obj.is_available_thruster = false
 	obj.engine_component_name_list = {}
@@ -475,12 +495,25 @@ function AV:Spawn(position, angle)
 	return true
 end
 
+--- Reaction distance for the spawn descent, capped at the ground clearance.
+--- The descent rate is a constant here (`down_speed`), but the cap keeps the
+--- stop point honest if that constant or the tick length is ever changed to
+--- something where one tick of travel exceeds the clearance.
+---@return number
+function AV:SpawnLead()
+	return TimeScale:Lead(math.abs(self.down_speed), self.minimum_distance_to_ground)
+end
+
 --- Spawn AV at sky.
 function AV:SpawnToSky()
 	local position = self:GetSpawnPosition(self.spawn_distance, 0.0)
 	position.z = position.z + self.spawn_height
 	local angle = self:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
+	-- Hoisted out of the closure: the tick budget must be fixed when the sequence
+	-- starts. Re-evaluating TimeScale:Ticks() per tick would move the deadline if
+	-- the user changes the resolution mid-flight.
+	local down_ticks = TimeScale:Ticks(self.down_timeout)
 	Cron.Every(DAV.time_resolution, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
 			local height = self.navigation_obj:GetHeight()
@@ -489,13 +522,19 @@ function AV:SpawnToSky()
 				self:DisableAllDoorInteractions()
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed))
 				self.log_obj:Record(LogLevel.Info, "Initial Spawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
-			elseif height < self.minimum_distance_to_ground or timer.tick > (self.down_timeout / DAV.time_resolution) or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
+			-- Lead compensation: a threshold sampled once per tick cannot be caught
+			-- if the craft travels further than the threshold between samples. Stop
+			-- when the *predicted next-tick* height reaches the ground instead, so
+			-- the stop point no longer depends on the loop rate.
+			elseif height - self:SpawnLead() <= self.minimum_distance_to_ground
+				or timer.tick > down_ticks
+				or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 				self.is_landed = true
 				self.log_obj:Record(LogLevel.Info, "Spawn to sky success")
 				Cron.Halt(timer)
-			elseif height < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
+			elseif height - self:SpawnLead() < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
 				self.engine_obj:SetFluctuationVelocityParams(-2, 1)
 				self.log_obj:Record(LogLevel.Trace, "Fluctuation Velocity")
 			end
@@ -522,7 +561,8 @@ end
 
 --- Despawn AV when it is on ground.
 function AV:DespawnFromGround()
-	Cron.Every(0.01, { tick = 1 }, function(timer)
+	local up_ticks = TimeScale:Ticks(self.up_timeout)
+	Cron.Every(DAV.time_resolution, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
 			-- Only the angular half is used here (OnlyAngularRun). Asking
 			-- CalculateIdleMode for the linear idle-hover term meant an
@@ -539,7 +579,7 @@ function AV:DespawnFromGround()
 			elseif timer.tick == 2 then
 				self.engine_obj:SetFluctuationVelocityParams(1, math.abs(self.down_speed))
 				self.log_obj:Record(LogLevel.Trace, "Fluctuation Velocity")
-			elseif timer.tick >= self.up_timeout then
+			elseif timer.tick > up_ticks then
 				self.log_obj:Record(LogLevel.Info, "Despawn Timeout")
 				self.core_obj.event_obj.sound_obj:StopEngineSound(self.flight_mode, 1.5)
 				Cron.After(1.5, function()
@@ -804,8 +844,9 @@ function AV:Unmount()
 
 		self.log_obj:Record(LogLevel.Trace, "Unmount Aerial Vehicle : " .. self.seat_index)
 
+		local unmount_ticks = TimeScale:Ticks(self.unmount_timeout)
 		-- set entity id to position object
-		Cron.Every(0.01, {tick = 1}, function(timer)
+		Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 			timer.tick = timer.tick + 1
 			if not self:IsPlayerIn() then
 				self.log_obj:Record(LogLevel.Info, "Unmounted")
@@ -821,7 +862,7 @@ function AV:Unmount()
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), teleport_angle)
 				self.is_unmounting = false
 				Cron.Halt(timer)
-			elseif timer.tick > 350 then
+			elseif timer.tick > unmount_ticks then
 				self.log_obj:Record(LogLevel.Error, "Unmount failed")
 				self:ChangeDoorState(Def.DoorOperation.Close)
 				self.is_unmounting = false
@@ -898,9 +939,27 @@ function AV:Operate(action_command_lists)
 end
 
 --- Control sound.
+---
+--- The accel / thruster flags are latched from the drained action queue, and the
+--- queue is a *transient* signal: whether a given control tick sees a movement
+--- command depends on how the button-hold producer timer, the control-loop
+--- consumer timer and the frame rate fall relative to one another. When they are
+--- out of phase the queue can be empty on a tick even though the key is still
+--- held, and the old code turned that straight into a Stop event -- starting and
+--- stopping the sound repeatedly mid-acceleration, which with a 1.5 s fade never
+--- gets loud enough to hear.
+---
+--- So: latch on the first command we see, and only drop the sound once the
+--- "no acceleration command" condition has actually persisted for
+--- `sound_stop_grace_seconds`. A real release still stops the sound well inside
+--- the fade; a one-tick gap now produces no event at all.
+---
+--- The grace is expressed in ticks via TimeScale so it means the same wall-clock
+--- duration at every control rate.
 ---@param action_command_lists table
 ---@return boolean
 function AV:ControlSound(action_command_lists)
+	local grace_ticks = TimeScale:Ticks(self.sound_stop_grace_seconds)
 	local is_acceleration_sound = false
 	local is_thruster_sound = false
 	for _, action_command_list in ipairs(action_command_lists) do
@@ -925,27 +984,46 @@ function AV:ControlSound(action_command_lists)
 		end
 	end
 
-	if not self.is_acceleration_sound and is_acceleration_sound then
-		self.log_obj:Record(LogLevel.Trace, "Start Acceleration Sound")
-		self.core_obj.event_obj.sound_obj:StartAccelerationSound(self.flight_mode, 1.5)
-		self.is_acceleration_sound = true
-		return true
-	elseif self.is_acceleration_sound and not is_acceleration_sound then
-		self.log_obj:Record(LogLevel.Trace, "Stop Acceleration Sound")
-		self.core_obj.event_obj.sound_obj:StopAccelerationSound(self.flight_mode, 1.5)
-		self.is_acceleration_sound = false
-		return true
-	elseif not self.is_thruster_sound and is_thruster_sound then
-		self.log_obj:Record(LogLevel.Trace, "Start Thruster Sound")
-		self.core_obj.event_obj.sound_obj:StartThrusterSound(self.flight_mode, 1.5)
-		self.is_thruster_sound = true
-		return true
-	elseif self.is_thruster_sound and not is_thruster_sound then
-		self.log_obj:Record(LogLevel.Trace, "Stop Thruster Sound")
-		self.core_obj.event_obj.sound_obj:StopThrusterSound(self.flight_mode, 1.5)
-		self.is_thruster_sound = false
-		return true
+	-- Acceleration layer.
+	if is_acceleration_sound then
+		self.acceleration_sound_idle_ticks = 0
+		if not self.is_acceleration_sound then
+			self.log_obj:Record(LogLevel.Trace, "Start Acceleration Sound")
+			self.core_obj.event_obj.sound_obj:StartAccelerationSound(self.flight_mode, 1.5)
+			self.is_acceleration_sound = true
+		end
+	elseif self.is_acceleration_sound then
+		self.acceleration_sound_idle_ticks = (self.acceleration_sound_idle_ticks or 0) + 1
+		if self.acceleration_sound_idle_ticks >= grace_ticks then
+			self.log_obj:Record(LogLevel.Trace, string.format(
+				"Stop Acceleration Sound after %d idle ticks", self.acceleration_sound_idle_ticks))
+			self.core_obj.event_obj.sound_obj:StopAccelerationSound(self.flight_mode, 1.5)
+			self.is_acceleration_sound = false
+			self.acceleration_sound_idle_ticks = 0
+		end
 	end
+
+	-- Thruster layer. Handled independently of the acceleration layer: the old
+	-- if/elseif chain let the acceleration branch starve the thruster branch, so
+	-- a thruster start had to wait for the acceleration edge to settle.
+	if is_thruster_sound then
+		self.thruster_sound_idle_ticks = 0
+		if not self.is_thruster_sound then
+			self.log_obj:Record(LogLevel.Trace, "Start Thruster Sound")
+			self.core_obj.event_obj.sound_obj:StartThrusterSound(self.flight_mode, 1.5)
+			self.is_thruster_sound = true
+		end
+	elseif self.is_thruster_sound then
+		self.thruster_sound_idle_ticks = (self.thruster_sound_idle_ticks or 0) + 1
+		if self.thruster_sound_idle_ticks >= grace_ticks then
+			self.log_obj:Record(LogLevel.Trace, string.format(
+				"Stop Thruster Sound after %d idle ticks", self.thruster_sound_idle_ticks))
+			self.core_obj.event_obj.sound_obj:StopThrusterSound(self.flight_mode, 1.5)
+			self.is_thruster_sound = false
+			self.thruster_sound_idle_ticks = 0
+		end
+	end
+
 	return true
 
 end
@@ -1073,10 +1151,15 @@ end
 ---@param action_command_lists table
 ---@return boolean
 function AV:MoveThruster(action_command_lists)
-	if self.thruster_angle > self.thruster_angle_restore then
-		self.thruster_angle = self.thruster_angle - self.thruster_angle_restore
-	elseif self.thruster_angle < -self.thruster_angle_restore then
-		self.thruster_angle = self.thruster_angle + self.thruster_angle_restore
+	-- The thruster angle is an accumulator whose result is an absolute
+	-- orientation, so both the swing step and the restore step are per-tick and
+	-- must scale with the loop period to keep the swing rate constant.
+	local dt_scale = DAV.dt_scale or 1
+	local restore = self.thruster_angle_restore * dt_scale
+	if self.thruster_angle > restore then
+		self.thruster_angle = self.thruster_angle - restore
+	elseif self.thruster_angle < -restore then
+		self.thruster_angle = self.thruster_angle + restore
 	else
 		self.thruster_angle = 0
 	end
@@ -1087,9 +1170,9 @@ function AV:MoveThruster(action_command_lists)
 
 	for _, action_command_list in ipairs(action_command_lists) do
 		if action_command_list[1] == Def.ActionList.Forward then
-			self.thruster_angle = self.thruster_angle - self.thruster_angle_step
+			self.thruster_angle = self.thruster_angle - self.thruster_angle_step * dt_scale
 		elseif action_command_list[1] == Def.ActionList.Backward then
-			self.thruster_angle = self.thruster_angle + self.thruster_angle_step
+			self.thruster_angle = self.thruster_angle + self.thruster_angle_step * dt_scale
 		end
 	end
 

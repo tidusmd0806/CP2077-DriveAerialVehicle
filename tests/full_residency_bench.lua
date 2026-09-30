@@ -32,7 +32,7 @@ local function preload(name)
 	f:close()
 	package.preload[name] = (loadstring or load)(b, name)
 end
-preload("Etc/log.lua"); preload("Etc/utils.lua")
+preload("Etc/log.lua"); preload("Etc/utils.lua"); preload("Etc/timescale.lua"); TimeScale = require("Etc/timescale.lua")
 preload("Modules/obstacle_grid.lua"); preload("Modules/profprobe.lua"); preload("Modules/navigation.lua")
 Log = require("Etc/log.lua")
 local Navigation = require("Modules/navigation.lua")

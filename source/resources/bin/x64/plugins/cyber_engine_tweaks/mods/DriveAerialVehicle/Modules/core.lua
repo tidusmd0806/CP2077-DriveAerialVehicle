@@ -56,9 +56,15 @@ function Core:New()
     obj.radio_hold_complete_time_count = 5
     obj.radio_button_hold_count = 0
     obj.is_radio_button_hold_counter = false
+    -- Control loop bookkeeping (see Etc/timescale.lua)
+    obj.main_loop_timer = nil
+    obj.last_control_time = nil
     -- AV
     obj.move_up_button_hold_count = 0
-    obj.max_move_hold_count = 50000
+    -- Hold caps are durations, not tick counts. 500 s is the old 50000 ticks at
+    -- the 0.01 base resolution -- effectively "no cap", but it now stays that way
+    -- whatever resolution the user picked.
+    obj.max_move_hold_seconds = 500
     -- Registry of currently armed button holds (safety net for StopAllButtonHolds)
     obj.active_button_holds = {}
     obj.is_move_forward_button_hold_counter = false
@@ -151,15 +157,60 @@ function Core:Init()
     -- save is loaded, so the player position is unknown and the chunks cannot be
     -- ordered by distance. It is started from the SessionStart observer instead.
 
-    Cron.Every(DAV.time_resolution, function()
-        self.event_obj:CheckAllEvents()
-        self:GetActions()
-    end)
+    -- Control loop. Started through ApplyTimeResolution so the period comes from
+    -- the user setting and the timer handle is kept for a live restart.
+    self:ApplyTimeResolution(true)
 
     -- set observer
     self:SetInputListener()
     self:SetMappinController()
     self:SetSummonTrigger()
+end
+
+--- Publish the configured control-loop resolution and (re)start the loop on it.
+--- Called from Init and from the settings callback. Restarting the timer is safe:
+--- nothing else holds a reference to the old one, and every per-tick accumulator
+--- reads DAV.dt_scale live.
+---@param force boolean|nil restart the loop even if the resolution is unchanged
+---@return number the applied resolution
+function Core:ApplyTimeResolution(force)
+    local setting = DAV.user_setting_table
+    local previous = DAV.time_resolution
+    local applied = TimeScale:Set(setting.time_resolution, setting.time_scale_mode)
+
+    if not force and applied == previous then
+        return applied
+    end
+
+    self.log_obj:Record(LogLevel.Info,
+        string.format("Control loop resolution %s -> %s", tostring(previous), TimeScale:Describe()))
+
+    if self.main_loop_timer ~= nil then
+        Cron.Halt(self.main_loop_timer)
+        self.main_loop_timer = nil
+    end
+    self.last_control_time = os.clock()
+    self.main_loop_timer = Cron.Every(applied, function()
+        self:ControlTick()
+    end)
+    return applied
+end
+
+--- One control-loop iteration.
+--- In "measured" mode the real elapsed time is fed to TimeScale so the per-tick
+--- accumulators integrate the actual dt instead of the requested one; Cron can
+--- never fire faster than the render loop, so a 0.01 request on a 30 fps machine
+--- is really 0.033 and the old code silently ran 3.3x slow.
+function Core:ControlTick()
+    if TimeScale:GetMode() == TimeScale.MODE_MEASURED then
+        local now = os.clock()
+        if self.last_control_time ~= nil then
+            TimeScale:SetMeasuredDt(now - self.last_control_time)
+        end
+        self.last_control_time = now
+    end
+    self.event_obj:CheckAllEvents()
+    self:GetActions()
 end
 
 --- Reset AV and Event object.
@@ -795,13 +846,16 @@ end
 --- Generic button hold handler with counter management
 ---@param button_name string Unique identifier for the button
 ---@param action_type number|table Action to enqueue (from Def.ActionList)
----@param max_count number Maximum hold count before stopping
+---@param max_hold_seconds number|nil Maximum hold duration before stopping
 ---@param on_start_callback function|nil Optional callback when hold starts
 ---@param on_stop_callback function|nil Optional callback when hold stops
 ---@return boolean success
-function Core:StartButtonHold(button_name, action_type, max_count, on_start_callback, on_stop_callback)
+function Core:StartButtonHold(button_name, action_type, max_hold_seconds, on_start_callback, on_stop_callback)
     local counter_flag_name = "is_" .. button_name .. "_button_hold_counter"
     local counter_value_name = button_name .. "_button_hold_count"
+    -- Duration -> tick count. The old code compared a raw tick count against a
+    -- constant that only meant "500 s" because the loop happened to be 0.01.
+    local max_ticks = TimeScale:Ticks(max_hold_seconds or 500)
     
     -- Already holding this button
     if self[counter_flag_name] then
@@ -827,7 +881,7 @@ function Core:StartButtonHold(button_name, action_type, max_count, on_start_call
         timer.tick = timer.tick + 1
         self[counter_value_name] = timer.tick
         
-        if timer.tick >= max_count then
+        if timer.tick >= max_ticks then
             -- Max count reached
             self[counter_flag_name] = false
             if on_stop_callback then
@@ -933,7 +987,7 @@ function Core:ConvertAVPressAction(keybind_name)
     local action = action_map[keybind_name]
     if action then
         if self:IsReadyForMovementInput() then
-            self:StartButtonHold(keybind_name, action, self.max_move_hold_count)
+            self:StartButtonHold(keybind_name, action, self.max_move_hold_seconds)
         end
     end
 end
@@ -956,7 +1010,7 @@ function Core:ConvertHeliPressAction(keybind_name)
     local action = action_map[keybind_name]
     if action then
         if self:IsReadyForMovementInput() then
-            self:StartButtonHold(keybind_name, action, self.max_move_hold_count)
+            self:StartButtonHold(keybind_name, action, self.max_move_hold_seconds)
         end
     elseif keybind_name == "acceleration" then
         -- Special handling for acceleration with thruster callbacks
@@ -965,7 +1019,7 @@ function Core:ConvertHeliPressAction(keybind_name)
             self:StartButtonHold(
                 keybind_name,
                 Def.ActionList.HAccelerate,
-                self.max_move_hold_count,
+                self.max_move_hold_seconds,
                 function() self_ref.av_obj:ToggleHeliThruster(true) end,
                 function() self_ref.av_obj:ToggleHeliThruster(false) end
             )

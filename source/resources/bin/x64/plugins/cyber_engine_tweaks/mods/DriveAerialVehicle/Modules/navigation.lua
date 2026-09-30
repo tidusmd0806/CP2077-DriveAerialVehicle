@@ -32,6 +32,17 @@ function Navigation:New(av_obj)
 	obj.autopilot_speed = 1
 	obj.autopilot_turn_speed = 0.01
 	obj.autopilot_leaving_height = 100
+	-- Last-resort budget for a landing whose ground is never detected. Fixed on
+	-- purpose: it is a safety net, not a timing target, and the landing itself
+	-- is terminated by the ground / target_z / collision branches.
+	--
+	-- 20 s covers the profiles this mod actually flies. The descent starts at
+	-- 0.5 m/s and accelerates at `autopilot_acceleration` (1.575 m/s^2 at
+	-- 25 m/s cruise), so a 50 m landing takes ~9 s and even 150 m takes ~18 s.
+	-- Coverage by cruise speed: ~43 m @5, ~105 m @10, ~160 m @25, ~390 m @35,
+	-- ~590 m @50. Typical landing height is `autopilot_leaving_height`
+	-- (= max(20, speed*2)), comfortably inside all of those.
+	obj.landing_timeout_seconds = 20
 	obj.autopilot_searching_range = 50
 	obj.autopilot_searching_step = 2
 	obj.is_failture_auto_pilot = false
@@ -4208,7 +4219,12 @@ function Navigation:AutoPilot()
 		local yaw_delta_raw = yaw_target_raw - self.yaw_target_smoothed
 		if yaw_delta_raw > 180 then yaw_delta_raw = yaw_delta_raw - 360
 		elseif yaw_delta_raw < -180 then yaw_delta_raw = yaw_delta_raw + 360 end
-		self.yaw_target_smoothed = self.yaw_target_smoothed + yaw_delta_raw * self.yaw_smooth_alpha
+		-- The alpha is authored per base tick; SmoothAlpha re-maps the pole so the
+		-- filter keeps its ~0.16 s time constant whatever the control rate is.
+		-- Left raw, a 20 Hz loop lags the target by ~0.8 s and the craft steers at
+		-- a heading it was asked for almost a second ago -- the approach wobble.
+		self.yaw_target_smoothed = self.yaw_target_smoothed
+			+ yaw_delta_raw * TimeScale:SmoothAlpha(self.yaw_smooth_alpha)
 
 		-- Error between vehicle heading and smoothed target
 		local yaw_diff = self.yaw_target_smoothed - yaw_vehicle
@@ -4294,7 +4310,10 @@ function Navigation:AutoPilot()
 		-- Apply smooth transition between ranges to avoid sudden changes
 		local prev_inertia = self.prev_inertia_scale or inertia_scale
 		local prev_blend = self.prev_blend_factor or blend_factor
-		local transition_rate = 0.15  -- Balanced transition rate
+		-- Same story as the yaw filter: this is a per-tick blend, so it has to be
+		-- re-mapped or the inertia/blend ramp runs 5x slower in wall-clock terms
+		-- at 20 Hz and lags the speed changes it is supposed to be tracking.
+		local transition_rate = TimeScale:SmoothAlpha(0.15)  -- Balanced transition rate
 
 		inertia_scale = prev_inertia + (inertia_scale - prev_inertia) * transition_rate
 		blend_factor = prev_blend + (blend_factor - prev_blend) * transition_rate
@@ -4412,19 +4431,31 @@ function Navigation:AutoLeaving(dist_vector, height)
 			return
 		end
 
+		-- Reaction blind spot: everything below is sampled once per tick, so the
+		-- craft has already travelled `lead` metres by the time a threshold is
+		-- seen. Comparing against the predicted next-tick position instead of the
+		-- current one is what makes the stop point independent of the loop rate.
+		local velocity = self.av_obj.engine_obj:GetVelocity()
+		local ascent_speed = velocity and math.max(0, velocity.z) or 0
+		-- Capped: the lead comes straight out of the physics handle, and a wild
+		-- read must not be able to halt the climb tens of metres short.
+		local lead = TimeScale:Lead(ascent_speed, self.av_obj.check_cell_distance)
+
 		-- Stabilize roll and pitch during takeoff
 		local _, _, _, roll_idle ,pitch_idle ,yaw_idle = self.av_obj.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
 		if not self.av_obj.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
 			self.log_obj:Record(LogLevel.Warning, "Failed to run angular velocity during takeoff")
 		end
 
-		local is_detected_celling, search_vector = self:IsWall(Vector4.new(0, 0, 1, 1), self.av_obj.check_cell_distance, 0, "Vertical", true, "simple")
+		-- Probe far enough ahead to cover one tick of travel, otherwise a long
+		-- tick walks straight past the ceiling before it is ever looked for.
+		local is_detected_celling, search_vector = self:IsWall(Vector4.new(0, 0, 1, 1), self.av_obj.check_cell_distance + lead, 0, "Vertical", true, "simple")
 		if is_detected_celling then
 			self.log_obj:Record(LogLevel.Info, "Detected Ceiling, Search Vector:" .. search_vector.x .. ", " .. search_vector.y .. ", " .. search_vector.z)
 		end
 		local current_position_in_leaving = self.av_obj:GetPosition()
 
-		if current_position_in_leaving.z > leaving_position.z or is_detected_celling then
+		if current_position_in_leaving.z + lead >= leaving_position.z or is_detected_celling then
 			self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self.av_obj.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
@@ -4477,7 +4508,7 @@ function Navigation:AutoLeaving(dist_vector, height)
 				end
 			end)
 			Cron.Halt(timer)
-		elseif current_position_in_leaving.z > leaving_position.z - (leaving_height * 0.3) and not self.autopilot_leaving_deceleration_start_flag then
+		elseif current_position_in_leaving.z + lead > leaving_position.z - (leaving_height * 0.3) and not self.autopilot_leaving_deceleration_start_flag then
 			self.autopilot_leaving_deceleration_start_flag = true
 			self.av_obj.engine_obj:SetFluctuationVelocityParams(-self.autopilot_acceleration, self.autopilot_speed * 0.2)
 		end
@@ -4489,8 +4520,20 @@ end
 --- @param height number height to start landing
 --- @param target_z number|nil target altitude (destination Z); if provided, stop descending at this Z
 function Navigation:AutoLanding(height, target_z)
-	local down_time_count = ((height / self.autopilot_speed) / DAV.time_resolution) * 1.8
-	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing Start :" .. tostring(down_time_count) .. "s, " .. tostring(height) .. "m" .. (target_z and string.format(", target_z=%.1f", target_z) or ""))
+	-- Fixed safety net, not a timing target. The old value was
+	-- `(height / autopilot_speed) * 1.8`, which assumed the craft was already at
+	-- cruise speed when the landing starts. It never is -- the descent begins at
+	-- 0.5 m/s and `autopilot_acceleration` is only 1.575 m/s^2 at 25 m/s, so
+	-- reaching cruise needs ~198 m of descent. Over a normal 50 m landing the
+	-- budget expired with the craft ~38 m above the ground and every landing
+	-- ended in "AutoPilot Success for timeout" instead of a touchdown.
+	--
+	-- The real landing is terminated by the ground / target_z / collision
+	-- branches; this only catches a landing over a void where the ground is
+	-- never found. See landing_timeout_seconds in the constructor for coverage.
+	local down_timeout_seconds = self.landing_timeout_seconds
+	local down_time_count = TimeScale:Ticks(down_timeout_seconds)
+	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing Start :" .. tostring(down_timeout_seconds) .. "s, " .. tostring(height) .. "m" .. (target_z and string.format(", target_z=%.1f", target_z) or ""))
 	self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 	self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, -0.5))
 	self.av_obj.engine_obj:SetAngularVelocity(Vector3.new(0, 0, 0))
@@ -4509,51 +4552,71 @@ function Navigation:AutoLanding(height, target_z)
 			deceleration_rate = 3
 		end
 
-		-- restore angle 
+		-- Reaction blind spot. Every threshold below is sampled once per tick, so
+		-- by the time it is seen the craft is `lead` metres lower than the number
+		-- that produced the comparison. At 25 m/s a 0.05 s tick hides 1.25 m and
+		-- a 0.5 s tick hides 12.5 m -- against a 1.2 m ground clearance that is
+		-- the whole difference between landing and cratering.
+		local velocity = self.av_obj.engine_obj:GetVelocity()
+		local descent_speed = velocity and math.max(0, -velocity.z) or 0
+		-- Capped at the clearance we are protecting. Without the cap a single
+		-- wild velocity read (right after a spawn or teleport the vertical
+		-- component can be enormous) pushes every threshold below up by
+		-- lead metres, and the landing is declared complete far above the
+		-- ground. The correction may never exceed the thing it corrects for.
+		local lead = TimeScale:Lead(descent_speed, self.av_obj.minimum_distance_to_ground)
+
+		-- Restore angle 
 		local _, _, _, roll_idle ,pitch_idle ,yaw_idle = self.av_obj.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
 		if not self.av_obj.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
 			self.log_obj:Record(LogLevel.Warning, "Failed to run angular velocity during landing")
 		end
 
-		local is_detected_ground, search_vector = self:IsWall(Vector4.new(0, 0, -1, 1), self.av_obj.minimum_distance_to_ground - 0.2, 0, "Vertical", false, "simple")
+		local is_detected_ground, search_vector = self:IsWall(Vector4.new(0, 0, -1, 1), self.av_obj.minimum_distance_to_ground - 0.2 + lead, 0, "Vertical", false, "simple")
 		if is_detected_ground then
 			self.log_obj:Record(LogLevel.Info, "Detected Ground, Search Vector:" .. search_vector.x .. ", " .. search_vector.y .. ", " .. search_vector.z)
 		end
 
 		if timer.tick == 1 then
 			self.av_obj.engine_obj:SetFluctuationVelocityParams(self.autopilot_acceleration, self.autopilot_speed)
-		elseif target_z and self.av_obj:GetPosition().z <= target_z + self.av_obj.minimum_distance_to_ground then
+		elseif target_z and self.av_obj:GetPosition().z - lead <= target_z + self.av_obj.minimum_distance_to_ground then
 			-- Reached destination altitude: stop here even if physical ground is lower.
 			self.log_obj:Record(LogLevel.Info, string.format(
-				"AutoPilot Success: reached destination altitude (current_z=%.1f, target_z=%.1f)",
-				self.av_obj:GetPosition().z, target_z))
+				"AutoPilot Success: reached destination altitude (current_z=%.1f, target_z=%.1f, lead=%.2f)",
+				self.av_obj:GetPosition().z, target_z, lead))
 			self.av_obj.is_landed = true
 			self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:SuccessAutoPilot()
 			Cron.Halt(timer)
 		elseif timer.tick > down_time_count then
-			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for timeout")
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"AutoPilot Success for timeout (height=%.1f, descent=%.1f, lead=%.2f)",
+				self:GetHeight(), descent_speed, lead))
 			self.av_obj.is_landed = true
 			self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:SuccessAutoPilot()
 			Cron.Halt(timer)
-		elseif self:GetHeight() < self.av_obj.minimum_distance_to_ground then
-			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for minimum_height")
+		elseif self:GetHeight() - lead <= self.av_obj.minimum_distance_to_ground then
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"AutoPilot Success for minimum_height (height=%.1f, descent=%.1f, lead=%.2f)",
+				self:GetHeight(), descent_speed, lead))
 			self.av_obj.is_landed = true
 			self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:SuccessAutoPilot()
 			Cron.Halt(timer)
 		elseif self:IsCollision() or is_detected_ground then
-			self.log_obj:Record(LogLevel.Info, "AutoPilot Success for Collision or Ground Detection")
+			self.log_obj:Record(LogLevel.Info, string.format(
+				"AutoPilot Success for Collision or Ground Detection (height=%.1f, descent=%.1f, lead=%.2f)",
+				self:GetHeight(), descent_speed, lead))
 			self.av_obj.is_landed = true
 			self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 			self:SuccessAutoPilot()
 			Cron.Halt(timer)
-		elseif self:GetHeight() <= deceleration_height and not self.autopilot_leaving_deceleration_start_flag then
+		elseif self:GetHeight() - lead <= deceleration_height and not self.autopilot_leaving_deceleration_start_flag then
 			self.autopilot_leaving_deceleration_start_flag = true
 			self.av_obj.engine_obj:SetFluctuationVelocityParams(-self.autopilot_acceleration * deceleration_rate, self.autopilot_speed * 0.2)
 		end

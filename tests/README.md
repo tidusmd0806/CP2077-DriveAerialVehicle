@@ -34,6 +34,37 @@ python tests/run_resident_cache_test.py              # 既存回帰
 `run_grid_integration_test.py` はテキスト専用 / bin 専用 / 空 の 3 種類の
 マップディレクトリをステージし、新しい packed 経路と旧ローダを比較できる。
 
+### コスト・挙動の回帰テスト
+
+実モジュールを CET/REDscript スタブ上で動かし、**Lua→C# 遷移回数**と
+**可視状態の等価性**を数える一式。
+
+```
+python tests/run_enter_exit_cost_test.py    # 乗り降りのコスト + AV 以外への影響
+python tests/run_situation_cost_test.py     # situation 別のコスト
+python tests/run_meter_cadence_test.py      # 地面探知の周期 + メーター書込 + FPP ロック
+python tests/run_onaction_cost_test.py      # PlayerPuppet.OnAction
+python tests/run_axis_proxy_cost_test.py    # Input/Axis プロキシ
+python tests/run_entity_cache_test.py       # エンティティ／高さキャッシュ
+```
+
+`run_meter_cadence_test.lua` は `CheckAllEvents` の上位 3 項目
+（同期レイキャスト／メーター書き込み／FPP メーターロック）対象。
+`os.clock()` を差し替えて 1 tick = 1/64 s 固定で走らせ、周期の断言を
+タイミング依存でなく厳密にしている。詳細は
+`docs/PERF_ANALYSIS_checkallevents.md`。
+
+`run_enter_exit_cost_test.py` は `Override` / `Observe` / `ObserveAfter` を
+no-op ではなくレジストリに捕捉し、
+
+- Mod が仕掛けているグローバルフックの全一覧をピン留め（節 2）
+- AV でない車両で各フックを駆動して挙動がゲーム単体と同一であることを確認（節 3）
+- 搭乗／降車経路をブロック単位で計測（節 4・5）
+- 修正前の `SetCustomHint` 本体を書写して 6 状態 × 5 フィールドで全一致（節 7）
+- 入力ヒント抑制のスコープを実測（節 8）
+
+する。詳細は `docs/PERF_ANALYSIS_enter_exit.md` と `docs/AUDIT_non_av_vehicles.md`。
+
 ### ベンチマーク
 
 ```

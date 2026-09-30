@@ -16,11 +16,28 @@ function Engine:New(av_obj)
     obj.max_roll = 30
     obj.max_pitch = 30
     obj.force_restore_angle = 70
+    -- RPM ramp. These are increments per *base tick* (0.01 s); the effective
+    -- ramp rate is step / resolution, so every use is multiplied by DAV.dt_scale
+    -- to keep the per-second ramp constant. See Etc/timescale.lua.
     obj.rpm_count_step = 4
     obj.rpm_restore_step = 2
     obj.rpm_count_scale = 80
     obj.rpm_max_count = 10 * obj.rpm_count_scale
     obj.torque_gain = 1000
+    -- Width of the restore boundary layer, in degrees, at the base control
+    -- period. The restore was a bare relay: full rate target the instant the
+    -- angle left the deadband, zero the instant it came back. A relay commits to
+    -- the full rate for a whole control tick no matter how close it already is,
+    -- so the overshoot it produces grows in proportion to the tick -- at 20 Hz
+    -- the body is 5x further along before the correction lands, and it rocks
+    -- around the deadband edge instead of settling onto it.
+    --
+    -- Inside the boundary layer the commanded rate now falls off linearly to
+    -- zero at the deadband edge, so the body decelerates onto the target. The
+    -- width is multiplied by dt_scale so the taper covers exactly the extra
+    -- per-tick travel: at the 0.01 tuning reference this is the number below,
+    -- and it widens from there as the loop gets coarser.
+    obj.restore_boundary_deg = 1.0
     obj.ground_check_delay = 3.0
     ---dynamic---
     obj.entity_id = nil
@@ -178,6 +195,19 @@ function Engine:GetDirectionAndAngularVelocity()
     return self.fly_av_system:GetVelocity(), self.fly_av_system:GetAngularVelocity()
 end
 
+--- Get the linear velocity only.
+--- GetDirectionAndAngularVelocity() also resolves the angular velocity, and a
+--- caller that only wants the vertical component still pays for that second C#
+--- transition. Event:CheckHeight needs |vz| to decide how long it may put off
+--- the next ground probe, and nothing else.
+---@return Vector3|nil nil when the physics handle is not up yet
+function Engine:GetVelocity()
+    if not self.is_finished_init then
+        return nil
+    end
+    return self.fly_av_system:GetVelocity()
+end
+
 --- Add force
 ---@param force Vector3
 ---@param torque Vector3
@@ -252,20 +282,23 @@ end
 ---@return number pitch
 ---@return number yaw
 function Engine:CalculateAddVelocity(action_command_list, skip_linear)
+    -- `or 1` keeps the base (pre-timescale) behaviour if DAV.dt_scale was never
+    -- published, e.g. under a test harness that stubs DAV by hand.
+    local dt_scale = DAV.dt_scale or 1
     if action_command_list[1] == Def.ActionList.Idle then
         self.rpm_count = 0
         return self:CalculateIdleMode(skip_linear)
     end
 
     if (action_command_list[1] == Def.ActionList.Forward or action_command_list[1] == Def.ActionList.Up or action_command_list[1] == Def.ActionList.HAccelerate or action_command_list[1] == Def.ActionList.HUp) and self.rpm_count <= self.rpm_max_count then
-        self.rpm_count = self.rpm_count + self.rpm_count_step
+        self.rpm_count = self.rpm_count + self.rpm_count_step * dt_scale
     elseif (action_command_list[1] == Def.ActionList.Backward or action_command_list[1] == Def.ActionList.Down or action_command_list[1] == Def.ActionList.HDown) and self.rpm_count >= -self.rpm_max_count then
-        self.rpm_count = self.rpm_count - self.rpm_count_step
+        self.rpm_count = self.rpm_count - self.rpm_count_step * dt_scale
     end
     if self.rpm_count > 0 then
-        self.rpm_count = self.rpm_count - self.rpm_restore_step
+        self.rpm_count = self.rpm_count - self.rpm_restore_step * dt_scale
     elseif self.rpm_count < 0 then
-        self.rpm_count = self.rpm_count + self.rpm_restore_step
+        self.rpm_count = self.rpm_count + self.rpm_restore_step * dt_scale
     end
 
     if self.flight_mode == Def.FlightMode.AV then
@@ -276,6 +309,22 @@ function Engine:CalculateAddVelocity(action_command_list, skip_linear)
         self.log_obj:Record(LogLevel.Critical, "Unknown flight mode: " .. self.flight_mode)
         return 0,0,0,0,0,0
     end
+end
+
+--- Restore rate with a boundary layer, replacing a bare relay.
+--- See `restore_boundary_deg` in the constructor for why.
+---@param excess number how far past the deadband edge the angle is, in degrees (>= 0)
+---@param full_rate number the untapered restore rate for this axis
+---@return number the rate to command, tapered to zero as excess -> 0
+function Engine:RestoreRate(excess, full_rate)
+    local boundary = self.restore_boundary_deg * (DAV.dt_scale or 1)
+    if boundary <= 0 or excess >= boundary then
+        return full_rate
+    end
+    if excess <= 0 then
+        return 0
+    end
+    return full_rate * (excess / boundary)
 end
 
 --- Run the engine with specified parameters.
@@ -329,16 +378,20 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
 
     if self.flight_mode == Def.FlightMode.Helicopter or self:HasGravity() then
         if current_angle.pitch > pitch_restore_amount then
-            local_pitch = local_pitch - pitch_restore_amount
+            local_pitch = local_pitch - self:RestoreRate(
+                current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
         elseif current_angle.pitch < -pitch_restore_amount then
-            local_pitch = local_pitch + pitch_restore_amount
+            local_pitch = local_pitch + self:RestoreRate(
+                -current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
         end
     end
 
     if current_angle.roll > roll_restore_amount then
-        local_roll = local_roll - roll_restore_amount
+        local_roll = local_roll - self:RestoreRate(
+            current_angle.roll - roll_restore_amount, roll_restore_amount)
     elseif current_angle.roll < -roll_restore_amount then
-        local_roll = local_roll + roll_restore_amount
+        local_roll = local_roll + self:RestoreRate(
+            -current_angle.roll - roll_restore_amount, roll_restore_amount)
     end
 
     -- Smooth roll correction when exceeding max_roll
@@ -423,16 +476,20 @@ function Engine:OnlyAngularRun(roll, pitch, yaw)
 
     if self.flight_mode == Def.FlightMode.Helicopter or self:HasGravity() then
         if current_angle.pitch > pitch_restore_amount then
-            local_pitch = local_pitch - pitch_restore_amount
+            local_pitch = local_pitch - self:RestoreRate(
+                current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
         elseif current_angle.pitch < -pitch_restore_amount then
-            local_pitch = local_pitch + pitch_restore_amount
+            local_pitch = local_pitch + self:RestoreRate(
+                -current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
         end
     end
 
     if current_angle.roll > roll_restore_amount then
-        local_roll = local_roll - roll_restore_amount
+        local_roll = local_roll - self:RestoreRate(
+            current_angle.roll - roll_restore_amount, roll_restore_amount)
     elseif current_angle.roll < -roll_restore_amount then
-        local_roll = local_roll + roll_restore_amount
+        local_roll = local_roll + self:RestoreRate(
+            -current_angle.roll - roll_restore_amount, roll_restore_amount)
     end
 
     -- Smooth roll correction when exceeding max_roll
@@ -613,6 +670,7 @@ end
 ---@return number pitch
 ---@return number yaw
 function Engine:CalculateHelicopterMode(action_command_list)
+    local dt_scale = DAV.dt_scale or 1
     local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
     local current_angle = self.av_obj:GetEulerAngles()
 
@@ -671,10 +729,12 @@ function Engine:CalculateHelicopterMode(action_command_list)
         z = z + acceleration * forward_vec.z
     elseif action_command_list[1] == Def.ActionList.HUp then
         z = z + ascend_acceleration * up_vec.z
-        self.heli_lift_acceleration = self.heli_lift_acceleration + ascend_acceleration
+        -- Accumulator: builds lift over time, so the increment is per-tick and
+        -- must scale. The `z` term above is a rate target and must not.
+        self.heli_lift_acceleration = self.heli_lift_acceleration + ascend_acceleration * dt_scale
     elseif action_command_list[1] == Def.ActionList.HDown then
         z = z - descend_acceleration * up_vec.z
-        self.heli_lift_acceleration = self.heli_lift_acceleration - descend_acceleration
+        self.heli_lift_acceleration = self.heli_lift_acceleration - descend_acceleration * dt_scale
     end
 
     local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
@@ -714,9 +774,11 @@ function Engine:CalculateIdleMode(skip_linear)
     local current_angle = self.av_obj:GetEulerAngles()
     local pitch_restore_amount = DAV.user_setting_table.pitch_restore_amount
     if current_angle.pitch > pitch_restore_amount then
-        pitch = pitch - pitch_restore_amount
+        pitch = pitch - self:RestoreRate(
+            current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
     elseif current_angle.pitch < -pitch_restore_amount then
-        pitch = pitch + pitch_restore_amount
+        pitch = pitch + self:RestoreRate(
+            -current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
     elseif current_angle.pitch > 0 then
         pitch = pitch - current_angle.pitch
     elseif current_angle.pitch < 0 then

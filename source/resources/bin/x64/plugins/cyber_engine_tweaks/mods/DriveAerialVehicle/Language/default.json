@@ -173,6 +173,10 @@
   "hud_input_hint_helicopter_left_right_rotation": "Left/Right Rotation",
   "hud_input_hint_helicopter_acceleration": "Acceleration",
   "hud_input_hint_helicopter_toggle_camera": "Toggle Camera",
+  "native_settings_advance_time_resolution": "Simulation Tick Rate",
+  "native_settings_advance_time_resolution_description": "How often the flight control loop runs, in hertz (10-120). Lower values reduce CPU load but make every flight decision coarser. The flight model is corrected for this value, so takeoff and landing stop points stay accurate across the whole range. The loop can never run faster than your frame rate, so on a 30 fps system anything above 30 Hz has no effect. Default: 20 Hz.",
+  "native_settings_advance_time_scale_measured": "Compensate Measured Tick Time",
+  "native_settings_advance_time_scale_measured_description": "Off (default): the flight model scales by the tick rate you picked above, which matches how the mod was tuned. On: it scales by the real elapsed time between ticks instead, so behaviour stays constant even when the game cannot keep up - but it also changes the feel for anyone running at a rate other than the tuning reference. Enable only if your frame rate is unstable.",
   "native_settings_advance_obstacle_recording": "Enable Obstacle Map Learning",
   "native_settings_advance_obstacle_recording_description": "While flying, the vehicle scans nearby geometry and saves newly discovered obstacles to the map. This is mainly intended for map authors: the shipped map already covers the city, so most players can leave this off. Turning it off skips the 5 Hz scan and the periodic saves, reducing load."
 }

@@ -42,6 +42,11 @@ function Camera:New(all_models)
     obj.enable_fpp = true
     obj.camera_distance_ratio = {}
     obj.camera_center_offset = {}
+    -- Last camera geometry actually pushed to TweakDB (see SetPerspective).
+    obj.written_seat_index = nil
+    obj.written_model_index = nil
+    obj.written_ratio_table = nil
+    obj.written_offset_table = nil
 
     return setmetatable(obj, self)
 
@@ -55,9 +60,31 @@ function Camera:Init()
     self.camera_center_offset = self.all_models[index].camera_center_offset
 end
 
+--- The one piece of SetPerspective() that is not a TweakDB write.
+--- A model without an FPP camera must not be left sitting in FPP.
+function Camera:ApplyFppFallback()
+    if not self.enable_fpp and self.current_camera_mode == Def.CameraDistanceLevel.Fpp then
+        self.current_camera_mode = Def.CameraDistanceLevel.TppClose
+        self:ChangePosition(self.current_camera_mode)
+    end
+end
+
 --- Set camera parameters
 ---@param seat_index number mounted seat index
 function Camera:SetPerspective(seat_index)
+    -- Nothing that feeds these writes changed: same seat, same model, same
+    -- ratio/offset tables.  SetPerspective() is called from AV:Mount(), so
+    -- this is 36 TweakDB:SetFlat + 36 TweakDBID.new + 12 Vector3.new on the
+    -- exact frame the game is already swapping the HUD, starting the mount
+    -- animation and handing physics over.  See docs/PERF_ANALYSIS_enter_exit.md
+    if self.written_seat_index == seat_index
+            and self.written_model_index == DAV.model_index
+            and self.written_ratio_table == self.camera_distance_ratio
+            and self.written_offset_table == self.camera_center_offset then
+        self:ApplyFppFallback()
+        return
+    end
+
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close_DAV.baseBoomLength"), self.default_high_close_distance * self.camera_distance_ratio[seat_index])
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close_DAV.boomLengthOffset"), self.default_high_close_distance_offset * self.camera_distance_ratio[seat_index])
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_High_Close_DAV.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
@@ -94,10 +121,13 @@ function Camera:SetPerspective(seat_index)
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar_DAV.baseBoomLength"), self.default_low_far_distance * self.camera_distance_ratio[seat_index])
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar_DAV.boomLengthOffset"), self.default_low_far_distance_offset * self.camera_distance_ratio[seat_index])
     TweakDB:SetFlat(TweakDBID.new("Camera.VehicleTPP_4w_Preset_Low_DriverCombatFar_DAV.lookAtOffset"), Vector3.new(self.camera_center_offset[seat_index].x, self.camera_center_offset[seat_index].y, self.camera_center_offset[seat_index].z))
-    if not self.enable_fpp and self.current_camera_mode == Def.CameraDistanceLevel.Fpp then
-        self.current_camera_mode = Def.CameraDistanceLevel.TppClose
-        self:ChangePosition(self.current_camera_mode)
-    end
+
+    self.written_seat_index = seat_index
+    self.written_model_index = DAV.model_index
+    self.written_ratio_table = self.camera_distance_ratio
+    self.written_offset_table = self.camera_center_offset
+
+    self:ApplyFppFallback()
 end
 
 --- Change camera perspective

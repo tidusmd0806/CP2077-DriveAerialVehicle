@@ -62,6 +62,47 @@ function Event:New()
     obj.last_locked_save_check_time = 0
     obj.last_landing_vfx_height = nil
 
+    -- Ground probe cadence (see CheckHeight).
+    -- Navigation:GetHeight() bottoms out in SyncRaycastByQueryFilter, a
+    -- *synchronous* physics query. One of those costs as much as a few dozen
+    -- plain C# getters, and it was being paid every single tick in every
+    -- situation that had a live AV -- including a parked one, where the answer
+    -- cannot change at all.
+    --
+    -- The probe feeds exactly two things: the landing warning VFX (a boolean
+    -- thresholded at projection_max_height_offset + minimum_distance_to_ground,
+    -- ~5 m) and that VFX's slot offset. Neither needs 100 Hz, so the next
+    -- interval is predicted from the previous measurement -- the height cannot
+    -- move far in one interval:
+    --
+    --   far   -- nobody is close enough to see the projection at all
+    --   still -- no vertical motion, so the height is fixed
+    --   slow  -- high up: even at maximum sink rate the warning cannot reach
+    --           its threshold inside the slow interval
+    --   fast  -- low and moving: probe every tick, as before
+    --
+    -- Measured effect is not claimed here; the arithmetic is: a parked craft
+    -- goes from 100 probes/s to 4/s, and a cruising one from 100/s to 10/s,
+    -- while low-altitude flight keeps the original rate.
+    obj.height_check_interval_fast = 0.0
+    obj.height_check_interval_slow = 0.1
+    obj.height_check_interval_still = 0.25
+    obj.height_check_interval_far = 0.5
+    obj.height_slow_threshold = 20.0
+    obj.height_still_speed = 0.5
+    obj.height_skip_distance = 60.0
+    obj.next_height_check_time = 0
+    obj.last_height = nil
+
+    -- Shared cache for the player -> AV distance.
+    -- CheckDistance polls it for the 30 m engine-audio threshold and CheckHeight
+    -- polls it to decide whether anyone can see the landing projection.
+    -- Uncached, every caller pays four transitions: GetPlayer, GetWorldPosition,
+    -- GetPosition, Vector4.Distance.
+    obj.player_distance_cache_time = 0.5
+    obj.last_player_distance_time = 0
+    obj.cached_player_distance = nil
+
     return setmetatable(obj, self)
 
 end
@@ -76,6 +117,15 @@ function Event:Init(av_obj)
     self.sound_obj:Init(self.av_obj)
 
     self.is_enable_audio = true
+
+    -- A new AV (or a new session) must not inherit the previous one's probe
+    -- cadence or distance: the first probe after this runs immediately and
+    -- re-predicts from fresh data.
+    self.last_height = nil
+    self.next_height_check_time = 0
+    self.cached_player_distance = nil
+    self.last_player_distance_time = 0
+    self.is_locked_showing_meter = false
 
     if not DAV.is_ready then
         self:SetObserve()
@@ -150,9 +200,14 @@ function Event:SetObserve()
                     self.is_ltbf_flight_active = is_ltbf_flight_active
                     self.hud_obj:SetDeleteWidgetFlag(true)
                     self.av_obj:BlockOperation(true)
-                    Cron.Every(0.1, {tick=1}, function(timer)
+                    -- This poll runs on its own 0.1 s period, not on the control
+                    -- loop, so the tick budget is derived from that period rather
+                    -- than from TimeScale. Named so the 1 s intent survives.
+                    local ltbf_poll_period = 0.1
+                    local ltbf_timeout_ticks = math.ceil(1.0 / ltbf_poll_period)
+                    Cron.Every(ltbf_poll_period, {tick=1}, function(timer)
                         timer.tick = timer.tick + 1
-                        if timer.tick > 10 then
+                        if timer.tick > ltbf_timeout_ticks then
                             self.log_obj:Record(LogLevel.Info, "Thruster check timed out")
                             Cron.Halt(timer)
                             return
@@ -210,16 +265,32 @@ end
 
 --- Set Override Functions
 function Event:SetOverride()
-    -- To prevent the door from opening while driving
+    -- To prevent the door from opening while driving.
+    --
+    -- This wraps the door query of EVERY vehicle in Night City, not just the
+    -- AV's.  IsInVehicle() answers through two C# calls (FindEntityByID +
+    -- IsPlayerMounted), but its first condition is a plain Lua field read --
+    -- so read that first and hand the call straight back for every vehicle
+    -- that is not ours.  Equivalent to IsInVehicle(): nothing runs between
+    -- the two checks that could move current_situation.
     Override("VehicleComponentPS", "GetHasAnyDoorOpen", function(this, wrapped_method)
-        if self:IsInVehicle() then
+        if self.current_situation ~= Def.Situation.InVehicle then
+            return wrapped_method()
+        end
+        if self.av_obj ~= nil and self.av_obj:IsPlayerIn() then
             return false
         else
             return wrapped_method()
         end
     end)
     -- Depending on the position of the driver's seat, an animation will play in which the driver moves to the opposite door, just like in a normal car. This hook prevents this.
+    --
+    -- Same shape as above: the situation check is free, the player lookup is
+    -- not, and this fires on every unmount transition of every vehicle.
     Override("VehicleTransition", "IsUnmountDirectionClosest", function(this, state_context, unmount_direction, wrapped_method)
+        if self.current_situation ~= Def.Situation.InVehicle then
+            return wrapped_method(state_context, unmount_direction)
+        end
         local player = Game.GetPlayer()
         if player == nil then
             self.log_obj:Record(LogLevel.Warning, "No Player detected")
@@ -235,6 +306,9 @@ function Event:SetOverride()
 
     -- Depending on the position of the driver's seat, an animation will play in which the driver moves to the opposite door, just like in a normal car. This hook prevents this.
     Override("VehicleTransition", "IsUnmountDirectionOpposite", function(this, state_context, unmount_direction, wrapped_method)
+        if self.current_situation ~= Def.Situation.InVehicle then
+            return wrapped_method(state_context, unmount_direction)
+        end
         local player = Game.GetPlayer()
         if player == nil then
             self.log_obj:Record(LogLevel.Warning, "No Player detected")
@@ -479,12 +553,10 @@ function Event:CheckHUD()
     if self.hud_obj:IsVisibleConsumeItemSlot() then
         self.hud_obj:SetVisibleConsumeItemSlot(false)
     end
-    local success, result = pcall(function()
-        self.hud_obj:SetHPDisplay()
-    end)
-    if not success then
-        self.log_obj:Record(LogLevel.Critical, result)
-    end
+    -- Called directly. This used to be wrapped in pcall(function() ... end) at
+    -- the loop rate, which allocated a closure every tick to guard a function
+    -- that now guards its own only throwing statement.
+    self.hud_obj:SetHPDisplay()
     -- The game repaints the speedometer unit label on its own, continuously, so
     -- swapping it to a distance unit during autopilot just fights the HUD and
     -- flickers. Show the real speed in both modes and let the RPM dial carry the
@@ -589,6 +661,27 @@ function Event:CheckDespawn()
     end
 end
 
+--- Distance from the player to the AV, cached for `player_distance_cache_time`.
+--- Returns nil when the player cannot be resolved. Callers must treat nil as
+--- "unknown" rather than "far", so a missing player never suppresses a check
+--- that would otherwise have run.
+---@return number|nil
+function Event:GetPlayerDistanceToAV()
+    local now = os.clock()
+    if self.cached_player_distance ~= nil
+            and (now - self.last_player_distance_time) < self.player_distance_cache_time then
+        return self.cached_player_distance
+    end
+    local player = Game.GetPlayer()
+    if player == nil then
+        return nil
+    end
+    local distance = Vector4.Distance(player:GetWorldPosition(), self.av_obj:GetPosition())
+    self.cached_player_distance = distance
+    self.last_player_distance_time = now
+    return distance
+end
+
 --- Check distance between player and AV.
 --- The only effect is turning the engine sound on/off across a 30 m threshold,
 --- so a half-second resolution is invisible. At 100 Hz this was four C#
@@ -599,9 +692,10 @@ function Event:CheckDistance()
         return
     end
     self.last_distance_check_time = now
-    local player_pos = Game.GetPlayer():GetWorldPosition()
-    local av_pos = self.av_obj:GetPosition()
-    local distance = Vector4.Distance(player_pos, av_pos)
+    local distance = self:GetPlayerDistanceToAV()
+    if distance == nil then
+        return
+    end
     if distance > self.engine_audio_limit then
         self.sound_obj:StopGameSound(self.av_obj.engine_audio_name)
         self.is_enable_audio = false
@@ -613,9 +707,62 @@ function Event:CheckDistance()
     end
 end
 
+--- Choose how long the next ground probe may be delayed.
+--- The prediction runs off the previous probe: the height cannot move far in
+--- one interval, so what we saw last time bounds what we can miss next time.
+--- Cost of this function is paid once per probe, not once per tick -- between
+--- probes CheckHeight returns on a single clock comparison.
+---@return number interval in seconds
+function Event:PickHeightInterval()
+    -- Nobody close enough to see the projection. 60 m matches the range the
+    -- landing VFX is meant to cover.
+    local distance = self:GetPlayerDistanceToAV()
+    if distance ~= nil and distance > self.height_skip_distance then
+        return self.height_check_interval_far
+    end
+
+    -- First probe after a reset: no basis to delay anything.
+    local last_height = self.last_height
+    if last_height == nil then
+        return self.height_check_interval_fast
+    end
+
+    -- No vertical motion -> the height is not going to change under us.
+    -- 0.5 m/s is well above the jitter of a pinned craft and well below any
+    -- descent a player would call "flying".
+    local engine_obj = self.av_obj.engine_obj
+    if engine_obj ~= nil then
+        local velocity = engine_obj:GetVelocity()
+        if velocity ~= nil and math.abs(velocity.z) <= self.height_still_speed then
+            return self.height_check_interval_still
+        end
+    end
+
+    -- High up: the warning threshold is far enough away that 10 Hz cannot
+    -- step over it. At 20 m above the ~5 m threshold, even a 20 m/s sink
+    -- leaves 0.75 s of margin -- seven slow intervals.
+    if last_height > self.height_slow_threshold then
+        return self.height_check_interval_slow
+    end
+
+    return self.height_check_interval_fast
+end
+
 --- Check height between AV and ground. if height is too low, show landing warning.
+---
+--- Cadence-adaptive on purpose; see `height_check_interval_*` in New() and
+--- PickHeightInterval(). The measurement ends in a synchronous physics query
+--- and used to run at the full loop rate even when the craft was parked and
+--- the answer was fixed.
 function Event:CheckHeight()
+    local now = os.clock()
+    if now < self.next_height_check_time then
+        return
+    end
+    self.next_height_check_time = now + self:PickHeightInterval()
+
     local height = self.av_obj.navigation_obj:GetHeight()
+    self.last_height = height
     if height < self.projection_max_height_offset + self.av_obj.minimum_distance_to_ground then
         -- The VFX offset only needs writing when the measured height moved.
         -- A parked AV reports the same height 100 times a second.
@@ -640,7 +787,7 @@ function Event:CheckInput()
         self.hud_obj:ShowCustomHint()
         return
     end
-    if self.check_input_count > math.floor(2 / DAV.time_resolution) then
+    if self.check_input_count > TimeScale:Ticks(2) then
         self.check_input_count = 0
         self.hud_obj:SetInputHintController()
         if not self.hud_obj:IsVisibleCustomInputHints() then
@@ -688,10 +835,19 @@ function Event:CheckLockedSave()
 end
 
 --- Check if perspective is FPP.
+---
+--- The lock has to stay latched for as long as FPP lasts. It used to be written
+--- `if FPP and not locked then show; lock = true else lock = false end`, which
+--- means that while sitting in FPP the flag flipped true/false on alternate
+--- ticks and ForceShowMeter() -- ShowRequest() plus OnCameraModeChanged(), two
+--- C# calls and a pcall closure each -- fired at half the loop rate, ~50 times
+--- a second, to re-force a meter that was already forced.
 function Event:CheckPerspective()
-    if self:IsFPP() and not self.is_locked_showing_meter then
-        self.hud_obj:ForceShowMeter()
-        self.is_locked_showing_meter = true
+    if self:IsFPP() then
+        if not self.is_locked_showing_meter then
+            self.hud_obj:ForceShowMeter()
+            self.is_locked_showing_meter = true
+        end
     else
         self.is_locked_showing_meter = false
     end

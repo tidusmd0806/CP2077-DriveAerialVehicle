@@ -550,6 +550,38 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
+	-- Control loop rate.
+	-- Continuous 10..120 Hz slider. The setting is stored as a period in seconds
+	-- so it stays hand-editable in user_setting_v3.json; the slider works in Hz
+	-- because that is what people reason about. Lowering it cuts CPU but every
+	-- flight decision gets coarser -- the flight model is rate-corrected
+	-- (Etc/timescale.lua) so takeoff/landing stop points hold down to 10 Hz.
+	-- Note the loop can never run faster than the frame rate, so anything above
+	-- your fps silently degrades to "once per frame".
+	option_table = DAV.NativeSettings.addRangeInt("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_time_resolution"), DAV.core_obj:GetTranslationText("native_settings_advance_time_resolution_description"), TimeScale.MIN_HZ, TimeScale.MAX_HZ, 5, TimeScale:GetHz(), TimeScale.DEFAULT_HZ, function(value)
+		DAV.user_setting_table.time_resolution = TimeScale:HzToResolution(value)
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		if DAV.core_obj ~= nil then
+			DAV.core_obj:ApplyTimeResolution()
+		end
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+
+	option_table = DAV.NativeSettings.addSwitch("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_time_scale_measured"), DAV.core_obj:GetTranslationText("native_settings_advance_time_scale_measured_description"), DAV.user_setting_table.time_scale_mode == TimeScale.MODE_MEASURED, false, function(state)
+		DAV.user_setting_table.time_scale_mode = state and TimeScale.MODE_MEASURED or TimeScale.MODE_NOMINAL
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		if DAV.core_obj ~= nil then
+			DAV.core_obj:ApplyTimeResolution(true)
+		end
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+
 	option_table = DAV.NativeSettings.addSwitch("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_obstacle_recording"), DAV.core_obj:GetTranslationText("native_settings_advance_obstacle_recording_description"), DAV.user_setting_table.is_enable_obstacle_recording, true, function(state)
 		DAV.user_setting_table.is_enable_obstacle_recording = state
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)

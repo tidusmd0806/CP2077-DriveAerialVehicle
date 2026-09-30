@@ -28,7 +28,7 @@ local function preload(n)
     local f = assert(raw_open(MODDIR .. "/" .. n, "r")); local b = f:read("*a"); f:close()
     package.preload[n] = (loadstring or load)(b, n)
 end
-preload("Etc/log.lua"); preload("Etc/utils.lua"); preload("Modules/profprobe.lua"); preload("Modules/navigation.lua")
+preload("Etc/log.lua"); preload("Etc/utils.lua"); preload("Etc/timescale.lua"); TimeScale = require("Etc/timescale.lua"); preload("Modules/profprobe.lua"); preload("Modules/navigation.lua")
 Log = require("Etc/log.lua")
 local Navigation = require("Modules/navigation.lua")
 

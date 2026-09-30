@@ -112,6 +112,7 @@ local MODULES = {
     "Etc/log.lua",
     "Etc/queue.lua",
     "Etc/utils.lua",
+    "Etc/timescale.lua",
     "External/Cron.lua",
     "External/GameHUD.lua",
     "External/GameSettings.lua",

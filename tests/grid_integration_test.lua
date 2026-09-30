@@ -64,6 +64,8 @@ local function preload(name)
 end
 preload("Etc/log.lua")
 preload("Etc/utils.lua")
+preload("Etc/timescale.lua")
+TimeScale = require("Etc/timescale.lua")
 preload("Modules/obstacle_grid.lua")
 preload("Modules/profprobe.lua"); preload("Modules/navigation.lua")
 
