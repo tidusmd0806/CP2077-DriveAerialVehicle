@@ -194,23 +194,21 @@ SITUATIONS = [
       ("av.lua", "SetLandingVFXPosition", 1),
       ("av.lua", "ProjectLandingWarning", 1),
       ("av.lua", "GetDoorState", 1),
-      ("engine.lua", "IsOnGround", 1),           # CalculateIdleMode -> IsCollision
       ("av.lua", "GetEulerAngles", 2),           # CalculateIdleMode + Engine:Run
-      ("engine.lua", "GetDirectionAndAngularVelocity", 1),   # Engine:Run
-      ("engine.lua", "ChangeVelocity", 1),        # Engine:Update (ChangeVelocity control type)
-      ("engine.lua", "GetPhysicsState", 1),      # Engine:Update
+      # One physics read per tick serves Run, Update, IsOnGround and
+      # HasGravity; Waiting writes through ChangeVelocity.
+      ("engine.lua", "ReadSnapshot", 1),
+      ("engine.lua", "ChangeVelocity", 1),
       ("av.lua", "MoveThruster", 1),
       ("av.lua", "ControlSound", 1)],
-     "7 checks/tick. Every AV accessor re-runs Game.FindEntityByID - the entity "
-     "handle is never cached."),
+     "7 checks/tick. The entity handle is frame-cached and the physics body is "
+     "read once a tick instead of four times."),
 
     ("C  InVehicle, manual flight",
      [("av.lua", "IsPlayerIn", 2),              # CheckInAV + OperateAerialVehicle gate
       ("event.lua", "CheckCombat", 1),
       ("av.lua", "IsEngineOn", 1),
       ("av.lua", "IsDestroyed", 1),
-      ("engine.lua", "GetDirectionAndAngularVelocity", 3),
-                                                # GetCurrentSpeed + Engine:Run + Engine:Update
       ("av.lua", "GetGroundPosition", 2),        # CheckHeight + CalculateIdleMode path
       ("av.lua", "GetPosition", 3),             # via GetGroundPosition x2 + GetHeight
       ("av.lua", "SetLandingVFXPosition", 1),
@@ -220,22 +218,26 @@ SITUATIONS = [
       ("hud.lua", "SetSpeedMeterValue", 1),
       ("hud.lua", "SetRPMMeterValue", 1),
       ("av.lua", "GetEulerAngles", 2),           # CalculateAVMode + Engine:Run
-      ("av.lua", "GetForward", 1),
-      ("av.lua", "GetRight", 1),
+      # Basis vectors are frame-cached; the read itself is one entity call each.
+      ("av.lua", "read_world_forward", 1),
+      ("av.lua", "read_world_right", 1),
       ("av.lua", "IsDespawned", 2),             # Engine:Run + Engine:Update guard chain
-      ("engine.lua", "AddForce", 1),             # Engine:Update (AddForce control type)
-      ("engine.lua", "GetPhysicsState", 1),
+      # One snapshot read for the whole tick -- Run, Update, IsOnGround,
+      # HasGravity and GetCurrentSpeed all share it -- plus the one write that
+      # closes the tracking torque inside the plugin.
+      ("engine.lua", "ReadSnapshot", 1),
+      ("engine.lua", "Update", 1),               # AddForceTracked
       ("av.lua", "MoveThruster", 1),
       ("av.lua", "ControlSound", 1)],
-     "10 checks/tick + the full Operate -> CalculateAVMode -> Engine:Run -> "
-     "AddForce chain, all at 100 Hz."),
+     "10 checks/tick + the Operate -> CalculateAVMode -> Engine:Run -> "
+     "Engine:Update chain, all at 100 Hz. That chain used to cross into the "
+     "plugin eight times a tick; it crosses twice."),
 
     ("D  InVehicle + autopilot (local avoidance)",
      [("av.lua", "IsPlayerIn", 2),
       ("event.lua", "CheckCombat", 1),
       ("av.lua", "IsEngineOn", 1),
       ("av.lua", "IsDestroyed", 1),
-      ("engine.lua", "GetDirectionAndAngularVelocity", 3),
       ("av.lua", "GetGroundPosition", 2),
       ("av.lua", "GetPosition", 3),
       ("av.lua", "SetLandingVFXPosition", 1),
@@ -244,10 +246,14 @@ SITUATIONS = [
       ("hud.lua", "SetHPDisplay", 1),
       ("hud.lua", "SetSpeedMeterValue", 1),
       ("hud.lua", "SetRPMMeterValue", 1),
-      ("engine.lua", "AddForce", 1),
-      ("engine.lua", "GetPhysicsState", 1),
+      ("av.lua", "read_world_forward", 1),
+      ("av.lua", "read_world_right", 1),
+      ("engine.lua", "ReadSnapshot", 1),
+      ("engine.lua", "Update", 1),
       ("navigation.lua", "CollectSphericalRepulsion", 1)],
-     "Same 10 checks, plus a 32-ray synchronous sphere scan every tick."),
+     "Same 10 checks, plus a 32-ray synchronous sphere scan every tick. "
+     "Autopilot replaces the Operate chain, so the engine contributes the "
+     "snapshot read and the one write."),
 ]
 
 

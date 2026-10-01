@@ -2,6 +2,21 @@ local Utils = require("Etc/utils.lua")
 Engine = {}
 Engine.__index = Engine
 
+--- Flag bits packed into the W component of FlyAVSystem:GetFlightState().
+--- W is an integer bitfield, not a float in any meaningful sense. Keep in
+--- sync with DAVStateFlags in the DAV red4ext plugin (src/Main.cpp).
+local STATE_ON_GROUND = 1
+local STATE_GRAVITY = 2
+local STATE_PHYSICS_OFF = 4
+local STATE_VALID = 8
+
+--- Test one bit of the snapshot's flag field.
+--- Written with division instead of `&`/`>>` so the file keeps running under
+--- a plain-Lua harness that may not be 5.4.
+local function state_has(bits, flag)
+    return math.floor(bits / flag) % 2 == 1
+end
+
 --- Constructor
 --- @param av_obj any AV instance
 --- @return table
@@ -56,6 +71,15 @@ function Engine:New(av_obj)
     obj.engine_control_type = Def.EngineControlType.None
     obj.is_finished_init = false
     obj.is_idle = false
+    --- Frame-cached physics snapshot. See Engine:RefreshSnapshot.
+    obj.snap = {
+        velocity = Vector3.new(0, 0, 0),
+        on_ground = false,
+        has_gravity = false,
+        physics_off = false,
+        valid = false,
+    }
+    obj.snap_seq = -1
 
     return setmetatable(obj, self)
 end
@@ -68,7 +92,79 @@ function Engine:Init(entity_id)
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
     self.mass = self.fly_av_system:GetMass()
+    -- A different body. Whatever the previous one reported is not this one's
+    -- velocity, gravity or ground contact.
+    self:InvalidateSnapshot()
     self.is_finished_init = true
+end
+
+--- Drop the cached physics snapshot so the next read goes back to the plugin.
+--- Needed whenever the underlying body changes; a stale snapshot would
+--- otherwise be served for the rest of the frame.
+function Engine:InvalidateSnapshot()
+    self.snap_seq = -1
+end
+
+--- Return this rendered frame's physics snapshot, reading it once if this is
+--- the first thing to ask since the frame started.
+---
+--- One `GetFlightState` transition per frame serves every consumer in the
+--- mod. Before, Engine:Run, Engine:Update, IsOnGround and HasGravity each
+--- resolved their own -- and two of them threw half of what they paid to
+--- read away. None of it can change inside a frame: the body is stepped once
+--- per frame, so the second read of a value returns the first read's answer.
+---
+--- Same frame-counter contract as AV:GetEulerAngles. The snapshot and the
+--- vector inside it are shared; callers must treat them as read-only.
+---@return table|nil nil when the engine has not finished initializing
+function Engine:RefreshSnapshot()
+    if not self.is_finished_init then
+        return nil
+    end
+    local frame = DAV.frame_seq
+    if frame == nil then
+        -- No frame counter means we cannot reason about freshness. Read
+        -- every time rather than cache forever against a counter that never
+        -- moves.
+        return self:ReadSnapshot()
+    end
+    if self.snap_seq ~= frame then
+        self:ReadSnapshot()
+        self.snap_seq = frame
+    end
+    return self.snap
+end
+
+--- Perform the actual read into self.snap. Prefer RefreshSnapshot.
+---@return table
+function Engine:ReadSnapshot()
+    local snap = self.snap
+    local state = self.fly_av_system:GetFlightState()
+    local vel = snap.velocity
+    if state == nil then
+        vel.x, vel.y, vel.z = 0, 0, 0
+        snap.on_ground = false
+        snap.has_gravity = false
+        snap.physics_off = false
+        snap.valid = false
+        return snap
+    end
+    local bits = math.floor(state.w or 0)
+    snap.valid = state_has(bits, STATE_VALID)
+    if snap.valid then
+        vel.x, vel.y, vel.z = state.x, state.y, state.z
+        snap.on_ground = state_has(bits, STATE_ON_GROUND)
+        snap.has_gravity = state_has(bits, STATE_GRAVITY)
+        snap.physics_off = state_has(bits, STATE_PHYSICS_OFF)
+    else
+        -- No locked handle. Report a parked craft rather than whatever the
+        -- last body was doing.
+        vel.x, vel.y, vel.z = 0, 0, 0
+        snap.on_ground = false
+        snap.has_gravity = false
+        snap.physics_off = false
+    end
+    return snap
 end
 
 --- Get Control Type
@@ -98,7 +194,13 @@ function Engine:Update(delta)
     if self.av_obj.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
         return
     end
-    if self:GetPhysicsState() ~= 0 then
+    -- The physics state rides along in the frame snapshot, so the per-tick
+    -- GetPhysicsState poll is gone. The re-enable only costs a transition in
+    -- the rare tick that actually finds the body disabled -- and AddForceTracked
+    -- re-checks at the moment of writing, so a snapshot that went stale
+    -- mid-frame cannot let a disabled body slip through.
+    local snap = self:RefreshSnapshot()
+    if snap ~= nil and snap.physics_off then
         self:UnsetPhysicsState()
         self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
     end
@@ -107,14 +209,15 @@ function Engine:Update(delta)
         self.torque = Vector3.new(0, 0, 0)
         self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.direction_velocity, self.angular_velocity)
     elseif self.engine_control_type == Def.EngineControlType.AddForce then
-        local direction_velocity = self:GetDirectionVelocity()
-        local angular_velocity = self:GetAngularVelocity()
-        local _, actual_angular_velocity = self:GetDirectionAndAngularVelocity()
-        local angular_velocity_diff = Vector3.new(angular_velocity.x - actual_angular_velocity.x, angular_velocity.y - actual_angular_velocity.y, angular_velocity.z - actual_angular_velocity.z)
         local mass = self.mass
+        local direction_velocity = self.direction_velocity
         self.force = Vector3.new(direction_velocity.x * mass, direction_velocity.y * mass, direction_velocity.z * mass)
-        self.torque = Vector3.new(angular_velocity_diff.x * self.torque_gain, angular_velocity_diff.y * self.torque_gain, angular_velocity_diff.z * self.torque_gain)
-        self:AddForce(self.force, self.torque)
+        -- The tracking torque is closed inside the plugin. Computing it here
+        -- meant pulling the body's angular velocity back across the boundary
+        -- for nothing but a subtraction; the plugin subtracts it where the
+        -- data already lives and hands the applied torque back, so
+        -- `self.torque` still records what this tick commanded.
+        self.torque = self.fly_av_system:AddForceTracked(self.force, self.angular_velocity, self.torque_gain)
     elseif self.engine_control_type == Def.EngineControlType.FluctuationVelocity then
         self.force = Vector3.new(0, 0, 0)
         self.torque = Vector3.new(0, 0, 0)
@@ -154,12 +257,11 @@ function Engine:EnableOriginalPhysics(on)
 end
 
 --- Check if has gravity
+--- Served from the frame snapshot; see Engine:RefreshSnapshot.
 ---@return boolean
 function Engine:HasGravity()
-    if not self.is_finished_init then
-        return false
-    end
-    return self.fly_av_system:HasGravity()
+    local snap = self:RefreshSnapshot()
+    return snap ~= nil and snap.has_gravity
 end
 
 --- Set gravity
@@ -172,6 +274,7 @@ function Engine:EnableGravity(on)
 end
 
 --- If Collision Detected
+--- Served from the frame snapshot; see Engine:RefreshSnapshot.
 ---@return boolean
 function Engine:IsOnGround()
     if not self.is_finished_init then
@@ -182,10 +285,16 @@ function Engine:IsOnGround()
     if elapsed_time < self.ground_check_delay then
         return false
     end
-    return self.fly_av_system:IsOnGround()
+    local snap = self:RefreshSnapshot()
+    return snap ~= nil and snap.on_ground
 end
 
 --- Get Direction and Angular Velocity
+---
+--- Uncached: this is two transitions back out of the plugin. Nothing on the
+--- control path needs the angular half any more -- the tracking torque that
+--- used to require it is closed inside AddForceTracked -- so prefer
+--- GetVelocity(), which is one transition per frame shared by every caller.
 ---@return Vector3
 ---@return Vector3
 function Engine:GetDirectionAndAngularVelocity()
@@ -196,16 +305,16 @@ function Engine:GetDirectionAndAngularVelocity()
 end
 
 --- Get the linear velocity only.
---- GetDirectionAndAngularVelocity() also resolves the angular velocity, and a
---- caller that only wants the vertical component still pays for that second C#
---- transition. Event:CheckHeight needs |vz| to decide how long it may put off
---- the next ground probe, and nothing else.
+--- Served from the frame snapshot, so N callers in one frame cost one
+--- transition between them. See Engine:RefreshSnapshot for the read-only
+--- contract on the returned vector.
 ---@return Vector3|nil nil when the physics handle is not up yet
 function Engine:GetVelocity()
-    if not self.is_finished_init then
+    local snap = self:RefreshSnapshot()
+    if snap == nil then
         return nil
     end
-    return self.fly_av_system:GetVelocity()
+    return snap.velocity
 end
 
 --- Add force
@@ -352,11 +461,11 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
         return false
     end
 
-    local vel_vec, _ = self:GetDirectionAndAngularVelocity()
-    if not vel_vec then
-        self.log_obj:Record(LogLevel.Error, "Failed to get velocity", "Engine:Run")
-        return false
-    end
+    -- GetVelocity is nil before the physics handle is up, where the old
+    -- GetDirectionAndAngularVelocity handed back a zero vector and the run
+    -- carried on. Keep carrying on: bailing here would also skip the thruster
+    -- and sound passes that AV:Operate does after Run.
+    local vel_vec = self:GetVelocity() or Vector3.new(0, 0, 0)
 
     local current_angle = self.av_obj:GetEulerAngles()
     if not current_angle then
@@ -758,7 +867,9 @@ function Engine:CalculateIdleMode(skip_linear)
     local x,y,z,roll,pitch = 0,0,0,0,0
 
     if not skip_linear and DAV.user_setting_table.is_enable_idle_gravity and not self.av_obj.navigation_obj:IsCollision() then
-        local vel_vec, _ = self:GetDirectionAndAngularVelocity()
+        -- GetVelocity is nil before the physics handle is up, where the old
+        -- GetDirectionAndAngularVelocity handed back a zero vector.
+        local vel_vec = self:GetVelocity() or Vector3.new(0, 0, 0)
         local height = self.av_obj.navigation_obj:GetHeight()
         local dest_height = self.av_obj.minimum_distance_to_ground
 

@@ -196,12 +196,60 @@ check("10 accessors in one frame = 1 FindEntityByID", find_calls == 1, "got " ..
 av:IsPlayerIn(); av:GetPosition(); av:GetEulerAngles()
 check("repeats add nothing", find_calls == 1, "got " .. find_calls)
 
+print("== 5b. basis vectors are cached per frame, not forever ==")
+do
+    -- GetForward/GetRight/GetUp went through the frame cache too. Two things
+    -- have to hold: they must not re-cross into the game inside one frame, and
+    -- they must actually refresh when the frame moves -- a basis vector stuck
+    -- on the spawn heading would steer the autopilot into a wall.
+    av:InvalidateEntityCache()
+    reset(60)
+    local f1 = av:GetForward()
+    local r1 = av:GetRight()
+    local u1 = av:GetUp()
+    check("forward resolved once", find_calls == 1, "got " .. find_calls)
+    for _ = 1, 10 do av:GetForward(); av:GetRight(); av:GetUp() end
+    check("30 repeats add no resolution", find_calls == 1, "got " .. find_calls)
+    check("same table handed back inside the frame", av:GetForward() == f1)
+    check("right is the cached one", av:GetRight() == r1)
+    check("up is the cached one", av:GetUp() == u1)
+
+    DAV.frame_seq = 61
+    local f2 = av:GetForward()
+    check("new frame re-resolves", find_calls == 2, "got " .. find_calls)
+    check("value still correct after refresh", f2.x == 1 and f2.y == 0 and f2.z == 0,
+        string.format("%s,%s,%s", tostring(f2.x), tostring(f2.y), tostring(f2.z)))
+
+    -- A different entity must not be able to inherit the old basis vectors.
+    av:InvalidateEntityCache()
+    check("invalidate drops all three", av._forward == nil and av._right == nil and av._up == nil)
+    av:GetRight()
+    check("and the next read goes back to the game", find_calls == 3, "got " .. find_calls)
+end
+
+print("== 5c. no frame counter means no caching ==")
+do
+    -- Same defensive contract as GetEntity: with nothing to compare against,
+    -- every call resolves rather than serving a value of unknown age.
+    av:InvalidateEntityCache()
+    DAV.frame_seq = nil
+    find_calls = 0
+    av:GetForward(); av:GetForward(); av:GetForward()
+    check("three calls, three resolutions", find_calls == 3, "got " .. find_calls)
+    DAV.frame_seq = 70
+end
+
 print("== 6. InvalidateEntityCache forces re-resolution ==")
-av:InvalidateEntityCache()
-av:GetEntity()
-check("invalidate forces a lookup", find_calls == 2, "got " .. find_calls)
-av:GetEntity()
-check("then caches again", find_calls == 2, "got " .. find_calls)
+do
+    -- Self-contained: the sections above leave the counter wherever they ended,
+    -- so pin it here rather than making this depend on their bookkeeping.
+    reset(71)
+    av:InvalidateEntityCache()
+    av:GetEntity()
+    check("invalidate forces a lookup", find_calls == 1, "got " .. find_calls)
+    av:GetEntity()
+    check("then caches again", find_calls == 1, "got " .. find_calls)
+end
 
 print("== 7. Despawn drops the handle ==")
 av:Despawn()

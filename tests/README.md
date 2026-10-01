@@ -46,7 +46,21 @@ python tests/run_meter_cadence_test.py      # 地面探知の周期 + メータ�
 python tests/run_onaction_cost_test.py      # PlayerPuppet.OnAction
 python tests/run_axis_proxy_cost_test.py    # Input/Axis プロキシ
 python tests/run_entity_cache_test.py       # エンティティ／高さキャッシュ
+python tests/run_engine_interop_test.py     # 制御ループの red4ext 往復回数
 ```
+
+`run_engine_interop_test.lua` は `Modules/engine.lua` を実ロードし、
+red4ext 側（`GetFlightState` / `AddForceTracked`）をミラーしたスタブ上で
+次を検証する:
+
+- 1 tick の plugin 往復が **2 回**（読み 1 + 書き 1）であること。
+  誰が何回物理状態を要求しても増えない
+- plugin に移した追従トルクが、**修正前の Lua 計算と一致**すること
+  （境界を跨いだ移動は計算式を変える口実ではない）
+- 物理無効化の自己修復が、実際に無効なときだけコストになること
+- `DAV.frame_seq` が無い環境ではキャッシュせず毎回読むこと
+
+詳細は `docs/PERF_ANALYSIS_engine_interop.md`。
 
 `run_meter_cadence_test.lua` は `CheckAllEvents` の上位 3 項目
 （同期レイキャスト／メーター書き込み／FPP メーターロック）対象。

@@ -5593,11 +5593,16 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 		local delta_z = current_pos.z - baseline_pos.z
 		local forward_progress = delta_x * dest_dir.x + delta_y * dest_dir.y + delta_z * dest_dir.z
 		local dist_change = dest_len - self.local_avoidance_net_check_dist  -- positive=farther, negative=closer
-		local actual_velocity, _ = self.av_obj.engine_obj:GetDirectionAndAngularVelocity()
-		local actual_speed = math.sqrt(
-			actual_velocity.x * actual_velocity.x +
-			actual_velocity.y * actual_velocity.y +
-			actual_velocity.z * actual_velocity.z)
+		-- The angular half of GetDirectionAndAngularVelocity was never read
+		-- here, and asking for it cost a second transition into the plugin.
+		local actual_velocity = self.av_obj.engine_obj:GetVelocity()
+		local actual_speed = 0
+		if actual_velocity ~= nil then
+			actual_speed = math.sqrt(
+				actual_velocity.x * actual_velocity.x +
+				actual_velocity.y * actual_velocity.y +
+				actual_velocity.z * actual_velocity.z)
+		end
 		local low_speed_threshold = math.max(2.5, (self.autopilot_speed or 0) * stuck_speed_ratio_threshold)
 		local low_speed = actual_speed <= low_speed_threshold
 		local receding = dist_change > 0.5

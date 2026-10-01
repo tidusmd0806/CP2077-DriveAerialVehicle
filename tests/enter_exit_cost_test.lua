@@ -227,7 +227,22 @@ local world = {
     door_state = VehicleDoorState.Closed,
     entity_alive = true,
     on_ground = true,
+    -- Backs the batched GetFlightState stub.
+    velocity = { x = 0, y = 0, z = 0 },
+    angular_velocity = { x = 0, y = 0, z = 0 },
+    gravity = false,
+    physics_off = false,
 }
+
+-- Mirrors DAVStateFlags in the plugin: bit0 on-ground, bit1 gravity,
+-- bit2 physics disabled, bit3 handle valid.
+local function pack_state()
+    local flags = 8
+    if world.on_ground then flags = flags + 1 end
+    if world.gravity then flags = flags + 2 end
+    if world.physics_off then flags = flags + 4 end
+    return flags
+end
 
 local fly_av = {}
 function fly_av.SetVehicle(self, h) count("flyav.SetVehicle") end
@@ -238,10 +253,22 @@ function fly_av.EnableOriginalPhysics(self, on) count("flyav.EnableOriginalPhysi
 function fly_av.HasGravity(self) count("flyav.HasGravity"); return false end
 function fly_av.EnableGravity(self, on) count("flyav.EnableGravity") end
 function fly_av.IsOnGround(self) count("flyav.IsOnGround"); return world.on_ground end
-function fly_av.GetVelocity(self) count("flyav.GetVelocity"); return Vector3.new(0, 0, 0) end
-function fly_av.GetAngularVelocity(self) count("flyav.GetAngularVelocity"); return Vector3.new(0, 0, 0) end
+function fly_av.GetVelocity(self) count("flyav.GetVelocity"); return Vector3.new(world.velocity.x, world.velocity.y, world.velocity.z) end
+function fly_av.GetAngularVelocity(self) count("flyav.GetAngularVelocity"); return Vector3.new(world.angular_velocity.x, world.angular_velocity.y, world.angular_velocity.z) end
 function fly_av.AddForce(self, f, t) count("flyav.AddForce") end
 function fly_av.ChangeVelocity(self, v, a, k) count("flyav.ChangeVelocity") end
+function fly_av.GetFlightState(self)
+    count("flyav.GetFlightState")
+    local v = world.velocity
+    return Vector4.new(v.x, v.y, v.z, pack_state())
+end
+function fly_av.AddForceTracked(self, force, target_angular, gain)
+    count("flyav.AddForceTracked")
+    local a = world.angular_velocity
+    return Vector3.new((target_angular.x - a.x) * gain,
+                      (target_angular.y - a.y) * gain,
+                      (target_angular.z - a.z) * gain)
+end
 FlyAVSystem = { new = function() return setmetatable({}, { __index = fly_av }) end }
 
 local vehicle_ps = {}

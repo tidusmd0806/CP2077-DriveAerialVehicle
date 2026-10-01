@@ -5,6 +5,58 @@ local Utils = require("Etc/utils.lua")
 local AV = {}
 AV.__index = AV
 
+-- Frame-cached basis vectors.
+--
+-- The body is stepped once per rendered frame, so reading the same vector
+-- twice inside a frame returns the first read's answer and pays for the
+-- transition again. AV:GetEulerAngles already worked this way; the basis
+-- vectors were the same case and were being read two or three times a tick
+-- between CalculateAVMode, CalculateHelicopterMode and the autopilot yaw
+-- control.
+--
+-- The cached table is shared with every caller in the frame: read-only.
+-- (AV:GetPosition is deliberately NOT cached the same way -- the collision
+-- scanner in navigation.lua offsets the returned vector in place, so a
+-- shared table there would compound across calls.)
+local function read_world_forward(entity)
+	return entity:GetWorldForward()
+end
+
+local function read_world_right(entity)
+	return entity:GetWorldRight()
+end
+
+local function read_world_up(entity)
+	return entity:GetWorldUp()
+end
+
+---@param self table AV instance
+---@param value_field string field holding the cached vector
+---@param frame_field string field holding the frame that vector belongs to
+---@param read fun(entity:any):Vector4
+---@return Vector4
+local function cached_basis_vector(self, value_field, frame_field, read)
+	if self.entity_id == nil then
+		return Vector4.new(0, 0, 0, 1.0)
+	end
+	-- No frame counter means we cannot reason about freshness; resolve every
+	-- time rather than cache forever against a counter that never moves.
+	local frame = DAV.frame_seq
+	if frame ~= nil and self[value_field] ~= nil and self[frame_field] == frame then
+		return self[value_field]
+	end
+	local entity = self:GetEntity()
+	if entity == nil then
+		return Vector4.new(0, 0, 0, 1.0)
+	end
+	local value = read(entity)
+	if frame ~= nil then
+		self[value_field] = value
+		self[frame_field] = frame
+	end
+	return value
+end
+
 --- Constructor.
 ---@param core_obj any Core instance
 ---@return table instance av instance
@@ -231,6 +283,12 @@ function AV:InvalidateEntityCache()
 	self._entity_frame = -1
 	self._euler = nil
 	self._euler_frame = -1
+	self._forward = nil
+	self._forward_frame = -1
+	self._right = nil
+	self._right_frame = -1
+	self._up = nil
+	self._up_frame = -1
 	self._entry_area = nil
 	self._entry_area_frame = -1
 end
@@ -296,40 +354,19 @@ end
 --- Get Vehicle Forward Vector
 ---@return Vector4
 function AV:GetForward()
-	if self.entity_id == nil then
-		return Vector4.new(0, 0, 0, 1.0)
-	end
-	local entity = self:GetEntity()
-    if entity == nil then
-        return Vector4.new(0, 0, 0, 1.0)
-    end
-    return entity:GetWorldForward()
+	return cached_basis_vector(self, "_forward", "_forward_frame", read_world_forward)
 end
 
 --- Get Vehicle Right Vector
 ---@return Vector4
 function AV:GetRight()
-	if self.entity_id == nil then
-		return Vector4.new(0, 0, 0, 1.0)
-	end
-	local entity = self:GetEntity()
-    if entity == nil then
-        return Vector4.new(0, 0, 0, 1.0)
-    end
-    return entity:GetWorldRight()
+	return cached_basis_vector(self, "_right", "_right_frame", read_world_right)
 end
 
 --- Get Vehicle Up Vector
 ---@return Vector4
 function AV:GetUp()
-	if self.entity_id == nil then
-		return Vector4.new(0, 0, 0, 1.0)
-	end
-	local entity = self:GetEntity()
-    if entity == nil then
-        return Vector4.new(0, 0, 0, 1.0)
-    end
-    return entity:GetWorldUp()
+	return cached_basis_vector(self, "_up", "_up_frame", read_world_up)
 end
 
 --- Get Vehicle Quaternion
@@ -405,7 +442,10 @@ end
 --- Get Height between ground and vehicle
 ---@return number height
 function AV:GetCurrentSpeed()
-	local vel_vec3, _ = self.engine_obj:GetDirectionAndAngularVelocity()
+	-- GetVelocity is nil before the physics handle is up, where the old
+	-- GetDirectionAndAngularVelocity handed back a zero vector. Keep the
+	-- callers of this seeing a number either way.
+	local vel_vec3 = self.engine_obj:GetVelocity() or Vector3.new(0, 0, 0)
 	local vel_vec4 = Vector4.Vector3To4(vel_vec3)
 	return vel_vec4:Length()
 end
