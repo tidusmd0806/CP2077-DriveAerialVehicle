@@ -18,25 +18,14 @@ function AV:New(core_obj)
 	obj.navigation_obj = Navigation:New(obj)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
-	---static---
-	-- door
+	---static---: door
 	obj.duration_zero_wait = 0.5
 	-- summon
 	obj.spawn_distance = 5.5
 	obj.spawn_height = 20
-	-- Was 5 s, which was shorter than the descent it guards, so every summon
-	-- ended on the timeout instead of on the ground. The profile is:
-	--   20m -> 10m at down_speed (5 m/s)          = 2.0 s
-	--   10m ->  4m flaring at 2 m/s^2 toward 1   = 2.0 s
-	--    4m -> 1.2m holding 1 m/s               = 2.8 s
-	--                                        -------
-	--                                   needs    6.8 s
-	-- The old 5 s budget fired with the craft ~3 m above the ground -- the
-	-- "summon lands too high" report. 10 s leaves ~50% headroom.
+	-- Summon descent timeout: 10 s covers the ~6.8 s full descent profile with ~50% headroom.
 	obj.down_timeout = 10 -- s
-	-- Was `350` -- a raw tick count that only meant 3.5 s because the timer that
-	-- reads it was hardcoded to Cron.Every(0.01). Now a duration, converted with
-	-- TimeScale:Ticks() like every other timeout.
+	-- Duration in seconds (converted via TimeScale:Ticks), not a raw tick count.
 	obj.up_timeout = 3.5 -- s
 	obj.unmount_timeout = 3.5 -- s
 	obj.down_speed = -5.0
@@ -49,31 +38,20 @@ function AV:New(core_obj)
 	obj.thruster_angle_step = 0.6
 	obj.thruster_angle_restore = 0.3
 
-	---dynamic---
-	-- common
+	---dynamic---: common
 	obj.entity_id = nil
-	-- Entity handle cache. Every accessor used to call Game.FindEntityByID on its
-	-- own -- 29 call sites, 10-15 of them reached per 100Hz tick while driving.
-	-- The handle only ever changes at Spawn/Despawn, so one resolution per frame
-	-- covers every reader. See docs/PERF_ANALYSIS_init441.md fix (1).
+	-- Entity handle cache: one resolution per frame covers every accessor (changes only at Spawn/Despawn).
 	obj._entity = nil          -- cached result of Game.FindEntityByID (nil never cached)
 	obj._entity_frame = -1     -- DAV.frame_seq the cached handle belongs to
-	-- Two more reads are asked for several times inside one tick, and neither can
-	-- change while a frame is being rendered, so they are frame-cached the same
-	-- way the entity handle is:
-	--   orientation  CalculateAVMode + Engine:Run (+ DespawnFromGround) each
-	--              call GetEulerAngles every tick -> 2 C# per call.
-	--   entry area   Event:CheckInEntryArea and Event:CheckDoor (via
-	--              Event:IsInEntryArea) both resolve it in the same Waiting
-	--              tick -> ~5 C# + ~9 Lua tables per call.
+	-- Frame-cached orientation and entry-area reads; neither can change within a rendered frame.
 	obj._euler = nil
 	obj._euler_frame = -1
 	obj._entry_area = nil
 	obj._entry_area_frame = -1
-	-- Last thruster orientation actually written to the components. MoveThruster
-	-- used to write every engine + fx component every tick even with the angle
-	-- parked at zero -- 16 C# calls per tick of pure no-op while the AV just
-	-- sits on the ground.
+	-- Entry area follows a walking human: re-resolved at 20 Hz, last value reused between refreshes.
+	obj.entry_area_check_interval = 0.05
+	obj._entry_area_next_time = 0
+	-- Last thruster orientation actually written; skips no-op writes while the angle is parked.
 	obj._thruster_written_angle = nil
 	obj.is_blocking_operation = false
 	-- door
@@ -110,10 +88,7 @@ function AV:New(core_obj)
 	obj.engine_audio_name = nil
 	obj.is_acceleration_sound = false
 	obj.is_thruster_sound = false
-	-- How long the acceleration / thruster sound is held on after the action
-	-- commands stop appearing. Absorbs the one-tick gaps produced by the
-	-- button-hold / control-loop phase relationship, which otherwise turn into
-	-- spurious Stop events mid-acceleration. See AV:ControlSound.
+	-- Grace the accel/thruster sound stays on after commands stop (absorbs one-tick gaps). See AV:ControlSound.
 	obj.sound_stop_grace_seconds = 0.3
 	obj.acceleration_sound_idle_ticks = 0
 	obj.thruster_sound_idle_ticks = 0
@@ -190,27 +165,15 @@ function AV:InitializeCollisionQueryFilter()
 end
 
 --- Resolve the vehicle entity handle, caching it for the current frame.
----
---- Every AV accessor used to do its own Game.FindEntityByID. With the 100 Hz
---- situation loop reaching 10-15 of them per tick while driving, that alone was
---- roughly a thousand cross-language transitions per second, each also
---- allocating a wrapped object for the GC.
----
---- The handle only changes at Spawn/Despawn, so one resolution per rendered
---- frame serves every reader. `DAV.frame_seq` is bumped at the top of
---- init.lua's onUpdate, which runs every frame even in menus, so the cache can
---- never go permanently stale by the counter stopping.
----
---- nil is deliberately never cached: while the spawn poll is still waiting for
---- the entity to materialise, every call keeps re-resolving exactly as before.
+--- Handle changes only at Spawn/Despawn, so one resolution per frame serves every reader.
+--- nil is never cached: a pending spawn keeps re-resolving until the entity materialises.
 ---@return any|nil entity the vehicle entity, or nil if absent
 function AV:GetEntity()
 	if self.entity_id == nil then
 		self._entity = nil
 		return nil
 	end
-	-- No frame counter means we cannot reason about freshness. Resolve every time
-	-- rather than risk caching a handle forever against a counter that never moves.
+	-- No frame counter: resolve every time rather than risk caching a handle forever.
 	local frame = DAV.frame_seq
 	if frame == nil then
 		return Game.FindEntityByID(self.entity_id)
@@ -353,9 +316,7 @@ function AV:GetEulerAngles()
 		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetEulerAngles")
 		return EulerAngles.new(0, 0, 0)
 	end
-	-- Frame cache. The physics body cannot rotate between two Lua calls inside
-	-- one rendered frame, so resolving it again is pure waste. Callers must
-	-- treat the returned table as read-only (nothing in this mod writes to it).
+	-- Frame cache: the body cannot rotate within one frame; treat the returned table as read-only.
 	local frame = DAV.frame_seq
 	if frame ~= nil and self._euler ~= nil and self._euler_frame == frame then
 		return self._euler
@@ -386,9 +347,7 @@ function AV:GetGroundPosition(from_pos)
 	if self.collision_query_filter == nil then
 		self:InitializeCollisionQueryFilter()
 	end
-	-- Raycast from freshly built vectors instead of writing into `base`. The old
-	-- code did `current_position.z = current_position.z + offset` on the caller's
-	-- table, so anything holding that vector silently got a shifted Z afterwards.
+	-- Raycast from freshly built vectors; never mutate the caller's position table.
 	local start_z = base.z + self.search_ground_offset
 	local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByQueryFilter(
 		Vector4.new(base.x, base.y, start_z, 1.0),
@@ -402,10 +361,14 @@ function AV:GetGroundPosition(from_pos)
     return start_z - self.search_ground_distance - 1
 end
 
---- Get Height between ground and vehicle
----@return number height
+--- Speed the speedometer shows, in m/s.
+---@return number speed in m/s (0 before the physics handle is up)
 function AV:GetCurrentSpeed()
-	local vel_vec3, _ = self.engine_obj:GetDirectionAndAngularVelocity()
+	-- Use Engine:GetVelocity(); the angular half was resolved and discarded every call.
+	local vel_vec3 = self.engine_obj:GetVelocity()
+	if vel_vec3 == nil then
+		return 0
+	end
 	local vel_vec4 = Vector4.Vector3To4(vel_vec3)
 	return vel_vec4:Length()
 end
@@ -495,10 +458,8 @@ function AV:Spawn(position, angle)
 	return true
 end
 
---- Reaction distance for the spawn descent, capped at the ground clearance.
---- The descent rate is a constant here (`down_speed`), but the cap keeps the
---- stop point honest if that constant or the tick length is ever changed to
---- something where one tick of travel exceeds the clearance.
+--- Reaction distance for the spawn descent, capped at the ground clearance
+--- so the stop point stays honest if down_speed or tick length ever changes.
 ---@return number
 function AV:SpawnLead()
 	return TimeScale:Lead(math.abs(self.down_speed), self.minimum_distance_to_ground)
@@ -510,9 +471,7 @@ function AV:SpawnToSky()
 	position.z = position.z + self.spawn_height
 	local angle = self:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
-	-- Hoisted out of the closure: the tick budget must be fixed when the sequence
-	-- starts. Re-evaluating TimeScale:Ticks() per tick would move the deadline if
-	-- the user changes the resolution mid-flight.
+	-- Hoisted: the tick budget is fixed when the sequence starts, not re-evaluated per tick.
 	local down_ticks = TimeScale:Ticks(self.down_timeout)
 	Cron.Every(DAV.time_resolution, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
@@ -522,10 +481,7 @@ function AV:SpawnToSky()
 				self:DisableAllDoorInteractions()
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed))
 				self.log_obj:Record(LogLevel.Info, "Initial Spawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
-			-- Lead compensation: a threshold sampled once per tick cannot be caught
-			-- if the craft travels further than the threshold between samples. Stop
-			-- when the *predicted next-tick* height reaches the ground instead, so
-			-- the stop point no longer depends on the loop rate.
+			-- Lead compensation: stop when the predicted next-tick height reaches the ground, not the sampled one.
 			elseif height - self:SpawnLead() <= self.minimum_distance_to_ground
 				or timer.tick > down_ticks
 				or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
@@ -555,6 +511,7 @@ function AV:Despawn()
 	self.entity_id = nil
 	-- The handle is dead now; never let a stale one survive the despawn.
 	self:InvalidateEntityCache()
+	self:InvalidateEntryAreaCache()
 	self.navigation_obj:InvalidateHeightCache()
 	return true
 end
@@ -564,10 +521,7 @@ function AV:DespawnFromGround()
 	local up_ticks = TimeScale:Ticks(self.up_timeout)
 	Cron.Every(DAV.time_resolution, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
-			-- Only the angular half is used here (OnlyAngularRun). Asking
-			-- CalculateIdleMode for the linear idle-hover term meant an
-			-- IsOnGround() probe, a velocity read and a ground raycast every
-			-- tick whose result was thrown away.
+			-- Only the angular half is used (OnlyAngularRun); skip the linear idle-hover term entirely.
 			local _, _, _, roll_idle, pitch_idle, yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1}, true)
 			if not self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
 				self.log_obj:Record(LogLevel.Warning, "Failed to run angular velocity in DespawnFromGround")
@@ -805,8 +759,7 @@ function AV:Mount()
 		self.is_crystal_dome = true
 	end
 
-	-- Auto-start obstacle map recording when the user setting or the debug flag
-	-- turns map learning on.
+	-- Auto-start obstacle recording when the user setting or debug flag turns map learning on.
 	if self.navigation_obj:IsObstacleRecordingEnabled() then
 		self.navigation_obj:StartObstacleRecording()
 	end
@@ -877,8 +830,7 @@ end
 function AV:BlockOperation(on)
 	if on then
 		self.is_blocking_operation = true
-		-- Releases are ignored while blocking, so drop any armed holds now
-		-- to make sure none of them can outlive the blocked operation
+		-- Releases are ignored while blocking; drop armed holds so none outlive the blocked operation.
 		self.core_obj:StopAllButtonHolds()
 		self.engine_obj:SetControlType(Def.EngineControlType.Blocking)
 		self.engine_obj:EnableOriginalPhysics(true)
@@ -938,24 +890,8 @@ function AV:Operate(action_command_lists)
 	return true
 end
 
---- Control sound.
----
---- The accel / thruster flags are latched from the drained action queue, and the
---- queue is a *transient* signal: whether a given control tick sees a movement
---- command depends on how the button-hold producer timer, the control-loop
---- consumer timer and the frame rate fall relative to one another. When they are
---- out of phase the queue can be empty on a tick even though the key is still
---- held, and the old code turned that straight into a Stop event -- starting and
---- stopping the sound repeatedly mid-acceleration, which with a 1.5 s fade never
---- gets loud enough to hear.
----
---- So: latch on the first command we see, and only drop the sound once the
---- "no acceleration command" condition has actually persisted for
---- `sound_stop_grace_seconds`. A real release still stops the sound well inside
---- the fade; a one-tick gap now produces no event at all.
----
---- The grace is expressed in ticks via TimeScale so it means the same wall-clock
---- duration at every control rate.
+--- Control sound: latch accel/thruster flags on the first command seen and keep the sound on until
+--- the no-command condition persists for sound_stop_grace_seconds (grace converted via TimeScale).
 ---@param action_command_lists table
 ---@return boolean
 function AV:ControlSound(action_command_lists)
@@ -1003,9 +939,7 @@ function AV:ControlSound(action_command_lists)
 		end
 	end
 
-	-- Thruster layer. Handled independently of the acceleration layer: the old
-	-- if/elseif chain let the acceleration branch starve the thruster branch, so
-	-- a thruster start had to wait for the acceleration edge to settle.
+	-- Thruster layer handled independently so acceleration cannot starve it.
 	if is_thruster_sound then
 		self.thruster_sound_idle_ticks = 0
 		if not self.is_thruster_sound then
@@ -1140,9 +1074,7 @@ function AV:SetThrusterComponent()
 	else
 		return false
 	end
-	-- These are brand new component handles. They have not had the current
-	-- thruster angle written to them, so drop the "already written" marker and
-	-- let the next MoveThruster() push it.
+	-- New component handles: drop the written marker so the next MoveThruster() pushes the angle.
 	self._thruster_written_angle = nil
 	return true
 end
@@ -1151,9 +1083,7 @@ end
 ---@param action_command_lists table
 ---@return boolean
 function AV:MoveThruster(action_command_lists)
-	-- The thruster angle is an accumulator whose result is an absolute
-	-- orientation, so both the swing step and the restore step are per-tick and
-	-- must scale with the loop period to keep the swing rate constant.
+	-- Thruster angle accumulates to an absolute orientation; scale swing/restore steps with the loop period.
 	local dt_scale = DAV.dt_scale or 1
 	local restore = self.thruster_angle_restore * dt_scale
 	if self.thruster_angle > restore then
@@ -1182,10 +1112,7 @@ function AV:MoveThruster(action_command_lists)
 		self.thruster_angle = -self.thruster_angle_max
 	end
 
-	-- Skip the writes when the angle is already what the components hold. With
-	-- the AV parked this used to push an unchanged orientation to every engine
-	-- and fx component once per 100 Hz tick -- 16 C# calls per tick, ~1600 per
-	-- second, for a value that never moved.
+	-- Skip writes when the angle already matches the components (was 16 C# calls per parked tick).
 	if self.thruster_angle == self._thruster_written_angle then
 		return true
 	end
@@ -1201,8 +1128,7 @@ function AV:MoveThruster(action_command_lists)
 		return false
 	end
 
-	-- One quaternion for all components. This was inside both loops, so every
-	-- component paid for its own ToQuat().
+	-- One quaternion for all components instead of a ToQuat() per component per loop.
 	local quat = EulerAngles.new(0, self.thruster_angle, 0):ToQuat()
 
 	for _, component in pairs(self.engine_components) do
@@ -1327,24 +1253,34 @@ function AV:GetExitPosition()
     return self:ChangeWorldCordinate(basic_vector, {self.exit_point})[1]
 end
 
---- Check Player in Entry Area
----
---- Frame-cached wrapper. Event:CheckInEntryArea and Event:CheckDoor both ask in
---- the same Waiting tick, and the HUD overrides ask again on every game-side
---- interaction refresh. The computation costs ~5 C# round trips plus ~9 Lua
---- tables (quaternion rotation), so answering it twice is not free.
+--- Check Player in Entry Area: frame-cached wrapper.
+--- Both Event checks and the HUD ask in the same tick; the computation costs ~5 C# round trips.
 ---@return boolean
 function AV:IsPlayerInEntryArea()
     local frame = DAV.frame_seq
     if frame ~= nil and self._entry_area ~= nil and self._entry_area_frame == frame then
         return self._entry_area
     end
+    -- Re-resolve at entry_area_check_interval; 50 ms of staleness is invisible for a walking player.
+    local now = os.clock()
+    if self._entry_area ~= nil and now < self._entry_area_next_time then
+        return self._entry_area
+    end
+    self._entry_area_next_time = now + self.entry_area_check_interval
     local result = self:ComputePlayerInEntryArea()
     if frame ~= nil then
         self._entry_area = result
         self._entry_area_frame = frame
     end
     return result
+end
+
+--- Drop the cached entry-area answer so the next reader recomputes it.
+--- Required after moving the AV or teleporting the player, since the throttle keeps the last value.
+function AV:InvalidateEntryAreaCache()
+    self._entry_area = nil
+    self._entry_area_frame = -1
+    self._entry_area_next_time = 0
 end
 
 --- Uncached entry-area test. Use AV:IsPlayerInEntryArea() instead.

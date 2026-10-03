@@ -1,24 +1,6 @@
--- =============================================================================
--- TEMPORARY instrumentation for the residual autopilot freeze.
---
--- Everything is gated on Prof.enabled. To remove the probe entirely:
---   1. delete this file
---   2. delete the `require("Modules/profprobe.lua")` line in navigation.lua
---   3. grep for `PROBE(` in navigation.lua and drop those call sites
---
--- Runtime controls (CET console / config):
---   DAV.is_debug_profile_autopilot = false   -- stop measuring
---   DAV.debug_profile_warn_ms   = 8.0     -- per-call log threshold
---
--- Output:
---   * one line per call that crosses the threshold, with the autopilot context
---     captured at that moment (context strings are built lazily, so a quiet
---     run costs nothing beyond two clock reads)
---   * an aggregate table every Prof.summary_every seconds, worst section first
---
--- os.clock() is process CPU time on Windows. That is the right signal here: the
--- hitch is our own CPU burn on the game thread, not a wait we could overlap.
--- =============================================================================
+-- TEMPORARY instrumentation for the residual autopilot freeze; everything is gated on Prof.enabled.
+-- Output: one line per call over the threshold (lazy context) plus an aggregate table every summary_every s.
+-- To remove: delete this file, its requires, and the PROBE call sites.
 
 local Prof = {}
 
@@ -26,10 +8,7 @@ Prof.enabled       = true
 Prof.warn_ms       = 8.0
 Prof.summary_every = 15.0
 
--- Independent switch for the per-situation ledger (wrap_by_situation below).
--- It has to be separate because Navigation:New() reassigns Prof.enabled from
--- DAV.is_debug_profile_autopilot on every AV re-init, which would silently
--- switch the ledger off mid-session.
+-- Independent switch for the situation ledger: Navigation:New() reassigns Prof.enabled on every AV re-init.
 Prof.situation_enabled = false
 
 local sections = {}
@@ -135,11 +114,7 @@ function Prof.begin(name)
 end
 
 --- Close a timed section regardless of Prof.enabled.
----
---- The situation ledger needs this because Navigation:New() reassigns
---- Prof.enabled from DAV.is_debug_profile_autopilot on every AV re-init, which
---- would silently stop the ledger mid-session. The ledger's own switch is
---- Prof.situation_enabled, checked by the wrapper.
+--- The ledger uses its own switch (Prof.situation_enabled) so AV re-inits cannot stop it mid-session.
 function Prof.finish_forced(name, t0, ctxfun, ...)
 	if t0 == nil then return end
 	local now = clock_ms()
@@ -199,11 +174,7 @@ function Prof.call(name, fn, ctxfun)
 end
 
 --- Wrap a list of table methods so every call is timed, without editing bodies.
----
---- Doing this in one place keeps the probe a single grep away from removal and,
---- more importantly, means the instrumentation cannot perturb the logic being
---- investigated. The `calls` column of the summary is what matters for anything
---- individually cheap but called thousands of times per tick.
+--- Keeps the probe a single grep away from removal; the calls column flags cheap-but-hot methods.
 ---@param tbl table the class table (methods looked up on it directly)
 ---@param targets table list of { method_name, probe_name }
 ---@return table names actually wrapped
@@ -216,8 +187,7 @@ function Prof.wrap_methods(tbl, targets)
 			tbl[mname] = function(self, ...)
 				if not Prof.enabled then return orig(self, ...) end
 				local t0 = clock_ms()
-				-- Eight slots: anything that returns more than five (e.g.
-				-- CalculateAddVelocity's six) must not be truncated here.
+				-- Eight return slots so methods returning more than five are not truncated.
 				local a, b, c, d, e, f, g, h = orig(self, ...)
 				Prof.finish(pname, t0, Prof.fmt_args, ...)
 				return a, b, c, d, e, f, g, h
@@ -228,21 +198,12 @@ function Prof.wrap_methods(tbl, targets)
 	return wrapped
 end
 
---- Which (class table -> method name) pairs have already been situation-wrapped.
---- Lua 5.1 / LuaJIT functions cannot carry fields, so the guard lives here.
---- Weak keys so a discarded class table does not pin anything.
+-- Already-wrapped guard: LuaJIT functions cannot carry fields, so it lives here (weak keys).
 local situation_wrapped = setmetatable({}, { __mode = "k" })
 
---- Wrap methods with the aggregate keyed by a situation label.
----
---- Same machinery as wrap_methods, but each section is named
---- "<situation>/<method>", so the summary answers "which situation pays for
---- this?" rather than "which function is slow?".  Wrapping the top-level
---- entry point (CheckAllEvents, OperateAerialVehicle) yields the whole
---- situation's cost in a single row.
----
---- Gated on Prof.situation_enabled, not Prof.enabled, so the two probes can be
---- toggled independently.
+--- Wrap methods with the aggregate keyed by a situation label ("<situation>/<method>").
+--- Wrapping a top-level entry point yields the whole situation's cost in a single row.
+--- Gated on Prof.situation_enabled, not Prof.enabled, so the two probes toggle independently.
 ---@param tbl table class table holding the methods
 ---@param names string[] method names
 ---@param situation_fn function called with self, returns the label
@@ -260,8 +221,7 @@ function Prof.wrap_by_situation(tbl, names, situation_fn)
 			local proxy = function(self, ...)
 				if not Prof.situation_enabled then return orig(self, ...) end
 				local t0 = clock_ms()
-				-- Eight return slots: CalculateAddVelocity returns six, and a proxy
-				-- that truncates to five silently drops `yaw`.
+				-- Eight return slots: CalculateAddVelocity returns six; a five-slot proxy would drop `yaw`.
 				local a, b, c, d, e, f, g, h = orig(self, ...)
 				local ok, label = pcall(situation_fn, self)
 				Prof.finish_forced((ok and tostring(label) or "?") .. "/" .. name, t0)

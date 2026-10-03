@@ -9,11 +9,9 @@ function UI:New()
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "UI")
-	-- static --
-	-- record name
+	-- static -- record name
 	obj.delay_updating_native_settings = 0.1
-	-- dynamic --
-	-- common
+	-- dynamic -- common
 	obj.av_obj = nil
 	obj.dummy_av_record = nil
 	obj.av_record_list = {}
@@ -550,14 +548,7 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
-	-- Control loop rate.
-	-- Continuous 10..120 Hz slider. The setting is stored as a period in seconds
-	-- so it stays hand-editable in user_setting_v3.json; the slider works in Hz
-	-- because that is what people reason about. Lowering it cuts CPU but every
-	-- flight decision gets coarser -- the flight model is rate-corrected
-	-- (Etc/timescale.lua) so takeoff/landing stop points hold down to 10 Hz.
-	-- Note the loop can never run faster than the frame rate, so anything above
-	-- your fps silently degrades to "once per frame".
+	-- Control loop rate: 10..120 Hz slider stored as a period in s; never faster than the frame rate.
 	option_table = DAV.NativeSettings.addRangeInt("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_time_resolution"), DAV.core_obj:GetTranslationText("native_settings_advance_time_resolution_description"), TimeScale.MIN_HZ, TimeScale.MAX_HZ, 5, TimeScale:GetHz(), TimeScale.DEFAULT_HZ, function(value)
 		DAV.user_setting_table.time_resolution = TimeScale:HzToResolution(value)
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
@@ -585,8 +576,7 @@ function UI:CreateNativeSettingsPage()
 	option_table = DAV.NativeSettings.addSwitch("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_obstacle_recording"), DAV.core_obj:GetTranslationText("native_settings_advance_obstacle_recording_description"), DAV.user_setting_table.is_enable_obstacle_recording, true, function(state)
 		DAV.user_setting_table.is_enable_obstacle_recording = state
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-		-- Apply immediately so a mapping session can be started or stopped without
-		-- remounting the vehicle.
+		-- Apply immediately so a mapping session can start/stop without remounting.
 		if DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil then
 			if state then
 				if DAV.core_obj.av_obj:IsPlayerIn() then

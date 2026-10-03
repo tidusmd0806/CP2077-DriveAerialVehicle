@@ -2,6 +2,8 @@
 
 作成日: 2026-09-25
 対象バージョン: 3.2.2 (game 2.13 / CET 1.36 / Codeware 1.17)
+※ 本ファイルの fix 1〜30 は「1回あたりのコスト削減」。
+   残る「そもそも発火させない」軸の計画は `PERF_PLAN_event_driven.md` 参照（B群・§1.5・C群・A群・D群すべて実装済み）。
 関連するユーザー報告: Nexus Mods スレッド（2026-09-14 〜 09-24）
 「AVを召喚していなくても micro-stutter が発生する」「AFK でも起きる」
 「3.1.0 → 3.2.2 アップデート後 40秒で CTD (EXCEPTION_ACCESS_VIOLATION 0xC0000005)」

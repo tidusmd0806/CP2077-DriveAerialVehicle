@@ -667,6 +667,11 @@ local function player_in_entry_area(flag)
     world.player_x = world.av_x + (flag and 1.0 or 100.0)
     world.player_y = world.av_y
     world.player_z = world.av_z
+    -- C-6 keeps the last entry-area answer alive for one interval so a Waiting
+    -- loop stops recomputing it. A test that teleports the player between the
+    -- two states has to drop the cached value explicitly, exactly the way
+    -- AV:Despawn() does.
+    av:InvalidateEntryAreaCache()
 end
 
 -- ======================================================================
@@ -805,9 +810,16 @@ event.hud_obj.interaction_hub = nil
 event.shown_seat_index = nil
 event.choice_last_shown_time = -1e6
 AV.IsPlayerInEntryArea = AV.ComputePlayerInEntryArea   -- pre-fix: no cache
+-- Isolate the duplication from the C-2 door throttle: the pre-fix baseline has
+-- to run CheckDoor on every tick, otherwise it measures the throttle instead of
+-- the double ask the frame cache was added for.
+local saved_door_interval = event.door_check_interval
+event.door_check_interval = 0
+event.last_door_check_time = 0
 compute_calls = 0
 run_ticks(100)
 local uncached_calls = compute_calls
+event.door_check_interval = saved_door_interval
 
 AV.IsPlayerInEntryArea = cached_is_in_entry_area
 event.hud_obj.interaction_hub = nil
@@ -826,6 +838,9 @@ check("pre-fix resolves the entry area twice per tick", uncached_calls == 200,
     "got " .. uncached_calls)
 check("frame cache leaves at most one computation per tick", cached_calls <= 100,
     "got " .. cached_calls)
+-- C-6: the cached wrapper now re-resolves at 20 Hz instead of every tick.
+check("C-6 throttles the entry-area re-resolve to ~20 per 100 ticks",
+    cached_calls <= 25, "got " .. cached_calls)
 
 -- ======================================================================
 print("== 5. thruster orientation writes ==")
@@ -1157,6 +1172,115 @@ hud:ToggleOriginalMPHDisplay(true)
 check("no work once latched", resolve_calls == 0)
 
 
+
+
+-- ======================================================================
+print("== 12. Waiting: where the remaining cost actually sits ==")
+-- ======================================================================
+-- A群 paces CheckAllEvents but keeps GetActions at full rate. Measure what
+-- each half costs so that split can be judged on numbers rather than on the
+-- component that motivated it.
+set_situation(Def.Situation.Waiting)
+player_in_entry_area(false)
+
+local function run_half(fn)
+    reset_count()
+    for _ = 1, 100 do
+        advance(0.01)
+        DAV.frame_seq = DAV.frame_seq + 1
+        fn()
+    end
+    return T.total
+end
+
+local checks_only = run_half(function() event:CheckAllEvents() end)
+local actions_gravity_on = run_half(function() core:GetActions() end)
+
+local saved_gravity = DAV.user_setting_table.is_enable_idle_gravity
+DAV.user_setting_table.is_enable_idle_gravity = false
+local actions_gravity_off = run_half(function() core:GetActions() end)
+DAV.user_setting_table.is_enable_idle_gravity = saved_gravity
+
+print(string.format("    per 100 Waiting ticks:  CheckAllEvents=%d  GetActions=%d",
+    checks_only, actions_gravity_on))
+print(string.format("    GetActions with idle gravity OFF: %d  (idle-gravity share=%d)",
+    actions_gravity_off, actions_gravity_on - actions_gravity_off))
+check("the two halves together cover the whole Waiting tick",
+    checks_only + actions_gravity_on >= 1,
+    string.format("checks=%d actions=%d", checks_only, actions_gravity_on))
+
+-- ======================================================================
+print("== 13. D群: the HUD is supplied at display rate, not loop rate ==")
+-- ======================================================================
+-- CheckHUD used to read the craft's velocity twice a tick -- GetVelocity for
+-- the speedometer and GetAngularVelocity for a value the caller discarded --
+-- and redraw HP every tick even though HP moves a few times a ride.
+set_situation(Def.Situation.InVehicle)
+world.mounted = true
+
+local function run_hud(ticks)
+    reset_count()
+    for _ = 1, ticks do
+        advance(0.01)
+        DAV.frame_seq = DAV.frame_seq + 1
+        event:CheckHUD()
+    end
+    return T.total
+end
+
+local hud_new = run_hud(100)
+print(string.format("    CheckHUD per 100 ticks: %d transitions (%.2f/tick)",
+    hud_new, hud_new / 100))
+
+-- The angular read is gone outright: nothing in the HUD path asks for it.
+check("D-1 the discarded angular velocity read is gone",
+    n("flyav.GetAngularVelocity") == 0,
+    "got " .. n("flyav.GetAngularVelocity"))
+-- And the linear read is paced to the 20 Hz the integer readout needs.
+check("D-1 the speed read is paced to 20 Hz",
+    n("flyav.GetVelocity") == 20,
+    "got " .. n("flyav.GetVelocity"))
+-- The consume-slot walk keeps its own slower cadence inside the 20 Hz gate.
+check("C-5 the consume-slot walk is still 1 Hz",
+    n("widget.GetRootCompoundWidget") == 1,
+    "got " .. n("widget.GetRootCompoundWidget"))
+-- HP must not be drawn from the loop any more at all.
+check("D-2 HP is no longer drawn from CheckHUD",
+    event.hud_obj.last_hp_display_value == nil,
+    "hp latch touched: " .. tostring(event.hud_obj.last_hp_display_value))
+
+-- D-2: HP now arrives by push. Drive the observer path and prove the widget
+-- still lands the right number, and that an unchanged value writes nothing.
+local hud = event.hud_obj
+hud.ink_hp_text = { SetText = function(w, v) count("hp.SetText"); w.text = v end }
+hud.last_hp_display_value = nil
+hud.vehicle_hp = 87
+hud:SetHPDisplay()
+check("D-2 a pushed HP value reaches the widget",
+    n("hp.SetText") == 1 and hud.ink_hp_text.text == " 87",
+    "text=" .. tostring(hud.ink_hp_text.text))
+hud:SetHPDisplay()
+hud:SetHPDisplay()
+check("D-2 a repeated HP value writes nothing", n("hp.SetText") == 1,
+    "got " .. n("hp.SetText"))
+hud.vehicle_hp = 42
+hud:SetHPDisplay()
+check("D-2 a changed HP value writes again", n("hp.SetText") == 2,
+    "got " .. n("hp.SetText"))
+
+-- The three pseudo-polls the plan also listed for push conversion are pure Lua
+-- reads with no C# on the path, so converting them buys nothing measurable.
+-- Recorded rather than changed: the numbers say the effort belongs elsewhere.
+reset_count()
+for _ = 1, 100 do
+    event:CheckAutoModeChange()
+    event:CheckFailAutoPilot()
+    event:CheckPerspective()
+end
+print(string.format("    CheckAutoModeChange + CheckFailAutoPilot + CheckPerspective"
+    .. " per 100 ticks: %d transitions", T.total))
+check("D-4 the pseudo-polls cost no C# transitions, so they are left alone",
+    T.total == 0, "got " .. T.total)
 
 
 print("")

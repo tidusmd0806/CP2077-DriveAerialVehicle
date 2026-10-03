@@ -1,46 +1,6 @@
--- =============================================================================
--- ObstacleGrid: the shipped obstacle map as a flat byte-per-cell image.
---
--- WHY THIS EXISTS
--- The resident cost of the old representation was never the bytes, it was the
--- number of live garbage-collected objects. 2.6M cells spread across
--- `obstacle_map` + `obstacle_map_chunk_index` is roughly 8 million live objects,
--- and Lua 5.4's incremental GC has to trace all of them on every cycle. Measured
--- on the shipped map: 127 MB live, p99.9 tick 8.4 ms, max 17.5 ms, 0.21% of
--- ticks over 8 ms. That is the idle micro-stutter, and no amount of spreading the
--- load across frames fixes it, because the cost is *being alive*, not loading.
---
--- One immutable Lua string per chunk holding one byte per cell changes that
--- completely: the whole map becomes ~96 strings, ~200 live objects in total, and
--- strings are never traced internally. Measured: 30 MB live, 0.00% of ticks over
--- 8 ms across every GC configuration tried.
---
--- It also makes loading trivial. A chunk file *is* the image, so a load is one
--- read("*a") with no per-cell Lua work: 264 ms for the entire map versus 3.8 s
--- of parsing.
---
--- And it makes full residency cheap enough that the resident-window / eviction /
--- corridor-streaming machinery is no longer needed. Unknown cells were treated as
--- blocked by A*, and a radius-2 window only covers 24% of the map (5.7% from a
--- corner chunk), which is why long or awkward routes came back partial. With the
--- whole map resident the known-cell ratio is 100% and that failure mode is gone.
---
--- FILE FORMAT (DAVOB4), little endian
---   off  size  field
---   0     6    magic  "DAVOB4"
---   6     1    z_levels          (1..255)
---   7     1    zmin_bias         (uint8, z_min + 128)
---   8     2    cell_size_cm      (uint16 LE, 1000 == 10.0 m)
---   10    4    known_count       (uint32 LE, cells that are not UNKNOWN)
---   14    2    reserved
---   16    ...  body: z_levels * 50 * 50 bytes
---
---   body index = (z - z_min) * 2500 + (cy - chunk_cy*50) * 50 + (cx - chunk_cx*50)
---
---   cell byte: 0 = unknown, 1 = clear, 2 = danger, 3 = blocked
---
--- tools/mapbin_pack.py converts the legacy text chunks into this format.
--- =============================================================================
+-- ObstacleGrid: the shipped obstacle map as a flat byte-per-cell image (DAVOB4, little endian).
+-- One immutable string per chunk (~200 GC objects); body idx = (z-z_min)*2500 + (cy-ccy*50)*50 + (cx-ccx*50).
+-- Cell byte: 0 unknown, 1 clear, 2 danger, 3 blocked.
 
 local ObstacleGrid = {}
 ObstacleGrid.__index = ObstacleGrid
@@ -52,8 +12,7 @@ local SLICE       = CHUNK_CELLS * CHUNK_CELLS   -- 2500 cells per z slice
 -- Lua strings are 1-based: 0-based body offset `i` is `byte(raw, HDR + i + 1)`.
 local BODY_BASE   = HDR + 1
 
--- Prebuilt single-character strings, so slice rebuilds can use table.concat
--- instead of a 2500-argument string.char(table.unpack(...)) call.
+-- Prebuilt single-char strings so slice rebuilds use table.concat, not string.char(unpack(...)).
 local CHAR = {}
 for i = 0, 255 do CHAR[i] = string.char(i) end
 
@@ -65,8 +24,7 @@ ObstacleGrid.CLEAR   = 1
 ObstacleGrid.DANGER  = 2
 ObstacleGrid.BLOCKED = 3
 
--- Packed cell-key layout, shared with Navigation:PackCellKey so the grid can be
--- indexed straight from a key without the caller unpacking it first.
+-- Packed cell-key layout, shared with Navigation:PackCellKey (index straight from a key).
 ObstacleGrid.KEY_SZ_SHIFT = 1024      -- 2^10
 ObstacleGrid.KEY_SY_SHIFT = 262144    -- 2^18
 ObstacleGrid.KEY_XY_BIAS  = 131072   -- 2^17
@@ -86,10 +44,7 @@ end
 function ObstacleGrid:New(opts)
 	local self = setmetatable({}, ObstacleGrid)
 	opts = opts or {}
-	-- Default z window. -4..127 cells == -40 m..1270 m brackets everything in
-	-- the shipped map (measured z range -3..88) with room to spare, and matches
-	-- what mapbin_pack.py writes, so base images and learned cells always share
-	-- one index space and nothing ever needs remapping.
+	-- Default z window -4..127 cells brackets the shipped map and matches the packer's index space.
 	self.def_zmin   = opts.zmin or -4
 	self.def_zlev   = opts.zlevels or 132
 	self.cell_size  = opts.cell_size or 10.0
@@ -157,10 +112,7 @@ end
 -- ---------------------------------------------------------------------------
 
 --- Cell state from cell coordinates. Hot path.
---- NOTE: CET embeds LuaJIT, which is Lua 5.1 semantics. The 5.4 integer-division
---- operator `//` is a *syntax error* there, so floor division is spelled
---- math.floor() throughout. `byte()` is a bound C function rather than a string
---- method lookup.
+--- LuaJIT (5.1): `//` is a syntax error, so floor division is math.floor; byte() is a bound C function.
 ---@param cx integer
 ---@param cy integer
 ---@param cz integer
@@ -209,11 +161,7 @@ local function clamp_z(zlo, zhi)
 end
 
 --- Mint an empty (all-UNKNOWN) chunk covering cell z range [zlo, zhi].
---- Learned cells recorded outside the shipped base image need somewhere to live,
---- and this is what lets them persist in the packed format instead of being
---- stranded in the legacy .diff stream. The window is sized to the caller's
---- cells rather than the full default so a sparse chunk costs kilobytes, not the
---- 330 KB a full 132-level window would.
+--- Lets learned cells outside the shipped base image persist in the packed format; window sized to the caller's cells.
 ---@param ccx integer
 ---@param ccy integer
 ---@param zlo integer lowest cell z the chunk must hold
@@ -265,16 +213,7 @@ function ObstacleGrid:ensure_z_range(c, zlo, zhi)
 	return c
 end
 
--- ---------------------------------------------------------------------------
--- Iterating known cells
---
--- Several lookups want "every non-unknown cell in this chunk". The old code kept
--- a parallel table of 2.6M keys for that, which is precisely the GC cost this
--- module exists to remove, and a cached Lua array of indices would cost 42 MB on
--- its own. So nothing is stored: the image is walked with "[^%z]", which skips
--- whole runs of unknown cells inside one C-level scan. These paths are only
--- reached by nearest-cell resolution, not by A*, so the scan is the right call.
--- ---------------------------------------------------------------------------
+-- Iterating known cells: the image is walked with "[^%z]", skipping unknown runs in one C-level scan.
 
 --- Walk the known cells of one chunk.
 ---@param c table chunk record
@@ -282,8 +221,7 @@ end
 function ObstacleGrid:walk_chunk(c, fn)
 	local last = HDR + c.zlevels * SLICE
 	local bx, by, zmin, raw = c.bx, c.by, c.zmin, c.raw
-	-- Start at BODY_BASE, not 1: the header is non-zero and would otherwise be
-	-- decoded as cells - its 0x03 length byte reads as BLOCKED at a negative index.
+	-- Start at BODY_BASE, not 1: the header's non-zero bytes would decode as cells.
 	local pos = BODY_BASE
 	while true do
 		local s = raw:find("[^%z]", pos)
@@ -344,18 +282,10 @@ function ObstacleGrid:count_states()
 	return clear, danger, blocked
 end
 
--- ---------------------------------------------------------------------------
--- Folding learned cells into the image
---
--- When the learned-cell table grows too large we bake it into the base image and
--- drop it from the table. Only the z slices that were actually touched get
--- rebuilt, so a flush is proportional to what changed, not to the map size.
--- ---------------------------------------------------------------------------
+-- Folding learned cells: only touched z slices are rebuilt, so a flush scales with the change, not the map.
 
 --- Bake one cell into a chunk image.
---- Caller is responsible for grouping by chunk and calling finish_slice() once
---- per touched slice; this simple form rebuilds per call and is meant for
---- batched flushes, not the live write path.
+--- Rebuilds per call; meant for batched flushes, not the live write path.
 ---@param ccx integer
 ---@param ccy integer
 ---@param cells table list of { cx, cy, cz, state }
@@ -363,8 +293,7 @@ end
 function ObstacleGrid:fold_cells(ccx, ccy, cells)
 	if cells == nil or #cells == 0 then return false end
 
-	-- z extent of what we are about to fold, needed both to size a new chunk and
-	-- to grow an existing one.
+	-- z extent of what we fold: needed to size a new chunk and to grow an existing one.
 	local zlo, zhi
 	for _, e in ipairs(cells) do
 		local cz = e[3]
@@ -409,10 +338,7 @@ function ObstacleGrid:fold_cells(ccx, ccy, cells)
 			-- Count newly-known cells only; overwriting a known cell is neutral.
 			if v ~= nil and old == 0 and v ~= 0 then added = added + 1 end
 		end
-		-- table.concat over a prebuilt char table rather than
-		-- string.char(table.unpack(buf, ...)): `table.unpack` does not exist in
-		-- Lua 5.1 / LuaJIT, and passing 2500 arguments in one call is fragile
-		-- there regardless.
+		-- table.concat over a prebuilt char table: table.unpack is absent in LuaJIT and 2500-arg calls are fragile.
 		local new_slice = table.concat(buf, "", 1, SLICE)
 		c.raw = c.raw:sub(1, BODY_BASE + base - 1) .. new_slice ..
 		        c.raw:sub(BODY_BASE + base + SLICE)

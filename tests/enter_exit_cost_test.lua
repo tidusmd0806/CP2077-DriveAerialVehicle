@@ -990,6 +990,10 @@ report("unmount poll tick: %d transitions | teleports=%d", T.total, TELEPORTS)
 -- 5c. the InVehicle -> Waiting transition tick
 setup_alighting()
 world.mounted = false          -- the seat is empty; the check notices
+-- C-1 paces CheckInAV at 20 Hz. This probe calls the check once on its own to
+-- price the transition itself, so drop the throttle the same way a fresh tick
+-- after the interval would.
+event.last_mount_check_time = 0
 event:CheckInAV()
 report("InVehicle->Waiting tick: %d transitions | save-lock remove=%d | original-physics=%d",
        T.total, n("SaveLocks.Remove"), n("flyav.EnableOriginalPhysics"))

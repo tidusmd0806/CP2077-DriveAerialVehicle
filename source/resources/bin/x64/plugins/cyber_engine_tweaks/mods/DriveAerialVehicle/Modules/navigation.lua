@@ -2,17 +2,12 @@ local Navigation = {}
 Navigation.__index = Navigation
 local Utils = require("Etc/utils.lua")
 local ObstacleGrid = require("Modules/obstacle_grid.lua")
--- PROBE: temporary freeze instrumentation. See Modules/profprobe.lua.
--- To remove: this require, the PROBE block at the bottom of this file, and any
--- `PROBE:` marked lines.
+-- PROBE: temporary freeze instrumentation; see Modules/profprobe.lua.
 local Prof = require("Modules/profprobe.lua")
 
 ---@diagnostic disable: undefined-global, undefined-field
 
--- File-scope inventory of the chunk files that exist on disk.
--- It is identical for every Navigation instance, so it is enumerated once per
--- session instead of once per instance. Cleared by ReleaseObstacleMapSessionCache()
--- and re-enumerated when a new resident cache is started.
+-- File-scope chunk-file inventory, enumerated once per session (see ReleaseObstacleMapSessionCache).
 local g_all_chunks_cache = nil
 local g_all_chunks_by_key = nil
 
@@ -25,23 +20,13 @@ function Navigation:New(av_obj)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "Navigation")
 
-	-- Initialize navigation-owned runtime state on bound AV instance.
-	-- Destination and autopilot runtime values
+	-- Navigation-owned runtime state on the bound AV instance (destination and autopilot values)
 	obj.mappin_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.favorite_destination_position = Vector4.new(0, 0, 0, 1)
 	obj.autopilot_speed = 1
 	obj.autopilot_turn_speed = 0.01
 	obj.autopilot_leaving_height = 100
-	-- Last-resort budget for a landing whose ground is never detected. Fixed on
-	-- purpose: it is a safety net, not a timing target, and the landing itself
-	-- is terminated by the ground / target_z / collision branches.
-	--
-	-- 20 s covers the profiles this mod actually flies. The descent starts at
-	-- 0.5 m/s and accelerates at `autopilot_acceleration` (1.575 m/s^2 at
-	-- 25 m/s cruise), so a 50 m landing takes ~9 s and even 150 m takes ~18 s.
-	-- Coverage by cruise speed: ~43 m @5, ~105 m @10, ~160 m @25, ~390 m @35,
-	-- ~590 m @50. Typical landing height is `autopilot_leaving_height`
-	-- (= max(20, speed*2)), comfortably inside all of those.
+	-- Last-resort budget for a landing whose ground is never detected; a safety net, not a timing target.
 	obj.landing_timeout_seconds = 20
 	obj.autopilot_searching_range = 50
 	obj.autopilot_searching_step = 2
@@ -54,8 +39,7 @@ function Navigation:New(av_obj)
 	obj.dest_dir_vector_norm = 1
 	obj.dest_remaining_to_final = 1
 	obj.pre_speed_list = {x = 0, y = 0, z = 0}
-	-- Ground-probe cache. GetHeight() is a synchronous raycast and several
-	-- callers want the same value in the same frame; see GetHeight.
+	-- Ground-probe cache: GetHeight() is a synchronous raycast shared by same-frame callers.
 	obj._height = nil
 	obj._height_frame = nil
 	obj.autopilot_exception_area_list = {}
@@ -76,18 +60,11 @@ function Navigation:New(av_obj)
 	obj.route_plan_iterations_per_tick = 1200
 	obj.route_plan_iterations_per_tick_leaving = 4000
 	obj.route_plan_replan_interval = 0.5
-	-- Final approach handoff. destination_range is only 3m, so requiring the
-	-- vehicle to be *further* than sector_size (10m) from the destination before
-	-- switching to the local-avoidance final leg left a dead zone between 3m and
-	-- 10m: too far to register arrival, too close to switch. Hand off anywhere
-	-- within this distance instead.
+	-- Final approach handoff: switch to the local-avoidance final leg anywhere within this distance.
 	obj.final_local_max_handoff_distance = 150.0
-	-- Beyond that distance we keep chaining A* followups for routing quality, but
-	-- after this many consecutive low-gain rejections we give up on A* and hand
-	-- off anyway rather than retrying forever.
+	-- After this many consecutive low-gain A* rejections, give up on A* and hand off anyway.
 	obj.final_local_fallback_after_rejects = 3
-	-- Consecutive A* followups that gained too little against a destination that
-	-- needs a local final approach. Drives the give-up escalation above.
+	-- Counter for consecutive low-gain A* followups driving the give-up escalation.
 	obj.autopilot_low_gain_followups = 0
 	obj.route_plan_next_followup_time = 0
 	obj.astar_impassable_penalty = 10000000.0
@@ -95,15 +72,9 @@ function Navigation:New(av_obj)
 	obj.astar_danger_penalty = 6.0
 	obj.astar_clear_penalty = 0.8
 	obj.final_local_arrival_range = 8.0
-	-- final_local watchdog. Local avoidance is a repulsion field: goal attraction
-	-- (weight 1.5) against obstacle repulsion. Around a destination boxed in by
-	-- obstacles the two can balance out, and the AV closes in and gets shoved back
-	-- in a loop. The stuck-escape ascent is deliberately disabled near the goal, so
-	-- nothing else breaks that cycle and it hovers forever. If we stop closing in
-	-- for this long, stop fighting it and commit to landing from wherever we are.
+	-- final_local watchdog: if repulsion balances goal attraction and we stop closing in, commit to landing.
 	obj.final_local_no_progress_timeout = 3.0
-	-- Improvement that counts as "making progress", in metres. Without a floor a
-	-- few centimetres of drift would reset the watchdog forever.
+	-- Minimum improvement (metres) that counts as progress, so drift cannot reset the watchdog.
 	obj.final_local_progress_epsilon = 1.0
 	obj.final_local_best_dist = nil
 	obj.final_local_no_progress_since = nil
@@ -157,32 +128,14 @@ function Navigation:New(av_obj)
 	obj.obstacle_map_preload_tick = 0.05
 	obj.obstacle_map_startup_preload_only = false
 
-	-- Resident chunk cache (docs/PERFORMANCE_FIX_PLAN.md, fix (1)).
-	-- Only chunks near the player are kept in `obstacle_map`; the rest is streamed
-	-- in under a wall-clock budget and evicted once it drifts away.
-	-- "Resident" is not tracked separately: a chunk is resident exactly when
-	-- `obstacle_map_chunk_index[chunk_key]` exists, so no extra state can drift.
-	-- Measured (Lua 5.4, same load path): <=25 resident chunks (~82MB) produce no
-	-- >=8ms GC spikes, while the full 96-chunk map (~301MB) puts 4.5% of ticks
-	-- over 8ms with a p99.9 of 52ms. That is the idle micro-stutter being reported.
+	-- Resident chunk cache: only chunks near the player are kept; the rest streams in under a wall-clock budget.
 	obj.obstacle_map_resident_radius = 2		-- chunks kept resident around the player (~1000m)
 	obj.obstacle_map_evict_radius = 4			-- chunks further than this become evictable
 	obj.obstacle_map_load_budget_ms = 3.0		-- wall-clock budget per maintenance tick
 	obj.obstacle_map_probe_range = 20		-- chunk coords probed when listing the map dir
-							-- (20 chunks = 10km each way, well past the play area)
-	-- Chunks pinned while an autopilot route is active. The corridor is 1 chunk
-	-- wide: measured against the real map, a 1-wide corridor gives exactly the same
-	-- A* result as a 2-wide one or the full 96-chunk map (303 cells / 32k iters),
-	-- while the unpinned version fails (PARTIAL, 1616m short, 100k iters capped).
-	-- 32 covers any route the shipped map can express (~16 chunks worst case).
+	-- Chunks pinned while an autopilot route is active (1-chunk corridor; 32 covers any shipped-map route).
 	obj.obstacle_map_route_max_chunks = 32
-	-- Corridor streaming while the AV hovers before departure.
-	-- The budget is deliberately modest. A 15ms budget on a 20ms tick is a 75%
-	-- duty cycle, and a 60fps frame only has 16.7ms to give, so the render thread
-	-- got starved and the wait felt like a freeze rather than a pause.
-	-- 8ms per 50ms tick is 16% duty: measured hover of ~0.7s for a 0.6km route,
-	-- ~1.7s for 1.5km and ~2.1s for 2.8km, and even the 32-chunk cap fits inside
-	-- the timeout below.
+	-- Corridor streaming budget while hovering before departure: 8ms per 50ms tick keeps the render thread fed.
 	obj.obstacle_route_load_budget_ms = 8.0
 	obj.obstacle_route_tick = 0.05
 	-- Never hold departure longer than this; plan with whatever is loaded by then.
@@ -191,52 +144,21 @@ function Navigation:New(av_obj)
 	obj.obstacle_map_route_pending = nil
 	obj.route_corridor_timer = nil
 	obj.obstacle_map_cache_started = false
-	-- The radius window around the player is only kept warm once an aerial vehicle
-	-- is actually in play. Closed until the first autopilot departure (or an
-	-- explicit StartObstacleMapFill), so a loaded-but-on-foot player pays nothing
-	-- for the obstacle map. Learning is also off unless the user enables it.
+	-- Radius-window gate: closed until the first autopilot departure so on-foot players pay nothing.
 	obj.obstacle_map_fill_started = false
-	-- In-flight incremental parses, keyed by chunk_key. A chunk is "resident" only
-	-- once its parse finished, so a half-parsed chunk is never mistaken for a
-	-- complete one (and never evicted mid-read).
+	-- In-flight incremental parses keyed by chunk_key; a chunk is resident only once its parse finished.
 	obj.obstacle_map_load_states = {}
 
-	-- ------------------------------------------------------------------------
-	-- Resident base image (DAVOB4). See Modules/obstacle_grid.lua.
-	--
-	-- Division of labour:
-	--   obstacle_grid  the shipped map, one byte per cell in immutable Lua
-	--                  strings. The whole map is resident for ~30 MB and ~200
-	--                  live GC objects, so the incremental GC effectively does
-	--                  not see it.
-	--   obstacle_map   learned cells only. Small, and bounded by
-	--                  obstacle_map_learned_flush_cells so it cannot drift back
-	--                  into the multi-million-object shape that caused the
-	--                  original stutter.
-	--
-	-- Reads go through CellStateAtKey(), which checks the learned table first and
-	-- falls back to the image. Everything else - save, diff, migrate - keeps
-	-- operating on the learned table exactly as before.
-	-- ------------------------------------------------------------------------
+	-- Base image (DAVOB4): obstacle_grid = shipped map; obstacle_map = learned cells only (see CellStateAtKey).
 	obj.obstacle_map_bin_dir = "Data/map_bin"
 	obj.obstacle_grid = core_obj.session_obstacle_grid or ObstacleGrid:New({ cell_size = obj.obstacle_cell_size })
 	obj.is_base_image_loaded = (obj.obstacle_grid.chunk_n or 0) > 0
-	-- With the base image resident the window/eviction/corridor machinery is not
-	-- just unnecessary, it is harmful: eviction would drop learned cells that have
-	-- not reached disk yet. Set false to fall back to the streaming behaviour.
+	-- With the base image resident the streaming machinery is disabled; set false to fall back to streaming.
 	obj.obstacle_map_full_residency = true
-	-- Above this many learned cells in RAM, fold them into the base image and drop
-	-- them from the table. Measured (tests/grid_learning_budget_bench.lua): with a
-	-- 95k-cell overlay the p99.9 tick is 1.9 ms and nothing exceeds 8 ms; at
-	-- 1.9M cells it is 3.9 ms with occasional 19 ms spikes. 200k keeps us in the
-	-- flat part of the curve while being far more new knowledge than a normal
-	-- session produces, since re-confirming an already-known cell costs nothing.
+	-- Above this many learned cells in RAM, fold them into the base image to keep the overlay in the flat GC-cost range.
 	obj.obstacle_map_learned_flush_cells = 200000
 	obj.obstacle_map_learned_count = 0
-	-- Wall-clock budget per maintenance tick for pulling the packed base image
-	-- in. ~3.6 ms per chunk, so 12 ms is ~3 chunks/tick and the whole 96-chunk
-	-- map lands about 1.5 s after the loading screen - well before a player can
-	-- reach an autopilot departure.
+	-- Wall-clock budget per maintenance tick for loading the packed base image (~3 chunks/tick).
 	obj.obstacle_base_image_budget_ms = 12.0
 	obj.base_image_pending = nil
 	obj.base_image_index = 1
@@ -271,8 +193,7 @@ function Navigation:New(av_obj)
 	obj.yaw_deadzone_deg = 4.0
 	obj.astar_yaw_lookahead_points = 4
 
-	-- PROBE: wire the probe into this instance's logger and give it a context
-	-- line so every warn says what the autopilot was doing.
+	-- PROBE: wire the probe into this instance's logger with an autopilot context line.
 	Prof.enabled = (DAV.is_debug_profile_autopilot ~= false)
 	Prof.warn_ms = tonumber(DAV.debug_profile_warn_ms) or 8.0
 	Prof.attach(function(lvl, msg)
@@ -439,11 +360,7 @@ function Navigation:FinalizeObstacleMapLoad(log_message)
 end
 
 --- Session-cached view of the chunk files that exist on disk.
---- This used to run `dir /b` through io.popen on every call, which spawned a
---- cmd.exe process during autopilot target resolution
---- (FindNearestKnownSectorPos / FindNearestSafeOrDangerCellPos). The inventory is
---- enumerated once by GetAllChunksCached() and kept current by MarkChunkOnDisk(),
---- so this function no longer touches the filesystem at all.
+--- Enumerated once by GetAllChunksCached() and kept current by MarkChunkOnDisk(); no filesystem access here.
 ---@return table chunk_list
 function Navigation:EnumerateObstacleMapDataChunks()
 	local cached = self:GetAllChunksCached()
@@ -451,8 +368,7 @@ function Navigation:EnumerateObstacleMapDataChunks()
 		return cached
 	end
 
-	-- Nothing found on disk (fresh install, or the inventory probe came up empty).
-	-- Fall back to the chunks we are currently holding so callers still see them.
+	-- Nothing found on disk: fall back to the chunks currently held so callers still see them.
 	local chunk_list = {}
 	for chunk_key in pairs(self.obstacle_map_chunk_index or {}) do
 		local cx, cy = chunk_key:match("^(-?%d+)_(-?%d+)$")
@@ -575,9 +491,7 @@ end
 ---@param max_dist number|nil
 ---@return Vector4|nil nearest_pos
 ---@return number best_dist
---- Map a grid state back onto the legacy value domain.
---- UNKNOWN is deliberately absent from the table so it reads back as nil,
---- matching "no data" in the old representation.
+--- Map a grid state back onto the legacy value domain; UNKNOWN reads back as nil ("no data").
 local GRID_TO_LEGACY = {
 	[ObstacleGrid.CLEAR]   = false,
 	[ObstacleGrid.DANGER]  = "danger",
@@ -611,10 +525,7 @@ function Navigation:iter_learned_in_chunk(ccx, ccy, fn)
 end
 
 --- Nearest known (non-obstacle) cell inside one chunk.
----
---- This used to re-read and re-parse the chunk's .dat and .diff from disk on
---- every single call - ~30 ms of throwaway work each time. The base image is
---- resident now, so it walks the grid's cached per-chunk index instead.
+--- Walks the grid's cached per-chunk index; no disk reads or parsing.
 function Navigation:FindNearestKnownSectorPosInChunk(chunk_info, origin_pos, direction_vec, max_dist)
 	if not chunk_info or not origin_pos then return nil, math.huge end
 
@@ -720,13 +631,8 @@ function Navigation:PositionToChunkCoords(position)
 	return math.floor(position.x / chunk_world_size), math.floor(position.y / chunk_world_size)
 end
 
---- Build a packed-chunk descriptor from coordinates alone and cache the
---- existence verdict. Chunk file names are fully determined by the chunk
---- coordinates, so there is no need to list the directory.
----
---- Packed only. The obstacle map ships as DAVOB4 and nothing reads the legacy
---- text formats at runtime, so there is no .dat/.diff probe here -- those
---- probes existed solely to feed the streaming loader.
+--- Build a packed-chunk descriptor from coordinates alone and cache the existence verdict.
+--- Packed only: the map ships as DAVOB4 and nothing reads the legacy text formats at runtime.
 ---@return table chunk_info {chunk_key, chunk_x, chunk_y, bin_path, has_bin}
 function Navigation:MakeChunkInfo(cx, cy)
 	local key = cx .. "_" .. cy
@@ -750,13 +656,8 @@ function Navigation:MakeChunkInfo(cx, cy)
 	return info
 end
 
---- Full inventory of chunk files on disk. Only needed by callers that must know
---- which chunks exist everywhere (FindNearestObstacleMapChunk). Everything else
---- should use MakeChunkInfo so this sweep never runs on a hot path.
----
---- This used to shell out to `dir /b` via io.popen. Spawning cmd.exe measured
---- ~1s in-game right after a load, with the disk still thrashing, and showed up
---- as a hitch the moment the player gained control.
+--- Full inventory of chunk files on disk, for callers that must know which chunks exist everywhere.
+--- Everything else should use MakeChunkInfo so this sweep never runs on a hot path.
 function Navigation:GetAllChunksCached(force_refresh)
 	if g_all_chunks_cache ~= nil and not force_refresh then
 		return g_all_chunks_cache
@@ -792,9 +693,7 @@ function Navigation:GetAllChunksCached(force_refresh)
 end
 
 --- Record that a packed chunk now exists on disk for this chunk coordinate.
---- The inventory is enumerated once per session, so a chunk minted later (a
---- learned-cell fold outside the shipped map) would otherwise stay invisible to
---- every lookup that reads the inventory.
+--- Keeps chunks minted after the one-per-session enumeration visible to inventory readers.
 ---@param chunk_key string
 function Navigation:MarkChunkOnDisk(chunk_key)
 	if not g_all_chunks_by_key then return end
@@ -817,13 +716,8 @@ function Navigation:MarkChunkOnDisk(chunk_key)
 	info.has_bin = true
 end
 
---- Incrementally parse one chunk (base file + diff) into the resident cache,
---- yielding as soon as the wall-clock budget for the current tick is spent.
----
---- The old loader parsed a whole chunk in a single call (~31ms median, 290ms
---- worst), which is exactly what landed a multi-frame stall on the game thread.
---- Parsing is resumable here: the cursor lives on the chunk record, so the next
---- tick picks up precisely where this one stopped.
+--- Incrementally parse one chunk (base file + diff) into the resident cache, yielding on wall-clock budget.
+--- The cursor lives on the chunk record, so parsing resumes exactly where the previous tick stopped.
 ---@param chunk_info table
 ---@param budget_s number
 ---@return boolean done        true when the whole chunk is in memory
@@ -847,8 +741,7 @@ function Navigation:ParseChunkIncremental(chunk_info, budget_s)
 
 	local started = os.clock()
 	while true do
-		-- Phase 1: read the current file in blocks. A cold-disk read of a 250KB
-		-- chunk can block for tens of ms on its own, so the read is budgeted too.
+		-- Phase 1: budgeted block reads; a cold 250KB chunk read can block for tens of ms on its own.
 		if st.raw == nil then
 			if st.fh == nil then
 				if st.fi > #st.files then
@@ -873,9 +766,7 @@ function Navigation:ParseChunkIncremental(chunk_info, budget_s)
 					if not spec.is_diff then
 						local cs = st.raw:match("^DAV_OBMAP v3 cell_size=([%d%.]+)")
 						if not cs then
-							-- Not a v3 base chunk; skip it.
-							-- Only here do we advance: a successfully read file is advanced
-							-- past once its cells have been parsed below.
+							-- Not a v3 base chunk; skip it (a read file advances only after its cells are parsed).
 							st.raw = nil
 							st.fi = st.fi + 1
 						else
@@ -935,9 +826,7 @@ function Navigation:LoadResidentChunk(chunk_info)
 end
 
 --- Is this chunk available for lookup?
---- The base image is fully resident, so a chunk is "resident" when the grid has
---- it. Learned cells still count, so a chunk with no base image but recorded
---- obstacles is treated as resident too.
+--- The base image is fully resident; learned cells also count, so learned-only chunks qualify too.
 ---@param chunk_key string
 ---@return boolean
 function Navigation:IsChunkResident(chunk_key)
@@ -987,26 +876,9 @@ function Navigation:IsChunkEvictable(chunk_key, pcx, pcy, evict_radius)
 	return math.max(dx, dy) > evict_radius
 end
 
---- Fold one chunk's learned cells into the resident base image, persist the new
---- image, and drop those cells from the learned table.
----
---- Why this exists: learned cells are live GC data. Left unbounded they drift back
---- toward the shape that caused the original stutter (measured: a 1.9M-cell
---- overlay puts the p99.9 tick at 3.9 ms with occasional 19 ms spikes, against
---- 1.9 ms at 95k). Folding keeps the learned table in the flat part of that
---- curve.
----
---- One chunk per call so a flush spreads across ticks instead of landing as a
---- single stall.
----@return number chunks_flushed  0 or 1
---- Fold one dirty chunk's learned cells into the packed image and write it back
---- as v4.
----
---- This is the single persistence path under full residency. It deliberately does
---- NOT require the chunk to exist in the base image: `fold_cells` mints one when
---- missing, so learned cells recorded outside the shipped map are persisted like
---- everything else instead of being stranded in the legacy .diff stream, which
---- the residency path never reads back.
+--- Fold one dirty chunk's learned cells into the packed image and write it back as v4.
+--- Single persistence path under full residency; fold_cells mints a chunk when missing, so learned cells
+--- outside the shipped map are persisted too. One chunk per call spreads a flush across ticks.
 ---@param chunk_key string "<cx>_<cy>"
 ---@return number cells folded (0 = nothing to fold), -1 = failure
 function Navigation:FoldDirtyChunkToImage(chunk_key)
@@ -1047,8 +919,7 @@ function Navigation:FoldDirtyChunkToImage(chunk_key)
 		return -1
 	end
 
-	-- A chunk that was not in the base image is now one, and the loader reads its
-	-- chunk list from the manifest. Record it there or it would never be loaded.
+	-- A chunk minted outside the base image is recorded in the manifest so the loader will load it.
 	if is_new then
 		if self.bin_manifest_set == nil then self.bin_manifest_set = {} end
 		if not self.bin_manifest_set[chunk_key] then
@@ -1103,9 +974,7 @@ function Navigation:RewriteBinManifest()
 	if not fh then return false end
 	fh:write("DAVOB4-MANIFEST " .. #keys .. "\n")
 	for _, k in ipairs(keys) do
-		-- The set is keyed "<cx>_<cy>" internally but the file format is space
-		-- separated, which is what ReadBinManifest parses. Writing the internal
-		-- form here makes every rewritten chunk invisible on the next load.
+		-- File format is space-separated (what ReadBinManifest parses), not the internal "<cx>_<cy>" form.
 		fh:write((k:gsub("_", " ")) .. "\n")
 	end
 	fh:close()
@@ -1118,10 +987,7 @@ function Navigation:FlushLearnedCellsToImage()
 	if limit <= 0 then return 0 end
 	if (self.obstacle_map_learned_count or 0) <= limit then return 0 end
 
-	-- Take the dirtiest chunk. There is deliberately no has_chunk() filter here:
-	-- a chunk outside the base image gets minted by fold_cells, so learned cells
-	-- recorded beyond the shipped map are folded and saved rather than piling up
-	-- in the overlay with nowhere to go.
+	-- Take the dirtiest chunk; no has_chunk() filter -- fold_cells mints chunks outside the base image.
 	local best_key, best_n
 	for ck, cell_set in pairs(self.obstacle_map_dirty_cells) do
 		if ck:match("^(-?%d+)_(-?%d+)$") then
@@ -1135,11 +1001,7 @@ function Navigation:FlushLearnedCellsToImage()
 end
 
 --- Read the packer's chunk manifest so the loader never has to probe for chunks.
---- Discovery-by-probing costs one io.open per coordinate in the probe range, and a
---- FAILED open measured ~0.7 ms under Cyber Engine Tweaks: 41x41 coords is ~1.2 s,
---- which is 82% of the whole base-image load on a fast machine and scales straight
---- with disk latency -- several seconds on an HDD.  The manifest turns that into a
---- single small read.
+--- A failed io.open probe costs ~0.7 ms each; the manifest turns thousands of probes into one small read.
 ---@return table|nil list of {cx, cy, path}, nil when there is no usable manifest
 function Navigation:ReadBinManifest()
 	local path = self.obstacle_map_bin_dir .. "/manifest.txt"
@@ -1159,8 +1021,7 @@ function Navigation:ReadBinManifest()
 				cy = cyi,
 				path = self.obstacle_map_bin_dir .. "/chunk_" .. cxi .. "_" .. cyi .. ".bin",
 			}
-			-- Remember the set so a chunk minted later by a learned-cell fold can be
-			-- added and survive to the next session.
+		-- Remember the set so chunks minted later by learned-cell folds survive to the next session.
 			if self.bin_manifest_set == nil then self.bin_manifest_set = {} end
 			self.bin_manifest_set[cxi .. "_" .. cyi] = true
 		end
@@ -1180,8 +1041,7 @@ function Navigation:LoadBaseImageStep(budget_ms)
 	if g == nil then return 0 end
 
 	if self.base_image_pending == nil then
-		-- Prefer the manifest: one open instead of 1681 probes.  Only fall back to
-		-- discovery-by-probing when there is no manifest (hand-made map_bin dir).
+		-- Prefer the manifest (one open); fall back to probing only for hand-made map_bin dirs.
 		local manifest = self:ReadBinManifest()
 		if manifest then
 			self.base_image_pending = manifest
@@ -1193,11 +1053,7 @@ function Navigation:LoadBaseImageStep(budget_ms)
 			self.log_obj:Record(LogLevel.Info, string.format(
 				"Base image: %d chunks listed by manifest (no discovery sweep)", #manifest))
 		else
-			-- Build the pending list lazily AND within the budget. A full
-			-- GetAllChunksCached(true) sweep is 41x41 chunk coords x 3 io.open each,
-			-- which would drop ~5k file opens into a single frame -- the same class of
-			-- hitch this whole effort is removing. So sweep a row-segment at a time
-			-- with our own cursor and probe only the packed file.
+			-- Build the pending list lazily within budget: sweep a row-segment at a time, probing packed files only.
 			self.base_image_from_manifest = false
 			self.base_image_pending = {}
 			self.base_image_sweep_cx = -(self.obstacle_map_probe_range or 20)
@@ -1233,10 +1089,7 @@ function Navigation:LoadBaseImageStep(budget_ms)
 		end
 		if #list == 0 then
 			self.base_image_pending = false
-			-- Loud, and deliberately not a silent degrade. The obstacle map is a
-			-- packed-only asset now: with no Data/map_bin there is no obstacle data
-			-- at all, every destination reads as unknown, and the autopilot has
-			-- nothing to plan with. Saying so beats running invisibly broken.
+			-- Loud failure by design: with no Data/map_bin there is no obstacle data and the autopilot cannot plan.
 			self.log_obj:Record(LogLevel.Error,
 				"NO PACKED OBSTACLE MAP: no chunk_*.bin found under "
 				.. tostring(self.obstacle_map_bin_dir)
@@ -1247,14 +1100,7 @@ function Navigation:LoadBaseImageStep(budget_ms)
 			return 0
 		end
 
-		-- Warm the SHARED chunk inventory from the coords this sweep already
-		-- resolved. Without this the autopilot's target resolution calls
-		-- GetAllChunksCached(), finds no cache, and re-sweeps all 41x41 coords
-		-- itself: measured 3.57 s in one synchronous block at departure, which is
-		-- the freeze. Probing only the chunks that actually exist costs 3 io.open
-		-- each (96 chunks = ~290 opens) instead of 5043.
-		-- It gets its own budgeted phase: 290 opens at the ~0.7 ms each measured
-		-- here is ~200 ms, which would itself be a visible hitch if run in one go.
+		-- Warm the shared chunk inventory from resolved coords, in its own budgeted phase (no 41x41 re-sweep).
 		self.base_image_warm_index = 1
 		g_all_chunks_cache = nil   -- keep MakeChunkInfo from appending mid-build
 		self.base_image_warming = true
@@ -1264,10 +1110,7 @@ function Navigation:LoadBaseImageStep(budget_ms)
 	if self.base_image_warming then
 		local inv = g_all_chunks_cache or {}
 		local i = self.base_image_warm_index or 1
-		-- MakeChunkInfo is packed-only now: one io.open per chunk instead of the
-		-- three it used to do. Warming 96 chunks costs ~96 opens rather than the
-		-- 288 (~576 ms measured) the dat/diff probes required, so there is no
-		-- longer a seeded-vs-probed distinction to maintain.
+		-- MakeChunkInfo is packed-only: one io.open per chunk, so no seeded-vs-probed distinction remains.
 		while i <= #list do
 			inv[#inv + 1] = self:MakeChunkInfo(list[i].cx, list[i].cy)
 			i = i + 1
@@ -1339,8 +1182,58 @@ function Navigation:FinishBaseImageLoad(ceiling_ms)
 	return self.is_base_image_loaded
 end
 
+--- Cheap, C#-free answer to "does the maintenance tick have anything to do?"
+--- The timer parks itself on a no; keep this free of C# calls (it is the idle gate inside the tick).
+---@return boolean
+function Navigation:HasPendingMapWork()
+	if (self.obstacle_map_resident_radius or 0) <= 0 then
+		return false
+	end
+	if not self.is_base_image_loaded then
+		-- Still pulling the packed image in, unless we already know there is no packed data at all.
+		return self.base_image_pending ~= false
+	end
+	-- Base image resident: only remaining work is folding learned cells past the flush threshold.
+	local limit = self.obstacle_map_learned_flush_cells or 0
+	if limit <= 0 then
+		return false
+	end
+	return (self.obstacle_map_learned_count or 0) > limit
+end
+
+--- Ask the owning Core to re-arm the maintenance timer if it parked itself.
+--- Called from the few places that can create map work while the timer is asleep.
+function Navigation:WakeMapMaintenance()
+	if self.av_obj == nil or self.av_obj.core_obj == nil then
+		return false
+	end
+	if self.av_obj.core_obj.WakeObstacleMapMaintenance == nil then
+		return false
+	end
+	return self.av_obj.core_obj:WakeObstacleMapMaintenance()
+end
+
+--- Nudge the maintenance timer once learned cells pass the flush threshold.
+--- Cheap enough to sit in the per-cell recording path: two field reads and a
+--- comparison while the timer is already awake.
+function Navigation:NoteLearnedCellAdded()
+	local limit = self.obstacle_map_learned_flush_cells or 0
+	if limit <= 0 then return end
+	if (self.obstacle_map_learned_count or 0) <= limit then return end
+	self:WakeMapMaintenance()
+end
+
 function Navigation:MaintainObstacleMapCache()
 	if (self.obstacle_map_resident_radius or 0) <= 0 then
+		return true
+	end
+
+	-- Demand-driven gate: with the image resident and nothing learned, skip the per-tick C# position reads.
+	if not self:HasPendingMapWork() then
+		if self.is_base_image_loaded and not self.is_obstacle_map_loaded then
+			self.is_obstacle_map_loaded = true
+			self:SyncObstacleMapSessionState()
+		end
 		return true
 	end
 
@@ -1349,24 +1242,17 @@ function Navigation:MaintainObstacleMapCache()
 	local player_pos = player:GetWorldPosition()
 	if player_pos == nil then return true end
 
-	-- Pull the packed base image in first, on the budget. Until it is resident we
-	-- deliberately do nothing else: filling the window from text chunks in the
-	-- meantime would pour millions of cells into the learned table, which is the
-	-- exact shape this module exists to eliminate.
+	-- Pull the packed base image in first, on budget; nothing else runs until it is resident.
 	if not self.is_base_image_loaded then
 		if self.base_image_pending == false then
-			-- No packed data at all. LoadBaseImageStep already raised this; there
-			-- is nothing to retry and nothing to stream.
+			-- No packed data at all: already raised by LoadBaseImageStep; nothing to retry or stream.
 			return true
 		end
 		self:LoadBaseImageStep(self.obstacle_base_image_budget_ms or 12.0)
 		return false
 	end
 
-	-- The base image covers every chunk, so the only maintenance left is keeping
-	-- the learned-cell table from growing without bound. The old radius-window /
-	-- eviction / route-corridor streaming is gone: with a packed-only inventory
-	-- there is nothing left for it to read.
+	-- With the base image covering every chunk, the only maintenance is bounding the learned-cell table.
 	self:FlushLearnedCellsToImage()
 	if not self.is_obstacle_map_loaded then
 		self.is_obstacle_map_loaded = true
@@ -1375,25 +1261,16 @@ function Navigation:MaintainObstacleMapCache()
 	return true
 end
 
---- Pin the chunks an autopilot route crosses, and load the destination chunk
---- synchronously.
---- GetSectorMovementCost() treats an unknown cell as blocked, so without this a
---- windowed map would make every off-window destination look unreachable. The
---- Builds the 1-chunk-wide corridor of chunks a route crosses, pins them against
---- eviction, and queues the ones that are not resident yet for loading.
---- Ordered start -> destination, so a timeout still leaves a contiguous known
---- stretch near the vehicle rather than scattered chunks.
+--- Pin the chunks an autopilot route crosses (1-chunk-wide corridor) and queue the non-resident ones.
+--- GetSectorMovementCost() treats unknown cells as blocked, so off-window destinations would look unreachable.
 ---@param start_pos Vector4
 ---@param end_pos Vector4
 ---@return number  chunks still needing to be loaded
 function Navigation:PrepareRouteChunks(start_pos, end_pos)
-	-- Full residency: every chunk the route could cross is already in memory, so
-	-- there is no corridor to stream and no departure wait to hide.
+	-- Full residency: every chunk is already in memory, so there is no corridor to stream.
 	if self:IsFullResidencyActive() then return 0 end
 
-	-- The maintenance timer normally has this done long before the first
-	-- departure. If it does not, finish it here rather than streaming text chunks
-	-- that full residency would make redundant.
+	-- The maintenance timer normally finishes before first departure; otherwise finish here, not by streaming.
 	if self.base_image_pending ~= false and self:FinishBaseImageLoad(1500.0) then
 		return 0
 	end
@@ -1453,10 +1330,7 @@ function Navigation:PrepareRouteChunks(start_pos, end_pos)
 end
 
 --- Streams the route corridor into the resident window, then runs on_ready().
---- Returns true when the work was deferred, meaning the caller must not proceed
---- yet. The AV is already in AutoLeaving at this point, so the wait reads as the
---- silent hover the player expects before departure.
---- Returns false when there was nothing to load and the caller should continue.
+--- Returns true when deferred (the AV hovers in AutoLeaving); false when there was nothing to load.
 ---@param start_pos Vector4
 ---@param end_pos Vector4
 ---@param on_ready function
@@ -1488,14 +1362,12 @@ function Navigation:StartRouteCorridorPreload(start_pos, end_pos, on_ready)
 		end
 		gate_timer = nil
 		if remaining > 0 then
-			-- Leave the rest queued: MaintainObstacleMapCache() keeps draining it
-			-- during the flight, so the route keeps improving as data arrives.
+			-- Leave the rest queued: MaintainObstacleMapCache() keeps draining it during the flight.
 			self.log_obj:Record(LogLevel.Warning, string.format(
 				"AutoPilot: corridor wait timed out, %d/%d chunks loaded - planning with what we have",
 				total - remaining, total))
 		end
-		-- The vehicle is about to move under its own navigation, so from here on the
-		-- radius window is worth keeping warm around it.
+		-- The vehicle is about to move under its own navigation; keep the radius window warm from here on.
 		self:StartObstacleMapFill()
 		on_ready()
 	end
@@ -1512,9 +1384,7 @@ function Navigation:StartRouteCorridorPreload(start_pos, end_pos, on_ready)
 			return
 		end
 
-		-- MaintainObstacleMapCache() drains this same queue from its own timer. If it
-		-- emptied the queue first, that is success, not a reason to stall: an early
-		-- return here used to leave the vehicle hovering forever with no autopilot loop.
+		-- The maintenance timer may have emptied the queue first; that is success, not a reason to stall.
 		local remaining = self:DrainRouteCorridor(budget_s)
 
 		if remaining == 0 or os.clock() >= deadline then
@@ -1543,9 +1413,7 @@ function Navigation:LoadResidentChunkIncremental(chunk_info, budget_s)
 end
 
 --- Drain up to `budget_s` of corridor loading off the pending queue.
---- An entry is removed only once it is fully loaded. A chunk that runs out of
---- budget stays queued and resumes on the next call; popping unconditionally
---- would silently drop half-parsed chunks and leave holes in the corridor.
+--- Entries are removed only when fully loaded; half-parsed chunks stay queued and resume next call.
 ---@param budget_s number
 ---@return number  chunks still pending
 function Navigation:DrainRouteCorridor(budget_s)
@@ -1583,20 +1451,13 @@ function Navigation:ReleaseRouteChunks()
 end
 
 --- Start the resident obstacle-map chunk cache for this session.
---- NOTE: this used to queue every chunk file on disk and pull them all in at a
---- fixed 1 file / 0.05s, which blocked the game thread for ~31ms (worst 290ms)
---- every tick for ~5s and then left ~300MB resident for the rest of the session.
---- It now starts a budgeted window that follows the player.
+--- Starts a budgeted load; the old all-files-at-once loader stalled the game thread and pinned ~300MB.
 function Navigation:StartObstacleMapSessionPreload()
 	if self.obstacle_map_cache_started then
 		return true
 	end
 
-	-- Nothing heavy here any more. This used to build the chunk inventory with
-	-- io.popen, and the session log shows that costing ~1s after the loading
-	-- screen in every single run - a hitch exactly when the player gains control.
-	-- The inventory is now built lazily by the first real consumer (an autopilot
-	-- corridor or a mapping session), so a plain load does zero obstacle-map work.
+	-- No heavy work here: the inventory is built lazily by the first real consumer, not at load.
 	self.obstacle_map_cache_started = true
 	self.log_obj:Record(LogLevel.Info, string.format(
 		"Obstacle map session ready: no chunk work until first autopilot or mapping session. Map learning: %s",
@@ -1605,12 +1466,8 @@ function Navigation:StartObstacleMapSessionPreload()
 	return self.av_obj.core_obj:EnsureObstacleMapPreloadTimer(self.obstacle_map_preload_tick)
 end
 
---- Open the radius-window gate. Called on the first autopilot departure so the
---- window starts following the vehicle from then on (useful for landing spots and,
---- when learning is enabled, for recording).
----
---- This does NOT build the chunk inventory. The window walk uses MakeChunkInfo,
---- so the only files probed are the ones inside the window itself.
+--- Open the radius-window gate on the first autopilot departure.
+--- Does NOT build the chunk inventory; the window walk uses MakeChunkInfo and probes only files inside the window.
 function Navigation:StartObstacleMapFill()
 	if self.obstacle_map_fill_started then return false end
 	self.obstacle_map_fill_started = true
@@ -1621,6 +1478,8 @@ function Navigation:StartObstacleMapFill()
 		self.obstacle_map_resident_radius * self.obstacle_map_chunk_cells * cell_size,
 		self.obstacle_map_evict_radius,
 		self.obstacle_map_load_budget_ms))
+	-- The fill may start long after the maintenance timer parked itself, so wake it up explicitly.
+	self:WakeMapMaintenance()
 	return true
 end
 
@@ -1670,19 +1529,7 @@ function Navigation:ReleaseObstacleMapSessionCache()
 	self.log_obj:Record(LogLevel.Info, "Obstacle map session cache released")
 end
 
---- Packed numeric cell key.
---- Cell keys used to be "x_y_z" strings. Across the full map that is ~2.6M
---- interned strings costing roughly 60 B/cell, plus a string hash on every
---- lookup, and the same strings were keyed a second time in
---- obstacle_map_chunk_index.
----
---- Layout (each field biased so it is never negative):
----   sx, sy : 18 bits, bias 131072 -> +-131071 cells (+-1310 km at 10 m/cell)
----   sz     : 10 bits, bias 256    -> -256 .. +767
----   key = ((sx + 131072) * 2^18 + (sy + 131072)) * 2^10 + (sz + 256)
---- Worst case ~2^46, well inside the 53-bit exact-integer range of a double.
----
---- Chunk keys stay as "cx_cy" strings; there are only ~96 of them.
+--- Packed numeric cell key: ((sx+131072)*2^18 + (sy+131072))*2^10 + (sz+256); replaces interned "x_y_z" strings.
 local KEY_SY_SHIFT = 262144  -- 2^18
 local KEY_SZ_SHIFT = 1024    -- 2^10
 local KEY_XY_BIAS  = 131072  -- 2^17
@@ -1783,8 +1630,7 @@ function Navigation:GetNeighborSectors(sector_key)
 	if not sx then return {} end
 
 	local neighbors = {}
-	-- 6 cardinal directions + 4 horizontal (XY) diagonals
-	-- Diagonal base cost = sqrt(2) ~= 1.414 via GetSectorMovementCost Euclidean formula
+	-- 6 cardinal directions + 4 XY diagonals; diagonal base cost = sqrt(2).
 	local offsets = {
 		-- Cardinal
 		{ 1,  0,  0}, {-1,  0,  0},
@@ -1820,9 +1666,7 @@ function Navigation:CalculateHeuristic(sector_key, goal_key)
 	local dy = gy - sy
 	local dz = gz - sz
 
-	-- 3D Euclidean distance: admissible heuristic for 10-direction grid
-	-- (6 cardinal + 4 XY diagonals). Each cardinal costs 1.0, each diagonal costs sqrt(2),
-	-- so 3D Euclidean never overestimates -> A* finds optimal path.
+	-- 3D Euclidean distance is admissible for this 10-direction grid, so A* finds the optimal path.
 	return math.sqrt(dx*dx + dy*dy + dz*dz)
 end
 
@@ -1830,8 +1674,7 @@ end
 ---@param to_key string Destination sector key
 ---@return number Movement cost (distance + accessibility penalty + connectivity check)
 function Navigation:GetSectorMovementCost(from_key, to_key)
-	-- Base cost depends only on the direction offset (from->to), not cell content.
-	-- Penalty depends only on the destination cell (to_key), so we cache it.
+	-- Base cost depends only on the direction offset; penalty only on the destination cell, so cache it.
 	local fx, fy, fz = self:ParseSectorKey(from_key)
 	local tx, ty, tz = self:ParseSectorKey(to_key)
 	if not fx or not tx then return 1.0 end
@@ -1841,8 +1684,7 @@ function Navigation:GetSectorMovementCost(from_key, to_key)
 	local dz = tz - fz
 	local base_cost = math.sqrt(dx*dx + dy*dy + dz*dz)
 
-	-- Penalty cache: computed once per unique destination cell per A* run.
-	-- Cache is initialised in PlanGlobalRoute and cleared afterwards.
+	-- Penalty cache: once per unique destination cell per A* run; cleared in PlanGlobalRoute afterwards.
 	if self.sector_penalty_cache then
 		local cached = self.sector_penalty_cache[to_key]
 		if cached then
@@ -1888,9 +1730,7 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 		return {}
 	end
 
-	-- Initialize per-run caches.
-	-- sector_penalty_cache: avoids repeated obstacle_map lookups for the same destination sector.
-	-- astar_coord_cache: avoids repeated regex parsing of the same sector key strings.
+	-- Per-run caches: sector_penalty_cache (obstacle lookups) and astar_coord_cache (key parsing).
 	self.sector_penalty_cache = {}
 	self.astar_coord_cache    = {}
 
@@ -1906,11 +1746,7 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 		return {start_key}
 	end
 
-	-- A* with min-heap open set (O(n log n) vs O(n^2) linear scan)
-	-- and per-run coord cache (O(1) key parsing vs O(n) regex each call).
-	-- Lazy-deletion heap: duplicate entries are pushed on f-score improvement;
-	-- stale pops (already closed, or superseded) are skipped without counting
-	-- against the iteration budget.
+	-- A* with a min-heap open set and lazy deletion: stale pops are skipped without costing iteration budget.
 	local heap_keys   = {}
 	local heap_scores = {}
 	local heap_size   = 0
@@ -1975,9 +1811,7 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 		local current, popped_f = heap_pop()
 		if not current then break end
 
-		-- Skip stale heap entries (lazy deletion):
-		-- a node is stale if already closed, or if a better path was found
-		-- after this entry was pushed (f_score decreased).
+		-- Skip stale heap entries: already closed, or superseded by a better f-score after this push.
 		if closed_set[current] or popped_f > (f_score[current] or math.huge) + 0.001 then
 			-- stale: do not count against iteration budget
 		else
@@ -2016,8 +1850,7 @@ function Navigation:PlanGlobalRoute(start_pos, end_pos)
 			for _, neighbor in ipairs(neighbors) do
 				if not closed_set[neighbor] then
 					local move_cost = self:GetSectorMovementCost(current, neighbor)
-					-- Skip impassable cells (underground / exception area).
-					-- Impassable returns base_cost * 1e7; max legitimate cost ~= 709, so 1e5 is safe.
+					-- Skip impassable cells: impassable cost is base*1e7, max legit ~709, so 1e5 is a safe cutoff.
 					if move_cost < 1e5 then
 						local tentative_g = (g_score[current] or math.huge) + move_cost
 						if tentative_g < (g_score[neighbor] or math.huge) then
@@ -2406,9 +2239,7 @@ function Navigation:StartAutopilotRoutePlan(start_pos, final_destination, kind, 
 	local astar_dest_status = self.autopilot_dest_cell_status
 	local use_fast_target_resolution = kind == "initial" or kind == "resume"
 	if astar_dest == nil and self.autopilot_dest_requires_final_local then
-		-- Recompute the reachable intermediate target from the current position for every replan.
-		-- Reusing the initial cached target makes followup plans collapse into short routes
-		-- once the vehicle gets close to the previous intermediate goal.
+		-- Recompute the reachable intermediate target from the current position on every replan.
 		local nearest, nearest_status = self:ResolveAutopilotAstarTarget(start_pos, final_destination, true, use_fast_target_resolution)
 		if nearest then
 			astar_dest = nearest
@@ -2527,9 +2358,7 @@ function Navigation:ApplyAutopilotRoutePlanResult(job, current_position, current
 			self.current_route_index = 1
 			self:ResetLocalAvoidanceRuntime()
 		end
-		-- Track repeated low-gain followups against a destination we already know
-		-- needs a local final approach, so the autopilot escalates instead of
-		-- retrying A* forever without closing the last few metres.
+		-- Track repeated low-gain followups so the autopilot escalates instead of retrying A* forever.
 		if self.autopilot_dest_requires_final_local then
 			self.autopilot_low_gain_followups = (self.autopilot_low_gain_followups or 0) + 1
 		end
@@ -2725,9 +2554,7 @@ function Navigation:GetObstacleCellPriority(value)
 end
 
 --- Normalise whatever a caller hands us into the packed numeric form.
---- Without this, a stray "x_y_z" string reaching a setter would create a parallel
---- string-keyed entry that the chunk index, eviction and A* lookups would never
---- agree with - the worst kind of split-brain for this data structure.
+--- A stray "x_y_z" string would create a parallel string-keyed entry the indexes would never agree with.
 ---@param key number|string|nil
 ---@return number|nil
 function Navigation:NormalizeCellKey(key)
@@ -2739,12 +2566,7 @@ function Navigation:NormalizeCellKey(key)
 end
 
 --- Cell state in the legacy value domain: true | "danger" | false | nil.
----
---- This is the single read entry point for the obstacle map. Learned cells
---- (`obstacle_map`) take precedence, then the resident base image takes over.
---- Keeping the legacy domain means every existing `== true` / `== "danger"` /
---- `== false` / `~= nil` comparison downstream stays exactly as written, which is
---- what makes the representation swap safe.
+--- Single read entry point: learned cells take precedence, then the resident base image.
 ---@param key number|string|nil packed cell key or legacy "x_y_z"
 ---@return boolean|string|nil
 function Navigation:CellStateAtKey(key)
@@ -2754,29 +2576,21 @@ function Navigation:CellStateAtKey(key)
 		if key == nil then return nil end
 	end
 
-	-- Learned overlay first: it is the only mutable layer. Skipping the lookup
-	-- entirely when nothing has been learned removes a guaranteed-miss hash
-	-- lookup from the hottest path in the mod.
+	-- Learned overlay first; skipped entirely when nothing was learned (removes a guaranteed-miss lookup).
 	if (self.obstacle_map_learned_count or 0) > 0 then
 		local learned = self.obstacle_map[key]
 		if learned ~= nil then return learned end
 	end
 
-	-- Resident base image, read inline. Routing this through
-	-- ObstacleGrid:get_packed added a second dispatch per cell that showed up as
-	-- a few percent on long A* runs, so the index math lives here instead.
-	-- Mirrors get_packed exactly; keep the two in sync if the key layout changes.
+	-- Resident base image read inline (mirrors ObstacleGrid.get_packed; keep the two in sync).
 	local g = self.obstacle_grid
 	if g == nil then return nil end
 	local chunks = g.chunks
 	if chunks == nil then return nil end
 	local CC = ObstacleGrid.CHUNK_CELLS
-	-- NOTE: CET embeds LuaJIT (Lua 5.1 semantics), so the 5.4 integer-division
-	-- operator `//` is a syntax error here. Use math.floor throughout.
+	-- LuaJIT (5.1 semantics): the 5.4 `//` operator is a syntax error here; use math.floor.
 	local kxy = math.floor(key / 1024)
-	-- No range test on z here: the map legitimately contains negative z (down to
-	-- -3), and the lz bounds below are what actually decide validity, exactly as
-	-- in get_packed. An early `z < 0` check silently dropped those cells.
+	-- No z<0 early check: the map legitimately contains negative z; the lz bounds decide validity.
 	local z = (key - kxy * 1024) - ObstacleGrid.KEY_Z_BIAS
 	local sy = (kxy % ObstacleGrid.KEY_SY_SHIFT) - ObstacleGrid.KEY_XY_BIAS
 	local sx = math.floor(kxy / ObstacleGrid.KEY_SY_SHIFT) - ObstacleGrid.KEY_XY_BIAS
@@ -2807,13 +2621,11 @@ end
 function Navigation:SetObstacleCellNoDirty(key, value)
 	key = self:NormalizeCellKey(key)
 	if key == nil then return false end
-	-- Compare against the EFFECTIVE state (learned cell, else base image), not
-	-- against the learned table alone. Comparing against the table only would let
-	-- a fresh "clear" reading silently overwrite a base-image obstacle, which is a
-	-- downgrade the old code refused.
+	-- Compare against the EFFECTIVE state (learned, else base image) so a clear reading cannot downgrade an obstacle.
 	if self:GetObstacleCellPriority(value) > self:GetObstacleCellPriority(self:CellStateAtKey(key)) then
 		if self.obstacle_map[key] == nil then
 			self.obstacle_map_learned_count = (self.obstacle_map_learned_count or 0) + 1
+			self:NoteLearnedCellAdded()
 		end
 		self.obstacle_map[key] = value
 		return true
@@ -2830,6 +2642,7 @@ function Navigation:SetObstacleCell(key, value)
 	if self:GetObstacleCellPriority(value) > self:GetObstacleCellPriority(self:CellStateAtKey(key)) then
 		if self.obstacle_map[key] == nil then
 			self.obstacle_map_learned_count = (self.obstacle_map_learned_count or 0) + 1
+			self:NoteLearnedCellAdded()
 		end
 		self.obstacle_map[key] = value
 		self:MarkCellDirty(key)
@@ -2965,8 +2778,7 @@ function Navigation:CreateObstacleConvexHexahedronFromPoints(points)
 	local plane_set = {}
 	local planes = {}
 
-	-- Build supporting planes from all non-collinear point triplets.
-	-- A valid hull plane has all other points on one side (or on the plane).
+	-- Build supporting planes from all non-collinear triplets; a valid hull plane has all points on one side.
 	for i = 1, 6 do
 		for j = i + 1, 7 do
 			for k = j + 1, 8 do
@@ -3136,13 +2948,7 @@ end
 
 --- Ensure the Data/map directory exists for chunked storage.
 ---@return boolean success
---- Is `dir` present and writable?
---- CET's Lua sandbox strips os.execute and io.popen, so the "mkdir through the
---- shell" fallback this used to have was a hard error: `attempt to call field
---- 'execute' (a nil value)`. That killed every single save once Data/map was
---- removed by the packed-only migration -- SaveObstacleMap gated on the text
---- directory, threw before reaching the packed branch, and .bin never got
---- written. Nothing here may shell out.
+--- Is `dir` present and writable? CET's sandbox strips os.execute/io.popen; nothing here may shell out.
 ---@param dir string
 ---@return boolean
 function Navigation:EnsureDirWritable(dir)
@@ -3244,20 +3050,11 @@ function Navigation:SaveObstacleMap()
 		return
 	end
 
-	-- Under full residency the packed image is the single store: fold every dirty
-	-- chunk into it and write v4. The legacy append-only .diff stream is not read
-	-- back on this path, so writing it would only grow files nothing consumes while
-	-- the data that matters sits in a format the loader ignores.
-	--
-	-- This branch is checked BEFORE any directory gate, and gates on the packed
-	-- directory only. Gating on the legacy text directory here is what broke
-	-- saving outright: once Data/map was deleted, EnsureMapDirectory threw on the
-	-- sandboxed os.execute and the packed branch was never reached.
+	-- Full residency: fold dirty chunks into the packed image; gate on the packed dir only (text-dir gate broke saving).
 	if self:IsFullResidencyActive() then
 		if not self:EnsureBinDirectory() then return end
 		local n_chunks, n_cells = 0, 0
-		-- Removing the current key from a table during pairs() is legal in Lua,
-		-- and FoldDirtyChunkToImage clears each key as it lands.
+		-- Removing the current key during pairs() is legal; FoldDirtyChunkToImage clears each key as it lands.
 		for ck in pairs(self.obstacle_map_dirty_cells) do
 			local n = self:FoldDirtyChunkToImage(ck)
 			if n > 0 then
@@ -3371,10 +3168,7 @@ function Navigation:RecordObstacleScan()
 	self:SetObstacleCell(cur_key, false)
 end
 
---- Start continuous obstacle recording (independent of autopilot).
---- Registers a Cron timer; subsequent calls while already running are no-ops.
---- Whether map learning is turned on. Either the user-facing setting or the
---- developer debug flag enables it.
+--- Whether map learning is turned on (user setting or developer debug flag).
 ---@return boolean
 function Navigation:IsObstacleRecordingEnabled()
 	return (DAV.user_setting_table.is_enable_obstacle_recording and true or false)
@@ -3384,13 +3178,11 @@ end
 function Navigation:StartObstacleRecording()
 	if self.is_obstacle_map_recording then return end
 	if not self:IsObstacleRecordingEnabled() then
-		-- Nothing to do: the 5 Hz 32-ray scan and the periodic diff writes are
-		-- exactly what this costs, and they only make sense while mapping.
+		-- Nothing to do: the 5 Hz scan and diff writes only make sense while mapping.
 		return
 	end
 	self.is_obstacle_map_recording = true
-	-- A mapping session wants the surroundings resident, both to avoid re-reading
-	-- files it is about to update and so the diff merge sees prior state.
+	-- A mapping session wants the surroundings resident for re-reads and diff merges.
 	self:StartObstacleMapFill()
 	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STARTED (merged with saved map)")
 	local scan_count = 0
@@ -3399,18 +3191,13 @@ function Navigation:StartObstacleRecording()
 			Cron.Halt(timer)
 			return
 		end
-		-- Poll physical collision on every scan tick.
-		-- IsOnGround() (= IsCollision()) is not an event; it must be called actively.
-		-- This is the only always-running Cron while the player is in the vehicle,
-		-- so it is the authoritative place to catch collisions regardless of autopilot phase.
+		-- Poll physical collision every scan tick: IsOnGround() is not an event; this is the authoritative catch.
 		if self:IsCollision() then
 			self:RecordDirectCollision()
 		end
 		self:RecordObstacleScan()
 		scan_count = scan_count + 1
-		-- Periodic save every ~30 s (150 ticks x 0.2 s) to protect against crashes.
-		-- Skipped during autopilot: I/O stutter could affect A* route decisions.
-		-- Startup-only loading policy does not affect this explicit periodic save path.
+		-- Periodic save every ~30 s against crashes; skipped during autopilot so I/O cannot affect routing.
 		if scan_count >= self.autopilot_scan_dirty_threshold then
 			scan_count = 0
 			if not self.av_obj.is_auto_pilot then
@@ -3427,27 +3214,14 @@ end
 function Navigation:StopObstacleRecording()
 	if not self.is_obstacle_map_recording then return end
 	self.is_obstacle_map_recording = false
-	-- A mapping session ends here, so flush it. The periodic save inside the scan
-	-- timer is deliberately skipped while autopilot is running, and mapping flights
-	-- are exactly when recording happens -- without this, everything the session
-	-- learned sits in RAM until some later unrelated save, or is lost on a crash.
+	-- Flush on session end: the periodic save skips autopilot flights, which is exactly when recording happens.
 	self:SaveObstacleMap()
 	self.log_obj:Record(LogLevel.Info, "Obstacle map recording STOPPED (flushed)")
 end
 
 --- Get Height between ground and vehicle.
----
---- The ground probe is a synchronous world raycast. It used to run once per
---- caller: Event:CheckHeight and Engine:CalculateIdleMode both ask for it inside
---- the same 100Hz tick, and this function resolved the vehicle position twice on
---- the way (once directly, once again inside AV:GetGroundPosition).
----
---- The vehicle cannot move inside a frame - physics steps between frames - so
---- every caller in one frame is asking for the same number. Cache it per frame,
---- the same way AV:GetEntity caches the entity handle.
----
---- With no DAV.frame_seq there is nothing to reason about freshness against, so
---- the cache is bypassed rather than risk serving a stale height forever.
+--- The probe is a synchronous raycast; the vehicle cannot move within a frame, so cache the value per frame.
+--- With no DAV.frame_seq the cache is bypassed rather than risk serving a stale height forever.
 ---@return number height
 function Navigation:GetHeight()
 	local frame = DAV.frame_seq
@@ -3458,8 +3232,7 @@ function Navigation:GetHeight()
 	if position == nil then
 		return 0
 	end
-	-- Hand the position we already resolved down; GetGroundPosition needs it and
-	-- would otherwise pay for another GetPosition.
+	-- Hand the already-resolved position down; GetGroundPosition needs it and would re-fetch otherwise.
 	local height = position.z - self.av_obj:GetGroundPosition(position)
 	if frame ~= nil then
 		self._height = height
@@ -3495,12 +3268,7 @@ function Navigation:AutoPilot()
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Start")
 	self.av_obj.is_auto_pilot = true
 
-	-- Everything below resolves against the obstacle map, and the first resolver
-	-- to run would otherwise build the chunk inventory itself -- a 41x41 coord
-	-- sweep measured at 3.57 s of synchronous io.open. The maintenance timer
-	-- normally has the image and the warmed inventory in place about 6 s after
-	-- the loading screen, so this is a no-op in practice; if it does have to
-	-- work, it is bounded and it says so.
+	-- Ensure the inventory is warmed before map resolvers run; normally a no-op, bounded and loud if not.
 	if not self.is_base_image_loaded then
 		local t0 = os.clock()
 		self:FinishBaseImageLoad(4000.0)
@@ -3554,9 +3322,7 @@ function Navigation:AutoPilot()
 		self.log_obj:Record(LogLevel.Info, "Select Leaving Horizontal and Vertical")
 	end
 
-	-- Adjust destination altitude to match target flight altitude
-	-- Use the HIGHER of flight altitude or actual destination altitude
-	-- This prevents downward bias while maintaining safe flight altitude
+	-- Use the HIGHER of flight altitude or destination altitude to avoid downward bias.
 	local adjusted_z = math.max(destination_position.z, target_altitude)
 
 	local ea_landing_extra_height = 0
@@ -3697,8 +3463,7 @@ function Navigation:AutoPilot()
 	end
 
 	if not ap_start_known then
-		-- Phase start_local: start is in an unknown cell.
-		-- Navigate to the nearest known cell using local avoidance + scanning, then switch to A*.
+		-- Phase start_local: start is unknown; navigate to the nearest known cell, then switch to A*.
 		local nearest, dist = nil, math.huge
 		if not ap_dest_known and front_known_pos then
 			nearest, dist = front_known_pos, front_known_dist
@@ -3727,9 +3492,7 @@ function Navigation:AutoPilot()
 		self.current_global_route = {}
 		self.current_route_index  = 1
 	else
-		-- Phase astar: start is in a known cell - plan an A* route.
-		-- Unknown destinations still fall back through final_local, while blocked destinations
-		-- are remapped upfront to a nearby clear/danger cell and stay in pure A*.
+		-- Phase astar: start is known; unknown destinations fall back via final_local, blocked ones are remapped.
 		self.autopilot_phase        = "astar"
 		self.autopilot_local_target = nil
 		local astar_dest = self.autopilot_final_destination
@@ -3793,9 +3556,7 @@ function Navigation:AutoPilot()
 			return
 		end
 
-		-- === Phase management ===
-		-- Transition: start_local -> astar when vehicle enters a known cell,
-		-- or when it reaches the chosen known-cell target but is still hovering just outside that cell.
+		-- Transition start_local -> astar on entering a known cell (or reaching the target just outside it).
 		if self.autopilot_phase == "start_local" then
 			local start_local_handoff_distance = self.start_local_handoff_distance or 25.0
 			local start_astar_pos = nil
@@ -3834,13 +3595,9 @@ function Navigation:AutoPilot()
 			end
 		end
 
-		-- Scanning: handled entirely by StartObstacleRecording()'s Cron timer.
-		-- No per-tick scanning here; the Cron fires every obstacle_record_interval seconds
-		-- regardless of driving mode.
+		-- Scanning is handled by StartObstacleRecording()'s Cron timer; no per-tick scanning here.
 
-		-- Distance to final fly-to point (altitude_adjusted_destination).
-		-- When destination is inside an exception area the fly-to point is above
-		-- the EA; landing will handle the final descent.
+		-- Distance to the final fly-to point; inside an exception area that point is above the EA.
 		local final_destination = self.autopilot_final_destination or altitude_adjusted_destination
 		local ground_destination = self.autopilot_ground_destination or destination_position
 		local arrival_target = (self.autopilot_phase == "final_local") and ground_destination or final_destination
@@ -3863,12 +3620,7 @@ function Navigation:AutoPilot()
 				self:StartAutopilotPartialRouteFollowup(current_position, final_destination)
 		end
 
-		-- === A* Route Waypoint Following ===
-		-- Advance waypoint index when vehicle reaches current waypoint.
-		-- This makes the vehicle actually fly along the A*-planned route
-		-- instead of heading straight to the final destination.
-		-- NOTE: advance threshold uses HORIZONTAL distance only to avoid premature
-		-- advancement when the vehicle is still climbing/descending to the waypoint Z.
+		-- A* waypoint following: advance the index on arrival, using HORIZONTAL distance only while climbing.
 		local nav_target = final_destination  -- fallback: aim at flight-altitude dest
 		if #self.current_global_route > 0 then
 			local advance_thr   = self.sector_size * 0.9   -- ~18 m: advance to next waypoint
@@ -3884,9 +3636,7 @@ function Navigation:AutoPilot()
 					local wdx = current_position.x - wp_pos.x  -- vec: wp -> vehicle (X)
 					local wdy = current_position.y - wp_pos.y  -- vec: wp -> vehicle (Y)
 					local horiz_to_wp = math.sqrt(wdx*wdx + wdy*wdy)  -- horizontal only
-					-- "Passed" detection: dot product of (vehicle->wp) with velocity < 0
-					-- means the waypoint is now behind or perpendicular to the heading.
-					-- This fires when the vehicle turns away from the WP at a sharp corner.
+					-- "Passed" detection: dot(vehicle->wp, velocity) < 0 means the waypoint is behind the heading.
 					local passed_wp = false
 					if horiz_to_wp < lookahead_dist and vel_hlen > 1.0 then
 						-- vehicle->wp = (-wdx, -wdy); dot with velocity direction
@@ -3900,8 +3650,7 @@ function Navigation:AutoPilot()
 							horiz_to_wp, tostring(passed_wp)))
 						self.current_route_index = self.current_route_index + 1
 					else
-						-- Lookahead blending: when approaching a waypoint, smoothly blend
-						-- nav_target toward the *next* waypoint to avoid sharp corners.
+						-- Lookahead blending: ease nav_target toward the next waypoint to round sharp corners.
 						nav_target = wp_pos
 						if horiz_to_wp < lookahead_dist and self.current_route_index < #self.current_global_route then
 							local next_key = self.current_global_route[self.current_route_index + 1]
@@ -3923,11 +3672,9 @@ function Navigation:AutoPilot()
 					self.current_route_index = self.current_route_index + 1
 				end
 			end
-			-- All waypoints passed: partial routes hold at their endpoint until followup planning appends more cells.
-			-- Completed non-partial routes should continue toward the actual destination position.
+			-- Partial routes hold at their endpoint until followup planning appends more cells.
 			if self.current_route_index > #self.current_global_route then
-				-- Partial route exhausted: keep the vehicle at the partial endpoint and
-				-- continue chaining A* followups toward the same resolved A* destination.
+				-- Partial exhausted: hold at the endpoint and keep chaining A* followups.
 				if self.astar_is_partial_route
 					and horiz_to_final > self.sector_size * 2 then
 					local last_route_pos = self:SectorKeyToPosition(self.current_global_route[#self.current_global_route])
@@ -3943,9 +3690,7 @@ function Navigation:AutoPilot()
 			end
 		end
 
-		-- Empty-route retry: A* previously returned {} (no viable path found within iteration limit).
-		-- Apply same 50m-progress check: if new route doesn't advance us, switch to astar_local_avoidance.
-		-- 1s cooldown prevents per-tick A* thrashing when route stays empty.
+		-- Empty-route retry with a 1s cooldown; switch to astar_local_avoidance if no progress.
 		if self.astar_is_partial_route
 			and #self.current_global_route == 0
 			and horiz_to_final > self.sector_size * 2
@@ -3963,8 +3708,7 @@ function Navigation:AutoPilot()
 				"A* empty-route retry started asynchronously - switching to local avoidance")
 		end
 
-		-- === astar_local_avoidance phase: local-avoidance fallback while A* can't make progress ===
-		-- Every 5s, if current cell is known, replan A* and resume if progress >= 50m.
+		-- astar_local_avoidance: every 5s, replan A* from a known cell and resume on >= 50m progress.
 		if self.autopilot_phase == "astar_local_avoidance"
 			and horiz_to_final > self.sector_size * 2
 			and (os.clock() - self.astar_local_avoidance_recheck_time) > 5.0 then
@@ -3988,31 +3732,12 @@ function Navigation:AutoPilot()
 			nav_target = self.autopilot_local_target
 		end
 
-		-- Phase transition: astar -> final_local when the A* route is exhausted and
-		-- the destination itself is not traversable.
-		--
-		-- Two gaps fixed here:
-		--  * The old `horiz_to_final > sector_size` lower bound created a dead zone
-		--    between destination_range (3m) and sector_size (10m). Inside it the
-		--    vehicle could neither arrive (needs < 3m) nor switch, so it hovered
-		--    forever with the final destination cell reported as an obstacle.
-		--  * `not astar_is_partial_route` blocked the handoff for exactly the case
-		--    that needs it. When the destination is a known obstacle A* can only
-		--    return a partial route; the followup gain check then rejects anything
-		--    under 50m and retries indefinitely, while arrival stays disabled
-		--    because the route is partial.
+		-- Transition astar -> final_local when the route is exhausted and the destination is not traversable.
 		local max_handoff = self.final_local_max_handoff_distance or 150.0
 		local was_partial = self.astar_is_partial_route
 		local give_up_on_astar = (self.autopilot_low_gain_followups or 0)
 			>= (self.final_local_fallback_after_rejects or 3)
-		-- A* can only route inside recorded space. When the destination cell itself
-		-- is unknown, exhausting the route means A* is genuinely finished: no
-		-- followup could ever reach it. Gating only on the 150 m window then parks
-		-- the vehicle at the recorded boundary with a spent route -- and the
-		-- waypoint-follow branch above aims a spent route straight at the
-		-- destination with no obstacle avoidance at all, which is how it ends up
-		-- colliding. Hand off and let local avoidance drive the remainder, exactly
-		-- as start_local drives inward from an unknown start.
+		-- Unknown destination cell: A* is finished; hand the remainder to local avoidance.
 		local astar_out_of_road = self.autopilot_dest_is_unknown == true
 		if self.autopilot_phase == "astar"
 			and self.autopilot_dest_requires_final_local
@@ -4059,8 +3784,7 @@ function Navigation:AutoPilot()
 				and self.current_route_index > #self.current_global_route
 		end
 
-		-- check destination: use horizontal + upward-only Z so that being above target
-		-- at flight altitude doesn't prevent arrival detection
+		-- Arrival check: horizontal + upward-only Z so hovering at flight altitude does not block arrival.
 		local arrival_range = self.av_obj.destination_range
 		if self.autopilot_phase == "final_local" then
 			arrival_range = math.max(arrival_range, self.final_local_arrival_range or 8.0)
@@ -4070,8 +3794,7 @@ function Navigation:AutoPilot()
 			and dist_to_final_arr < arrival_range then
 			self.log_obj:Record(LogLevel.Info, "Arrived at destination")
 			self.av_obj.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
-			-- Landing height: distance from current Z to the ORIGINAL ground destination,
-			-- including any extra altitude added for exception area overshoot.
+			-- Landing height: distance to the ORIGINAL ground destination, including exception-area overshoot.
 			local landing_height = current_position.z - ground_destination.z
 			self.log_obj:Record(LogLevel.Info, string.format(
 				"Landing: current_z=%.1f, dest_z=%.1f, ea_extra=%.1f, landing_height=%.1f",
@@ -4081,12 +3804,7 @@ function Navigation:AutoPilot()
 			return
 		end
 
-		-- final_local no-progress watchdog.
-		-- Around a destination boxed in by obstacles the repulsion field can match
-		-- the goal attraction, so the AV closes in and gets shoved back in a loop.
-		-- The stuck-escape ascent is deliberately off near the goal, so nothing else
-		-- breaks the cycle. Once we stop closing in for long enough, stop fighting
-		-- it and land from wherever we happen to be.
+		-- final_local no-progress watchdog: if repulsion balances goal pull, stop fighting and land from where we are.
 		if self.autopilot_phase == "final_local" then
 			local stalled, best = self:UpdateFinalLocalProgressWatchdog(horiz_to_final, current_time)
 			if stalled then
@@ -4101,10 +3819,7 @@ function Navigation:AutoPilot()
 			end
 		end
 
-		-- Navigation: A* phase follows waypoints directly (no local avoidance).
-		-- Local phases (start_local / final_local) use local-avoidance navigation.
-		-- Exception: when A* returned an empty route (no path found within iteration limit),
-		-- use local-avoidance navigation while waiting for the next A* retry (every 5 s).
+		-- A* phase follows waypoints directly; local phases use local avoidance; empty A* route falls back to local.
 		local navigation_vector
 		if self.autopilot_phase == "astar" and #self.current_global_route > 0 then
 			-- Pure A* waypoint following
@@ -4219,10 +3934,7 @@ function Navigation:AutoPilot()
 		local yaw_delta_raw = yaw_target_raw - self.yaw_target_smoothed
 		if yaw_delta_raw > 180 then yaw_delta_raw = yaw_delta_raw - 360
 		elseif yaw_delta_raw < -180 then yaw_delta_raw = yaw_delta_raw + 360 end
-		-- The alpha is authored per base tick; SmoothAlpha re-maps the pole so the
-		-- filter keeps its ~0.16 s time constant whatever the control rate is.
-		-- Left raw, a 20 Hz loop lags the target by ~0.8 s and the craft steers at
-		-- a heading it was asked for almost a second ago -- the approach wobble.
+		-- SmoothAlpha re-maps the per-base-tick alpha so the yaw filter keeps its ~0.16 s time constant.
 		self.yaw_target_smoothed = self.yaw_target_smoothed
 			+ yaw_delta_raw * TimeScale:SmoothAlpha(self.yaw_smooth_alpha)
 
@@ -4247,7 +3959,7 @@ function Navigation:AutoPilot()
 		local current_angle = self.av_obj:GetEulerAngles()
 		local roll_diff = 0
 		local pitch_diff = 0
-		local forward = Vector4.new(vehicle_angle.x, vehicle_angle.y, 0, 1) -- Use only x and y components for forward vector to avoid z-axis influence on roll and pitch control
+		local forward = Vector4.new(vehicle_angle.x, vehicle_angle.y, 0, 1) -- x/y only: no z influence on roll/pitch
 		local dir = Vector4.new(direction_vector.x, direction_vector.y, 0, 1)
 		local forward_base_vec = Vector4.Normalize(forward)
 		local direction_base_vec = Vector4.Normalize(dir)
@@ -4310,9 +4022,7 @@ function Navigation:AutoPilot()
 		-- Apply smooth transition between ranges to avoid sudden changes
 		local prev_inertia = self.prev_inertia_scale or inertia_scale
 		local prev_blend = self.prev_blend_factor or blend_factor
-		-- Same story as the yaw filter: this is a per-tick blend, so it has to be
-		-- re-mapped or the inertia/blend ramp runs 5x slower in wall-clock terms
-		-- at 20 Hz and lags the speed changes it is supposed to be tracking.
+		-- Same as the yaw filter: per-tick blends must be re-mapped or they run slow at coarse loop rates.
 		local transition_rate = TimeScale:SmoothAlpha(0.15)  -- Balanced transition rate
 
 		inertia_scale = prev_inertia + (inertia_scale - prev_inertia) * transition_rate
@@ -4355,8 +4065,7 @@ function Navigation:AutoPilot()
 			pitch = 0
 		end
 
-		-- Prevent FluctuationVelocity oscillation at target speed during movement
-		-- Temporarily increase target velocity margin to avoid 50m/s oscillation
+		-- Temporarily widen the target velocity margin to avoid 50 m/s oscillation
 		local current_velocity = Vector4.Vector3To4(self.av_obj.engine_obj.direction_velocity):Length()
 		if math.abs(current_velocity - self.autopilot_speed) < 1.0 then  -- Near target speed
 			local original_target = self.av_obj.engine_obj.target_velocity
@@ -4378,15 +4087,7 @@ function Navigation:AutoPilot()
 	return true
 	end
 
-	-- Route corridor preload. Leaving the chunks between here and the destination
-	-- unloaded is what made long-distance autopilot wander: unknown cells cost the
-	-- same as confirmed obstacles, so A* exhausted its iteration budget and handed
-	-- back a partial route, which then replanned every 0.5s. The AV is already in
-	-- AutoLeaving at this point, so the wait reads as a silent hover.
-	-- PROBE: time the synchronous navigation setup. The departure decision lives
-	-- here -- knowledge checks, destination resolution, A* target selection and
-	-- the initial plan kick-off -- so a hitch at departure shows up in this one
-	-- number and the wrapped sub-methods say which part caused it.
+	-- Route corridor preload: unknown cells cost the same as obstacles; PROBE times this synchronous departure setup.
 	if self:StartRouteCorridorPreload(current_position, altitude_adjusted_destination, function()
 		local _pt = Prof.begin("ap.begin(corridor_cb)")
 		begin_navigation()
@@ -4431,14 +4132,10 @@ function Navigation:AutoLeaving(dist_vector, height)
 			return
 		end
 
-		-- Reaction blind spot: everything below is sampled once per tick, so the
-		-- craft has already travelled `lead` metres by the time a threshold is
-		-- seen. Comparing against the predicted next-tick position instead of the
-		-- current one is what makes the stop point independent of the loop rate.
+		-- Reaction blind spot: compare against the predicted next-tick position so stop points are loop-rate independent.
 		local velocity = self.av_obj.engine_obj:GetVelocity()
 		local ascent_speed = velocity and math.max(0, velocity.z) or 0
-		-- Capped: the lead comes straight out of the physics handle, and a wild
-		-- read must not be able to halt the climb tens of metres short.
+		-- Capped: a wild physics read must not halt the climb tens of metres short.
 		local lead = TimeScale:Lead(ascent_speed, self.av_obj.check_cell_distance)
 
 		-- Stabilize roll and pitch during takeoff
@@ -4447,8 +4144,7 @@ function Navigation:AutoLeaving(dist_vector, height)
 			self.log_obj:Record(LogLevel.Warning, "Failed to run angular velocity during takeoff")
 		end
 
-		-- Probe far enough ahead to cover one tick of travel, otherwise a long
-		-- tick walks straight past the ceiling before it is ever looked for.
+		-- Probe far enough ahead to cover one tick of travel or a long tick walks past the ceiling.
 		local is_detected_celling, search_vector = self:IsWall(Vector4.new(0, 0, 1, 1), self.av_obj.check_cell_distance + lead, 0, "Vertical", true, "simple")
 		if is_detected_celling then
 			self.log_obj:Record(LogLevel.Info, "Detected Ceiling, Search Vector:" .. search_vector.x .. ", " .. search_vector.y .. ", " .. search_vector.z)
@@ -4520,17 +4216,7 @@ end
 --- @param height number height to start landing
 --- @param target_z number|nil target altitude (destination Z); if provided, stop descending at this Z
 function Navigation:AutoLanding(height, target_z)
-	-- Fixed safety net, not a timing target. The old value was
-	-- `(height / autopilot_speed) * 1.8`, which assumed the craft was already at
-	-- cruise speed when the landing starts. It never is -- the descent begins at
-	-- 0.5 m/s and `autopilot_acceleration` is only 1.575 m/s^2 at 25 m/s, so
-	-- reaching cruise needs ~198 m of descent. Over a normal 50 m landing the
-	-- budget expired with the craft ~38 m above the ground and every landing
-	-- ended in "AutoPilot Success for timeout" instead of a touchdown.
-	--
-	-- The real landing is terminated by the ground / target_z / collision
-	-- branches; this only catches a landing over a void where the ground is
-	-- never found. See landing_timeout_seconds in the constructor for coverage.
+	-- Fixed safety net, not a timing target: real landings end via ground/target_z/collision branches.
 	local down_timeout_seconds = self.landing_timeout_seconds
 	local down_time_count = TimeScale:Ticks(down_timeout_seconds)
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Landing Start :" .. tostring(down_timeout_seconds) .. "s, " .. tostring(height) .. "m" .. (target_z and string.format(", target_z=%.1f", target_z) or ""))
@@ -4552,18 +4238,10 @@ function Navigation:AutoLanding(height, target_z)
 			deceleration_rate = 3
 		end
 
-		-- Reaction blind spot. Every threshold below is sampled once per tick, so
-		-- by the time it is seen the craft is `lead` metres lower than the number
-		-- that produced the comparison. At 25 m/s a 0.05 s tick hides 1.25 m and
-		-- a 0.5 s tick hides 12.5 m -- against a 1.2 m ground clearance that is
-		-- the whole difference between landing and cratering.
+		-- Reaction blind spot: thresholds are sampled per tick; lead compensates for the travel in between.
 		local velocity = self.av_obj.engine_obj:GetVelocity()
 		local descent_speed = velocity and math.max(0, -velocity.z) or 0
-		-- Capped at the clearance we are protecting. Without the cap a single
-		-- wild velocity read (right after a spawn or teleport the vertical
-		-- component can be enormous) pushes every threshold below up by
-		-- lead metres, and the landing is declared complete far above the
-		-- ground. The correction may never exceed the thing it corrects for.
+		-- Capped at the clearance being protected: the correction may never exceed the thing it corrects for.
 		local lead = TimeScale:Lead(descent_speed, self.av_obj.minimum_distance_to_ground)
 
 		-- Restore angle 
@@ -4762,8 +4440,7 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 		self.last_cache_time = current_time
 	end
 
-	-- Evict cache when it grows too large to prevent memory accumulation.
-	-- 500 entries covers ~30s of normal flight; older entries are already stale.
+	-- Evict the cache past 500 entries (~30 s of flight); older entries are already stale.
 	if self.iswall_cache_size and self.iswall_cache_size > 500 then
 		self.iswall_cache      = {}
 		self.iswall_cache_size = 0
@@ -4940,8 +4617,7 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 			return true, search_vec
 		end
 	else
-		-- Advanced mode: 7 points - vehicle center + front plane (5 points) + rear point
-		-- Front plane: 5-point grid at vehicle front position (perpendicular to search direction)
+		-- Advanced mode: 7 points - vehicle center + 5-point front plane + rear point
 		local front_distance = self.collision_check_front_distance
 		local rear_distance = self.collision_check_rear_distance
 
@@ -5545,9 +5221,7 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 		return Vector4.new(1, 0, 0, 0)
 	end
 
-	-- Near-goal guard: in final_local phase, avoid triggering stuck-escape ascent
-	-- right before arrival. This keeps the last meters stable and prevents
-	-- emergency-looking upward maneuvers just before landing.
+	-- Near-goal guard: skip stuck-escape ascent right before arrival to keep the last meters stable.
 	local near_final_local_goal = false
 	if self.autopilot_phase == "final_local" then
 		local final_local_arrival_range = math.max(self.av_obj.destination_range or 0, self.final_local_arrival_range or 8.0)
@@ -5566,9 +5240,7 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 		dest_dir_vec.y / dest_len,
 		dest_dir_vec.z / dest_len, 0)
 
-	-- Stuck detection uses short-window forward progress plus actual speed deficiency.
-	-- This reacts faster than pure destination-distance checks and is harder to fool
-	-- by sideways drift near walls.
+	-- Stuck detection: short-window forward progress plus speed deficiency; faster and harder to fool.
 	local stuck_check_interval = self.local_avoidance_stuck_check_interval or 0.5
 	local stuck_min_forward_progress = self.local_avoidance_stuck_min_forward_progress or 0.5
 	local stuck_reset_forward_progress = self.local_avoidance_stuck_reset_forward_progress or 2.0
@@ -5663,8 +5335,7 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 		return Vector4.new(0, 0, 1, 0)
 	end
 
-	-- === Repulsion-field navigation ===
-	-- Detect radius: faster speed -> look farther ahead.
+	-- Repulsion-field navigation: detect radius grows with speed to look farther ahead.
 	local detect_dist = math.max(
 		self.local_avoidance_detect_distance_min or 12.0,
 		self.autopilot_speed * (self.local_avoidance_detect_distance_scale or 1.2))
@@ -5696,10 +5367,8 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 	return Vector4.new(nav_x/nav_len, nav_y/nav_len, nav_z/nav_len, 0)
 end
 
---- Spherical repulsion force collector for potential-field obstacle avoidance.
---- Casts rays in all directions using a Fibonacci sphere pattern (N=32).
---- Returns rep_x, rep_y, rep_z (aggregate repulsion vector) and min_fwd_dist
---- (closest hit distance in the forward hemisphere, for speed control).
+--- Spherical repulsion force collector for potential-field obstacle avoidance (Fibonacci sphere, N=32).
+--- Returns rep_x/rep_y/rep_z plus min_fwd_dist (closest forward-hemisphere hit, for speed control).
 function Navigation:CollectSphericalRepulsion(from_pos, forward_dir, detect_dist)
 	local fx, fy, fz = forward_dir.x, forward_dir.y, forward_dir.z
 	local effective_dist = detect_dist * (self.local_avoidance_repulsion_effective_ratio or 0.65)
@@ -5772,16 +5441,10 @@ function Navigation:HasSphericalCollision(from_pos, detect_dist)
 	return false
 end
 
--- ===========================================================================
--- PROBE: temporary freeze instrumentation (see Modules/profprobe.lua).
--- Wraps the methods below so every call is timed without touching any body.
--- Remove this whole block plus the `Prof` require at the top to undo.
--- ===========================================================================
+-- PROBE: temporary freeze instrumentation; remove this block plus the Prof require at the top.
 do
 	local PROBE_TARGETS = {
-		-- Nearest-cell resolution. These walk chunk images, shells and scans and
-		-- are the prime suspects for a multi-hundred-millisecond stall at
-		-- destination setup.
+		-- Nearest-cell resolution: prime suspects for multi-hundred-ms stalls at destination setup.
 		{ "FindNearestKnownSectorPosByShell",         "near.shell" },
 		{ "FindNearestKnownSectorPosByFullScan",      "near.fullscan" },
 		{ "FindNearestKnownSectorPosInChunk",         "near.chunk" },

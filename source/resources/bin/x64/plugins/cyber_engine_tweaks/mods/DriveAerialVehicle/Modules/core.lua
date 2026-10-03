@@ -27,8 +27,7 @@ function Core:New()
     obj.session_obstacle_map_loaded_files = 0
     obj.is_obstacle_map_preload_timer_active = false
     obj.has_started_obstacle_map_preload = false
-    -- static --
-    -- lock
+    -- static -- lock
     obj.delay_action_time_in_waiting = 0.05
     obj.delay_action_time_in_vehicle = 0.05
     -- import path
@@ -42,8 +41,7 @@ function Core:New()
     -- custom mappin
     obj.huge_distance = 1000000
     obj.max_mappin_history = 10
-    -- dynamic --
-    -- lock
+    -- dynamic -- lock
     obj.is_locked_action_in_waiting = false
     obj.is_locked_action_in_vehicle = false
     obj.is_locked_action_in_combat = false
@@ -61,9 +59,7 @@ function Core:New()
     obj.last_control_time = nil
     -- AV
     obj.move_up_button_hold_count = 0
-    -- Hold caps are durations, not tick counts. 500 s is the old 50000 ticks at
-    -- the 0.01 base resolution -- effectively "no cap", but it now stays that way
-    -- whatever resolution the user picked.
+    -- Hold caps are durations, not tick counts (500 s = old 50000 ticks at base 0.01).
     obj.max_move_hold_seconds = 500
     -- Registry of currently armed button holds (safety net for StopAllButtonHolds)
     obj.active_button_holds = {}
@@ -110,9 +106,13 @@ function Core:New()
     obj.translation_table_list = {}
     -- summon
     obj.current_purchased_vehicle_count = 0
-    -- garage polling (see Core:UpdateGarageInfo)
-    obj.garage_update_interval = 1.0
+    -- Garage polling: refreshed on demand by its consumers; this interval is only a slow safety net.
+    obj.garage_update_interval = 30.0
     obj.last_garage_update_time = nil
+    -- Situation-driven loop gate: Waiting's CheckAllEvents runs at this interval instead of every tick.
+    obj.waiting_loop_interval = 0.05
+    obj.last_waiting_loop_time = 0
+    obj.is_control_loop_sleeping = false
     -- custom mappin
     obj.current_custom_mappin_position = Vector4.Zero()
     obj.fast_travel_position_list = {}
@@ -153,12 +153,9 @@ function Core:Init()
     -- Restore favorite destination from saved settings on startup
     self:RestoreFavoriteDestination()
 
-    -- The obstacle-map resident cache is NOT started here. `onInit` runs before any
-    -- save is loaded, so the player position is unknown and the chunks cannot be
-    -- ordered by distance. It is started from the SessionStart observer instead.
+    -- Resident cache starts from the SessionStart observer, not here (player position unknown in onInit).
 
-    -- Control loop. Started through ApplyTimeResolution so the period comes from
-    -- the user setting and the timer handle is kept for a live restart.
+    -- Control loop started via ApplyTimeResolution so the period comes from the user setting.
     self:ApplyTimeResolution(true)
 
     -- set observer
@@ -168,9 +165,7 @@ function Core:Init()
 end
 
 --- Publish the configured control-loop resolution and (re)start the loop on it.
---- Called from Init and from the settings callback. Restarting the timer is safe:
---- nothing else holds a reference to the old one, and every per-tick accumulator
---- reads DAV.dt_scale live.
+--- Restarting the timer is safe; per-tick accumulators read DAV.dt_scale live.
 ---@param force boolean|nil restart the loop even if the resolution is unchanged
 ---@return number the applied resolution
 function Core:ApplyTimeResolution(force)
@@ -196,11 +191,53 @@ function Core:ApplyTimeResolution(force)
     return applied
 end
 
+--- Decide what the control loop should do this tick: "run" | "checks_paced" | "sleep".
+--- The Cron timer is never paused: pausing would freeze the measured-dt sampler and break wake sources.
+--- "checks_paced" skips the C# heavy CheckAllEvents but keeps GetActions at full rate for input latency.
+---@return string "run" | "checks_paced" | "sleep"
+function Core:ControlLoopState()
+    local has_pending_input = self.queue_obj ~= nil and not self.queue_obj:IsEmpty()
+    local situation = self.event_obj.current_situation
+
+    if situation == Def.Situation.Waiting then
+        if has_pending_input then
+            return "run"
+        end
+        local now = os.clock()
+        if now >= self.last_waiting_loop_time then
+            self.last_waiting_loop_time = now + self.waiting_loop_interval
+            return "run"
+        end
+        return "checks_paced"
+    end
+
+    -- Landing / TalkingOff / InVehicle: descent/ascent thresholds are tick-period dependent. Never skip.
+    if situation == Def.Situation.Landing
+        or situation == Def.Situation.TalkingOff
+        or situation == Def.Situation.InVehicle then
+        return "run"
+    end
+
+    -- Idle / Normal.
+    if has_pending_input then
+        return "run"
+    end
+    local next_garage = (self.last_garage_update_time or 0) + self.garage_update_interval
+    if os.clock() >= next_garage then
+        return "run"
+    end
+    return "sleep"
+end
+
+--- Force the next tick to run the full body. Called after a situation change so
+--- entering Waiting does not sit behind the pacing it just arrived with.
+function Core:WakeControlLoop()
+    self.last_waiting_loop_time = 0
+    self.is_control_loop_sleeping = false
+end
+
 --- One control-loop iteration.
---- In "measured" mode the real elapsed time is fed to TimeScale so the per-tick
---- accumulators integrate the actual dt instead of the requested one; Cron can
---- never fire faster than the render loop, so a 0.01 request on a 30 fps machine
---- is really 0.033 and the old code silently ran 3.3x slow.
+--- In "measured" mode the real elapsed dt is fed to TimeScale so accumulators integrate actual time.
 function Core:ControlTick()
     if TimeScale:GetMode() == TimeScale.MODE_MEASURED then
         local now = os.clock()
@@ -209,8 +246,22 @@ function Core:ControlTick()
         end
         self.last_control_time = now
     end
-    self.event_obj:CheckAllEvents()
-    self:GetActions()
+
+    local state = self:ControlLoopState()
+    self.is_control_loop_sleeping = (state == "sleep")
+
+    if state == "run" then
+        local situation_before = self.event_obj.current_situation
+        self.event_obj:CheckAllEvents()
+        -- Re-open the gate when the situation moved so transitions are felt on the next tick.
+        if self.event_obj.current_situation ~= situation_before then
+            self:WakeControlLoop()
+        end
+    end
+
+    if state ~= "sleep" then
+        self:GetActions()
+    end
 end
 
 --- Reset AV and Event object.
@@ -257,17 +308,20 @@ function Core:StartObstacleMapSessionPreload()
 end
 
 --- Ensure the resident obstacle-map cache maintenance timer is running.
---- Unlike the old one-shot preload timer, this one is intentionally persistent:
---- the resident window has to follow the player for the whole session. It is
---- stopped by ReleaseObstacleMapSession() on shutdown. A tick with nothing to do
---- costs one pass over the ~96-entry chunk inventory.
+--- The timer parks itself when Navigation:HasPendingMapWork() goes false; this re-arms it.
 function Core:EnsureObstacleMapPreloadTimer(tick_interval)
     if self.is_obstacle_map_preload_timer_active then
         return true
     end
 
+    if tick_interval ~= nil then
+        self.obstacle_map_maintenance_tick = tick_interval
+    end
+    if self.obstacle_map_maintenance_tick == nil then
+        self.obstacle_map_maintenance_tick = 0.05
+    end
     self.is_obstacle_map_preload_timer_active = true
-    Cron.Every(tick_interval, function(timer)
+    self.obstacle_map_maintenance_timer = Cron.Every(self.obstacle_map_maintenance_tick, function(timer)
         local navigation_obj = nil
         if self.av_obj ~= nil then
             navigation_obj = self.av_obj.navigation_obj
@@ -275,6 +329,15 @@ function Core:EnsureObstacleMapPreloadTimer(tick_interval)
 
         if navigation_obj == nil or navigation_obj.MaintainObstacleMapCache == nil then
             self.is_obstacle_map_preload_timer_active = false
+            self.obstacle_map_maintenance_timer = nil
+            Cron.Halt(timer)
+            return
+        end
+
+        -- Park while idle: HasPendingMapWork() is pure Lua, so a parked timer costs nothing.
+        if navigation_obj.HasPendingMapWork ~= nil and navigation_obj:HasPendingMapWork() == false then
+            self.is_obstacle_map_preload_timer_active = false
+            self.obstacle_map_maintenance_timer = nil
             Cron.Halt(timer)
             return
         end
@@ -285,7 +348,30 @@ function Core:EnsureObstacleMapPreloadTimer(tick_interval)
     return true
 end
 
+--- Re-arm the obstacle-map maintenance timer after it parked itself.
+---@return boolean true when the timer was actually restarted
+function Core:WakeObstacleMapMaintenance()
+    if self.is_obstacle_map_preload_timer_active then
+        return false
+    end
+    return self:EnsureObstacleMapPreloadTimer(self.obstacle_map_maintenance_tick)
+end
+
+--- Tear the maintenance timer down. Used on session release only: an idle timer
+--- already parks itself via HasPendingMapWork(), and stopping on AV despawn would
+--- defer flushing learned cells and risk losing them if the player quits.
+function Core:StopObstacleMapMaintenance()
+    if self.obstacle_map_maintenance_timer ~= nil then
+        Cron.Halt(self.obstacle_map_maintenance_timer)
+        self.obstacle_map_maintenance_timer = nil
+    end
+    self.is_obstacle_map_preload_timer_active = false
+    return true
+end
+
 function Core:ReleaseObstacleMapSession()
+    -- Tear the maintenance timer down first so it cannot tick against a cache being released.
+    self:StopObstacleMapMaintenance()
     if self.av_obj ~= nil and self.av_obj.navigation_obj ~= nil then
         self.av_obj.navigation_obj:ReleaseObstacleMapSessionCache()
         return true
@@ -468,9 +554,7 @@ function Core:SetInputListener()
     local exception_in_popup_set = to_exception_set(Utils:ReadJson("Data/exception_in_popup_input.json"))
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
-        -- Read the situation once and reuse it. IsInVehicle() / IsInEntryArea()
-        -- each re-read current_situation and then pay a C# round trip, and this
-        -- hook fires on every input action in the game (~3.3/frame measured).
+        -- Read the situation once and reuse it; this hook fires on every input action in the game.
         local situation = self.event_obj.current_situation
         if situation ~= Def.Situation.Waiting and situation ~= Def.Situation.InVehicle then
             return
@@ -480,10 +564,7 @@ function Core:SetInputListener()
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
 
-        -- Equivalent to Event:IsInVehicle(), which is
-        --   current_situation == InVehicle and av_obj:IsPlayerIn()
-        -- Nothing between the read above and here can mutate the situation, so
-        -- re-reading it inside IsInVehicle() bought nothing.
+        -- Equivalent to Event:IsInVehicle(); nothing here can mutate the situation between the reads.
         if situation == Def.Situation.InVehicle and self.av_obj:IsPlayerIn() then
             if exception_in_veh_set[action_name] then
                 consumer:Consume()
@@ -495,9 +576,7 @@ function Core:SetInputListener()
                     self.is_locked_action_in_combat = true
                     consumer:Consume()
                 end
-                -- block combat seat action. Ordered so that IsMountedCombatSeat()
-                -- (a C# round trip) is only paid for actions that are actually
-                -- popup exceptions, which is the rare case.
+                -- Order so the IsMountedCombatSeat() C# call is paid only for actual popup exceptions.
                 if exception_in_popup_set[action_name] and not self.av_obj:IsMountedCombatSeat() then
                     consumer:Consume()
                 end
@@ -508,17 +587,14 @@ function Core:SetInputListener()
                     and (self.event_obj:IsInMenuOrPopupOrPhoto() or self.event_obj:IsAutoMode()) then
                 consumer:Consume()
             end
-        -- Equivalent to Event:IsInEntryArea(), which is
-        --   current_situation == Waiting and av_obj:IsPlayerInEntryArea()
+        -- Equivalent to Event:IsInEntryArea(): Waiting and av_obj:IsPlayerInEntryArea().
         elseif situation == Def.Situation.Waiting and self.av_obj:IsPlayerInEntryArea() then
             if exception_in_entry_area_set[action_name] then
                 consumer:Consume()
             end
         end
 
-        -- Gate the concatenation. Record() drops Debug below the configured level,
-        -- but it drops it *after* the caller built the string, so without this
-        -- guard every action allocated ~4 throwaway strings.
+        -- Gate the concatenation: Record() filters only after the caller built the string.
         if self.log_obj:IsEnabled(LogLevel.Debug) then
             self.log_obj:Record(LogLevel.Debug, "Action Name: " .. action_name .. " Type: " .. action_type .. " Value: " .. action_value)
         end
@@ -589,13 +665,7 @@ end
 
 --- Update Garage Info.
 function Core:UpdateGarageInfo(is_force_update)
-    -- Throttle (docs/PERFORMANCE_FIX_PLAN.md, fix (3)).
-    -- The 100Hz idle loop used to reach this every frame, and the two C# calls below
-    -- run *before* the count-based early return, so a late-game save (~150-200
-    -- unlocked vehicles) produced roughly 10,000 wrapped-object allocations per
-    -- second on top of the resident obstacle map. The garage list changes rarely,
-    -- so polling it once a second is plenty. os.clock() is CPU time, which means
-    -- the poll naturally backs off further when the process is CPU-bound.
+    -- Throttled to ~1 Hz (CPU time): the garage list changes rarely and the C# calls run before the early return.
     if not is_force_update then
         local now = os.clock()
         if self.last_garage_update_time ~= nil
@@ -634,6 +704,15 @@ function Core:UpdateGarageInfo(is_force_update)
     end
 
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+end
+
+--- Refresh the garage list on demand.
+--- Call this right before anything reads purchase state so the consumer never sees
+--- a stale list, instead of paying for a 1 Hz poll all session.
+---@param reason string why the refresh was needed (logged at Trace)
+function Core:RequestGarageRefresh(reason)
+    self.log_obj:Record(LogLevel.Trace, "Garage refresh requested: " .. tostring(reason))
+    self:UpdateGarageInfo(true)
 end
 
 --- Change Garage AV Type.
@@ -853,8 +932,7 @@ end
 function Core:StartButtonHold(button_name, action_type, max_hold_seconds, on_start_callback, on_stop_callback)
     local counter_flag_name = "is_" .. button_name .. "_button_hold_counter"
     local counter_value_name = button_name .. "_button_hold_count"
-    -- Duration -> tick count. The old code compared a raw tick count against a
-    -- constant that only meant "500 s" because the loop happened to be 0.01.
+    -- Duration -> tick count via TimeScale (the old raw count assumed a 0.01 loop).
     local max_ticks = TimeScale:Ticks(max_hold_seconds or 500)
     
     -- Already holding this button
@@ -921,10 +999,7 @@ function Core:StopAllButtonHolds()
 end
 
 --- Check if the player is ready to receive movement input.
---- A hold must not be armed while the vehicle is spawning or the player
---- is not actually seated (e.g. pressing the pad enter button, which is
---- also bound to move_down/descend, would otherwise arm a phantom hold).
---- Suggested by LordCucumber (boost-down fix report).
+--- A hold must not be armed while spawning or before the player is actually seated.
 ---@return boolean
 function Core:IsReadyForMovementInput()
     if self.av_obj == nil or self.event_obj == nil then return false end
@@ -1089,9 +1164,7 @@ end
 ---@param key string
 ---@param value number
 function Core:ConvertAxisAction(key, value)
-    -- Shared membership set with the input proxy. The old body built
-    -- `{"IK_Pad_LeftAxisX", "IK_Pad_LeftAxisY"}` on every call and walked it
-    -- once per flight mode; this allocates nothing and reads flight_mode once.
+    -- Shared membership set with the input proxy; allocates nothing and reads flight_mode once.
     if not Def.AxisKeySet[key] then
         return
     end
@@ -1173,13 +1246,7 @@ function Core:OperateAerialVehicle(actions)
         return
     end
 
-    -- No menu, popup or photo mode. This guard used to sit on the InVehicle
-    -- branch only, and the Waiting branch missed it. `Engine:Update` returns
-    -- early while a menu is up, so nothing computed here can reach physics --
-    -- the whole control pass was provably dead work. Field log (fix 21):
-    -- 95% of Waiting ticks happened with a menu open, and every one of them
-    -- still ran CalculateAddVelocity -> CalculateIdleMode -> GetGroundPosition,
-    -- i.e. one synchronous ground raycast per tick, measured at 270 ticks/s.
+    -- No menu, popup or photo mode: with a menu up nothing computed here can reach physics.
     if self.event_obj:IsInMenuOrPopupOrPhoto() then
         return
     end
@@ -1301,6 +1368,8 @@ end
 
 --- Open Vehicle Manager.
 function Core:OpenVehicleManager()
+    -- The manager renders purchase state, so refresh it here instead of relying on the background poll.
+    self:RequestGarageRefresh("OpenVehicleManager")
     self.event_obj:ShowVehicleManagerPopup()
 end
 
@@ -1319,8 +1388,7 @@ end
 
 --- Set custom mappin
 function Core:SetCustomMappin(mappin)
-    -- This check is necessary because sometimes mappin becomes nil.
-    -- Discovered through report by Jamarlie
+    -- Necessary because the minimap sometimes becomes nil (user report).
     if mappin == nil then
         return
     end

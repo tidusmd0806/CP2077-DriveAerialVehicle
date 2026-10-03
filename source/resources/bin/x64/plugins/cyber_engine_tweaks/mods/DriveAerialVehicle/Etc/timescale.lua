@@ -71,25 +71,16 @@ Modes
 TimeScale = {}
 TimeScale.__index = TimeScale
 
--- The resolution every constant in this mod was tuned against. Never changed --
--- `dt_scale` is defined relative to it, so moving this would silently rescale
--- the whole flight model. It is not the default; see DEFAULT_HZ below.
+-- Resolution every constant was tuned against; dt_scale is defined relative to it. Never change.
 TimeScale.BASE_RESOLUTION = 0.01
 
--- User-adjustable window: 120 Hz at the fast end (0.00833 s, finer than any
--- realistic frame time so it just costs CPU) down to 10 Hz at the coarse end
--- (0.1 s), which is as far as the landing lead compensation can be pushed and
--- still stop a fast descent above the ground clearance.
+-- User-adjustable window: 120 Hz (fast, costs CPU) down to 10 Hz (coarsest safe for landing lead).
 TimeScale.MIN_HZ = 10
 TimeScale.MAX_HZ = 120
 TimeScale.MIN_RESOLUTION = 1.0 / TimeScale.MAX_HZ
 TimeScale.MAX_RESOLUTION = 1.0 / TimeScale.MIN_HZ
 
--- Shipped default. 20 Hz is the sweet spot the perf work was aiming at: a 5x
--- cut in control-loop rate against the 0.01 tuning reference, with the lead
--- compensation still holding the takeoff/landing stop points above the ground
--- clearance (verified in tests/timescale_landing_test.lua). Note this is NOT
--- BASE_RESOLUTION -- at the default the flight model runs at dt_scale 5.0.
+-- Shipped default: 20 Hz, 5x the tuning reference; lead compensation keeps stop points safe (dt_scale 5.0).
 TimeScale.DEFAULT_HZ = 20
 TimeScale.DEFAULT_RESOLUTION = 1.0 / TimeScale.DEFAULT_HZ
 
@@ -99,8 +90,7 @@ TimeScale.MAX_MEASURED_DT = 0.10
 TimeScale.MODE_NOMINAL = "nominal"
 TimeScale.MODE_MEASURED = "measured"
 
--- Singleton state. There is exactly one control loop, so this module is used as
--- a singleton: call the methods on the class table itself, `TimeScale:Set(...)`.
+-- Singleton: one control loop, so call methods on the class table itself (TimeScale:Set(...)).
 local resolution = TimeScale.DEFAULT_RESOLUTION
 local mode = TimeScale.MODE_NOMINAL
 local measured_dt = TimeScale.DEFAULT_RESOLUTION
@@ -165,8 +155,7 @@ function TimeScale:Set(value, new_mode)
     end
     resolution = self:Clamp(value)
     measured_dt = resolution
-    -- Keep the global in sync; hot paths read this field directly instead of
-    -- calling through the module once per tick.
+    -- Keep the global in sync; hot paths read this field directly.
     if DAV ~= nil then
         DAV.time_resolution = resolution
         DAV.dt_scale = self:Scale()
@@ -239,15 +228,8 @@ function TimeScale:PerTick(base_amount)
     return (base_amount or 0) * self:Scale()
 end
 
---- How far the craft travels during one control tick -- the distance a threshold
---- check cannot see because it is sampled too late.
----
---- `max_lead` is NOT optional in practice. The speed comes straight out of the
---- physics handle, and a single wild read (right after a spawn or a teleport the
---- vertical velocity can be enormous) would otherwise move the stop point by
---- tens of metres -- which is exactly how "the autopilot declares the landing
---- complete while still far above the ground" happens. Always pass the distance
---- you are protecting so the correction can never exceed it.
+--- Distance the craft travels during one control tick (lead compensation for late-sampled thresholds).
+--- Always pass max_lead: a wild velocity read must not move the stop point beyond what you protect.
 ---@param closing_speed number speed, in m/s, at which the gap is closing (>= 0)
 ---@param max_lead number|nil hard ceiling on the returned distance, in metres
 ---@return number
@@ -262,23 +244,8 @@ function TimeScale:Lead(closing_speed, max_lead)
     return lead
 end
 
---- Convert a per-base-tick low-pass blend coefficient into one that keeps the
---- same time constant at the live control period.
----
---- A blend written `x = x + (target - x) * alpha` once per tick is a
---- first-order filter whose discrete pole is `(1 - alpha)` and whose time
---- constant is `-dt / ln(1 - alpha)`. So `alpha` is only meaningful together
---- with `dt`: leaving it fixed while the period grows 5x makes the filter 5x
---- lazier in wall-clock terms.
----
---- That is exactly what happened to the autopilot's heading filter. At 20 Hz the
---- smoothed yaw target trails the raw target by ~0.8 s instead of ~0.16 s, so
---- the craft steers toward a heading it was asked for almost a second ago and
---- keeps overshooting -- the wobble on the approach to a target angle.
----
---- Re-map the pole instead: `alpha_eff = 1 - (1 - alpha) ** (dt / BASE)`.
---- At dt == BASE this returns `alpha` unchanged; at 5x the period it returns a
---- proportionally larger step that lands on the same 0.16 s time constant.
+--- Re-map a per-base-tick blend coefficient to keep the same time constant at the live period:
+--- alpha_eff = 1 - (1 - alpha) ** (dt / BASE); a fixed alpha gets proportionally lazier as dt grows.
 ---@param alpha number per-base-tick blend coefficient in 0..1
 ---@return number
 function TimeScale:SmoothAlpha(alpha)

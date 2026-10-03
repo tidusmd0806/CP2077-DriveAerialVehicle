@@ -36,8 +36,7 @@ function Camera:New(all_models)
     obj.default_low_far_distance_offset = 4.0
     obj.low_far_center_offset = {x = 0.0, y = 0.5, z = 1.5}
     obj.low_driver_combat_far_center_offset = {x = 0.0, y = 0.5, z = 1.8}
-    -- dynamic --
-    -- set default parameters
+    -- dynamic -- set default parameters
     obj.current_camera_mode = Def.CameraDistanceLevel.Fpp
     obj.enable_fpp = true
     obj.camera_distance_ratio = {}
@@ -72,11 +71,7 @@ end
 --- Set camera parameters
 ---@param seat_index number mounted seat index
 function Camera:SetPerspective(seat_index)
-    -- Nothing that feeds these writes changed: same seat, same model, same
-    -- ratio/offset tables.  SetPerspective() is called from AV:Mount(), so
-    -- this is 36 TweakDB:SetFlat + 36 TweakDBID.new + 12 Vector3.new on the
-    -- exact frame the game is already swapping the HUD, starting the mount
-    -- animation and handing physics over.  See docs/PERF_ANALYSIS_enter_exit.md
+    -- Skip the TweakDB rewrite when nothing that feeds these values changed (same seat/model/tables).
     if self.written_seat_index == seat_index
             and self.written_model_index == DAV.model_index
             and self.written_ratio_table == self.camera_distance_ratio

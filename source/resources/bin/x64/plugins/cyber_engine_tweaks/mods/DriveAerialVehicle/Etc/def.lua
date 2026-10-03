@@ -133,11 +133,7 @@ Def.EngineControlType = {
     Blocking = 3
 }
 
---- Gamepad axes the mod actually consumes.
---- The axis input proxy fires on every axis event in the game (~4 per frame:
---- mouse, menus, walking), and nothing outside this set can ever reach an
---- action. Both the proxy and Core:ConvertAxisAction drop non-members up front
---- so neither has to build or walk a candidate list per event.
+--- Gamepad axes the mod consumes; the proxy and ConvertAxisAction drop non-members up front.
 Def.AxisKeySet = {
     IK_Pad_LeftAxisX = true,
     IK_Pad_LeftAxisY = true,

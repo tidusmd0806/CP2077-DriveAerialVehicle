@@ -2,8 +2,7 @@ local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
 local Sound = require("Modules/sound.lua")
 local UI = require("Modules/ui.lua")
--- PROBE: per-situation cost ledger (see Event.EnableSituationLedger at the
--- bottom of this file). Remove with that function.
+-- PROBE: per-situation cost ledger; see Event.EnableSituationLedger at the bottom of this file.
 local Prof = require("Modules/profprobe.lua")
 local AV = require("Modules/av.lua")
 local Engine = require("Modules/engine.lua")
@@ -22,8 +21,7 @@ function Event:New()
     obj.ui_obj = UI:New()
     obj.sound_obj = Sound:New()
 
-    -- static --
-    -- projection
+    -- static -- projection
     obj.projection_max_height_offset = 4
     -- distance limit
     obj.engine_audio_limit = 30
@@ -41,49 +39,29 @@ function Event:New()
     obj.check_input_count = 0
     obj.is_ltbf_flight_active = false
 
-    -- Entry-area choice hub state (see CheckInEntryArea).
-    -- ShowChoice() rebuilds every seat caption, re-resolves localisation and
-    -- re-activates the hub: ~40 C# transitions per call. It used to run on
-    -- every 100 Hz tick for as long as the player stood near the parked AV,
-    -- i.e. ~4000 transitions/second to re-display an unchanged dialog.
+    -- Entry-area choice hub state: ShowChoice() costs ~40 C# transitions, so it runs only on change.
     obj.shown_seat_index = nil
     obj.choice_last_shown_time = 0
-    -- Safety net only. The InteractionUIBase overrides keep the hub injected
-    -- while the player is in range, so this mostly never fires; it exists so a
-    -- hub the game dropped on its own is recovered within a second.
+    -- Safety net: recovers a hub the game dropped on its own within a second.
     obj.choice_keepalive_interval = 1.0
 
-    -- Checks whose answer only changes on a human timescale. They were wired to
-    -- the 100 Hz situation loop because that was the loop available, not
-    -- because they need 100 Hz.
+    -- Checks that change only on a human timescale; they do not need the full loop rate.
     obj.distance_check_interval = 0.5
     obj.last_distance_check_time = 0
     obj.locked_save_check_interval = 0.1
     obj.last_locked_save_check_time = 0
     obj.last_landing_vfx_height = nil
 
-    -- Ground probe cadence (see CheckHeight).
-    -- Navigation:GetHeight() bottoms out in SyncRaycastByQueryFilter, a
-    -- *synchronous* physics query. One of those costs as much as a few dozen
-    -- plain C# getters, and it was being paid every single tick in every
-    -- situation that had a live AV -- including a parked one, where the answer
-    -- cannot change at all.
-    --
-    -- The probe feeds exactly two things: the landing warning VFX (a boolean
-    -- thresholded at projection_max_height_offset + minimum_distance_to_ground,
-    -- ~5 m) and that VFX's slot offset. Neither needs 100 Hz, so the next
-    -- interval is predicted from the previous measurement -- the height cannot
-    -- move far in one interval:
-    --
-    --   far   -- nobody is close enough to see the projection at all
-    --   still -- no vertical motion, so the height is fixed
-    --   slow  -- high up: even at maximum sink rate the warning cannot reach
-    --           its threshold inside the slow interval
-    --   fast  -- low and moving: probe every tick, as before
-    --
-    -- Measured effect is not claimed here; the arithmetic is: a parked craft
-    -- goes from 100 probes/s to 4/s, and a cruising one from 100/s to 10/s,
-    -- while low-altitude flight keeps the original rate.
+    -- Slow-changing checks paced via Event:DueNow instead of the full-rate situation loop.
+    obj.mount_check_interval = 0.05          -- 20 Hz: boarding / leaving the AV
+    obj.door_check_interval = 0.1            -- 10 Hz: a door is opened by hand
+    obj.engine_check_interval = 0.2          --  5 Hz: the engine only dies on destruction
+    obj.destroyed_check_interval = 0.1       -- 10 Hz: same
+    obj.combat_check_interval = 0.2          --  5 Hz: driver-combat state changes rarely
+    obj.consume_slot_check_interval = 1.0    --  1 Hz: widget-tree walk + pcall
+    obj.hud_check_interval = 0.05          -- 20 Hz: meter digits are integers (D-1)
+
+    -- Ground probe cadence: synchronous raycast, so the next interval is predicted from the last measurement.
     obj.height_check_interval_fast = 0.0
     obj.height_check_interval_slow = 0.1
     obj.height_check_interval_still = 0.25
@@ -94,11 +72,7 @@ function Event:New()
     obj.next_height_check_time = 0
     obj.last_height = nil
 
-    -- Shared cache for the player -> AV distance.
-    -- CheckDistance polls it for the 30 m engine-audio threshold and CheckHeight
-    -- polls it to decide whether anyone can see the landing projection.
-    -- Uncached, every caller pays four transitions: GetPlayer, GetWorldPosition,
-    -- GetPosition, Vector4.Distance.
+    -- Shared cache for the player -> AV distance (CheckDistance and CheckHeight poll the same value).
     obj.player_distance_cache_time = 0.5
     obj.last_player_distance_time = 0
     obj.cached_player_distance = nil
@@ -118,14 +92,15 @@ function Event:Init(av_obj)
 
     self.is_enable_audio = true
 
-    -- A new AV (or a new session) must not inherit the previous one's probe
-    -- cadence or distance: the first probe after this runs immediately and
-    -- re-predicts from fresh data.
+    -- A new AV/session resets probe cadence and distance: the first probe runs immediately on fresh data.
     self.last_height = nil
     self.next_height_check_time = 0
     self.cached_player_distance = nil
     self.last_player_distance_time = 0
     self.is_locked_showing_meter = false
+
+    -- A fresh AV/session must not inherit an LTBF poll still running against the previous instance.
+    self:StopLTBFCompatPoll()
 
     if not DAV.is_ready then
         self:SetObserve()
@@ -171,13 +146,9 @@ function Event:SetObserve()
         DAV.core_obj:SetFastTravelPosition()
         self.current_situation = Def.Situation.Normal
 
-        -- The player exists now, so the resident obstacle-map cache can order
-        -- chunks by distance from where we actually are. Previously this ran from
-        -- Core:Init() (before the save was loaded) and pulled the whole 300MB map
-        -- into the Lua heap for the rest of the session.
+        -- Resident cache starts here, once the player exists and chunks can be ordered by real distance.
         DAV.core_obj:StartObstacleMapSessionPreload()
-        -- Refresh the garage once immediately so the very first summon sees the
-        -- right vehicles; afterwards the 1s throttle takes over.
+        -- Refresh the garage immediately so the first summon is correct; the 1s throttle takes over after.
         DAV.core_obj:UpdateGarageInfo(true)
 
     end)
@@ -191,54 +162,9 @@ function Event:SetObserve()
         end
     end)
 
-    -- Compatibility for LTBF
+    -- LTBF compatibility: the poll is registered only during boarding, not for the whole session.
     if DAV.is_valid_ltbf then
-        Cron.Every(0.1, {tick=1}, function(timer)
-            if self:IsInVehicle() then
-                local is_ltbf_flight_active = fs().ctlr.active
-                if is_ltbf_flight_active and is_ltbf_flight_active ~= self.is_ltbf_flight_active then
-                    self.is_ltbf_flight_active = is_ltbf_flight_active
-                    self.hud_obj:SetDeleteWidgetFlag(true)
-                    self.av_obj:BlockOperation(true)
-                    -- This poll runs on its own 0.1 s period, not on the control
-                    -- loop, so the tick budget is derived from that period rather
-                    -- than from TimeScale. Named so the 1 s intent survives.
-                    local ltbf_poll_period = 0.1
-                    local ltbf_timeout_ticks = math.ceil(1.0 / ltbf_poll_period)
-                    Cron.Every(ltbf_poll_period, {tick=1}, function(timer)
-                        timer.tick = timer.tick + 1
-                        if timer.tick > ltbf_timeout_ticks then
-                            self.log_obj:Record(LogLevel.Info, "Thruster check timed out")
-                            Cron.Halt(timer)
-                            return
-                        end
-                        if self.av_obj == nil or self.av_obj.entity_id == nil then
-                            self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for Thruster check")
-                            return
-                        end
-                        local entity = self.av_obj:GetEntity()
-                        local mesh_fl = entity:FindComponentByName("ThrusterFL")
-                        local mesh_fr = entity:FindComponentByName("ThrusterFR")
-                        local mesh_bl = entity:FindComponentByName("ThrusterBL")
-                        local mesh_br = entity:FindComponentByName("ThrusterBR")
-                        if mesh_fl then mesh_fl:Toggle(false) end
-                        if mesh_fr then mesh_fr:Toggle(false) end
-                        if mesh_bl then mesh_bl:Toggle(false) end
-                        if mesh_br then mesh_br:Toggle(false) end
-                        if fs().playerComponent.configuration.thrusters then
-                            fs().playerComponent.configuration.thrusters[1]:Stop()
-                            fs().playerComponent.configuration.thrusters[2]:Stop()
-                            fs().playerComponent.configuration.thrusters[3]:Stop()
-                            fs().playerComponent.configuration.thrusters[4]:Stop()
-                        end
-                    end)
-                elseif is_ltbf_flight_active ~= self.is_ltbf_flight_active then
-                    self.is_ltbf_flight_active = is_ltbf_flight_active
-                    self.hud_obj:SetDeleteWidgetFlag(false)
-                    self.av_obj:BlockOperation(false)
-                end
-            end
-        end)
+        self.ltbf_poll_period = 0.1
     end
 
     -- Observe appearance changes to reapply thruster positions
@@ -265,14 +191,7 @@ end
 
 --- Set Override Functions
 function Event:SetOverride()
-    -- To prevent the door from opening while driving.
-    --
-    -- This wraps the door query of EVERY vehicle in Night City, not just the
-    -- AV's.  IsInVehicle() answers through two C# calls (FindEntityByID +
-    -- IsPlayerMounted), but its first condition is a plain Lua field read --
-    -- so read that first and hand the call straight back for every vehicle
-    -- that is not ours.  Equivalent to IsInVehicle(): nothing runs between
-    -- the two checks that could move current_situation.
+    -- Door guard: check the Lua-only situation field first; return early for non-AV vehicles before C# round trips.
     Override("VehicleComponentPS", "GetHasAnyDoorOpen", function(this, wrapped_method)
         if self.current_situation ~= Def.Situation.InVehicle then
             return wrapped_method()
@@ -283,10 +202,7 @@ function Event:SetOverride()
             return wrapped_method()
         end
     end)
-    -- Depending on the position of the driver's seat, an animation will play in which the driver moves to the opposite door, just like in a normal car. This hook prevents this.
-    --
-    -- Same shape as above: the situation check is free, the player lookup is
-    -- not, and this fires on every unmount transition of every vehicle.
+    -- Prevent the driver-seat swap animation on unmount; situation check first, player lookup after.
     Override("VehicleTransition", "IsUnmountDirectionClosest", function(this, state_context, unmount_direction, wrapped_method)
         if self.current_situation ~= Def.Situation.InVehicle then
             return wrapped_method(state_context, unmount_direction)
@@ -304,7 +220,7 @@ function Event:SetOverride()
         end
     end)
 
-    -- Depending on the position of the driver's seat, an animation will play in which the driver moves to the opposite door, just like in a normal car. This hook prevents this.
+    -- Prevents the driver-swap-to-opposite-door animation of normal cars
     Override("VehicleTransition", "IsUnmountDirectionOpposite", function(this, state_context, unmount_direction, wrapped_method)
         if self.current_situation ~= Def.Situation.InVehicle then
             return wrapped_method(state_context, unmount_direction)
@@ -365,6 +281,21 @@ function Event:SetSituation(situation)
         self.log_obj:Record(LogLevel.Critical, "Invalid translating situation")
         return false
     end
+end
+
+--- Throttle helper: returns true when the caller should run now, and books the next slot.
+--- os.clock() is CPU time, so every cadence backs off when the process is CPU-bound.
+---@param field string instance field holding the next allowed run time
+---@param interval number seconds between runs
+---@return boolean true when the check should run
+function Event:DueNow(field, interval)
+    local now = os.clock()
+    local next_time = self[field]
+    if next_time ~= nil and now < next_time then
+        return false
+    end
+    self[field] = now + interval
+    return true
 end
 
 --- Check events for current situation.
@@ -481,9 +412,7 @@ end
 function Event:CheckInEntryArea()
     if self.av_obj:IsPlayerInEntryArea() then
         self.log_obj:Record(LogLevel.Trace, "InEntryArea detected")
-        -- interaction_hub is the HUD's own record of what it pushed; nil means
-        -- nothing is shown. Reading it here instead of keeping a second flag
-        -- means a HideChoice() from anywhere else is noticed and re-shown.
+        -- interaction_hub is the HUD's own record; nil means nothing is shown, so re-show it.
         local shown = (self.hud_obj.interaction_hub ~= nil)
         local now = os.clock()
         if not shown
@@ -500,8 +429,110 @@ function Event:CheckInEntryArea()
     end
 end
 
+--- Start the LTBF compatibility poll. Only ever runs while the player is aboard the AV.
+---@return boolean true when the poll was actually started
+function Event:StartLTBFCompatPoll()
+    if not DAV.is_valid_ltbf then
+        return false
+    end
+    if self.ltbf_poll_timer ~= nil then
+        return false
+    end
+
+    local period = self.ltbf_poll_period or 0.1
+    self.ltbf_poll_timer = Cron.Every(period, {tick = 1}, function(timer)
+        local is_ltbf_flight_active = fs().ctlr.active
+        if is_ltbf_flight_active and is_ltbf_flight_active ~= self.is_ltbf_flight_active then
+            self.is_ltbf_flight_active = is_ltbf_flight_active
+            self.hud_obj:SetDeleteWidgetFlag(true)
+            self.av_obj:BlockOperation(true)
+            self:StartLTBFThrusterCheck(period)
+        elseif is_ltbf_flight_active ~= self.is_ltbf_flight_active then
+            self.is_ltbf_flight_active = is_ltbf_flight_active
+            self.hud_obj:SetDeleteWidgetFlag(false)
+            self.av_obj:BlockOperation(false)
+        end
+    end)
+
+    return true
+end
+
+--- Stop the LTBF compatibility poll and any thruster check it spawned.
+--- Also unwinds an active LTBF takeover: the old always-on poll simply stopped
+--- acting once the player left, which left BlockOperation(true) behind.
+function Event:StopLTBFCompatPoll()
+    self:StopLTBFThrusterCheck()
+    if self.ltbf_poll_timer ~= nil then
+        Cron.Halt(self.ltbf_poll_timer)
+        self.ltbf_poll_timer = nil
+    end
+    if self.is_ltbf_flight_active then
+        self.is_ltbf_flight_active = false
+        self.hud_obj:SetDeleteWidgetFlag(false)
+        if self.av_obj ~= nil then
+            self.av_obj:BlockOperation(false)
+        end
+    end
+    return true
+end
+
+--- Suppress LTBF thruster meshes/effects for ~1 s after LTBF flight kicks in.
+--- The period is passed in so the 1 s budget stays tied to the poll period that
+--- started it rather than to the control-loop resolution.
+---@param period number poll period in seconds
+---@return boolean true when the check was actually started
+function Event:StartLTBFThrusterCheck(period)
+    if self.ltbf_thruster_timer ~= nil then
+        return false
+    end
+
+    period = period or self.ltbf_poll_period or 0.1
+    local ltbf_timeout_ticks = math.ceil(1.0 / period)
+    self.ltbf_thruster_timer = Cron.Every(period, {tick = 1}, function(timer)
+        timer.tick = timer.tick + 1
+        if timer.tick > ltbf_timeout_ticks then
+            self.log_obj:Record(LogLevel.Info, "Thruster check timed out")
+            self:StopLTBFThrusterCheck()
+            return
+        end
+        if self.av_obj == nil or self.av_obj.entity_id == nil then
+            self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for Thruster check")
+            return
+        end
+        local entity = self.av_obj:GetEntity()
+        local mesh_fl = entity:FindComponentByName("ThrusterFL")
+        local mesh_fr = entity:FindComponentByName("ThrusterFR")
+        local mesh_bl = entity:FindComponentByName("ThrusterBL")
+        local mesh_br = entity:FindComponentByName("ThrusterBR")
+        if mesh_fl then mesh_fl:Toggle(false) end
+        if mesh_fr then mesh_fr:Toggle(false) end
+        if mesh_bl then mesh_bl:Toggle(false) end
+        if mesh_br then mesh_br:Toggle(false) end
+        if fs().playerComponent.configuration.thrusters then
+            fs().playerComponent.configuration.thrusters[1]:Stop()
+            fs().playerComponent.configuration.thrusters[2]:Stop()
+            fs().playerComponent.configuration.thrusters[3]:Stop()
+            fs().playerComponent.configuration.thrusters[4]:Stop()
+        end
+    end)
+
+    return true
+end
+
+function Event:StopLTBFThrusterCheck()
+    if self.ltbf_thruster_timer ~= nil then
+        Cron.Halt(self.ltbf_thruster_timer)
+        self.ltbf_thruster_timer = nil
+    end
+    return true
+end
+
 --- Check player is in AV.
 function Event:CheckInAV()
+    -- 20 Hz: boarding is a human action; 50 ms detection delay is imperceptible.
+    if not self:DueNow("last_mount_check_time", self.mount_check_interval) then
+        return
+    end
     if self.av_obj:IsPlayerIn() then
         -- when player take on AV
         if self.current_situation == Def.Situation.Waiting then
@@ -513,6 +544,8 @@ function Event:CheckInAV()
             self.is_keyboard_input_prev = self.hud_obj.is_keyboard_input
             self.av_obj.engine_obj:EnableOriginalPhysics(false)
             self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
+            -- LTBF compatibility only matters while aboard (B-3).
+            self:StartLTBFCompatPoll()
             Cron.After(1.5, function()
                 self.hud_obj:ForceShowMeter()
                 self.hud_obj:ShowLeftBottomHUD()
@@ -526,6 +559,8 @@ function Event:CheckInAV()
         -- when player take off from AV
         if self.current_situation == Def.Situation.InVehicle then
             self.log_obj:Record(LogLevel.Info, "Exit AV")
+            -- LTBF compatibility has nothing to watch from outside the AV (B-3).
+            self:StopLTBFCompatPoll()
             self.hud_obj:HideLeftBottomHUD()
             self:SetSituation(Def.Situation.Waiting)
             -- Drop any armed movement holds on exit so they cannot leak into the next ride
@@ -534,9 +569,7 @@ function Event:CheckInAV()
             end
             self.hud_obj:HideCustomHint()
             self.hud_obj:EnableManualMeter(false, false)
-            -- CheckHUD stops running once the situation leaves InVehicle, so put
-            -- the normal speed unit label back here or it stays on the autopilot
-            -- distance unit after you get out.
+            -- Restore the normal speed unit label on exit, or it stays on the autopilot distance unit.
             self.hud_obj:ToggleOriginalMPHDisplay(false)
             self.av_obj.engine_obj:EnableOriginalPhysics(true)
             self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
@@ -550,17 +583,17 @@ end
 
 --- Check HUD.
 function Event:CheckHUD()
-    if self.hud_obj:IsVisibleConsumeItemSlot() then
-        self.hud_obj:SetVisibleConsumeItemSlot(false)
+    -- 20 Hz: the meters show floored integers, so a 50 ms gap cannot hide a visible digit change.
+    if not self:DueNow("last_hud_check_time", self.hud_check_interval) then
+        return
     end
-    -- Called directly. This used to be wrapped in pcall(function() ... end) at
-    -- the loop rate, which allocated a closure every tick to guard a function
-    -- that now guards its own only throwing statement.
-    self.hud_obj:SetHPDisplay()
-    -- The game repaints the speedometer unit label on its own, continuously, so
-    -- swapping it to a distance unit during autopilot just fights the HUD and
-    -- flickers. Show the real speed in both modes and let the RPM dial carry the
-    -- autopilot progress instead.
+    -- 1 Hz: this walks the widget tree in a pcall; the slot is already hidden on boarding.
+    if self:DueNow("last_consume_slot_check_time", self.consume_slot_check_interval) then
+        if self.hud_obj:IsVisibleConsumeItemSlot() then
+            self.hud_obj:SetVisibleConsumeItemSlot(false)
+        end
+    end
+    -- HP arrives via the ReactToHPChange observer; the unit label stays real speed to avoid HUD flicker.
     self.hud_obj:ToggleOriginalMPHDisplay(false)
     local current_speed = self.av_obj:GetCurrentSpeed()
 
@@ -585,6 +618,10 @@ end
 
 --- Check engine status. If engine is off, turn it on.
 function Event:CheckEngine()
+    -- 5 Hz: the engine dies only on destruction/scripted events; the body fires on a transition.
+    if not self:DueNow("last_engine_check_time", self.engine_check_interval) then
+        return
+    end
     if not self.av_obj:IsEngineOn() then
         self.av_obj:TurnEngineOn(true)
     end
@@ -592,6 +629,10 @@ end
 
 --- Check door status.
 function Event:CheckDoor()
+    -- 10 Hz (C-2). A door is opened by a person, not at 100 Hz.
+    if not self:DueNow("last_door_check_time", self.door_check_interval) then
+        return
+    end
     local veh_door = EVehicleDoor.seat_front_left
 
     if self:IsInEntryArea() then
@@ -607,6 +648,10 @@ end
 
 --- Check if player is in combat.
 function Event:CheckCombat()
+    -- 5 Hz: driver-combat state changes on encounter timescales; the body fires on a transition.
+    if not self:DueNow("last_combat_check_time", self.combat_check_interval) then
+        return
+    end
     local player = Game.GetPlayer()
     if player == nil then
         self.log_obj:Record(LogLevel.Warning, "No Player detected")
@@ -631,6 +676,10 @@ end
 
 --- Check if vehicle is destroyed.
 function Event:CheckDestroyed()
+    -- 10 Hz (C-3). Destruction is not something a 100 Hz poll buys over 10 Hz.
+    if not self:DueNow("last_destroyed_check_time", self.destroyed_check_interval) then
+        return
+    end
     if self.av_obj:IsDestroyed() then
         self.log_obj:Record(LogLevel.Info, "Destroyed detected")
         if self.current_situation == Def.Situation.InVehicle then
@@ -662,9 +711,7 @@ function Event:CheckDespawn()
 end
 
 --- Distance from the player to the AV, cached for `player_distance_cache_time`.
---- Returns nil when the player cannot be resolved. Callers must treat nil as
---- "unknown" rather than "far", so a missing player never suppresses a check
---- that would otherwise have run.
+--- Returns nil when the player cannot be resolved; callers must treat nil as "unknown", not "far".
 ---@return number|nil
 function Event:GetPlayerDistanceToAV()
     local now = os.clock()
@@ -682,10 +729,8 @@ function Event:GetPlayerDistanceToAV()
     return distance
 end
 
---- Check distance between player and AV.
---- The only effect is turning the engine sound on/off across a 30 m threshold,
---- so a half-second resolution is invisible. At 100 Hz this was four C#
---- transitions per tick (GetPlayer, GetWorldPosition, GetPosition, Distance).
+--- Check distance between player and AV (engine sound on/off across a 30 m threshold).
+--- Half-second resolution is invisible; uncached this was four C# transitions per tick.
 function Event:CheckDistance()
     local now = os.clock()
     if (now - self.last_distance_check_time) < self.distance_check_interval then
@@ -708,14 +753,10 @@ function Event:CheckDistance()
 end
 
 --- Choose how long the next ground probe may be delayed.
---- The prediction runs off the previous probe: the height cannot move far in
---- one interval, so what we saw last time bounds what we can miss next time.
---- Cost of this function is paid once per probe, not once per tick -- between
---- probes CheckHeight returns on a single clock comparison.
+--- The previous probe bounds what the next can miss; cost is per probe, not per tick.
 ---@return number interval in seconds
 function Event:PickHeightInterval()
-    -- Nobody close enough to see the projection. 60 m matches the range the
-    -- landing VFX is meant to cover.
+    -- Nobody close enough to see the projection (60 m matches the landing VFX range).
     local distance = self:GetPlayerDistanceToAV()
     if distance ~= nil and distance > self.height_skip_distance then
         return self.height_check_interval_far
@@ -727,9 +768,7 @@ function Event:PickHeightInterval()
         return self.height_check_interval_fast
     end
 
-    -- No vertical motion -> the height is not going to change under us.
-    -- 0.5 m/s is well above the jitter of a pinned craft and well below any
-    -- descent a player would call "flying".
+    -- No vertical motion: 0.5 m/s is above pinned-craft jitter, below real descent.
     local engine_obj = self.av_obj.engine_obj
     if engine_obj ~= nil then
         local velocity = engine_obj:GetVelocity()
@@ -738,9 +777,7 @@ function Event:PickHeightInterval()
         end
     end
 
-    -- High up: the warning threshold is far enough away that 10 Hz cannot
-    -- step over it. At 20 m above the ~5 m threshold, even a 20 m/s sink
-    -- leaves 0.75 s of margin -- seven slow intervals.
+    -- High up: 10 Hz cannot step over the ~5 m warning threshold (plenty of margin).
     if last_height > self.height_slow_threshold then
         return self.height_check_interval_slow
     end
@@ -749,11 +786,7 @@ function Event:PickHeightInterval()
 end
 
 --- Check height between AV and ground. if height is too low, show landing warning.
----
---- Cadence-adaptive on purpose; see `height_check_interval_*` in New() and
---- PickHeightInterval(). The measurement ends in a synchronous physics query
---- and used to run at the full loop rate even when the craft was parked and
---- the answer was fixed.
+--- Cadence-adaptive on purpose: the measurement is a synchronous physics query.
 function Event:CheckHeight()
     local now = os.clock()
     if now < self.next_height_check_time then
@@ -764,8 +797,7 @@ function Event:CheckHeight()
     local height = self.av_obj.navigation_obj:GetHeight()
     self.last_height = height
     if height < self.projection_max_height_offset + self.av_obj.minimum_distance_to_ground then
-        -- The VFX offset only needs writing when the measured height moved.
-        -- A parked AV reports the same height 100 times a second.
+        -- Write the VFX offset only when the measured height actually moved.
         if self.last_landing_vfx_height ~= height then
             self.last_landing_vfx_height = height
             local height_offset = - height + self.av_obj.projection_offset.z
@@ -820,8 +852,7 @@ end
 
 --- Check if save is locked. if locked, remove lock.
 function Event:CheckLockedSave()
-    -- TalkingOff lasts a few seconds; the save-lock state does not need to be
-    -- polled at 100 Hz while it does.
+    -- TalkingOff lasts seconds; the save-lock state does not need full-rate polling while it does.
     local now = os.clock()
     if (now - self.last_locked_save_check_time) < self.locked_save_check_interval then
         return
@@ -835,13 +866,7 @@ function Event:CheckLockedSave()
 end
 
 --- Check if perspective is FPP.
----
---- The lock has to stay latched for as long as FPP lasts. It used to be written
---- `if FPP and not locked then show; lock = true else lock = false end`, which
---- means that while sitting in FPP the flag flipped true/false on alternate
---- ticks and ForceShowMeter() -- ShowRequest() plus OnCameraModeChanged(), two
---- C# calls and a pcall closure each -- fired at half the loop rate, ~50 times
---- a second, to re-force a meter that was already forced.
+--- The lock stays latched for as long as FPP lasts, so ForceShowMeter() fires on edges only.
 function Event:CheckPerspective()
     if self:IsFPP() then
         if not self.is_locked_showing_meter then
@@ -1008,15 +1033,7 @@ function Event:SelectChoice(direction)
     end
 end
 
--- PROBE: per-situation cost ledger (opt-in).
---
--- Turns the aggregate in the log into "<situation>/<method>", which is what
--- answers "is Waiting really more expensive than InVehicle, and which check is
--- paying for it?".  Enable with DAV.is_debug_situation_ledger = true (init.lua)
--- before the mod loads; the table prints every Prof.summary_every seconds.
---
--- To remove the probe entirely: delete this block, the require of
--- Modules/profprobe.lua at the top, and the call in init.lua.
+-- PROBE: per-situation cost ledger (opt-in); remove with the Prof require and the init.lua call.
 
 --- Enable the ledger. Idempotent.
 ---@param core_class table|nil Core class table (init.lua passes it; Core is not

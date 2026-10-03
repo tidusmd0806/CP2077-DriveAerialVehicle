@@ -1,27 +1,6 @@
---------------------------------------------------------
--- Enhanced Logging System with Auto Caller Detection
---------------------------------------------------------
--- Usage Examples:
---   Basic logging (auto caller info for Error/Warning/Critical):
---     log_obj:Record(LogLevel.Error, "Failed to load") 
---     → [Core] [ERROR] [core.lua:123] Failed to load
---   
---   With context:
---     log_obj:Record(LogLevel.Error, "Failed to load model", "Core:Init")
---     → [Core] [ERROR] [Core:Init @ core.lua:123] Failed to load model
---   
---   Skip caller info for performance (high-frequency logs):
---     log_obj:Record(LogLevel.Trace, "Processing", nil, true)
---   
---   Info/Debug/Trace (no auto caller info for performance):
---     log_obj:Record(LogLevel.Info, "Vehicle spawned")
---     → [Core] [INFO] Vehicle spawned
---   
--- Output format:
---   [ModuleName] [LEVEL] [Context @ file.lua:line] Message
---
--- Auto caller info is added for: Critical, Error, Warning (not for Info/Debug/Trace)
---------------------------------------------------------
+-- Enhanced logging with auto caller detection (Critical/Error/Warning only).
+-- Format: [ModuleName] [LEVEL] [Context @ file.lua:line] Message
+-- High-frequency logs: pass skip_caller=true to Record() to skip the caller lookup.
 
 ---@enum LogLevel
 LogLevel = {
@@ -68,21 +47,7 @@ function Log:SetLevel(level, file_name)
 end
 
 --- Whether a record at `level` would actually be emitted.
----
---- Record() makes its decision *after* the caller has already built the message,
---- so a caller that builds the message by concatenation pays for every `..` even
---- when the level is filtered out. On a hot path (PlayerPuppet.OnAction runs on
---- every input action in the game) that is pure garbage.
----
---- Gate on this before concatenating:
----   if self.log_obj:IsEnabled(LogLevel.Debug) then
----       self.log_obj:Record(LogLevel.Debug, "a" .. b .. c)
----   end
----
---- This mirrors *both* of Record()s guards -- the level threshold and the
---- `level <= Debug` block that actually wraps spdlog -- so gating never suppresses
---- a line Record() would have printed. LogLevel.Nothing passes the threshold but
---- sits outside that block, hence the second term.
+--- Gate on this before concatenating hot-path messages; mirrors both of Record()'s guards.
 ---@param level LogLevel
 ---@return boolean
 function Log:IsEnabled(level)

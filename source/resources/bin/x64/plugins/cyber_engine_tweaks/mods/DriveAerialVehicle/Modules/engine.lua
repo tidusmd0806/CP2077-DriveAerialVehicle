@@ -16,27 +16,13 @@ function Engine:New(av_obj)
     obj.max_roll = 30
     obj.max_pitch = 30
     obj.force_restore_angle = 70
-    -- RPM ramp. These are increments per *base tick* (0.01 s); the effective
-    -- ramp rate is step / resolution, so every use is multiplied by DAV.dt_scale
-    -- to keep the per-second ramp constant. See Etc/timescale.lua.
+    -- RPM ramp increments per base tick (0.01 s); multiply by DAV.dt_scale to keep the rate constant.
     obj.rpm_count_step = 4
     obj.rpm_restore_step = 2
     obj.rpm_count_scale = 80
     obj.rpm_max_count = 10 * obj.rpm_count_scale
     obj.torque_gain = 1000
-    -- Width of the restore boundary layer, in degrees, at the base control
-    -- period. The restore was a bare relay: full rate target the instant the
-    -- angle left the deadband, zero the instant it came back. A relay commits to
-    -- the full rate for a whole control tick no matter how close it already is,
-    -- so the overshoot it produces grows in proportion to the tick -- at 20 Hz
-    -- the body is 5x further along before the correction lands, and it rocks
-    -- around the deadband edge instead of settling onto it.
-    --
-    -- Inside the boundary layer the commanded rate now falls off linearly to
-    -- zero at the deadband edge, so the body decelerates onto the target. The
-    -- width is multiplied by dt_scale so the taper covers exactly the extra
-    -- per-tick travel: at the 0.01 tuning reference this is the number below,
-    -- and it widens from there as the loop gets coarser.
+    -- Restore boundary layer (deg, base period): rate tapers to zero at the deadband edge, scaled by dt_scale.
     obj.restore_boundary_deg = 1.0
     obj.ground_check_delay = 3.0
     ---dynamic---
@@ -93,6 +79,10 @@ end
 ---@param delta number
 function Engine:Update(delta)
     if not self.is_finished_init then
+        return
+    end
+    -- The Engine outlives its entity: gate physics calls so they never hit a despawned entity.
+    if self.av_obj == nil or self.av_obj.entity_id == nil then
         return
     end
     if self.av_obj.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
@@ -177,7 +167,7 @@ function Engine:IsOnGround()
     if not self.is_finished_init then
         return false
     end
-    -- Ignore ground checks for a short time after initialization (prevent false detections from physics engine initialization)
+    -- Ignore ground checks briefly after spawn: physics init causes false detections
     local elapsed_time = os.clock() - self.av_obj.spawn_time
     if elapsed_time < self.ground_check_delay then
         return false
@@ -195,11 +185,7 @@ function Engine:GetDirectionAndAngularVelocity()
     return self.fly_av_system:GetVelocity(), self.fly_av_system:GetAngularVelocity()
 end
 
---- Get the linear velocity only.
---- GetDirectionAndAngularVelocity() also resolves the angular velocity, and a
---- caller that only wants the vertical component still pays for that second C#
---- transition. Event:CheckHeight needs |vz| to decide how long it may put off
---- the next ground probe, and nothing else.
+--- Get the linear velocity only (skips the angular C# transition of GetDirectionAndAngularVelocity).
 ---@return Vector3|nil nil when the physics handle is not up yet
 function Engine:GetVelocity()
     if not self.is_finished_init then
@@ -271,10 +257,7 @@ end
 
 --- Calculate linearly velocity.
 ---@param action_command_list table
----@param skip_linear boolean|nil Idle only: skip the hover/height term. Callers
----        that discard x/y/z (DespawnFromGround feeds only the angular half to
----        OnlyAngularRun) use this to avoid an IsOnGround probe, a velocity
----        read and a ground raycast whose result is thrown away.
+---@param skip_linear boolean|nil Idle only: skip the hover/height term for callers that discard x/y/z.
 ---@return number x
 ---@return number y
 ---@return number z
@@ -282,8 +265,7 @@ end
 ---@return number pitch
 ---@return number yaw
 function Engine:CalculateAddVelocity(action_command_list, skip_linear)
-    -- `or 1` keeps the base (pre-timescale) behaviour if DAV.dt_scale was never
-    -- published, e.g. under a test harness that stubs DAV by hand.
+    -- `or 1` keeps pre-timescale behaviour if DAV.dt_scale was never published.
     local dt_scale = DAV.dt_scale or 1
     if action_command_list[1] == Def.ActionList.Idle then
         self.rpm_count = 0
@@ -729,8 +711,7 @@ function Engine:CalculateHelicopterMode(action_command_list)
         z = z + acceleration * forward_vec.z
     elseif action_command_list[1] == Def.ActionList.HUp then
         z = z + ascend_acceleration * up_vec.z
-        -- Accumulator: builds lift over time, so the increment is per-tick and
-        -- must scale. The `z` term above is a rate target and must not.
+        -- Accumulator: the lift increment is per-tick and must scale; the rate target above must not.
         self.heli_lift_acceleration = self.heli_lift_acceleration + ascend_acceleration * dt_scale
     elseif action_command_list[1] == Def.ActionList.HDown then
         z = z - descend_acceleration * up_vec.z
