@@ -24,11 +24,6 @@ DAV = {
     is_debug_mode = false,
     -- Developer switch; user-facing twin: user_setting_table.is_enable_obstacle_recording.
     is_debug_enable_obstacle_scan = false,
-    -- PROBE: autopilot freeze instrumentation; see Modules/profprobe.lua.
-    is_debug_profile_autopilot = false,
-    debug_profile_warn_ms = 8.0,
-    -- PROBE: per-situation cost ledger; see Event.EnableSituationLedger.
-    is_debug_situation_ledger = false,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
@@ -437,12 +432,6 @@ registerForEvent('onInit', function()
     DAV.debug_obj = Debug:New(DAV.core_obj)
 
     DAV.core_obj:Init()
-
-    -- PROBE: per-situation cost ledger; wrapped class tables reach instances via the metatable.
-    if DAV.is_debug_situation_ledger then
-        require('Modules/event.lua').EnableSituationLedger(Core)
-        print('[DAV][Info] Situation cost ledger enabled.')
-    end
 
     if io.open("debug.txt", "r") then
         DAV.is_debug_mode = true

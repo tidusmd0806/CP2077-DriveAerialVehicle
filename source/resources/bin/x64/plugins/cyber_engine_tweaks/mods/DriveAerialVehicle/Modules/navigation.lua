@@ -2,8 +2,6 @@ local Navigation = {}
 Navigation.__index = Navigation
 local Utils = require("Etc/utils.lua")
 local ObstacleGrid = require("Modules/obstacle_grid.lua")
--- PROBE: temporary freeze instrumentation; see Modules/profprobe.lua.
-local Prof = require("Modules/profprobe.lua")
 
 ---@diagnostic disable: undefined-global, undefined-field
 
@@ -193,39 +191,7 @@ function Navigation:New(av_obj)
 	obj.yaw_deadzone_deg = 4.0
 	obj.astar_yaw_lookahead_points = 4
 
-	-- PROBE: wire the probe into this instance's logger with an autopilot context line.
-	Prof.enabled = (DAV.is_debug_profile_autopilot ~= false)
-	Prof.warn_ms = tonumber(DAV.debug_profile_warn_ms) or 8.0
-	Prof.attach(function(lvl, msg)
-		obj.log_obj:Record(LogLevel[lvl] or LogLevel.Info, msg)
-	end, "Info")
-	Prof.context(function() return obj:ProbeContext() end)
-
 	return setmetatable(obj, self)
-end
-
---- PROBE: one-line autopilot state appended to every probe warn line.
-function Navigation:ProbeContext()
-	local r = self.current_global_route or {}
-	local hf = "n/a"
-	local hp = self.autopilot_final_destination
-	if hp ~= nil and self.av_obj ~= nil and self.av_obj.GetPosition ~= nil then
-		local ok, cp = pcall(function() return self.av_obj:GetPosition() end)
-		if ok and cp ~= nil then
-			local dx, dy = hp.x - cp.x, hp.y - cp.y
-			hf = string.format("%.0fm", math.sqrt(dx * dx + dy * dy))
-		end
-	end
-	local g = self.obstacle_grid
-	return string.format(
-		"phase=%s route=%d/%d dest=%s unknown=%s horiz_final=%s chunks=%s learned=%s",
-		tostring(self.autopilot_phase),
-		tonumber(self.current_route_index) or 0, #r,
-		tostring(self.autopilot_dest_cell_status),
-		tostring(self.autopilot_dest_is_unknown),
-		hf,
-		tostring(g and g.chunk_n or 0),
-		tostring(self.obstacle_map_learned_count or 0))
 end
 
 function Navigation:SyncRouteNodeSize()
@@ -4087,20 +4053,11 @@ function Navigation:AutoPilot()
 	return true
 	end
 
-	-- Route corridor preload: unknown cells cost the same as obstacles; PROBE times this synchronous departure setup.
-	if self:StartRouteCorridorPreload(current_position, altitude_adjusted_destination, function()
-		local _pt = Prof.begin("ap.begin(corridor_cb)")
-		begin_navigation()
-		Prof.finish("ap.begin(corridor_cb)", _pt)
-	end) then
+	-- Route corridor preload: unknown cells cost the same as obstacles, so load the corridor before departing.
+	if self:StartRouteCorridorPreload(current_position, altitude_adjusted_destination, begin_navigation) then
 		return true
 	end
-	do
-		local _pt = Prof.begin("ap.begin(sync)")
-		local _r = begin_navigation()
-		Prof.finish("ap.begin(sync)", _pt)
-		return _r
-	end
+	return begin_navigation()
 end
 
 --- Excute Leaving when auto pilot is on.
@@ -5440,78 +5397,6 @@ function Navigation:HasSphericalCollision(from_pos, detect_dist)
 
 	return false
 end
-
--- PROBE: temporary freeze instrumentation; remove this block plus the Prof require at the top.
-do
-	local PROBE_TARGETS = {
-		-- Nearest-cell resolution: prime suspects for multi-hundred-ms stalls at destination setup.
-		{ "FindNearestKnownSectorPosByShell",         "near.shell" },
-		{ "FindNearestKnownSectorPosByFullScan",      "near.fullscan" },
-		{ "FindNearestKnownSectorPosInChunk",         "near.chunk" },
-		{ "FindNearestSafeOrDangerCellPosInChunk",    "near.safe_chunk" },
-		{ "FindNearestKnownSectorPos",                "near.any" },
-		{ "FindNearestKnownSectorPosInDirection",     "near.direction" },
-		{ "FindNearbyKnownSectorPos",                 "near.nearby" },
-		{ "FindNearestReachableSafeOrDangerCellPos",  "near.reachable" },
-		{ "FindNearestSafeOrDangerCellPos",           "near.safe" },
-		{ "ResolveAutopilotAstarTarget",              "ap.astar_target" },
-
-		-- Per-tick navigation. Cheap individually; the call count is the story.
-		{ "ComputeLocalAvoidanceDirection",           "tick.local_avoid" },
-		{ "CollectSphericalRepulsion",               "tick.repulsion" },
-		{ "HasSphericalCollision",                   "tick.sphere_collide" },
-		{ "IsWall",                                   "tick.iswall" },
-		{ "IsSectorAreaKnown",                        "nav.sector_known" },
-		{ "UpdateExceptionAreaBypass",                "tick.exception" },
-		{ "ProcessAutopilotRoutePlan",                "tick.route_plan" },
-		{ "RaycastDist",                              "tick.raycast" },
-
-		-- A* planning
-		{ "PlanGlobalRoute",                          "astar.full" },
-		{ "StepRoutePlanJob",                         "astar.step" },
-		{ "GetSectorMovementCost",                    "astar.move_cost" },
-		{ "CalculateHeuristic",                       "astar.heuristic" },
-		{ "GetNeighborSectors",                       "astar.neighbors" },
-		{ "RoutePlanHeapPush",                        "astar.heap_push" },
-		{ "RoutePlanHeapPop",                         "astar.heap_pop" },
-		{ "BuildRouteFromCameFrom",                   "astar.rebuild" },
-
-		-- Map and file IO. Writes can stall the thread inside the OS.
-		{ "LoadBaseImageStep",                        "map.base_step" },
-		{ "FlushLearnedCellsToImage",                 "map.flush" },
-		{ "FoldDirtyChunkToImage",                    "io.fold_chunk" },
-		{ "RewriteBinManifest",                       "io.rewrite_manifest" },
-		{ "MaintainObstacleMapCache",                 "map.maintain" },
-		{ "PrepareRouteChunks",                       "map.prepare_chunks" },
-		{ "StartRouteCorridorPreload",                "map.corridor" },
-		{ "DrainRouteCorridor",                       "map.corridor_drain" },
-		{ "PrepareRouteChunks",                       "map.prepare_chunks" },
-		{ "ParseChunkIncremental",                    "map.chunk_parse" },
-		{ "LoadResidentChunkIncremental",             "map.resident_parse" },
-		{ "GetAllChunksCached",                       "map.inventory" },
-		{ "MakeChunkInfo",                            "map.chunk_info" },
-		{ "SaveLastRoute",                            "io.save_route" },
-		{ "SaveObstacleMap",                          "io.save_map" },
-		{ "RecordObstacleScan",                       "io.record_scan" },
-		{ "RecordDirectCollision",                    "io.record_collision" },
-		{ "CreateObstacleConvexHexahedronFromPoints", "io.make_convex" },
-		{ "MigrateOldObstacleMap",                    "io.migrate" },
-
-		-- Autopilot entry and lifecycle
-		{ "AutoPilot",                                "ap.entry" },
-		{ "AutoLeaving",                              "ap.leaving" },
-		{ "AutoLanding",                              "ap.landing" },
-		{ "InitializeSectorSystem",                   "ap.sector_init" },
-		{ "GenerateSphericalRayPattern",              "ap.ray_pattern" },
-		{ "ResetLastRouteVisualization",              "viz.reset" },
-		{ "BuildRouteDebugTargets",                   "viz.targets" },
-		{ "StartAutopilotRoutePlan",                  "ap.plan_kick" },
-		{ "ApplyAutopilotRoutePlanResult",            "ap.plan_apply" },
-		{ "StartAutopilotPartialRouteFollowup",       "ap.followup" },
-	}
-	Prof.wrap_methods(Navigation, PROBE_TARGETS)
-end
--- === end PROBE block ===
 
 return Navigation
 

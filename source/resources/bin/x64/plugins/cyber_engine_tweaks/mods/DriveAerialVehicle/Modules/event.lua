@@ -2,8 +2,6 @@ local GameUI = require('External/GameUI.lua')
 local Hud = require("Modules/hud.lua")
 local Sound = require("Modules/sound.lua")
 local UI = require("Modules/ui.lua")
--- PROBE: per-situation cost ledger; see Event.EnableSituationLedger at the bottom of this file.
-local Prof = require("Modules/profprobe.lua")
 local AV = require("Modules/av.lua")
 local Engine = require("Modules/engine.lua")
 local Event = {}
@@ -1031,83 +1029,6 @@ function Event:SelectChoice(direction)
         end
         self.av_obj.seat_index = self.selected_seat_index
     end
-end
-
--- PROBE: per-situation cost ledger (opt-in); remove with the Prof require and the init.lua call.
-
---- Enable the ledger. Idempotent.
----@param core_class table|nil Core class table (init.lua passes it; Core is not
----        reachable from here otherwise)
----@return boolean started
-function Event.EnableSituationLedger(core_class)
-    if Event._situation_ledger_on then
-        return false
-    end
-    Event._situation_ledger_on = true
-    Prof.situation_enabled = true
-
-    local function label(self)
-        local ev = self
-        if ev ~= nil and ev.event_obj ~= nil then
-            ev = ev.event_obj
-        end
-        local s = ev ~= nil and ev.current_situation or nil
-        return (Def.SituationName and Def.SituationName[s]) or tostring(s)
-    end
-
-    local function label_from_global()
-        local core = DAV.core_obj
-        local ev = core ~= nil and core.event_obj or nil
-        local s = ev ~= nil and ev.current_situation or nil
-        return (Def.SituationName and Def.SituationName[s]) or tostring(s)
-    end
-
-    Prof.wrap_by_situation(Event, {
-        "CheckAllEvents",
-        "CheckGarage",
-        "CheckLanded",
-        "CheckInEntryArea",
-        "CheckInAV",
-        "CheckHUD",
-        "CheckEngine",
-        "CheckDoor",
-        "CheckCombat",
-        "CheckDestroyed",
-        "CheckDespawn",
-        "CheckDistance",
-        "CheckHeight",
-        "CheckInput",
-        "CheckAutoModeChange",
-        "CheckFailAutoPilot",
-        "CheckLockedSave",
-        "CheckPerspective",
-    }, label)
-
-    Prof.wrap_by_situation(AV, {
-        "Operate",
-        "GetEulerAngles",
-        "IsPlayerInEntryArea",
-        "MoveThruster",
-        "GetGroundPosition",
-    }, label_from_global)
-
-    Prof.wrap_by_situation(Engine, {
-        "Update",
-        "Run",
-        "CalculateAddVelocity",
-        "CalculateIdleMode",
-        "ChangeVelocity",
-        "AddForce",
-    }, label_from_global)
-
-    if core_class ~= nil then
-        Prof.wrap_by_situation(core_class, {
-            "GetActions",
-            "OperateAerialVehicle",
-        }, label_from_global)
-    end
-
-    return true
 end
 
 return Event

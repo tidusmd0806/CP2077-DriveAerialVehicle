@@ -81,12 +81,6 @@ Def.Situation = {
     TalkingOff = 4,
 }
 
---- Reverse map for the per-situation cost ledger (Event.EnableSituationLedger).
-Def.SituationName = {}
-for situation_name, situation_value in pairs(Def.Situation) do
-    Def.SituationName[situation_value] = situation_name
-end
-
 ---@enum Def.DoorOperation
 Def.DoorOperation = {
 	Change = 0,
