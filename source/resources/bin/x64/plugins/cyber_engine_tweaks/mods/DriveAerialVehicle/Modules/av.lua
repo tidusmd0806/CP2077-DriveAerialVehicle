@@ -427,6 +427,7 @@ function AV:Spawn(position, angle)
 	entity_spec.orientation = angle
 	entity_spec.persistState = false
 	entity_spec.persistSpawn = false
+	entity_spec.alwaysSpawned = true
 	self.entity_id = entity_system:CreateEntity(entity_spec)
 	-- Fresh entity: drop any handle cached for the previous one.
 	self:InvalidateEntityCache()
