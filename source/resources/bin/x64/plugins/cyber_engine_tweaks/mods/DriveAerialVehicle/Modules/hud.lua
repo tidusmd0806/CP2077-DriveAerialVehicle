@@ -31,6 +31,8 @@ function HUD:New()
     obj.hud_phone_controller = nil
     obj.is_manually_setting_speed = false
     obj.is_manually_setting_rpm = false
+    -- Re-entrancy latch: ForceShowMeter calls OnCameraModeChanged, which our override must not echo.
+    obj.is_force_show_meter_active = false
     -- Last value actually written to each meter: skipping unchanged writes avoids C# calls and widget re-renders.
     obj.last_speed_display_value = nil
     obj.last_rpm_display_value = nil
@@ -126,21 +128,57 @@ function HUD:SetOverride()
             end
         end)
 
+        -- Event-driven meter: the game's own change events carry the repaint. While we own the
+        -- readout, replace the game's value with ours instead of blocking and re-polling at 20 Hz.
         Override("hudCarController", "OnSpeedValueChanged", function(_, speedValue, wrappedMethod)
-            local result = true
             -- Gate on the situation, not IsInVehicle(): a C# false lets the game repaint km/h over our readout.
-            if not DAV.core_obj.event_obj:IsInAVSituation() or not self.is_manually_setting_speed then
-                result = wrappedMethod(speedValue)
+            if DAV.core_obj.event_obj:IsInAVSituation() and self.is_manually_setting_speed then
+                self:SetSpeedMeterValue(self.av_obj:GetCurrentSpeed())
+                -- Autopilot drives the RPM gauge as a progress bar; at constant cruise speed the
+                -- game's rpm event may not fire, so the speed event also pushes the progress value.
+                if DAV.core_obj.event_obj:IsAutoMode() and self.is_manually_setting_rpm then
+                    self:SetRPMMeterValue(DAV.core_obj.event_obj:ComputeRPMDisplayValue())
+                end
+                return true
             end
-            return result
+            return wrappedMethod(speedValue)
         end)
 
         Override("hudCarController", "OnRpmValueChanged", function(_, rpmValue, wrappedMethod)
-            local result = true
-            if not DAV.core_obj.event_obj:IsInAVSituation() or not self.is_manually_setting_rpm then
-                result = wrappedMethod(rpmValue)
+            if DAV.core_obj.event_obj:IsInAVSituation() and self.is_manually_setting_rpm then
+                self:SetRPMMeterValue(DAV.core_obj.event_obj:ComputeRPMDisplayValue())
+                return true
             end
-            return result
+            return wrappedMethod(rpmValue)
+        end)
+
+        -- The game re-shows the bottom-left consumable/radio slot while aboard (hotkey refresh,
+        -- camera change, status effects). The deleted CheckHUD poll re-hid it at 1 Hz; instead
+        -- intercept the controller's own show path and force it hidden while we are in the AV.
+        Override("HotkeyConsumableWidgetController", "SetContainerVisibility", function(this, visible, instant, wrappedMethod)
+            if DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil
+                    and DAV.core_obj.event_obj:IsInAVSituation() then
+                wrappedMethod(false, instant)
+            else
+                wrappedMethod(visible, instant)
+            end
+        end)
+
+        -- FPP meter: the game hides the car HUD when entering FPP (it assumes an interior
+        -- dashboard; our AV has none). Re-show ours *after* the game's own hide runs, riding
+        -- the event ordering. Do NOT gate on the mode value: the game fires this with false on
+        -- the FPP hide path, and ForceShowMeter's own ShowRequest + OnCameraModeChanged(true)
+        -- combo is the proven show mechanism (the latch keeps that call from recursing here).
+        Override("hudCarController", "OnCameraModeChanged", function(this, mode, wrappedMethod)
+            wrappedMethod(mode)
+            if self.is_force_show_meter_active then
+                return
+            end
+            if DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil
+                    and DAV.core_obj.event_obj:IsInAVSituation()
+                    and DAV.core_obj.event_obj:IsFPP() then
+                DAV.core_obj.event_obj.hud_obj:ForceShowMeter()
+            end
         end)
     end
 end
@@ -385,10 +423,13 @@ function HUD:ForceShowMeter()
         return false
     end
 
+    -- Guard: our OnCameraModeChanged override would otherwise re-enter through this call.
+    self.is_force_show_meter_active = true
     local success, error_msg = pcall(function()
         self.hud_car_controller:ShowRequest()
         self.hud_car_controller:OnCameraModeChanged(true)
     end)
+    self.is_force_show_meter_active = false
 
     if not success then
         self.log_obj:Record(LogLevel.Debug, "ForceShowMeter: HUD meter operation failed - " .. tostring(error_msg))

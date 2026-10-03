@@ -33,7 +33,6 @@ function Event:New()
     obj.selected_seat_index = 1
     obj.is_keyboard_input_prev = false
     obj.is_enable_audio = true
-    obj.is_locked_showing_meter = false
     obj.check_input_count = 0
     obj.is_ltbf_flight_active = false
 
@@ -42,6 +41,9 @@ function Event:New()
     obj.choice_last_shown_time = 0
     -- Safety net: recovers a hub the game dropped on its own within a second.
     obj.choice_keepalive_interval = 1.0
+    -- Door event drivers: last edge seen from the read-path record / entry-area check (nil = unknown).
+    obj.last_recorded_door_open = nil
+    obj.last_in_entry_area = nil
 
     -- Checks that change only on a human timescale; they do not need the full loop rate.
     obj.distance_check_interval = 0.5
@@ -51,13 +53,10 @@ function Event:New()
     obj.last_landing_vfx_height = nil
 
     -- Slow-changing checks paced via Event:DueNow instead of the full-rate situation loop.
-    obj.mount_check_interval = 0.05          -- 20 Hz: boarding / leaving the AV
-    obj.door_check_interval = 0.1            -- 10 Hz: a door is opened by hand
+    -- Mount/unmount/destroy/meters/door are pure event-driven (no polling): see the
+    -- observers in SetObserve and the overrides in SetOverride.
     obj.engine_check_interval = 0.2          --  5 Hz: the engine only dies on destruction
-    obj.destroyed_check_interval = 0.1       -- 10 Hz: same
     obj.combat_check_interval = 0.2          --  5 Hz: driver-combat state changes rarely
-    obj.consume_slot_check_interval = 1.0    --  1 Hz: widget-tree walk + pcall
-    obj.hud_check_interval = 0.05          -- 20 Hz: meter digits are integers (D-1)
 
     -- Ground probe cadence: synchronous raycast, so the next interval is predicted from the last measurement.
     obj.height_check_interval_fast = 0.0
@@ -95,7 +94,9 @@ function Event:Init(av_obj)
     self.next_height_check_time = 0
     self.cached_player_distance = nil
     self.last_player_distance_time = 0
-    self.is_locked_showing_meter = false
+    -- Forget door edges from the previous AV so the fresh state is re-synced.
+    self.last_recorded_door_open = nil
+    self.last_in_entry_area = nil
 
     -- A fresh AV/session must not inherit an LTBF poll still running against the previous instance.
     self:StopLTBFCompatPoll()
@@ -165,6 +166,28 @@ function Event:SetObserve()
         self.ltbf_poll_period = 0.1
     end
 
+    -- Pure event-driven boarding/leaving: the HUD's mount events run the transition directly.
+    -- Situation guards make double or out-of-order events harmless.
+    Observe("hudCarController", "OnMountingEvent", function(this)
+        self:OnPlayerMounted()
+    end)
+
+    Observe("hudCarController", "OnUnmountingEvent", function(this)
+        self:OnPlayerUnmounted()
+    end)
+
+    -- Pure event-driven destruction: run the cleanup directly when our AV dies.
+    -- NOTE: Entity has no DestroyRequest function (verified in NativeDB 2.13); the game
+    -- dispatches death to the vehicle's script component instead — same class as the HP observer.
+    ObserveAfter("VehicleComponent", "OnDeath", function(this, deathEvent)
+        if self.av_obj == nil or self.av_obj.entity_id == nil then
+            return
+        end
+        if this:GetEntity():GetEntityID().hash == self.av_obj.entity_id.hash then
+            self:OnAVDestroyed()
+        end
+    end)
+
     -- Observe appearance changes to reapply thruster positions
     ObserveAfter("Entity", "ScheduleAppearanceChange", function(this, newAppearanceName)
         if DAV.core_obj == nil or DAV.core_obj.av_obj == nil then
@@ -192,7 +215,16 @@ function Event:SetOverride()
     -- Door guard: check the Lua-only situation field first; return early for non-AV vehicles before C# round trips.
     Override("VehicleComponentPS", "GetHasAnyDoorOpen", function(this, wrapped_method)
         if self.current_situation ~= Def.Situation.InVehicle then
-            return wrapped_method()
+            -- Piggyback on the game's own read: record the real door state and let a *change*
+            -- drive the follow logic, so no separate polling of GetDoorState is needed.
+            local open = wrapped_method()
+            if open ~= self.last_recorded_door_open then
+                self.last_recorded_door_open = open
+                if self.current_situation == Def.Situation.Waiting then
+                    self:SyncEntryDoor()
+                end
+            end
+            return open
         end
         if self.av_obj ~= nil and self.av_obj:IsPlayerIn() then
             return false
@@ -311,22 +343,13 @@ function Event:CheckAllEvents()
     elseif self.current_situation == Def.Situation.Waiting then
         self:CheckDespawn()
         self:CheckInEntryArea()
-        self:CheckInAV()
-        self:CheckDestroyed()
         self:CheckDistance()
         self:CheckHeight()
-        self:CheckDoor()
     elseif self.current_situation == Def.Situation.InVehicle then
-        self:CheckInAV()
-        self:CheckAutoModeChange()
-        self:CheckFailAutoPilot()
-        self:CheckHUD()
         self:CheckEngine()
-        self:CheckDestroyed()
         self:CheckInput()
         self:CheckCombat()
         self:CheckHeight()
-        self:CheckPerspective()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
         self:CheckLockedSave()
@@ -408,7 +431,13 @@ end
 --- Edge-triggered: the hub is pushed when the player enters the area, when the
 --- selected seat changes, or when the keep-alive is due -- not every tick.
 function Event:CheckInEntryArea()
-    if self.av_obj:IsPlayerInEntryArea() then
+    local in_entry = self.av_obj:IsPlayerInEntryArea()
+    -- Door follows the entry-area edge immediately (human-visible); no separate door poll needed.
+    if in_entry ~= self.last_in_entry_area then
+        self.last_in_entry_area = in_entry
+        self:SyncEntryDoor()
+    end
+    if in_entry then
         self.log_obj:Record(LogLevel.Trace, "InEntryArea detected")
         -- interaction_hub is the HUD's own record; nil means nothing is shown, so re-show it.
         local shown = (self.hud_obj.interaction_hub ~= nil)
@@ -525,79 +554,93 @@ function Event:StopLTBFThrusterCheck()
     return true
 end
 
---- Check player is in AV.
-function Event:CheckInAV()
-    -- 20 Hz: boarding is a human action; 50 ms detection delay is imperceptible.
-    if not self:DueNow("last_mount_check_time", self.mount_check_interval) then
+--- Event handler: player boarded the AV (fired by hudCarController.OnMountingEvent).
+--- Situation + entity guards: the event fires for any vehicle, so verify our AV holds the player.
+function Event:OnPlayerMounted()
+    if self.current_situation ~= Def.Situation.Waiting then
         return
     end
-    if self.av_obj:IsPlayerIn() then
-        -- when player take on AV
-        if self.current_situation == Def.Situation.Waiting then
-            self.log_obj:Record(LogLevel.Info, "Enter In AV")
-            SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
-            self:SetSituation(Def.Situation.InVehicle)
-            self.hud_obj:HideChoice()
-            self.hud_obj:EnableManualMeter(true, self.av_obj.is_enable_manual_rpm_meter)
-            self.is_keyboard_input_prev = self.hud_obj.is_keyboard_input
-            self.av_obj.engine_obj:EnableOriginalPhysics(false)
-            self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
-            -- LTBF compatibility only matters while aboard (B-3).
-            self:StartLTBFCompatPoll()
-            Cron.After(1.5, function()
-                self.hud_obj:ForceShowMeter()
-                self.hud_obj:ShowLeftBottomHUD()
-                self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
-                Cron.After(1.5, function()
-                    self.hud_obj:ShowCustomHint()
-                end)
-            end)
-        end
-    else
-        -- when player take off from AV
-        if self.current_situation == Def.Situation.InVehicle then
-            self.log_obj:Record(LogLevel.Info, "Exit AV")
-            -- LTBF compatibility has nothing to watch from outside the AV (B-3).
-            self:StopLTBFCompatPoll()
-            self.hud_obj:HideLeftBottomHUD()
-            self:SetSituation(Def.Situation.Waiting)
-            -- Drop any armed movement holds on exit so they cannot leak into the next ride
-            if DAV.core_obj ~= nil then
-                DAV.core_obj:StopAllButtonHolds()
-            end
-            self.hud_obj:HideCustomHint()
-            self.hud_obj:EnableManualMeter(false, false)
-            -- Restore the normal speed unit label on exit, or it stays on the autopilot distance unit.
-            self.hud_obj:ToggleOriginalMPHDisplay(false)
-            self.av_obj.engine_obj:EnableOriginalPhysics(true)
-            self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
-            if self:IsAutoMode() then
-                self.av_obj.navigation_obj:InterruptAutoPilot()
-            end
-            SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
-        end
+    if self.av_obj == nil or not self.av_obj:IsPlayerIn() then
+        return
     end
+    self.log_obj:Record(LogLevel.Info, "Enter In AV")
+    SaveLocksManager.RequestSaveLockAdd(CName.new("DAV_IN_AV"))
+    self:SetSituation(Def.Situation.InVehicle)
+    self.hud_obj:HideChoice()
+    self.hud_obj:EnableManualMeter(true, self.av_obj.is_enable_manual_rpm_meter)
+    self.is_keyboard_input_prev = self.hud_obj.is_keyboard_input
+    self.av_obj.engine_obj:EnableOriginalPhysics(false)
+    self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
+    -- LTBF compatibility only matters while aboard (B-3).
+    self:StartLTBFCompatPoll()
+    Cron.After(1.5, function()
+        self.hud_obj:ForceShowMeter()
+        self.hud_obj:ShowLeftBottomHUD()
+        self.av_obj:ChangeDoorState(Def.DoorOperation.Close)
+        Cron.After(1.5, function()
+            self.hud_obj:ShowCustomHint()
+        end)
+    end)
 end
 
---- Check HUD.
-function Event:CheckHUD()
-    -- 20 Hz: the meters show floored integers, so a 50 ms gap cannot hide a visible digit change.
-    if not self:DueNow("last_hud_check_time", self.hud_check_interval) then
+--- Event handler: player left the AV (fired by hudCarController.OnUnmountingEvent).
+--- Situation guard: only InVehicle owns the exit cleanup; duplicates after the transition are no-ops.
+function Event:OnPlayerUnmounted()
+    if self.current_situation ~= Def.Situation.InVehicle then
         return
     end
-    -- 1 Hz: this walks the widget tree in a pcall; the slot is already hidden on boarding.
-    if self:DueNow("last_consume_slot_check_time", self.consume_slot_check_interval) then
-        if self.hud_obj:IsVisibleConsumeItemSlot() then
-            self.hud_obj:SetVisibleConsumeItemSlot(false)
-        end
+    if self.av_obj == nil then
+        return
     end
-    -- HP arrives via the ReactToHPChange observer; the unit label stays real speed to avoid HUD flicker.
+    self.log_obj:Record(LogLevel.Info, "Exit AV")
+    -- LTBF compatibility has nothing to watch from outside the AV (B-3).
+    self:StopLTBFCompatPoll()
+    self.hud_obj:HideLeftBottomHUD()
+    self:SetSituation(Def.Situation.Waiting)
+    -- Drop any armed movement holds on exit so they cannot leak into the next ride
+    if DAV.core_obj ~= nil then
+        DAV.core_obj:StopAllButtonHolds()
+    end
+    self.hud_obj:HideCustomHint()
+    self.hud_obj:EnableManualMeter(false, false)
+    -- Restore the normal speed unit label on exit, or it stays on the autopilot distance unit.
     self.hud_obj:ToggleOriginalMPHDisplay(false)
-    local current_speed = self.av_obj:GetCurrentSpeed()
-
+    self.av_obj.engine_obj:EnableOriginalPhysics(true)
+    self.av_obj.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
     if self:IsAutoMode() then
-        self.hud_obj:EnableManualMeter(true, true)
-        self.hud_obj:SetSpeedMeterValue(current_speed)
+        self.av_obj.navigation_obj:InterruptAutoPilot()
+    end
+    SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
+end
+
+--- Event handler: the AV entity was destroyed (fired by VehicleComponent.OnDeath, hash-matched).
+--- Guarded by situation: a second destroy event after the reset must not re-run cleanup.
+function Event:OnAVDestroyed()
+    if self.current_situation == Def.Situation.Normal or self.current_situation == Def.Situation.Idle then
+        return
+    end
+    self.log_obj:Record(LogLevel.Info, "Destroyed detected")
+    if self.current_situation == Def.Situation.InVehicle then
+        self.hud_obj:HideCustomHint()
+        self.av_obj:Unmount()
+    end
+    self.sound_obj:ResetSoundResource()
+    self.sound_obj:Mute()
+    self.av_obj:ProjectLandingWarning(false)
+    self.av_obj:ToggleThruster(false)
+    self.hud_obj:HideChoice()
+    if self.av_obj.engine_obj.fly_av_system ~= nil then
+        self.av_obj.engine_obj:EnableGravity(true)
+    end
+    self.av_obj:SetDestroyAppearance()
+    self:SetSituation(Def.Situation.Normal)
+    DAV.core_obj:Reset()
+end
+
+--- RPM meter display value, shared by the OnRpmValueChanged override and the boarding flow.
+---@return number
+function Event:ComputeRPMDisplayValue()
+    if self:IsAutoMode() then
         local nav_obj = self.av_obj.navigation_obj
         local initial_length = math.floor(tonumber(nav_obj and nav_obj.initial_destination_length) or 1)
         local current_length = math.floor(tonumber(nav_obj and nav_obj.dest_remaining_to_final) or 0)
@@ -605,13 +648,9 @@ function Event:CheckHUD()
             initial_length = 1
         end
         -- RPM is the autopilot progress gauge: 1 at departure, 11 on arrival.
-        self.hud_obj:SetRPMMeterValue(math.floor(10 * (1 - current_length / initial_length) + 1))
-    else
-        self.hud_obj:EnableManualMeter(true, self.av_obj.is_enable_manual_rpm_meter)
-        self.hud_obj:SetSpeedMeterValue(current_speed)
-        local rpm_count = self.av_obj.engine_obj:GetRPMCount()
-        self.hud_obj:SetRPMMeterValue(math.abs(rpm_count))
+        return math.floor(10 * (1 - current_length / initial_length) + 1)
     end
+    return math.abs(self.av_obj.engine_obj:GetRPMCount())
 end
 
 --- Check engine status. If engine is off, turn it on.
@@ -625,12 +664,10 @@ function Event:CheckEngine()
     end
 end
 
---- Check door status.
-function Event:CheckDoor()
-    -- 10 Hz (C-2). A door is opened by a person, not at 100 Hz.
-    if not self:DueNow("last_door_check_time", self.door_check_interval) then
-        return
-    end
+--- Bring the driver door in line with the entry area (idempotent; safe to call from any driver).
+--- Drivers: the entry-area edge in CheckInEntryArea and the read-path change record
+--- in the GetHasAnyDoorOpen override. No polling.
+function Event:SyncEntryDoor()
     local veh_door = EVehicleDoor.seat_front_left
 
     if self:IsInEntryArea() then
@@ -669,32 +706,6 @@ function Event:CheckCombat()
             end
             self.hud_obj:AddInputHint("Exit", "Exit", "LocKey#36196", inkInputHintHoldIndicationType.Hold, true, 20)
         end
-    end
-end
-
---- Check if vehicle is destroyed.
-function Event:CheckDestroyed()
-    -- 10 Hz (C-3). Destruction is not something a 100 Hz poll buys over 10 Hz.
-    if not self:DueNow("last_destroyed_check_time", self.destroyed_check_interval) then
-        return
-    end
-    if self.av_obj:IsDestroyed() then
-        self.log_obj:Record(LogLevel.Info, "Destroyed detected")
-        if self.current_situation == Def.Situation.InVehicle then
-            self.hud_obj:HideCustomHint()
-            self.av_obj:Unmount()
-        end
-        self.sound_obj:ResetSoundResource()
-        self.sound_obj:Mute()
-        self.av_obj:ProjectLandingWarning(false)
-        self.av_obj:ToggleThruster(false)
-        self.hud_obj:HideChoice()
-        if self.av_obj.engine_obj.fly_av_system ~= nil then
-            self.av_obj.engine_obj:EnableGravity(true)
-        end
-        self.av_obj:SetDestroyAppearance()
-        self:SetSituation(Def.Situation.Normal)
-        DAV.core_obj:Reset()
     end
 end
 
@@ -828,24 +839,34 @@ function Event:CheckInput()
     end
 end
 
---- Check if auto mode is changed. if changed, lock operation.
-function Event:CheckAutoModeChange()
-    if self:IsAutoMode() and not self.is_locked_operation then
-        self.is_locked_operation = true
-    elseif not self:IsAutoMode() and self.is_locked_operation then
+--- Event hook: autopilot ended (success or interrupt); restore manual control.
+--- Replaces the per-tick CheckAutoModeChange poll; called from Navigation on the state flip.
+function Event:NotifyAutoModeEnded()
+    -- Old poll only ran while InVehicle; keep that scope (unmount must not show the arrival display).
+    if self.current_situation ~= Def.Situation.InVehicle then
         self.is_locked_operation = false
-        self.hud_obj:ShowArrivalDisplay()
-        self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
-        self.sound_obj:PlayGameSound("110_arrive_vehicle")
+        return
     end
+    if not self.is_locked_operation then
+        return
+    end
+    self.is_locked_operation = false
+    -- Hand the RPM gauge back from the progress bar to the manual setting (was CheckHUD's job).
+    self.hud_obj:EnableManualMeter(true, self.av_obj.is_enable_manual_rpm_meter)
+    self.hud_obj:ShowArrivalDisplay()
+    self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
+    self.sound_obj:PlayGameSound("110_arrive_vehicle")
 end
 
---- Check if auto pilot is failed. if failed, show interrupt auto pilot display.
-function Event:CheckFailAutoPilot()
-    if self.av_obj.navigation_obj:IsFailedAutoPilot() then
-        self.hud_obj:ShowInterruptAutoPilotDisplay()
-        self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
+--- Event hook: autopilot failed; show the interrupt display.
+--- Replaces the per-tick CheckFailAutoPilot poll; called from Navigation:InterruptAutoPilot.
+function Event:NotifyAutoPilotFailed()
+    -- Old poll only ran while InVehicle; keep that scope.
+    if self.current_situation ~= Def.Situation.InVehicle then
+        return
     end
+    self.hud_obj:ShowInterruptAutoPilotDisplay()
+    self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
 end
 
 --- Check if save is locked. if locked, remove lock.
@@ -860,19 +881,6 @@ function Event:CheckLockedSave()
     if res then
         self.log_obj:Record(LogLevel.Info, "Locked save detected. Remove lock")
         SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
-    end
-end
-
---- Check if perspective is FPP.
---- The lock stays latched for as long as FPP lasts, so ForceShowMeter() fires on edges only.
-function Event:CheckPerspective()
-    if self:IsFPP() then
-        if not self.is_locked_showing_meter then
-            self.hud_obj:ForceShowMeter()
-            self.is_locked_showing_meter = true
-        end
-    else
-        self.is_locked_showing_meter = false
     end
 end
 
@@ -983,10 +991,14 @@ function Event:ToggleAutoMode()
     if self:IsInVehicle() then
         if not self.av_obj.is_auto_pilot then
             self.hud_obj:ShowAutoModeDisplay()
+            -- Auto mode drives the RPM gauge as a progress bar: take it over now (was CheckHUD's job).
+            self.hud_obj:EnableManualMeter(true, true)
             self.is_locked_operation = true
             self.av_obj.navigation_obj:AutoPilot()
         else
             self.hud_obj:ShowDriveModeDisplay()
+            -- Hand the RPM gauge back to the manual setting.
+            self.hud_obj:EnableManualMeter(true, self.av_obj.is_enable_manual_rpm_meter)
             self.is_locked_operation = false
             self.av_obj.navigation_obj:InterruptAutoPilot()
         end

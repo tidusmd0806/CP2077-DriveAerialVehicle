@@ -146,6 +146,8 @@ function Camera:ChangePosition(level)
     self.current_camera_mode = level
 
     Game.GetPlayer():QueueEvent(camera_perspective)
+    -- FPP meter re-show is handled by the OnCameraModeChanged override in HUD:SetOverride,
+    -- which runs after the game's own hide (the Cron.After approach lost that race).
 end
 
 --- Toggle camera perspective

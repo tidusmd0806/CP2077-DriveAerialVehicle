@@ -3577,6 +3577,11 @@ function Navigation:AutoPilot()
 		end
 		-- Always track distance to final destination (not current A* waypoint) for HUD display
 		self.dest_remaining_to_final = horiz_to_final
+		-- Push the autopilot progress gauge here: at constant cruise speed the game fires no
+		-- speed/rpm change event, so the event-driven meter would otherwise freeze mid-route.
+		-- SetRPMMeterValue writes the widget only on integer change, so this is a Lua compare per tick.
+		self.av_obj.core_obj.event_obj.hud_obj:SetRPMMeterValue(
+			self.av_obj.core_obj.event_obj:ComputeRPMDisplayValue())
 
 		if self.autopilot_phase == "astar"
 			and self.astar_is_partial_route
@@ -4268,6 +4273,12 @@ function Navigation:SuccessAutoPilot()
 	self.av_obj.is_auto_pilot = false
 	self.is_failture_auto_pilot = false
 	self.av_obj.core_obj:SetAutoPilotHistory()
+	-- Event-driven: tell the HUD/controls the auto mode ended (was a per-tick poll).
+	-- Deferred one tick so the ChangeVelocity stop from AutoLanding applies before AddForce returns.
+	local core_obj = self.av_obj.core_obj
+	Cron.After(0.5, function()
+		core_obj.event_obj:NotifyAutoModeEnded()
+	end)
 	self.autopilot_ground_destination = nil
 	self.autopilot_final_destination = nil
 	self.autopilot_original_destination = nil
@@ -4286,6 +4297,9 @@ end
 function Navigation:InterruptAutoPilot()
 	self.av_obj.is_auto_pilot = false
 	self.is_failture_auto_pilot = true
+	-- Event-driven: was consumed by the per-tick CheckFailAutoPilot / CheckAutoModeChange polls.
+	self.av_obj.core_obj.event_obj:NotifyAutoPilotFailed()
+	self.av_obj.core_obj.event_obj:NotifyAutoModeEnded()
 	self.autopilot_ground_destination = nil
 	self.autopilot_final_destination = nil
 	self.autopilot_original_destination = nil
