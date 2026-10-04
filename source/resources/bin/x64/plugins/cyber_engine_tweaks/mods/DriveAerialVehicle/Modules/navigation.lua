@@ -4507,7 +4507,9 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 	end
 
 	-- Optimized detection with balanced performance and coverage
-	local current_speed = Vector4.Vector3To4(self.av_obj.engine_obj.direction_velocity):Length()
+	-- Read live velocity: engine_obj.direction_velocity is a Lua-path target and stays stale
+	-- when the DLL native flight model (B-3) drives physics.
+	local current_speed = self.av_obj:GetCurrentSpeed()
 	local speed_factor = math.min(current_speed / 20.0, 2.0)
 
 	local detection_step = self.collision_check_side_distance

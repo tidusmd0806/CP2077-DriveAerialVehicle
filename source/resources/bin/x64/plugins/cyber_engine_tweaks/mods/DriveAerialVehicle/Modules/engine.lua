@@ -54,7 +54,189 @@ function Engine:Init(entity_id)
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
     self.mass = self.fly_av_system:GetMass()
+    -- Gated on DAV.is_enable_native_flight; pcall because a missing method on an old DLL may throw.
+    local ok, fn = pcall(function() return self.fly_av_system.SetFlightControl end)
+    self.native_control = DAV.is_enable_native_flight and ok and fn ~= nil
+    -- B-3: full native flight model (DLL computes Engine:Run math per physics tick).
+    local ok2, fn2 = pcall(function() return self.fly_av_system.SetFlightModel end)
+    self.native_flight_model = DAV.is_enable_native_flight and self.native_control and ok2 and fn2 ~= nil
+    -- Watchdog source: the DLL counts physics ticks it applies for this vehicle.
+    local ok3, fn3 = pcall(function() return self.fly_av_system.GetNativeTickCount end)
+    self.native_tick_readable = ok3 and fn3 ~= nil
+    self.native_tick_probe_interval = 0.5
+    self.native_tick_stall_limit = 3
+    self.native_tick_probe = 0
+    self.native_tick_stall = 0
+    self.native_tick_last = nil
+    self.log_obj:Record(LogLevel.Info, string.format("native_control=%s native_flight_model=%s mass=%.1f physics_state=%s",
+        tostring(self.native_control), tostring(self.native_flight_model), self.mass, tostring(self.fly_av_system:GetPhysicsState())))
+    if self.native_flight_model then
+        self:PushNativeParams()
+    end
     self.is_finished_init = true
+end
+
+--- Give up on the native path and hand control back to the Lua flight model.
+---@param reason string
+function Engine:DisableNative(reason)
+    if not self.native_control and not self.native_flight_model then
+        return
+    end
+    self.log_obj:Record(LogLevel.Error, "native flight disabled, falling back to Lua path: " .. reason)
+    if self.native_control then
+        local ok = pcall(function()
+            self.fly_av_system:SetFlightControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
+        end)
+        if not ok then
+            self.log_obj:Record(LogLevel.Error, "failed to push native stop before fallback")
+        end
+    end
+    self.native_control = false
+    self.native_flight_model = false
+    self.native_mode3_pushed = false
+    self.native_off_pushed = true
+end
+
+--- Fall back to the Lua path when the DLL physics-tick counter stops advancing.
+---@param delta number
+function Engine:WatchNativeTick(delta)
+    if not self.native_tick_readable then
+        return
+    end
+    local control_type = self.engine_control_type
+    if control_type ~= Def.EngineControlType.AddForce then
+        -- Only manual flight uses the hook; an unboarded vehicle is not simulated.
+        self.native_tick_probe = 0
+        self.native_tick_stall = 0
+        self.native_tick_last = nil
+        return
+    end
+    if self.mass <= 0 then
+        -- Entity not resolved yet: wait for the lazy retry instead of tearing the native path down.
+        self.native_tick_probe = 0
+        self.native_tick_stall = 0
+        self.native_tick_last = nil
+        return
+    end
+
+    self.native_tick_probe = self.native_tick_probe + delta
+    if self.native_tick_probe < self.native_tick_probe_interval then
+        return
+    end
+    self.native_tick_probe = 0
+
+    local ok, ticks = pcall(function() return self.fly_av_system:GetNativeTickCount() end)
+    if not ok then
+        self.native_tick_readable = false
+        return
+    end
+    if self.native_tick_last == nil or ticks > self.native_tick_last then
+        self.native_tick_stall = 0
+    else
+        self.native_tick_stall = self.native_tick_stall + 1
+        if self.native_tick_stall == 1 then
+            self.log_obj:Record(LogLevel.Warning, string.format(
+                "native physics tick stalled at %.0f (control_type=%s); fallback in %.1fs",
+                ticks, tostring(control_type), self.native_tick_probe_interval * self.native_tick_stall_limit))
+        end
+    end
+    self.native_tick_last = ticks
+
+    if self.native_tick_stall >= self.native_tick_stall_limit then
+        self:DisableNative(string.format("no physics tick for %.1fs (tick=%.0f)",
+            self.native_tick_probe_interval * self.native_tick_stall_limit, ticks))
+    end
+end
+
+--- Push every flight model tunable to the DLL (packed into Vector4s; order must match Main.cpp).
+function Engine:PushNativeParams()
+    local s = DAV.user_setting_table
+    self.fly_av_system:SetFlightParams(
+        Vector4.new(s.max_speed, s.horizontal_air_resistance_const, s.vertical_air_resistance_const, s.acceleration),
+        Vector4.new(s.vertical_acceleration, s.left_right_acceleration, s.roll_change_amount, s.roll_restore_amount),
+        Vector4.new(s.pitch_change_amount, s.pitch_restore_amount, s.yaw_change_amount, s.rotate_roll_change_amount))
+    self.fly_av_system:SetFlightParams2(
+        Vector4.new(s.h_roll_change_amount, s.h_roll_restore_amount, s.h_pitch_change_amount, s.h_pitch_restore_amount),
+        Vector4.new(s.h_yaw_change_amount, s.h_acceleration, s.h_lift_idle_acceleration, s.h_ascend_acceleration),
+        Vector4.new(s.h_descend_acceleration, self.rpm_count_step, self.rpm_restore_step, self.rpm_count_scale))
+    self.fly_av_system:SetFlightParams3(
+        Vector4.new(self.max_roll, self.max_pitch, self.force_restore_angle, self.restore_boundary_deg))
+end
+
+--- Attitude source for the native restore math: true = CET's ToEulerAngles (what the Lua path uses).
+local NATIVE_ATTITUDE_FROM_CET = true
+
+--- B-3: push the manual-flight command list; the DLL physics hook runs the flight model per tick.
+---@param action_command_lists table list of {action, value}
+function Engine:PushNativeCommands(action_command_lists)
+    local n = #action_command_lists
+    if n > 6 then n = 6 end
+    local a = {0, 0, 0, 0, 0, 0}
+    local v = {1, 1, 1, 1, 1, 1}
+    for i = 1, n do
+        local c = action_command_lists[i]
+        a[i] = c[1]
+        v[i] = c[2] or 1
+    end
+    local reset = self.native_reset_pending and 1 or 0
+    self.native_reset_pending = false
+    -- Attitude for the DLL's restore math; W = 0 means "use the DLL's own extraction".
+    local att = Vector4.new(0, 0, 0, 0)
+    if NATIVE_ATTITUDE_FROM_CET then
+        local ang = self.av_obj:GetEulerAngles()
+        if ang ~= nil then
+            att = Vector4.new(ang.roll, ang.pitch, ang.yaw, 1)
+        end
+    end
+    -- Entity world quaternion (real w in W); the DLL validates it by norm.
+    local q = self.av_obj:GetQuaternion()
+    local cq = Vector4.new(0, 0, 0, 0)
+    if q ~= nil then
+        cq = Vector4.new(q.i, q.j, q.k, q.r)
+    end
+    -- Entity axes: the DLL must use the same vectors the Lua thrust math uses.
+    local fwd = self.av_obj:GetForward()
+    local right = self.av_obj:GetRight()
+    local up = self.av_obj:GetUp()
+    local ax_ok = (fwd ~= nil and right ~= nil and up ~= nil) and 1 or 0
+    if ax_ok == 0 then
+        fwd, right, up = Vector4.new(0, 0, 0, 0), Vector4.new(0, 0, 0, 0), Vector4.new(0, 0, 0, 0)
+    end
+    self.fly_av_system:SetFlightModel(
+        Vector4.new(self.flight_mode, self:HasGravity() and 1 or 0, DAV.dt_scale or 1, n),
+        Vector4.new(reset, a[1], a[2], a[3]),
+        Vector4.new(a[4], a[5], a[6], v[1]),
+        Vector4.new(v[2], v[3], v[4], v[5]),
+        Vector4.new(v[6], 0, 0, 0),
+        att,
+        cq,
+        Vector4.new(fwd.x, fwd.y, fwd.z, ax_ok),
+        Vector4.new(right.x, right.y, right.z, 0),
+        Vector4.new(up.x, up.y, up.z, 0))
+    -- Shadow A/B: run the Lua flight model on the same commands and log its target, to diff against
+    -- the DLL's `hook ang target` for the same attitude. Read-only apart from rpm (restored below).
+    if DAV.native_shadow then
+        local rpm_saved = self.rpm_count
+        local xt, yt, zt, rt, pt, yt2 = 0, 0, 0, 0, 0, 0
+        for _, c in ipairs(action_command_lists) do
+            local x, y, z, r, p, yw = self:CalculateAddVelocity(c)
+            local cv = c[2] or 1
+            xt = xt + x * cv; yt = yt + y * cv; zt = zt + z * cv
+            rt = rt + r * cv; pt = pt + p * cv; yt2 = yt2 + yw * cv
+        end
+        self.rpm_count = rpm_saved
+        if self:Run(xt, yt, zt, rt, pt, yt2) then
+            local ang = self.av_obj:GetEulerAngles()
+            local av = self.angular_velocity
+            self.shadow_probe = (self.shadow_probe or 0) + 1
+            if ang ~= nil and self.shadow_probe >= 60 then
+                self.shadow_probe = 0
+                self.log_obj:Record(LogLevel.Info, string.format(
+                    "shadow att=(%.1f,%.1f,%.1f) target=(%.2f,%.2f,%.2f)",
+                    ang.roll, ang.pitch, ang.yaw, av.x, av.y, av.z))
+            end
+        end
+    end
 end
 
 --- Get Control Type
@@ -75,6 +257,19 @@ function Engine:SetIdle(is_idle)
     self.is_idle = is_idle
 end
 
+--- Push flight control to the DLL reusing scratch Vector3 tables (no per-push allocation).
+---@param mode integer 0=off, 1=add force/torque, 2=write velocity
+---@param vel Vector3
+---@param angvel Vector3
+---@param gain number
+function Engine:PushNativeControl(mode, vel, angvel, gain)
+    self.native_scratch = self.native_scratch or { Vector3.new(0, 0, 0), Vector3.new(0, 0, 0) }
+    local v, a = self.native_scratch[1], self.native_scratch[2]
+    v.x, v.y, v.z = vel.x, vel.y, vel.z
+    a.x, a.y, a.z = angvel.x, angvel.y, angvel.z
+    self.fly_av_system:SetFlightControl(mode, v, a, gain)
+end
+
 --- Update
 ---@param delta number
 function Engine:Update(delta)
@@ -86,31 +281,110 @@ function Engine:Update(delta)
         return
     end
     if self.av_obj.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+        -- Native keeps applying the last pushed target; force it off once until the menu closes.
+        if self.native_control and not self.native_off_pushed then
+            self:PushNativeControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
+            self.native_off_pushed = true
+            self.native_mode3_pushed = false
+        end
         return
     end
+    self.native_off_pushed = false
+    -- While unresolved GetMass() is 0 and every physics call is a silent no-op.
+    if self.native_control and self.mass <= 0 then
+        local mass = self.fly_av_system:GetMass()
+        if mass > 0 then
+            self.mass = mass
+            self.log_obj:Record(LogLevel.Info, string.format("native mass resolved: %.1f", mass))
+        end
+    end
+    -- -1 means "vehicle not resolved yet"; ForceEnablePhysics is what gets a fresh AV simulated.
     if self:GetPhysicsState() ~= 0 then
         self:UnsetPhysicsState()
         self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
     end
+    if self.native_control then
+        self:WatchNativeTick(delta)
+    end
+    -- Re-assert the boarding toggles: a toggle dropped while unresolved leaves game physics fighting.
+    if self.native_control and self.engine_control_type == Def.EngineControlType.AddForce then
+        self.physics_assert_probe = (self.physics_assert_probe or 0) + delta
+        if self.physics_assert_probe >= 1.0 then
+            self.physics_assert_probe = 0
+            self.physics_assert_warn = (self.physics_assert_warn or 0)
+            if self.fly_av_system:EnableOriginalPhysics(false) ~= 1 then
+                self.physics_assert_warn = self.physics_assert_warn + 1
+                if self.physics_assert_warn <= 3 then
+                    self.log_obj:Record(LogLevel.Warning, "EnableOriginalPhysics(false) rejected (vehicle unresolved?)")
+                end
+            end
+            if self.fly_av_system:EnableGravity(false) ~= 1 then
+                if self.physics_assert_warn <= 3 then
+                    self.log_obj:Record(LogLevel.Warning, "EnableGravity(false) rejected (vehicle unresolved?)")
+                end
+            end
+        end
+    end
+    if self.native_flight_model and self.engine_control_type == Def.EngineControlType.AddForce
+            and not self.av_obj.is_auto_pilot then
+        -- B-3: the DLL physics hook runs the whole flight model; nothing to compute here.
+        if not self.native_mode3_pushed then
+            self.log_obj:Record(LogLevel.Info, "mode3 push (native flight model active)")
+            self:PushNativeControl(3, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), self.torque_gain)
+            self.native_mode3_pushed = true
+        end
+        -- Cross-check against the DLL's `att=`/`ext=`/`fwd=` log lines.
+        self.native_att_log_probe = (self.native_att_log_probe or 0) + delta
+        if self.native_att_log_probe >= 1.0 then
+            self.native_att_log_probe = 0
+            local ang = self.av_obj:GetEulerAngles()
+            local fwd = self.av_obj:GetForward()
+            local up = self.av_obj:GetUp()
+            if ang ~= nil then
+                self.log_obj:Record(LogLevel.Info, string.format(
+                    "cet euler roll=%.1f pitch=%.1f yaw=%.1f fwd=(%.2f,%.2f,%.2f) up=(%.2f,%.2f,%.2f)",
+                    ang.roll, ang.pitch, ang.yaw, fwd.x, fwd.y, fwd.z, up.x, up.y, up.z))
+            end
+        end
+        self.force = Vector3.new(0, 0, 0)
+        self.torque = Vector3.new(0, 0, 0)
+        return
+    end
+    if self.native_mode3_pushed then
+        -- Otherwise the hook keeps flying the AV after the player leaves it.
+        self:PushNativeControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
+        self.native_mode3_pushed = false
+    end
     if self.engine_control_type == Def.EngineControlType.ChangeVelocity then
         self.force = Vector3.new(0, 0, 0)
         self.torque = Vector3.new(0, 0, 0)
+        -- The hook does not run for an unboarded vehicle, so keep the direct write here.
         self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.direction_velocity, self.angular_velocity)
     elseif self.engine_control_type == Def.EngineControlType.AddForce then
         local direction_velocity = self:GetDirectionVelocity()
         local angular_velocity = self:GetAngularVelocity()
-        local _, actual_angular_velocity = self:GetDirectionAndAngularVelocity()
-        local angular_velocity_diff = Vector3.new(angular_velocity.x - actual_angular_velocity.x, angular_velocity.y - actual_angular_velocity.y, angular_velocity.z - actual_angular_velocity.z)
-        local mass = self.mass
-        self.force = Vector3.new(direction_velocity.x * mass, direction_velocity.y * mass, direction_velocity.z * mass)
-        self.torque = Vector3.new(angular_velocity_diff.x * self.torque_gain, angular_velocity_diff.y * self.torque_gain, angular_velocity_diff.z * self.torque_gain)
-        self:AddForce(self.force, self.torque)
+        self.force = Vector3.new(direction_velocity.x * self.mass, direction_velocity.y * self.mass, direction_velocity.z * self.mass)
+        if self.native_control then
+            -- Native computes torque from the live angular velocity error each physics tick.
+            self.torque = Vector3.new(0, 0, 0)
+            self:PushNativeControl(1, direction_velocity, angular_velocity, self.torque_gain)
+        else
+            local _, actual_angular_velocity = self:GetDirectionAndAngularVelocity()
+            local angular_velocity_diff = Vector3.new(angular_velocity.x - actual_angular_velocity.x, angular_velocity.y - actual_angular_velocity.y, angular_velocity.z - actual_angular_velocity.z)
+            local mass = self.mass
+            self.force = Vector3.new(direction_velocity.x * mass, direction_velocity.y * mass, direction_velocity.z * mass)
+            self.torque = Vector3.new(angular_velocity_diff.x * self.torque_gain, angular_velocity_diff.y * self.torque_gain, angular_velocity_diff.z * self.torque_gain)
+            self:AddForce(self.force, self.torque)
+        end
     elseif self.engine_control_type == Def.EngineControlType.FluctuationVelocity then
         self.force = Vector3.new(0, 0, 0)
         self.torque = Vector3.new(0, 0, 0)
         self:FluctuationVelocity(delta)
     elseif self.engine_control_type == Def.EngineControlType.Blocking then
         -- Do nothing, just block the physics
+        if self.native_control then
+            self:PushNativeControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
+        end
         self.log_obj:Record(LogLevel.Trace, "Blocking DAV physics")
     else
         self.log_obj:Record(LogLevel.Error, "Unknown control type", "Engine:Update - control_type: " .. tostring(self.engine_control_type))
@@ -774,6 +1048,9 @@ end
 --- Get RPM count
 ---@return integer
 function Engine:GetRPMCount()
+    if self.native_flight_model and self.native_mode3_pushed then
+        return math.floor(self.fly_av_system:GetNativeRPM() / self.rpm_count_scale)
+    end
     return math.floor(self.rpm_count / self.rpm_count_scale)
 end
 
@@ -823,6 +1100,8 @@ function Engine:FluctuationVelocity(delta)
     self.direction_velocity.x = self.direction_velocity.x / velocity * (velocity + self.step_width_per_second * delta)
     self.direction_velocity.y = self.direction_velocity.y / velocity * (velocity + self.step_width_per_second * delta)
     self.direction_velocity.z = self.direction_velocity.z / velocity * (velocity + self.step_width_per_second * delta)
+    -- Direct write: this runs while the AV is unboarded (spawn descent), where the physics hook
+    -- does not fire.
     self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.direction_velocity, self.angular_velocity)
 end
 

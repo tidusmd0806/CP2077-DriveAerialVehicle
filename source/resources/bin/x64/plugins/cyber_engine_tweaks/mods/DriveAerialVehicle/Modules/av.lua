@@ -840,6 +840,8 @@ function AV:BlockOperation(on)
 		self.is_blocking_operation = false
 		if self:IsPlayerIn() then
 			self.engine_obj:SetControlType(Def.EngineControlType.AddForce)
+			-- B-3: fresh boarding clears native integrators on the next command push.
+			self.engine_obj.native_reset_pending = true
 		else
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 		end
@@ -851,6 +853,30 @@ end
 --- Execute action commands.
 ---@param action_command_lists table
 function AV:Operate(action_command_lists)
+	-- B-3: native flight model — hand the raw command list to the DLL and skip all Lua math.
+	-- Only for manual AddForce flight; Waiting (Idle) and autopilot keep the Lua path.
+	if self.engine_obj.native_flight_model and not self.is_auto_pilot
+			and self.engine_obj:GetControlType() == Def.EngineControlType.AddForce then
+		local has_invalid = false
+		for _, action_command_list in ipairs(action_command_lists) do
+			if action_command_list[1] >= Def.ActionList.Enter then
+				self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
+				has_invalid = true
+			end
+			if action_command_list[1] == Def.ActionList.Idle then
+				self.engine_obj:SetIdle(true)
+			else
+				self.engine_obj:SetIdle(false)
+			end
+		end
+		if has_invalid then
+			return false
+		end
+		self.engine_obj:PushNativeCommands(action_command_lists)
+		self:MoveThruster(action_command_lists)
+		self:ControlSound(action_command_lists)
+		return true
+	end
 	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
 	-- self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_command_lists)
 	for _, action_command_list in ipairs(action_command_lists) do

@@ -24,6 +24,10 @@ DAV = {
     is_debug_mode = false,
     -- Developer switch; user-facing twin: user_setting_table.is_enable_obstacle_recording.
     is_debug_enable_obstacle_scan = false,
+    -- Developer switch: drive flight from the DLL physics hook instead of the Lua flight model.
+    is_enable_native_flight = false,
+    -- Diagnostic: in native mode also run the Lua flight model and log its target for A/B against the DLL.
+    native_shadow = true,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
