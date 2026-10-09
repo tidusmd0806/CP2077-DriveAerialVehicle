@@ -163,31 +163,36 @@ function Engine:PushNativeParams()
         Vector4.new(self.max_roll, self.max_pitch, self.force_restore_angle, self.restore_boundary_deg))
 end
 
---- Attitude source for the native restore math: true = CET's ToEulerAngles (what the Lua path uses).
-local NATIVE_ATTITUDE_FROM_CET = true
-
 --- B-3: push the manual-flight command list; the DLL physics hook runs the flight model per tick.
 ---@param action_command_lists table list of {action, value}
 function Engine:PushNativeCommands(action_command_lists)
-    local n = #action_command_lists
-    if n > 6 then n = 6 end
+    -- Commands now arrive as event edges through Core:PushNative, so the per-tick list is no longer
+    -- sent. A DLL without that native keeps the legacy path, otherwise flight would silently die.
+    if self.native_cmd_ok == nil then
+        local ok, fn = pcall(function()
+            return self.fly_av_system ~= nil and self.fly_av_system.SetNativeCommand ~= nil
+        end)
+        self.native_cmd_ok = (ok and fn == true) and true or false
+    end
+    local n = 0
     local a = {0, 0, 0, 0, 0, 0}
     local v = {1, 1, 1, 1, 1, 1}
-    for i = 1, n do
-        local c = action_command_lists[i]
-        a[i] = c[1]
-        v[i] = c[2] or 1
+    if self.native_cmd_ok ~= true then
+        n = #action_command_lists
+        if n > 6 then n = 6 end
+        for i = 1, n do
+            local c = action_command_lists[i]
+            a[i] = c[1]
+            v[i] = c[2] or 1
+        end
     end
     local reset = self.native_reset_pending and 1 or 0
     self.native_reset_pending = false
-    -- Attitude for the DLL's restore math; W = 0 means "use the DLL's own extraction".
-    local att = Vector4.new(0, 0, 0, 0)
-    if NATIVE_ATTITUDE_FROM_CET then
-        local ang = self.av_obj:GetEulerAngles()
-        if ang ~= nil then
-            att = Vector4.new(ang.roll, ang.pitch, ang.yaw, 1)
-        end
-    end
+    -- Attitude for the DLL's restore math. It must be the game's own ToEulerAngles convention: the
+    -- DLL's quaternion extraction uses a different Euler order (measured: roll/pitch sign-flipped,
+    -- yaw offset by 90), which crosses the command axes. av.lua frame-caches this per frame.
+    local ea = self.av_obj:GetEulerAngles()
+    local att = Vector4.new(ea.roll, ea.pitch, ea.yaw, 1)
     -- Entity world quaternion (real w in W); the DLL validates it by norm.
     local q = self.av_obj:GetQuaternion()
     local cq = Vector4.new(0, 0, 0, 0)
@@ -213,30 +218,6 @@ function Engine:PushNativeCommands(action_command_lists)
         Vector4.new(fwd.x, fwd.y, fwd.z, ax_ok),
         Vector4.new(right.x, right.y, right.z, 0),
         Vector4.new(up.x, up.y, up.z, 0))
-    -- Shadow A/B: run the Lua flight model on the same commands and log its target, to diff against
-    -- the DLL's `hook ang target` for the same attitude. Read-only apart from rpm (restored below).
-    if DAV.native_shadow then
-        local rpm_saved = self.rpm_count
-        local xt, yt, zt, rt, pt, yt2 = 0, 0, 0, 0, 0, 0
-        for _, c in ipairs(action_command_lists) do
-            local x, y, z, r, p, yw = self:CalculateAddVelocity(c)
-            local cv = c[2] or 1
-            xt = xt + x * cv; yt = yt + y * cv; zt = zt + z * cv
-            rt = rt + r * cv; pt = pt + p * cv; yt2 = yt2 + yw * cv
-        end
-        self.rpm_count = rpm_saved
-        if self:Run(xt, yt, zt, rt, pt, yt2) then
-            local ang = self.av_obj:GetEulerAngles()
-            local av = self.angular_velocity
-            self.shadow_probe = (self.shadow_probe or 0) + 1
-            if ang ~= nil and self.shadow_probe >= 60 then
-                self.shadow_probe = 0
-                self.log_obj:Record(LogLevel.Info, string.format(
-                    "shadow att=(%.1f,%.1f,%.1f) target=(%.2f,%.2f,%.2f)",
-                    ang.roll, ang.pitch, ang.yaw, av.x, av.y, av.z))
-            end
-        end
-    end
 end
 
 --- Get Control Type

@@ -25,9 +25,7 @@ DAV = {
     -- Developer switch; user-facing twin: user_setting_table.is_enable_obstacle_recording.
     is_debug_enable_obstacle_scan = false,
     -- Developer switch: drive flight from the DLL physics hook instead of the Lua flight model.
-    is_enable_native_flight = false,
-    -- Diagnostic: in native mode also run the Lua flight model and log its target for A/B against the DLL.
-    native_shadow = true,
+    is_enable_native_flight = true,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
@@ -359,8 +357,9 @@ registerForEvent("onHook", function()
                 elseif DAV.listening_keybind_widget and action == "IACT_Release" then -- Key was bound, by keyboard
                     DAV.listening_keybind_widget = nil
                 end
-                if action == "IACT_Release" then
+                if action == "IACT_Release" or action == "IACT_Abort" then
                     -- Always process releases so an armed hold cannot leak; stopping an unarmed hold is a no-op.
+                    -- Abort (menu, focus loss) carries no release, so it must clear holds the same way.
                     if DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil then
                         DAV.core_obj:ConvertHoldButtonAction(key)
                     end
@@ -405,7 +404,28 @@ registerForEvent("onHook", function()
                 -- GetValue is cheaper than GetKey (wrapper re-read); screen on magnitude first.
                 local value = event:GetValue()
                 local magnitude = value < 0 and -value or value
+                -- Diagnosis for `pass=0` while the stick is clearly moved: is the key not in
+                -- AxisKeySet, or does GetValue report ~0? bigaxis counts the former, bigval the latter.
+                if probe then
+                    if magnitude > probe.bigval then
+                        probe.bigval = magnitude
+                    end
+                    if magnitude > DAV.axis_dead_zone then
+                        local big_key = event:GetKey().value
+                        if not Def.AxisKeySet[big_key] then
+                            probe.bigaxis = probe.bigaxis + 1
+                            probe.bigkey = big_key
+                        end
+                    end
+                end
                 if magnitude <= DAV.axis_dead_zone then
+                    -- The DLL holds axis state, so the centering edge has to clear it. Reading the key
+                    -- only on this path keeps the hot path free of the extra wrapper round trip.
+                    if probe then probe.center = probe.center + 1 end
+                    local centered_key = event:GetKey().value
+                    if Def.AxisKeySet[centered_key] then
+                        core:ClearAxisAction(centered_key)
+                    end
                     return
                 end
 

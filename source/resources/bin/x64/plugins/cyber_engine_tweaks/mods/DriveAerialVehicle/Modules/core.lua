@@ -63,6 +63,8 @@ function Core:New()
     obj.max_move_hold_seconds = 500
     -- Registry of currently armed button holds (safety net for StopAllButtonHolds)
     obj.active_button_holds = {}
+    obj.last_axis_action = {}
+    obj.axis_cleared = {}
     obj.is_move_forward_button_hold_counter = false
     obj.move_forward_button_hold_count = 0
     obj.is_move_backward_button_hold_counter = false
@@ -947,7 +949,11 @@ function Core:StartButtonHold(button_name, action_type, max_hold_seconds, on_sta
     
     -- Set flag
     self[counter_flag_name] = true
-    self.active_button_holds[button_name] = true
+    -- Store the action id (not just a flag) so release can clear exactly this command in the DLL.
+    self.active_button_holds[button_name] = type(action_type) == "number" and action_type or true
+    if type(action_type) == "number" then
+        self:PushNative(action_type, 1)
+    end
     
     -- Execute start callback
     if on_start_callback then
@@ -986,6 +992,10 @@ end
 function Core:StopButtonHold(button_name)
     local counter_flag_name = "is_" .. button_name .. "_button_hold_counter"
     self[counter_flag_name] = false
+    local held = self.active_button_holds[button_name]
+    if type(held) == "number" then
+        self:PushNative(held, 0)
+    end
     self.active_button_holds[button_name] = nil
 end
 
@@ -996,6 +1006,8 @@ function Core:StopAllButtonHolds()
     for button_name in pairs(self.active_button_holds) do
         self:StopButtonHold(button_name)
     end
+    -- Belt and braces: clear anything the DLL still holds (axis tilts included).
+    self:PushNative(0, 0)
 end
 
 --- Check if the player is ready to receive movement input.
@@ -1180,21 +1192,72 @@ function Core:ConvertAxisAction(key, value)
     end
 end
 
+--- Forward one command edge to the DLL's held command state (event-driven input).
+--- action = 0 (Nothing) clears the whole held state; value = 0 releases a single command.
+---@param action number
+---@param value number
+function Core:PushNative(action, value)
+    local eng = self.av_obj and self.av_obj.engine_obj
+    if eng == nil then
+        return
+    end
+    if eng.native_cmd_ok == nil then
+        local ok, fn = pcall(function() return eng.fly_av_system ~= nil and eng.fly_av_system.SetNativeCommand ~= nil end)
+        eng.native_cmd_ok = (ok and fn == true) and true or false
+    end
+    if eng.native_cmd_ok ~= true then
+        return
+    end
+    local fly = eng.fly_av_system
+    pcall(fly.SetNativeCommand, fly, action, value)
+end
+
+--- Axis commands reach the queue (legacy path) and the DLL held state through one place.
+---@param key string
+---@param action number
+---@param value number
+function Core:EnqueueAxis(key, action, value)
+    self.queue_obj:Enqueue({action, value})
+    -- One axis drives two opposite actions (sign picks which). The held state keeps both unless the
+    -- previous one is released explicitly, so a sign flip has to clear it first.
+    local prev = self.last_axis_action[key]
+    if prev ~= nil and prev ~= action then
+        self:PushNative(prev, 0)
+    end
+    self.last_axis_action[key] = action
+    self.axis_cleared[key] = nil
+    self:PushNative(action, value)
+end
+
+--- The listener drops values inside the dead zone, but the DLL holds state, so the return-to-center
+--- edge must still clear whatever that axis last pushed. Fires once per centering, not per event.
+---@param key string
+function Core:ClearAxisAction(key)
+    if self.axis_cleared[key] then
+        return
+    end
+    local last = self.last_axis_action[key]
+    if last ~= nil then
+        self.axis_cleared[key] = true
+        self:PushNative(last, 0)
+    end
+end
+
 --- Convert Axis Action(AV).
 ---@param keybind_name string
 ---@param value number
 function Core:ConvertAVAxisAction(keybind_name, value)
     if keybind_name == "IK_Pad_LeftAxisX" then
         if value > 0 then
-            self.queue_obj:Enqueue({Def.ActionList.RightRotate, value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.RightRotate, value)
         elseif value < 0 then
-            self.queue_obj:Enqueue({Def.ActionList.LeftRotate, -value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.LeftRotate, -value)
         end
     elseif keybind_name == "IK_Pad_LeftAxisY" then
         if value > 0 then
-            self.queue_obj:Enqueue({Def.ActionList.LeanForward, value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.LeanForward, value)
         elseif value < 0 then
-            self.queue_obj:Enqueue({Def.ActionList.LeanBackward, -value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.LeanBackward, -value)
         end
     end
 end
@@ -1205,15 +1268,15 @@ end
 function Core:ConvertHeliAxisAction(keybind_name, value)
     if keybind_name == "IK_Pad_LeftAxisX" then
         if value > 0 then
-            self.queue_obj:Enqueue({Def.ActionList.HLeanRight, value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.HLeanRight, value)
         elseif value < 0 then
-            self.queue_obj:Enqueue({Def.ActionList.HLeanLeft, -value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.HLeanLeft, -value)
         end
     elseif keybind_name == "IK_Pad_LeftAxisY" then
         if value > 0 then
-            self.queue_obj:Enqueue({Def.ActionList.HLeanForward, value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.HLeanForward, value)
         elseif value < 0 then
-            self.queue_obj:Enqueue({Def.ActionList.HLeanBackward, -value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.HLeanBackward, -value)
         end
     end
 end 
