@@ -272,31 +272,15 @@ function Engine:Update(delta)
         end
     end
     -- -1 means "vehicle not resolved yet"; ForceEnablePhysics is what gets a fresh AV simulated.
-    if self:GetPhysicsState() ~= 0 then
+    -- This has to stay on the game thread: the physics hook only fires while the body is simulated,
+    -- and calling ForceEnablePhysics from inside that body's own update reenters the physics engine.
+    -- Once the hook is confirmed live the vehicle is simulated, so stop paying for the poll.
+    if (not self.native_control or self.native_tick_last == nil) and self:GetPhysicsState() ~= 0 then
         self:UnsetPhysicsState()
         self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
     end
     if self.native_control then
         self:WatchNativeTick(delta)
-    end
-    -- Re-assert the boarding toggles: a toggle dropped while unresolved leaves game physics fighting.
-    if self.native_control and self.engine_control_type == Def.EngineControlType.AddForce then
-        self.physics_assert_probe = (self.physics_assert_probe or 0) + delta
-        if self.physics_assert_probe >= 1.0 then
-            self.physics_assert_probe = 0
-            self.physics_assert_warn = (self.physics_assert_warn or 0)
-            if self.fly_av_system:EnableOriginalPhysics(false) ~= 1 then
-                self.physics_assert_warn = self.physics_assert_warn + 1
-                if self.physics_assert_warn <= 3 then
-                    self.log_obj:Record(LogLevel.Warning, "EnableOriginalPhysics(false) rejected (vehicle unresolved?)")
-                end
-            end
-            if self.fly_av_system:EnableGravity(false) ~= 1 then
-                if self.physics_assert_warn <= 3 then
-                    self.log_obj:Record(LogLevel.Warning, "EnableGravity(false) rejected (vehicle unresolved?)")
-                end
-            end
-        end
     end
     if self.native_flight_model and self.engine_control_type == Def.EngineControlType.AddForce
             and not self.av_obj.is_auto_pilot then
