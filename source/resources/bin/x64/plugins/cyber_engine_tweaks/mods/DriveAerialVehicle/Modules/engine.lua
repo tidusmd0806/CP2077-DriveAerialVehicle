@@ -188,25 +188,17 @@ function Engine:PushNativeCommands(action_command_lists)
     end
     local reset = self.native_reset_pending and 1 or 0
     self.native_reset_pending = false
-    -- Attitude for the DLL's restore math. It must be the game's own ToEulerAngles convention: the
-    -- DLL's quaternion extraction uses a different Euler order (measured: roll/pitch sign-flipped,
-    -- yaw offset by 90), which crosses the command axes. av.lua frame-caches this per frame.
-    local ea = self.av_obj:GetEulerAngles()
-    local att = Vector4.new(ea.roll, ea.pitch, ea.yaw, 1)
+    -- The DLL derives attitude and axes from the entity quaternion itself (see the axis assignment in
+    -- FmStep), so neither is pushed any more. W = 0 means "use your own extraction".
+    local att = Vector4.new(0, 0, 0, 0)
     -- Entity world quaternion (real w in W); the DLL validates it by norm.
     local q = self.av_obj:GetQuaternion()
     local cq = Vector4.new(0, 0, 0, 0)
     if q ~= nil then
         cq = Vector4.new(q.i, q.j, q.k, q.r)
     end
-    -- Entity axes: the DLL must use the same vectors the Lua thrust math uses.
-    local fwd = self.av_obj:GetForward()
-    local right = self.av_obj:GetRight()
-    local up = self.av_obj:GetUp()
-    local ax_ok = (fwd ~= nil and right ~= nil and up ~= nil) and 1 or 0
-    if ax_ok == 0 then
-        fwd, right, up = Vector4.new(0, 0, 0, 0), Vector4.new(0, 0, 0, 0), Vector4.new(0, 0, 0, 0)
-    end
+    local fwd, right, up = Vector4.new(0, 0, 0, 0), Vector4.new(0, 0, 0, 0), Vector4.new(0, 0, 0, 0)
+    local ax_ok = 0
     self.fly_av_system:SetFlightModel(
         Vector4.new(self.flight_mode, self:HasGravity() and 1 or 0, DAV.dt_scale or 1, n),
         Vector4.new(reset, a[1], a[2], a[3]),
@@ -313,19 +305,6 @@ function Engine:Update(delta)
             self.log_obj:Record(LogLevel.Info, "mode3 push (native flight model active)")
             self:PushNativeControl(3, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), self.torque_gain)
             self.native_mode3_pushed = true
-        end
-        -- Cross-check against the DLL's `att=`/`ext=`/`fwd=` log lines.
-        self.native_att_log_probe = (self.native_att_log_probe or 0) + delta
-        if self.native_att_log_probe >= 1.0 then
-            self.native_att_log_probe = 0
-            local ang = self.av_obj:GetEulerAngles()
-            local fwd = self.av_obj:GetForward()
-            local up = self.av_obj:GetUp()
-            if ang ~= nil then
-                self.log_obj:Record(LogLevel.Info, string.format(
-                    "cet euler roll=%.1f pitch=%.1f yaw=%.1f fwd=(%.2f,%.2f,%.2f) up=(%.2f,%.2f,%.2f)",
-                    ang.roll, ang.pitch, ang.yaw, fwd.x, fwd.y, fwd.z, up.x, up.y, up.z))
-            end
         end
         self.force = Vector3.new(0, 0, 0)
         self.torque = Vector3.new(0, 0, 0)
