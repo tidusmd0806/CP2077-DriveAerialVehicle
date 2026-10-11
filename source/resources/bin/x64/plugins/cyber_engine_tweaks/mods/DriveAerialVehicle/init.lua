@@ -26,6 +26,10 @@ DAV = {
     is_debug_enable_obstacle_scan = false,
     -- Developer switch: drive flight from the DLL physics hook instead of the Lua flight model.
     is_enable_native_flight = true,
+    -- Developer switch: log the DLL physics-hook rate per control type (boarded vs unboarded).
+    -- Measured on 2026-10-11: the hook fires unboarded at full physics rate, and B-4's hold costs 0/s
+    -- once the target settles. Set true again to re-measure (see docs 0.17/0.18 and the B-4 section).
+    is_debug_probe_hook_tick = false,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",

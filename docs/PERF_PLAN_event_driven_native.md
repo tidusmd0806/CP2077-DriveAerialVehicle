@@ -567,6 +567,80 @@ R 自体は消えないが「Lua を跨がない同期クエリ」になり、�
    正常な目標に掛かって元実装との差異を作っていた。±500 のゴミ値ガードのみ残す。
 
    **ビルド済み DLL**: md5 `5dc6c1ee70d24c2b61d01d18cd4dfbf7`
+0.17. **B-4 事前 probe：非搭乗時にフックは発火するのか（2026-10-11、DLL 再ビルド不要）**
+
+   「非搭乗時は `ApplyAllResistances` が呼ばれない」は **実測結論であって分解による証明ではない**。
+   フックは車両 1 台ぶんのメンバ関数（`this = WheeledPhysics*`）なので、
+   **ゲーム全体の物理が回っていることと、自機でこの関数が呼ばれることは別問題**。
+   判定すべき分岐は 2 つ:
+   - (a) ボディ自体が step されていない
+   - (b) step はされるが `ApplyAllResistances` に到達しない（無人なので early-out 等）
+
+   `(b)` なら手当てがあるので、まず「非搭乗でカウンタが進むか」を確定させる。
+   DLL 側は既に `IsFlyVehicle()` 内でしかインクリメントしていない（＝DAV が物理を握っているかは見ていない）
+   ので、**非搭乗でも呼ばれていれば確実に増える**。Lua 側ウォッチドッグが AddForce 中しか読んでいなかっ
+   たため、非搭乗の数字を一度も取っていなかっただけ。
+
+   - `init.lua`: 開発スイッチ `DAV.is_debug_probe_hook_tick = true`
+   - `Engine:ProbeHookTickRate(delta)`（`Engine:Update` から毎フレーム、`Engine:ReadNativeCounter` 経由なので旧 DLL では無音）
+     control_type が変わった時点で 1 エピソード発火レートを計測。
+     **非搭乗 6 秒・搭乗 1 秒**（同一ログ内に A/B 基準を残すため）、1 秒ごとに 1 行、非搭乗は最後に判定 1 行。
+     セッションあたり最大 40 エピソードで頭打ち（ログ膨張防止）。
+   - 見るログ（CET `DriveAerialVehicle.log`）:
+     ```
+     hook probe armed (unboarded control_type=0 tick=... mass=... physics_state=...)
+     hook tick (unboarded control_type=0): total=... effective=XHz mass=... physics_state=...
+     unboarded hook verdict: hook does NOT fire unboarded -> the Lua path must keep writing physics
+     unboarded hook verdict: hook DOES fire unboarded (X Hz) -> mode 2 can move into the DLL
+     hook probe armed (boarded control_type=1 ...)
+     hook tick (boarded control_type=1): total=... effective=60.0Hz ...
+     ```
+   - **判定の使い道**:
+     - `effective=0Hz` → 非搭乗（待機ホバー・スポーン降下）は Lua 経路が正解。`onUpdate` は残すしかない
+       （非搭乗を 20Hz Cron に落とす方向）
+     - `effective>0Hz` → mode 2 をフックに戻して Lua の毎フレーム `ChangeVelocity` を消せる。
+       `onUpdate` から物理適用の責務をほぼ全部外せる
+   - `mass=` は補助証拠：`GetMass` はハンドル未解決時に **フックが発行する `g_native_mass` へフォールバック**
+     するので、tick が 0 でも mass が解決していれば「フックは過去に一度は自機で発火している」ことになる
+   - 計測後は `is_debug_probe_hook_tick = false` で無音化（コードは残してよい）
+
+0.18. **B-4 事前 probe 実測（2026-10-11）— 非搭乗でもフックは物理ティックレートで発火している**
+
+   実機ログ（`scripting.log` の `[DAV][probe]` / `red4ext/logs/driveaerialvehicle-*.log`）:
+
+   ```
+   hook probe armed (unboarded control_type=0 tick=0   mass=1300.0 physics_state=0)
+   hook tick (unboarded control_type=0): total=59  effective=59.0Hz
+   hook tick (unboarded control_type=0): total=118 effective=59.0Hz
+   hook tick (unboarded control_type=2): total=191 effective=59.0Hz
+   hook tick (unboarded control_type=2): total=252 effective=61.0Hz
+   ```
+
+   | 項目 | 実測 |
+   |---|---|
+   | 非搭乗 `ChangeVelocity`(0) | **59.0Hz** |
+   | 非搭乗 `FluctuationVelocity`(2) | **59〜61Hz** |
+   | `physics_state` | 0 = simulated |
+   | `mass` | 1300（ハンドル解決済み・`resolved=1`） |
+
+   **結論：doc 0.10 の「誰も乗っていない車両では `ApplyAllResistances` が呼ばれない」は誤り。**
+   あの時の非搭乗不調は 0.9 / 0.11 のハンドル（serial 欠落・`FindEntityByID` の引数組み立て）が原因で、
+   フックの発火有無ではなかった。`SetVehicle resolved=1 mass=1300` と `physics hook live` が
+   **搭乗の 11 秒前**（`SetFlightControl mode=3` より前）に出ているのが決定的。
+
+   → **B-4 が開いた**: 非搭乗（待機ホバー `ChangeVelocity` / 降下 `FluctuationVelocity`）を
+   mode 2 経由で DLL フックに戻せば、`Engine:Update` の毎フレーム物理書き込みを消せる。
+   残る `onUpdate` の責務はモード切替と診断だけになる。
+
+   **probe 自体に見つけたバグ（修正済み）**: スポーン降下で `av.lua` が
+   `ChangeVelocity` ⇄ `FluctuationVelocity` を ~100ms 間隔で交互に設定するため、
+   control_type 変更のたびにエピソードが再武装され、40 件の上限を数秒で使い切っていた。
+   → **安定化ゲート 0.5s** を追加（値が 0.5s 保ってから武装）。発火レート自体は全サンプルで同一。
+
+   **ログの可視化について**: `Log:Record` は `spdlog.info` にしか出さず、`print` は
+   `PrintDebugMode`（ImGui の "Print Debug Mode"）がオンのときだけ。診断は `Engine:ProbeLog`
+   経由で無条件に `print` するようにした（`scripting.log` と CET コンソールに出る）。
+
 1. DLL に `DAVFlightController` 相当を追加（C++）。
    入力状態・control_type・物理パラメータは CET から push API で共有。
 2. `Engine:Update` の CET 側呼び出しを撤去。
@@ -617,6 +691,62 @@ R 自体は消えないが「Lua を跨がない同期クエリ」になり、�
 #### ビルド済み DLL
 
 md5 `b8e44ea39b61e7f41337b8e3d4f804a2`（Phase C 削除後）
+
+### B-4（非搭乗の毎フレーム物理書き込みの撤去）— 実装・実機検証済み（2026-10-11）
+
+   0.18 の実測（非搭乗でもフックが 59〜61Hz で発火）を根拠に、doc 0.10 で
+   「フックが非搭乗で発火しない」を理由に Lua へ戻した **ChangeVelocity / FluctuationVelocity を
+   DLL の mode 2 に戻す**。DLL の変更は不要（mode 2 は B-2 で実装・検証済み）。
+
+   | 変更 | 内容 |
+   |---|---|
+   | `Engine:ApplyVelocityHold()`（新設） | mode 2 を **ターゲットが動いた時だけ** push（eps: 速度 0.01 / 角速度 0.01）。`native_last_mode == 2` も条件（途中で mode 1/3 が挟まると DLL が別モードを保持したままになるため）。旧 DLL（`native_control=false`）は従来どおり毎フレーム直接書き込み |
+   | `Engine:Update` の ChangeVelocity 分岐 | 毎フレーム `ChangeVelocity()` → `ApplyVelocityHold()` に置換 |
+   | `Engine:FluctuationVelocity` の末尾 | 同上（降下ランプは毎フレームターゲットが動くので実質毎フレーム push、完了後は 0 回） |
+   | `Engine:PushNativeOff()`（新設） | mode 0 を **1 回だけ** push。Blocking・未知の control_type・降機・**エンティティ破棄後**・メニュー閉じで共通利用 |
+   | `Engine:Init` | 新規エンティティで mode 0 を 1 回 push（共有バッファが前機の mode 1/2/3 を引き継ぐ事故防止） |
+   | `Engine:WatchNativeTick` | 監視対象を拡張：AddForce に加え **mode 2 ホールド中**（ChangeVelocity / FluctuationVelocity）も監視。フックが止まれば従来どおり Lua 経路へ自動フォールバック |
+
+   **期待効果**: 非搭乗の待機ホバーはターゲット再計算が 20Hz（`Engine:Run`／`CalculateIdleMode`）なので、
+   物理書き込みの DLL 往復が **60/s → 最大 20/s、ターゲットが収束すれば 0/s**。
+   probe の `hold_pushes=N/s` で実測できる。
+
+   **検証ポイント**:
+   1. 召喚直後の降下（FluctuationVelocity）が従来どおりか
+   2. 待機ホバーの高さ保持（`is_enable_idle_gravity`）が崩れないか — mode 2 は每ティック保持なので
+      Lua の毎フレーム書き込みより保持が強い。差が出るなら eps を緩めるか mode 2 を每フレーム push に戻す
+   3. 搭乗 → 降車 → 再搭乗（mode 3 ⇄ mode 2 の切り替わりで `PushNativeOff` が効くか）
+   4. メニュー開閉、autopilot 巡航（ChangeVelocity を 100Hz で使う）
+   5. `native flight disabled` が出ないこと（出たら非搭乗でフックが止まっている＝フォールバック作動中）
+
+   **実機検証結果（2026-10-11、`scripting.log` の `[DAV][probe]` / `red4ext/logs/driveaerialvehicle-*.log`）**:
+
+   | 状態 | フック発火 | `hold_pushes` | 従来（毎フレーム直接書き込み） |
+   |---|---|---|---|
+   | 非搭乗・待機ホバー（ChangeVelocity） | 58.0Hz | **0/s** | 60〜77/s |
+   | 非搭乗・降下（FluctuationVelocity） | 60.0Hz | 77/s（ランプ中はターゲットが動くので要 push） | 77/s |
+
+   モード遷移（DLL 側ログ。DLL は「モード変更」または「mode 2 で |Δv|>0.5」の時だけログする）:
+
+   ```
+   18:33:14.961  mode=0            ← Engine:Init の初期化 push（B-4 で新設）
+   18:33:14.962  mode=2 (0,0,-5.0) ← スポーン降下のターゲット
+   18:33:17.4..18:33:18.9  mode=2 -4.49 → -1.39   ← FluctuationVelocity のランプ
+   18:33:22.016  mode=2 (0,0,0)    ← 待機収束（以後 push 0 回）
+   18:33:23.297  mode=3            ← 搭乗
+   18:33:38.109  mode=0            ← 降車（PushNativeOff）
+   18:33:38.110.. mode=2 -0.05 → -3.19 → … → +4.55 ← 降車後の降下／高度保持
+   18:33:52.428  mode=0            ← 最終停止
+   ```
+
+   - `native physics tick stalled` / `native flight disabled` は**一切なし**＝ウォッチドッグは発火せず、
+     native 経路が生きていた
+   - Lua エラーなし。probe の安定化ゲート（0.5s）で再武装スパムも消えた（1 セッション 3 武装）
+   - **効果**: 非搭乗アイドル時の物理書き込み DLL 往復が **毎フレーム 1 回 → 0 回**。`onUpdate` 側の
+     定常コストは「Lua 関数呼び 1 回＋フィールド読み」だけになった
+
+   **残務**: 計測は済んだので `DAV.is_debug_probe_hook_tick = false` で無音化済み（コードは残置。
+   true に戻せば `hook tick (unboarded control_type=..): ... hold_pushes=N/s` を再取得できる）。
 
 ### Phase C（任意）: 縮減不能ポーリングの native 化（§3.2）
 ### Phase D（任意）: A* ワーカー（純計算のみ C++ ワーカースレッド + lock-free queue）
