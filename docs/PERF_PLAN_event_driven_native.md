@@ -575,6 +575,49 @@ R 自体は消えないが「Lua を跨がない同期クエリ」になり、�
    CET は目的地・speed・phase 遷移通知を push。`AutoPilot()` の Cron ループを撤去。
 5. 検証: 手動飛行のフレームタイム比較、挙動同一性。
 
+### Phase B 実装結果（最終・2026-10-10）
+
+**結論: 手動飛行は DLL のフィッシュフック 1 か所で駆動。CET 側の毎フレーム飛行計算は消えた。**
+
+#### B-3 以降に判明した、移植を壊していた根本事実
+
+| # | 事実 | 影響 |
+|---|---|---|
+| 1 | エンティティ quaternion のローカル軸は **forward = AxisY / right = AxisX / up = AxisZ**。通常の (X=forward, Y=right) 想定が逆だった | 推力方向と姿勢抽出が同時にずれる。以前の「roll/pitch 符号反転」「yaw 90° ズレ」はすべてこれの症状 |
+| 2 | ゲームの `ToEulerAngles` 規約は軸から直接導出する<br>`roll = atan2(-right_z, hypot(forward_z, up_z))` / `pitch = atan2(forward_z, up_z)` / `yaw = atan2(right_y, right_x)` | 急バンク・急ピッチでも一致（実測 2 桁一致）。個別パッチは水平付近でしか合わず、自動水平復元が壊れていた |
+| 3 | `Utils:CalculateRotationalSpeed` は **戻り値が交差**している（`return new_pitch - pitch, new_roll - roll, ...` を `d_roll, d_pitch` に束縛） | 原実装どおりの交差が必須。「正しそう」な交差なし版はヘリの lean 軸を入れ替えた |
+| 4 | Lua の自動復元項はすべて **マイナス**（`local_pitch = local_pitch - RestoreRate(...)`） | DLL がプラスで実装しており正帰還。水平維持が Lua より不安定だった原因 |
+| 5 | 方角が ±180° を跨ると差分が ±360 飛ぶ（実測 `d_yaw = -359.90`） | 激しいスピン。`fm_wrap180` で全差分を ±180 に正規化 |
+| 6 | roll には `max_roll` 超過補正があるが pitch には無い | ヘリが `max_pitch` を越えると 0.2/tick の弱い復元だけ残り垂直まで行き止まらなかった。対称に追加 |
+
+#### 入力経路（イベント駆動）
+
+- `SetNativeCommand(action_id, value)` で DLL が保持状態（held state）を持つ。Lua は press / `IACT_Release` / `IACT_Abort` / 軸エッジでのみ呼ぶ
+- **20Hz のコマンド push は廃止**。タイマー・TTL は不使用（解放はリリースエッジで検知）
+- 軸はデッドゾーン通過時のみ送信（サイン反転時は旧アクションを 0 にしてから新アクション）
+
+#### 毎フレームの DLL 往復（定常飛行時）
+
+| 呼び | 頻度 |
+|---|---|
+| `SetFlightModel` | 毎フレーム（Vector4 は 1 個のみ有効。att/ax は廃止し DLL が quaternion から導出） |
+| `GetNativeTickCount` | 約 1 秒に 1 回（フック生存ウォッチドッグ） |
+| `GetPhysicsState` | フック live 確認まで。以降は 0 |
+| ~~`GetEulerAngles` / `GetForward` / `GetRight` / `GetUp`~~ | **廃止**（毎フレーム 4 回のゲーム API 呼びが消えた） |
+| ~~`EnableOriginalPhysics` / `EnableGravity` の 1Hz 再主張~~ | **廃止**（フックが毎 tick 重力を保持している） |
+
+#### 撤去したもの
+
+`native_shadow`（毎フレーム Lua 版フライトモデルを再実行して A/B ログ）、`ProbeInput` / `ProbeAtt` ネイティブ、`att state` / `att delta` / `ax delta` / `ax cmp` / `held changed` ログ、`input_probe` カウンタ。
+
+#### Phase C（縮減不能ポーリングの native 化）
+
+`PollGroundZ` / `GetGroundZ` / `SetGroundFilter` / `PollProximity` / `PollInEntryArea` / `SetEntryAreaParams` を実装したが、Lua 側で採用せず **DLL から削除済み**（552 行）。`ground raycast` と `proximity probe` の実装は履歴に残っているので、必要なら復活できる。
+
+#### ビルド済み DLL
+
+md5 `b8e44ea39b61e7f41337b8e3d4f804a2`（Phase C 削除後）
+
 ### Phase C（任意）: 縮減不能ポーリングの native 化（§3.2）
 ### Phase D（任意）: A* ワーカー（純計算のみ C++ ワーカースレッド + lock-free queue）
 - **Autopilot の `StepRoutePlanJob` 内部が主対象**（§1.4）。障害物グリッドのスナップショットを
