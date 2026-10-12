@@ -30,6 +30,10 @@ DAV = {
     -- Measured on 2026-10-11: the hook fires unboarded at full physics rate, and B-4's hold costs 0/s
     -- once the target settles. Left on for the B-7 run to read `frames=N/s`; set false when done.
     is_debug_probe_hook_tick = true,
+    -- Developer switch: print the autopilot yaw servo once every ~20 loop ticks -- heading error,
+    -- commanded rate, actual rate, engagement state. That is the only way to tune the heading law
+    -- against data instead of by feel; see docs 0.22. Set false when the servo is settled.
+    is_debug_probe_yaw = true,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",

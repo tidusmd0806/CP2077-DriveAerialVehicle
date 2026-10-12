@@ -875,6 +875,48 @@ md5 `b8e44ea39b61e7f41337b8e3d4f804a2`（Phase C 削除後）
    **教訓**: push-on-change の比較対象は常に **「アクチュエータが今保持している値」**。前回の
    コマンド値にすると、小さな差分の蓄積が消えて制御が鈍る／発振する。
 
+0.22. **autopilot の旋回：デッドバンド発振をサーボ化で潰す（2026-10-12）**
+
+   0.21 のゲート削除でも旋回の収束が良くなかった。残っていたのは**旧ゲート自体の発振**。
+
+   旧法（`navigation.lua`）:
+
+   ```lua
+   if math.abs(yaw_diff) > yaw_deadzone_deg then      -- 4.0 度
+       yaw_diff_half = yaw_diff * autopilot_turn_speed -- Kp = 0.01（度 → rad/s）
+   else
+       yaw_diff_half = 0
+   end
+   ```
+
+   mode 2 は物理ティック毎に **角速度を直接書く**ので、ゲートの中は「完全に停止」を意味する。
+   機体は前進しているから目標方角（平滑化された方角も、目的地への相対方角そのものも）は動き続ける
+   → 4 度ゲートに停止 → 誤差がゲート外へ戻る → 回転再開 → 停止。**これが stop-start の発振**。
+   「最終的には止まって次に進む」は平滑化ターゲットが確定した瞬間。
+
+   **新しいサーボ**（`yaw_deadzone_deg` / `yaw_deadzone_release_deg` / `yaw_damping_gain` / `yaw_rate_limit`）:
+
+   | 要素 | 値 | 役割 |
+   |---|---|---|
+   | ヒステリシス | 4.0° でengage / 1.0° でrelease | ゲート縁でのチャタリングを除去。停止位置を 4° → 1° に締める |
+   | P 項 | `yaw_diff * autopilot_turn_speed` | 従来同様（速度依存で 0.01〜0.02 程度） |
+   | D 項 | `- actual_yaw_rate * 0.25` | **今回っている分**に逆らうので停止を先取りできる。旧法はここに何も無く、単に 0 にしていた |
+   | レート上限 | `0.8 rad/s`（≈46°/s） | 180° 旋回で機首を振り切る前に頭打ちにする |
+   | 符号反転防止 | `cmd * err < 0 → 0` | D 項が過剰なときは逆回転させず慣性で通す |
+
+   `actual_yaw_rate` は新設の `Engine:GetActualAngularVelocity()`（`fly_av_system:GetAngularVelocity()`
+   1 回だけ。`GetDirectionAndAngularVelocity` の 2 回ではなく線形速度の取り出しを省く）。
+
+   **チューニング用 probe**: `DAV.is_debug_probe_yaw = true` で 20ループtick に 1 行
+
+   ```
+   [DAV][yaw] raw=123.4 smooth=118.2 veh=112.0 err=6.20 cmd=0.0598 rate=0.0213 engaged=true
+   ```
+
+   読み方：`err` が符号反復して収束しない → P 過大か D 不足。`rate` が `cmd` に付いていかない
+   → mode 2 が効いていない（別問題）。`engaged` が高速で true/false を繰り返す → release を上げる。
+   収束後の `err` が release と同じ大きさなら、それはゲートの解像度。
+
 ### B-7（`Engine:Update` の削除）— 実装済み（2026-10-11）、実機検証待ち
 
    > ⚠ **初回実機で 2 つのリグレッション（0.20）。以下の記述は設計時点のもの。**
