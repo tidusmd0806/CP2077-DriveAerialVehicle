@@ -738,16 +738,6 @@ function Engine:GetDirectionAndAngularVelocity()
     return self.fly_av_system:GetVelocity(), self.fly_av_system:GetAngularVelocity()
 end
 
---- Actual angular velocity only (one C# transition). self.angular_velocity is the *target*; this is
---- the live physics value, which is what a rate-damping term needs.
----@return Vector3|nil nil when the physics handle is not up yet
-function Engine:GetActualAngularVelocity()
-    if not self.is_finished_init then
-        return nil
-    end
-    return self.fly_av_system:GetAngularVelocity()
-end
-
 --- Get the linear velocity only (skips the angular C# transition of GetDirectionAndAngularVelocity).
 ---@return Vector3|nil nil when the physics handle is not up yet
 function Engine:GetVelocity()

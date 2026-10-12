@@ -189,15 +189,12 @@ function Navigation:New(av_obj)
 	obj.yaw_target_smoothed = nil
 	obj.yaw_smooth_alpha = 0.06
 	obj.yaw_deadzone_deg = 4.0
-	-- Yaw servo tuning (see the autopilot heading law): the gate gets a release band so it cannot
-	-- chatter, the command gets rate damping so it leads the stop, and a cap so a big error cannot
-	-- wind the nose up. Units: degrees in, rad/s out (the DLL writes angular velocity directly).
-	obj.yaw_deadzone_release_deg = 1.0
-	obj.yaw_damping_gain = 0.25
-	obj.yaw_rate_limit = 0.8
-	obj.yaw_servo_engaged = false
-	obj.yaw_probe_ticks = 0
-	obj.yaw_probe_tick_every = 20
+	-- Leaving (turn to the destination bearing before departing): the angle that counts as aligned,
+	-- and the smallest rate the servo may command while it is still outside that angle. Units: deg and
+	-- rad/s -- the rate goes straight into the angular velocity the DLL writes every physics tick.
+	obj.leaving_yaw_align_deg = 2.0
+	obj.leaving_yaw_min_rate = 0.06
+	obj.leaving_yaw_probe_ticks = 0
 	obj.astar_yaw_lookahead_points = 4
 
 	return setmetatable(obj, self)
@@ -3343,7 +3340,6 @@ function Navigation:AutoPilot()
 	self.local_avoidance_net_check_time = 0
 	-- Yaw smoothing reset
 	self.yaw_target_smoothed = nil
-	self.yaw_servo_engaged = false
 	self.autopilot_low_gain_followups = 0
 
 	--- NEW: Initialize cell navigation system
@@ -3929,48 +3925,10 @@ function Navigation:AutoPilot()
 		if yaw_diff > 180 then yaw_diff = yaw_diff - 360
 		elseif yaw_diff < -180 then yaw_diff = yaw_diff + 360 end
 
-		-- Yaw servo. The old law was a bare proportional term behind one 4 deg gate: omega = Kp * error
-		-- above the gate and exactly 0 inside it. The DLL writes angular velocity every physics tick, so
-		-- "0" parks the nose dead still while the smoothed target -- and the bearing itself, the AV is
-		-- rolling forward -- walks back out of the gate. Stop, restart, stop: that is the oscillation.
-		-- Hysteresis stops the gate chattering, rate damping makes the command lead the stop instead of
-		-- cutting out, and the cap keeps a 180 deg error from winding up before it can brake.
-		local actual_yaw_rate = 0
-		local measured_rate = self.av_obj.engine_obj:GetActualAngularVelocity()
-		if measured_rate ~= nil then
-			actual_yaw_rate = measured_rate.z
-		end
-
-		if math.abs(yaw_diff) > self.yaw_deadzone_deg then
-			self.yaw_servo_engaged = true
-		elseif math.abs(yaw_diff) < self.yaw_deadzone_release_deg then
-			self.yaw_servo_engaged = false
-		end
-
+		-- Dead zone: suppress micro-corrections
 		local yaw_diff_half = 0
-		if self.yaw_servo_engaged then
+		if math.abs(yaw_diff) > self.yaw_deadzone_deg then
 			yaw_diff_half = yaw_diff * self.autopilot_turn_speed
-				- actual_yaw_rate * self.yaw_damping_gain
-			if yaw_diff_half > self.yaw_rate_limit then
-				yaw_diff_half = self.yaw_rate_limit
-			elseif yaw_diff_half < -self.yaw_rate_limit then
-				yaw_diff_half = -self.yaw_rate_limit
-			end
-			if yaw_diff_half * yaw_diff < 0 then
-				-- Damping alone would already reverse the rotation; let it coast through instead.
-				yaw_diff_half = 0
-			end
-		end
-
-		if DAV.is_debug_probe_yaw then
-			self.yaw_probe_ticks = (self.yaw_probe_ticks or 0) + 1
-			if self.yaw_probe_ticks >= self.yaw_probe_tick_every then
-				self.yaw_probe_ticks = 0
-				print(string.format(
-					"[DAV][yaw] raw=%.1f smooth=%.1f veh=%.1f err=%.2f cmd=%.4f rate=%.4f engaged=%s",
-					yaw_target_raw, self.yaw_target_smoothed, yaw_vehicle, yaw_diff, yaw_diff_half,
-					actual_yaw_rate, tostring(self.yaw_servo_engaged)))
-			end
 		end
 
 		-- Override yaw control for dead-end escape mode (minimize rotation during escape)
@@ -4201,16 +4159,36 @@ function Navigation:AutoLeaving(dist_vector, height)
 				elseif yaw_diff < -180 then
 					yaw_diff = yaw_diff + 360
 				end
-				local yaw_diff_half = yaw_diff * self.autopilot_turn_speed
-				if math.abs(yaw_diff_half) < 0.1 then
-					yaw_diff_half = yaw_diff
+				-- Turn to the destination bearing before departing. The old code took the same
+				-- proportional rate and then, whenever it fell under 0.1, replaced it with the raw error --
+				-- degrees used as rad/s. That branch is the last 10 deg of the turn, so the nose was handed
+				-- up to 10 rad/s (570 deg/s) through a mode 2 angular velocity write, whipped past the
+				-- target and came back: that is the oscillation, and it only stopped when a sample happened
+				-- to land inside 0.1 deg, which is also why it took so long to settle. The floor belongs on
+				-- the command in the command's own units, and the end test belongs on the angle it names.
+				local turn_rate = yaw_diff * self.autopilot_turn_speed
+				local aligned = math.abs(yaw_diff) <= self.leaving_yaw_align_deg
+				if aligned then
+					turn_rate = 0
+				elseif math.abs(turn_rate) < self.leaving_yaw_min_rate then
+					-- Keep some authority in the last degrees so it never creeps forever.
+					turn_rate = (yaw_diff > 0) and self.leaving_yaw_min_rate or -self.leaving_yaw_min_rate
 				end
 
-				if not self.av_obj.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, yaw_diff_half) then
+				if not self.av_obj.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, turn_rate) then
 					self.log_obj:Record(LogLevel.Warning, "Failed to run engine during leaving")
 				end
 
-				if math.abs(yaw_diff_half) < 0.1 then
+				if DAV.is_debug_probe_yaw then
+					self.leaving_yaw_probe_ticks = (self.leaving_yaw_probe_ticks or 0) + 1
+					if self.leaving_yaw_probe_ticks >= 20 then
+						self.leaving_yaw_probe_ticks = 0
+						print(string.format("[DAV][yaw] leaving: target=%.1f veh=%.1f err=%.2f cmd=%.4f",
+							yaw_dist, yaw_vehicle, yaw_diff, turn_rate))
+					end
+				end
+
+				if aligned then
 					if not self.av_obj.engine_obj:Run(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) then
 						self.log_obj:Record(LogLevel.Warning, "Failed to run engine at leaving end")
 					end
