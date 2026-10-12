@@ -110,27 +110,27 @@ end
 --- Set Observe Functions
 function Event:SetObserve()
     GameUI.Observe("MenuOpen", function()
-        self.is_in_menu = true
+        self:SetBlockedFlag("is_in_menu", true)
     end)
 
     GameUI.Observe("MenuClose", function()
-        self.is_in_menu = false
+        self:SetBlockedFlag("is_in_menu", false)
     end)
 
     GameUI.Observe("PopupOpen", function()
-        self.is_in_popup = true
+        self:SetBlockedFlag("is_in_popup", true)
     end)
 
     GameUI.Observe("PopupClose", function()
-        self.is_in_popup = false
+        self:SetBlockedFlag("is_in_popup", false)
     end)
 
     GameUI.Observe("PhotoModeOpen", function()
-        self.is_in_photo = true
+        self:SetBlockedFlag("is_in_photo", true)
     end)
 
     GameUI.Observe("PhotoModeClose", function()
-        self.is_in_photo = false
+        self:SetBlockedFlag("is_in_photo", false)
     end)
 
     GameUI.Observe("SessionStart", function()
@@ -958,6 +958,22 @@ function Event:IsInMenuOrPopupOrPhoto()
         return true
     else
         return false
+    end
+end
+
+--- Set one of the menu/popup/photo flags and tell the Engine only when the aggregate flips.
+--- B-6: Engine:Update used to poll IsInMenuOrPopupOrPhoto() every frame; the gate is edge-driven now.
+---@param flag string field name on self (is_in_menu / is_in_popup / is_in_photo)
+---@param value boolean
+function Event:SetBlockedFlag(flag, value)
+    local before = self:IsInMenuOrPopupOrPhoto()
+    self[flag] = value
+    local after = self:IsInMenuOrPopupOrPhoto()
+    if before == after then
+        return
+    end
+    if self.av_obj ~= nil and self.av_obj.engine_obj ~= nil then
+        self.av_obj.engine_obj:SetMenuBlocked(after)
     end
 end
 

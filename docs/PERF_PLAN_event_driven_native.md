@@ -748,6 +748,34 @@ md5 `b8e44ea39b61e7f41337b8e3d4f804a2`（Phase C 削除後）
    **残務**: 計測は済んだので `DAV.is_debug_probe_hook_tick = false` で無音化済み（コードは残置。
    true に戻せば `hook tick (unboarded control_type=..): ... hold_pushes=N/s` を再取得できる）。
 
+### B-6（`Engine:Update` の最後の毎フレーム処理を撤去）— 実装済み（2026-10-11）、実機検証待ち
+
+   B-4 後も `onUpdate` から毎フレーム呼ばれている `Engine:Update` に、まだ 2 つの処理が残っていた。
+
+   | 撤去した処理 | 従来 | 現在 |
+   |---|---|---|
+   | メニュー/ポップアップ/フォト判定 | 毎フレーム `IsInMenuOrPopupOrPhoto()` を読み、開いていたら mode 0 を 1 回 push（`native_off_pushed` ラッチ） | **エッジ駆動**。`Event:SetBlockedFlag(flag, value)` が 6 つの observer（Menu/Popup/PhotoMode の Open/Close）から集約状態の変化だけを `Engine:SetMenuBlocked(blocked)` に伝える。Engine はフラグ 1 個を持ち、開時に `PushNativeOff()`、閉時にラッチを落として次回再 push を強制 |
+   | `force` / `torque` のゼロベクトル確保 | 分岐ごとに `Vector3.new(0,0,0)` を 2 回/フレーム（デバッグ表示専用） | `self.zero3` を 1 個共有（`New` で生成。モジュールスコープで作らないのは CET サンドボックスの `Vector3` がランタイムグローバルなため）。`SetForce`/`SetTorque` は参照差し替えのみで要素書き換えが無いことを確認済み |
+   | `native_off_pushed` | ラッチ管理 | 撤去（メニューがエッジ駆動になったので不要） |
+
+   **現在の `Engine:Update` の定常コスト**（非搭乗アイドル・ターゲット収束時）:
+   `is_finished_init` / `entity_id` / `is_menu_blocked` / `mass` のフィールド読み、
+   `WatchNativeTick` のアキュムレータ（**0.5s に 1 回** `GetNativeTickCount` を読むだけ）、
+   `ApplyVelocityHold` の比較 6 回。**DLL 往復は 2 回/秒、Lua アロケーションはゼロ。**
+
+   **検証ポイント**:
+   1. メニュー / インベントリ / ポップアップ / フォトモードを開いたときに機体が固まり、閉じたら即復帰するか
+      （旧実装と同じ挙動か）
+   2. 搭乗中にメニューを開閉して飛行再開できるか
+   3. 召喚 → 待機 → 搭乗 → 降車が従来どおり
+
+   **残る `onUpdate` 呼び出しそのものを止めるには**（B-7 候補・要設計）:
+   `Engine:Update` を「何か起きる時だけ」の呼び出しにするには、wake source を網羅する必要がある
+   （`SetControlType` / `SetDirectionVelocity` / 搭乗・降車 / メニュー / 設定変更 / スポーン・格納 /
+   autopilot 起動停止）。1 つでも漏れると**推進を失って落下する**ため、
+   「毎フレーム呼ぶが中身がほぼゼロ」のままにするか、ウォッチドッグを Cron に移して
+   呼び出し側を `is_driving` フラグでゲートするかの判断が要る。
+
 ### Phase C（任意）: 縮減不能ポーリングの native 化（§3.2）
 ### Phase D（任意）: A* ワーカー（純計算のみ C++ ワーカースレッド + lock-free queue）
 - **Autopilot の `StepRoutePlanJob` 内部が主対象**（§1.4）。障害物グリッドのスナップショットを

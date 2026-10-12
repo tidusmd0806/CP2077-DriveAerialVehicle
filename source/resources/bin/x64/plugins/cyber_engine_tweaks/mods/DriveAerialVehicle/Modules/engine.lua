@@ -15,6 +15,11 @@ end
 local VELOCITY_EPS = 0.01
 local ANGULAR_EPS = 0.01
 
+--- Debug-only display values. The native paths apply nothing in Lua, so every "nothing applied"
+--- branch points at one shared zero instead of allocating two vectors per frame. Nobody writes
+--- components of force/torque (SetForce/SetTorque replace the reference), so sharing is safe.
+--- Built in New rather than at module scope: Vector3 is a runtime global of the CET sandbox.
+
 --- Constructor
 --- @param av_obj any AV instance
 --- @return table
@@ -48,11 +53,13 @@ function Engine:New(av_obj)
     obj.rpm_count = 0
     obj.force = Vector3.new(0, 0, 0)
     obj.torque = Vector3.new(0, 0, 0)
+    obj.zero3 = Vector3.new(0, 0, 0)
     obj.direction_velocity = Vector3.new(0, 0, 0)
     obj.angular_velocity = Vector3.new(0, 0, 0)
     obj.acceleration = Vector3.new(0, 0, 0)
     obj.prev_velocity = Vector3.new(0, 0, 0)
     obj.engine_control_type = Def.EngineControlType.None
+    obj.is_menu_blocked = false
     obj.is_finished_init = false
     obj.is_idle = false
 
@@ -63,6 +70,9 @@ end
 ---@param entity_id EntityID
 function Engine:Init(entity_id)
     self.entity_id = entity_id
+    -- The menu gate is edge-driven now (B-6); adopt the state that was already in effect.
+    local event_obj = self.av_obj.core_obj and self.av_obj.core_obj.event_obj
+    self.is_menu_blocked = (event_obj ~= nil and event_obj:IsInMenuOrPopupOrPhoto()) and true or false
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
@@ -137,7 +147,6 @@ function Engine:DisableNative(reason)
     self.native_mode3_pushed = false
     self.native_hold_pushed = false
     self.native_last_mode = 0
-    self.native_off_pushed = true
 end
 
 --- Fall back to the Lua path when the DLL physics-tick counter stops advancing.
@@ -417,17 +426,10 @@ function Engine:Update(delta)
         self:PushNativeOff()
         return
     end
-    if self.av_obj.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
-        -- Native keeps applying the last pushed target; force it off once until the menu closes.
-        if self.native_control and not self.native_off_pushed then
-            self:PushNativeControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
-            self.native_off_pushed = true
-            self.native_mode3_pushed = false
-            self.native_hold_pushed = false
-        end
+    if self.is_menu_blocked then
+        -- SetMenuBlocked already pushed mode 0 at the edge; nothing to apply until the menu closes.
         return
     end
-    self.native_off_pushed = false
     -- While unresolved GetMass() is 0 and every physics call is a silent no-op.
     if self.native_control and self.mass <= 0 then
         local mass = self.fly_av_system:GetMass()
@@ -456,8 +458,8 @@ function Engine:Update(delta)
             self:PushNativeControl(3, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), self.torque_gain)
             self.native_mode3_pushed = true
         end
-        self.force = Vector3.new(0, 0, 0)
-        self.torque = Vector3.new(0, 0, 0)
+        self.force = self.zero3
+        self.torque = self.zero3
         return
     end
     if self.native_mode3_pushed then
@@ -465,8 +467,8 @@ function Engine:Update(delta)
         self:PushNativeOff()
     end
     if self.engine_control_type == Def.EngineControlType.ChangeVelocity then
-        self.force = Vector3.new(0, 0, 0)
-        self.torque = Vector3.new(0, 0, 0)
+        self.force = self.zero3
+        self.torque = self.zero3
         -- B-4: the hook holds the velocity every physics tick, so only a moved target needs a push.
         self:ApplyVelocityHold()
     elseif self.engine_control_type == Def.EngineControlType.AddForce then
@@ -486,8 +488,8 @@ function Engine:Update(delta)
             self:AddForce(self.force, self.torque)
         end
     elseif self.engine_control_type == Def.EngineControlType.FluctuationVelocity then
-        self.force = Vector3.new(0, 0, 0)
-        self.torque = Vector3.new(0, 0, 0)
+        self.force = self.zero3
+        self.torque = self.zero3
         self:FluctuationVelocity(delta)
     elseif self.engine_control_type == Def.EngineControlType.Blocking then
         -- Do nothing, just block the physics
@@ -628,6 +630,25 @@ function Engine:PushNativeOff()
         return
     end
     self:PushNativeControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
+    self.native_mode3_pushed = false
+    self.native_hold_pushed = false
+end
+
+--- B-6: the menu/popup/photo gate used to be polled every frame. The UI observers now report the
+--- edge, so the Engine only keeps a flag and stops/resumes native application when it flips.
+---@param blocked boolean
+function Engine:SetMenuBlocked(blocked)
+    blocked = blocked and true or false
+    if self.is_menu_blocked == blocked then
+        return
+    end
+    self.is_menu_blocked = blocked
+    if blocked then
+        self:PushNativeOff()
+        return
+    end
+    -- Resuming: force a re-push of whatever the current control type needs. The mode 3 latch is
+    -- cleared and the velocity hold compares against a mode that is no longer active, so both push.
     self.native_mode3_pushed = false
     self.native_hold_pushed = false
 end
