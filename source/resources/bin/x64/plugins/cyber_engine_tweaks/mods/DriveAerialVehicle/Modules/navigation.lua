@@ -1056,13 +1056,16 @@ function Navigation:LoadBaseImageStep(budget_ms)
 		if #list == 0 then
 			self.base_image_pending = false
 			-- Loud failure by design: with no Data/map_bin there is no obstacle data and the autopilot cannot plan.
-			self.log_obj:Record(LogLevel.Error,
-				"NO PACKED OBSTACLE MAP: no chunk_*.bin found under "
+			local message = "NO PACKED OBSTACLE MAP: no chunk_*.bin found under "
 				.. tostring(self.obstacle_map_bin_dir)
-				.. ". The obstacle map is UNAVAILABLE - autopilot has no obstacle "
-				.. "data and every destination will read as unknown. "
-				.. "Run tools/mapbin_pack.py to build Data/map_bin "
-				.. "(it merges the legacy .dat base and any .diff deltas).")
+				.. " (resolved against the CET mod folder, which is the Lua working directory). "
+				.. "The obstacle map is UNAVAILABLE - autopilot has no obstacle data and every "
+				.. "destination will read as unknown and produce an empty route. "
+				.. "Deploy Data/map_bin (chunk_*.bin plus manifest.txt) next to the mod."
+			self.log_obj:Record(LogLevel.Error, message)
+			-- Log:Record only reaches the CET log when PrintDebugMode is on. A missing obstacle map kills
+			-- the whole autopilot for the session, so it must be visible without touching any setting.
+			print("[DAV][map] " .. message)
 			return 0
 		end
 

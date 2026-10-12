@@ -834,6 +834,13 @@ md5 `b8e44ea39b61e7f41337b8e3d4f804a2`（Phase C 削除後）
    **教訓**: 「毎フレーム呼ぶ」は遅い代わりに **状態変化の見逃しを全部吸収していた**。消すときは
    `Update` の早期 return 1 本まで含めて棚卸ししないと、この種のサイレント劣化になる。
 
+   **追記（同じセッションの別の原因）**: 修正版での実機（11:26）は probe が
+   `native=true fm=true mode=2 auto=true loop=false` / 降下中だけ `loop=true hold_pushes=86/s` で、
+   `NATIVE FLIGHT DISABLED` も出ておらず、B-7 の挙動は設計通リになった。
+   それでも autopilot が無ルートだったもう一方の原因は **`Data/map_bin` がゲームフォルダに未配置**
+   だった（リポジトリには 96 chunk 入っているが、手で `.lua` だけコピーしていた）。障害物マップ不在
+   → 全目的地 `unknown` → `last_route.json` の `segments` が空。→ `docs/DEPLOY.md` 作成。
+
 ### B-7（`Engine:Update` の削除）— 実装済み（2026-10-11）、実機検証待ち
 
    > ⚠ **初回実機で 2 つのリグレッション（0.20）。以下の記述は設計時点のもの。**
