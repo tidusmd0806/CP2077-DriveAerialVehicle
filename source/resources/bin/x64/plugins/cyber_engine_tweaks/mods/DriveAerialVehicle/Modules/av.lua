@@ -27,6 +27,10 @@ function AV:New(core_obj)
 	obj.down_timeout = 10 -- s
 	-- Duration in seconds (converted via TimeScale:Ticks), not a raw tick count.
 	obj.up_timeout = 3.5 -- s
+	-- Recall climb: starts slow and builds to the top speed exactly when the despawn fires, so the
+	-- vehicle reads as taking off instead of lifting away at a crawl.
+	obj.despawn_climb_speed_start = 1.0
+	obj.despawn_climb_speed_max = 5.0
 	obj.unmount_timeout = 3.5 -- s
 	obj.down_speed = -5.0
 	-- autopilot
@@ -521,6 +525,9 @@ function AV:Despawn()
 end
 
 --- Despawn AV when it is on ground.
+--- Recall is a climb and nothing else: it starts slow and builds to the top speed as the timeout
+--- approaches, then disappears. The descent this used to switch to after two ticks belonged to a
+--- landing, not a recall - the vehicle was already clear of the ground, so it only made it dive.
 function AV:DespawnFromGround()
 	local up_ticks = TimeScale:Ticks(self.up_timeout)
 	Cron.Every(DAV.time_resolution, { tick = 1 }, function(timer)
@@ -532,11 +539,21 @@ function AV:DespawnFromGround()
 			end
 			if timer.tick == 1 then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
-				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 1))
+				-- SetControlType re-derived the hover ownership and mode 4 may have engaged. This is a
+				-- scripted climb, not a hover: hand the climb to mode 2 so the regulator cannot hold it.
+				self.engine_obj:SetNativeIdle(false)
+			end
+			-- Progress is measured against the despawn timeout itself, so the ramp always lands on the
+			-- top speed when the vehicle vanishes, and retuning up_timeout needs no second edit.
+			local progress = timer.tick / up_ticks
+			if progress > 1.0 then
+				progress = 1.0
+			end
+			local climb = self.despawn_climb_speed_start
+				+ (self.despawn_climb_speed_max - self.despawn_climb_speed_start) * progress
+			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, climb))
+			if timer.tick == 1 then
 				self.log_obj:Record(LogLevel.Info, "Initial Despawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
-			elseif timer.tick == 2 then
-				self.engine_obj:SetFluctuationVelocityParams(1, math.abs(self.down_speed))
-				self.log_obj:Record(LogLevel.Trace, "Fluctuation Velocity")
 			elseif timer.tick > up_ticks then
 				self.log_obj:Record(LogLevel.Info, "Despawn Timeout")
 				self.core_obj.event_obj.sound_obj:StopEngineSound(self.flight_mode, 1.5)
