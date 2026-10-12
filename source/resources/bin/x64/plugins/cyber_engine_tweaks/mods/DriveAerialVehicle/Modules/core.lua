@@ -118,7 +118,6 @@ function Core:New()
     -- - none of which a walking player can tell apart at 0.15 s. Three times fewer wakeups.
     obj.waiting_loop_interval = 0.15
     obj.last_waiting_loop_time = 0
-    obj.is_control_loop_sleeping = false
     -- custom mappin
     obj.current_custom_mappin_position = Vector4.Zero()
     obj.fast_travel_position_list = {}
@@ -168,7 +167,7 @@ function Core:Init()
     -- the body can resolve late and the physics hook can stop. The callback reads the live Engine
     -- because Core:Reset replaces the AV/Engine objects.
     self.engine_heartbeat_interval = 0.5
-    self.engine_heartbeat_timer = Cron.Every(self.engine_heartbeat_interval, function()
+    Cron.Every(self.engine_heartbeat_interval, function()
         local engine_obj = nil
         if self.av_obj ~= nil then
             engine_obj = self.av_obj.engine_obj
@@ -258,7 +257,6 @@ end
 --- entering Waiting does not sit behind the pacing it just arrived with.
 function Core:WakeControlLoop()
     self.last_waiting_loop_time = 0
-    self.is_control_loop_sleeping = false
 end
 
 --- One control-loop iteration.
@@ -273,7 +271,6 @@ function Core:ControlTick()
     end
 
     local state = self:ControlLoopState()
-    self.is_control_loop_sleeping = (state == "sleep")
 
     if state == "run" then
         local situation_before = self.event_obj.current_situation

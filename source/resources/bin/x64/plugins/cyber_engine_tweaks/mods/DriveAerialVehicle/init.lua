@@ -31,15 +31,16 @@ DAV = {
     is_enable_native_idle = true,
     -- Developer switch: log the DLL physics-hook rate per control type (boarded vs unboarded).
     -- Measured on 2026-10-11: the hook fires unboarded at full physics rate, and B-4's hold costs 0/s
-    -- once the target settles. Left on for the B-7 run to read `frames=N/s`; set false when done.
-    is_debug_probe_hook_tick = true,
+    -- once the target settles. B-5/B-6/B-7 and Phase C are all in and verified; the numbers are in
+    -- docs, so this stays off.
+    is_debug_probe_hook_tick = false,
     -- Developer switch: print the autopilot yaw servo once every ~20 loop ticks -- heading error,
     -- commanded rate, actual rate, engagement state. That is the only way to tune the heading law
-    -- against data instead of by feel; see docs 0.22. Set false when the servo is settled.
-    is_debug_probe_yaw = true,
+    -- against data instead of by feel; see docs 0.22. The leaving turn is bounded and settled.
+    is_debug_probe_yaw = false,
     -- Developer switch: print when stopping-distance braking actually bites (the speed the avoidance
-    -- wanted, the cap, and the nearest forward distance). Set false once the braking is tuned.
-    is_debug_probe_avoid = true,
+    -- wanted, the cap, and the nearest forward distance). The braking is tuned and verified.
+    is_debug_probe_avoid = false,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",

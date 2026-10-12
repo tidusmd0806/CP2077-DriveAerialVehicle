@@ -889,11 +889,6 @@ function AV:Operate(action_command_lists)
 				self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
 				has_invalid = true
 			end
-			if action_command_list[1] == Def.ActionList.Idle then
-				self.engine_obj:SetIdle(true)
-			else
-				self.engine_obj:SetIdle(false)
-			end
 		end
 		if has_invalid then
 			return false
@@ -911,7 +906,6 @@ function AV:Operate(action_command_lists)
 				self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
 				return false
 			end
-			self.engine_obj:SetIdle(action_command_list[1] == Def.ActionList.Idle)
 		end
 		self:MoveThruster(action_command_lists)
 		self:ControlSound(action_command_lists)
@@ -923,11 +917,6 @@ function AV:Operate(action_command_lists)
 		if action_command_list[1] >= Def.ActionList.Enter then
 			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
 			return false
-		end
-		if action_command_list[1] == Def.ActionList.Idle then
-			self.engine_obj:SetIdle(true)
-		else
-			self.engine_obj:SetIdle(false)
 		end
 		if not self.is_auto_pilot then
 			local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateAddVelocity(action_command_list)

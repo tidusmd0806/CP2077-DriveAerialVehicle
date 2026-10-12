@@ -57,13 +57,11 @@ function Engine:New(av_obj)
     obj.direction_velocity = Vector3.new(0, 0, 0)
     obj.angular_velocity = Vector3.new(0, 0, 0)
     obj.acceleration = Vector3.new(0, 0, 0)
-    obj.prev_velocity = Vector3.new(0, 0, 0)
     obj.engine_control_type = Def.EngineControlType.None
     obj.is_menu_blocked = false
     obj.loop_timer = nil
     obj.loop_interval = 0.01
     obj.is_finished_init = false
-    obj.is_idle = false
 
     return setmetatable(obj, self)
 end
@@ -529,12 +527,6 @@ function Engine:SetControlType(engine_control_type)
     end
     self.engine_control_type = engine_control_type
     self:ApplyControlMode()
-end
-
---- Set Idle
----@param is_idle boolean
-function Engine:SetIdle(is_idle)
-    self.is_idle = is_idle
 end
 
 --- Push flight control to the DLL reusing scratch Vector3 tables (no per-push allocation).
