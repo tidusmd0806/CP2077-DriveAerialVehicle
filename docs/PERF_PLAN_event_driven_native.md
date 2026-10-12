@@ -798,7 +798,45 @@ md5 `b8e44ea39b61e7f41337b8e3d4f804a2`（Phase C 削除後）
    「毎フレーム呼ぶが中身がほぼゼロ」のままにするか、ウォッチドッグを Cron に移して
    呼び出し側を `is_driving` フラグでゲートするかの判断が要る。
 
+0.20. **B-7 初回実機：メニューを開くと native が黙って落ちる（2026-10-12）**
+
+   ユーザー報告「autopilot だけおかしい」。`scripting.log` の probe が全てを語っていた:
+
+   ```
+   11:09:26 unboarded control_type=0: hold_pushes=40/s target_pushes=40/s loop=false   <- native 正常
+   11:09:37 boarded   control_type=1: hold_pushes=0/s  target_pushes=0/s  loop=false
+   11:10:25 unboarded control_type=0: hold_pushes=0/s  target_pushes=84/s loop=true    <- Lua フォールバック
+   ```
+
+   `hold_pushes`（実際に DLL へ push した回数）が 0 なのに `target_pushes`（セッター由来の呼び出し）が ~100/s、
+   しかも `loop=true` が常時。`LoopTick` は native が生きている限り自分で `StopLoop()` するので、
+   この組み合わせは **`native_control == false`（＝ `DisableNative` 発動）以外に成立しない**。
+
+   **原因：`Engine:Update` を `Engine:Heartbeat` に移したとき、メニューゲートの早期 return を落とした。**
+   旧 `Update` は `if self.is_menu_blocked then return end`（`WatchNativeTick` より前）で終わっていたが、
+   新 `Heartbeat` にこの check が無い。メニュー / ポップアップ / フォトモードを開くと物理が凍るので
+   フックの tick カウンタも止まる → `WatchNativeTick` が 1.5s で stall を数え上げ → `DisableNative` →
+   **以後そのセッションは全部 Lua 経路**。しかも `Log:Record(LogLevel.Error, ...)` は `PrintDebugMode`
+   オフでは `scripting.log` に出ないので、**何も見えずに落ちていた**。
+
+   **修正**:
+   1. `Heartbeat` に `is_menu_blocked` の早期 return を復活（このとき stall アキュムレータもリセット）
+   2. `DisableNative` は `ProbeLog`（無条件 `print`）にも出す — 「黙って native を失う」を禁止
+   3. probe に `native=` `fm=` `mode=` `auto=` を追加。次回以降この推論をログ 1 行で確定できる
+
+   **同時に見つけた B-7 起因のリグレッション 2 件**:
+
+   | 問題 | 内容 | 修正 |
+   |---|---|---|
+   | `is_auto_pilot` がモードを再評価しない | mode 3 は「手動専用」。搭乗中に autopilot を開始しても、Navigation が `SetControlType` を叩くまで DLL は mode 3 のまま。旧 `Update` は毎フレーム `not is_auto_pilot` を見ていたので自動回復していた | `Engine:SetAutoPilot(on)` を追加し、`navigation.lua` の 3 か所の直接代入を置換 |
+   | ランプが実フレームレートで積分しない | `LoopTick` に固定 0.01s を渡していたが、Cron は 1 フレーム 1 回しか発火させない。60fps だと降下ランプが 40% 遅い | `DAV.last_frame_delta`（onUpdate で記録）を渡すようにした |
+
+   **教訓**: 「毎フレーム呼ぶ」は遅い代わりに **状態変化の見逃しを全部吸収していた**。消すときは
+   `Update` の早期 return 1 本まで含めて棚卸ししないと、この種のサイレント劣化になる。
+
 ### B-7（`Engine:Update` の削除）— 実装済み（2026-10-11）、実機検証待ち
+
+   > ⚠ **初回実機で 2 つのリグレッション（0.20）。以下の記述は設計時点のもの。**
 
    `onUpdate` からの `Engine:Update` 呼び出しを消し、**関数ごと削除した**。0.19 の方針どおり、
    「ゲートして呼ぶ」ではなく「呼ばない」。
@@ -862,6 +900,9 @@ md5 `b8e44ea39b61e7f41337b8e3d4f804a2`（Phase C 削除後）
    5. ヘリモード、autopilot（mode 3 解除 → mode 1/2 復帰）
    6. `scripting.log` に `native flight disabled` が出ないこと（ウォッチドッグ誤発動の検知）
    7. probe ON のとき `target_pushes` が収束時 **約 2/s**、降下中だけ **約 100/s**、`loop` が降下中のみ true
+   8. **メニュー / ポップアップを開いたまま 5 秒置いても `native=true` が保つか**（0.20 の回帰テスト。
+      `native=false` に反転したら `NATIVE FLIGHT DISABLED -> Lua fallback` の行に理由が出る）
+   9. 搭乗中に autopilot 開始 → `auto=true` かつ `mode=1`（mode 3 のままにならない）→ 降車・格納できるか
 
 ### Phase C（任意）: 縮減不能ポーリングの native 化（§3.2）
 ### Phase D（任意）: A* ワーカー（純計算のみ C++ ワーカースレッド + lock-free queue）

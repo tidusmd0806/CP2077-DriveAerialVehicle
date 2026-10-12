@@ -139,6 +139,9 @@ function Engine:DisableNative(reason)
         return
     end
     self.log_obj:Record(LogLevel.Error, "native flight disabled, falling back to Lua path: " .. reason)
+    -- Log:Record only reaches the CET log with PrintDebugMode on; this has to be visible always, because
+    -- silently losing the native path is the single most confusing failure mode the mod can have.
+    self:ProbeLog("NATIVE FLIGHT DISABLED -> Lua fallback: " .. reason)
     if self.native_control then
         local ok = pcall(function()
             self.fly_av_system:SetFlightControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
@@ -309,9 +312,10 @@ function Engine:ProbeHookTickRate(delta)
     local tp = (self.target_push_count or 0) - (self.hook_probe_target_pushes_last or 0)
     self.hook_probe_target_pushes_last = self.target_push_count or 0
     self:ProbeLog(string.format(
-        "hook tick (%s control_type=%s): total=%.0f effective=%.1fHz hold_pushes=%d/s target_pushes=%d/s loop=%s mass=%.1f physics_state=%s",
+        "hook tick (%s control_type=%s): total=%.0f effective=%.1fHz hold_pushes=%d/s target_pushes=%d/s loop=%s native=%s fm=%s mode=%s auto=%s mass=%.1f physics_state=%s",
         boarded and "boarded" or "unboarded", tostring(control_type), ticks, hz, dpush, tp,
-        tostring(self.loop_timer ~= nil),
+        tostring(self.loop_timer ~= nil), tostring(self.native_control), tostring(self.native_flight_model),
+        tostring(self.native_last_mode), tostring(self.av_obj.is_auto_pilot),
         self:ReadNativeCounter("GetMass") or -1, tostring(self:GetPhysicsState())))
     if self.hook_probe_elapsed < self.hook_probe_budget_now then
         return
@@ -586,7 +590,9 @@ function Engine:StartLoop()
     end
     local engine = self
     self.loop_timer = Cron.Every(self.loop_interval, function(args)
-        engine:LoopTick(args.interval)
+        -- Cron only ever fires a timer once per frame, so the nominal interval would under-count the
+        -- ramp whenever the frame rate is below 1/interval. Use the real frame delta instead.
+        engine:LoopTick(DAV.last_frame_delta or args.interval)
     end)
 end
 
@@ -616,10 +622,31 @@ function Engine:LoopTick(delta)
     self:StopLoop()
 end
 
+--- Autopilot is a mode condition, not just a flag: mode 3 is manual-only, so the DLL mode has to be
+--- re-evaluated the moment it flips. Navigation used to set av_obj.is_auto_pilot directly and rely on
+--- the per-frame Update to notice.
+---@param on boolean
+function Engine:SetAutoPilot(on)
+    if self.av_obj == nil or self.av_obj.is_auto_pilot == on then
+        return
+    end
+    self.av_obj.is_auto_pilot = on
+    self:ApplyControlMode()
+end
+
 --- Slow safety net, driven by Core: the physics body can resolve late and the hook can stop.
 ---@param delta number
 function Engine:Heartbeat(delta)
     if not self.is_finished_init or self.av_obj == nil or self.av_obj.entity_id == nil then
+        return
+    end
+    if self.is_menu_blocked then
+        -- Physics is frozen while the menu owns the screen, so the hook legitimately stops ticking.
+        -- The old per-frame Update returned here too; without this the watchdog tears the native path
+        -- down 1.5s after any menu, popup, or photo mode opens.
+        self.native_tick_probe = 0
+        self.native_tick_stall = 0
+        self.native_tick_last = nil
         return
     end
     -- While unresolved GetMass() is 0 and every physics call is a silent no-op.

@@ -480,6 +480,7 @@ end)
 
 registerForEvent('onUpdate', function(delta)
     DAV.frame_seq = (DAV.frame_seq or 0) + 1
+    DAV.last_frame_delta = delta
     -- B-7: nothing flight-related is driven from here any more. Modes are pushed by the state changes
     -- that need them, targets by the setters, the ramp by its own timer, and the slow checks (mass,
     -- physics state, hook watchdog) run on Core's heartbeat.

@@ -3232,7 +3232,9 @@ end
 ---@return boolean
 function Navigation:AutoPilot()
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Start")
-	self.av_obj.is_auto_pilot = true
+	-- B-7: mode 3 (the DLL flight model) is manual-only, so the Engine has to re-evaluate the mode the
+	-- moment autopilot takes over. Setting the flag alone used to be enough because Update ran per frame.
+	self.av_obj.engine_obj:SetAutoPilot(true)
 
 	-- Ensure the inventory is warmed before map resolvers run; normally a no-op, bounded and loud if not.
 	if not self.is_base_image_loaded then
@@ -4270,7 +4272,7 @@ end
 --- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Success.
 
 function Navigation:SuccessAutoPilot()
-	self.av_obj.is_auto_pilot = false
+	self.av_obj.engine_obj:SetAutoPilot(false)
 	self.is_failture_auto_pilot = false
 	self.av_obj.core_obj:SetAutoPilotHistory()
 	-- Event-driven: tell the HUD/controls the auto mode ended (was a per-tick poll).
@@ -4295,7 +4297,7 @@ end
 --- Set AV.is_failture_auto_pilot and AV.is_auto_pilot when AutoPilot Failed.
 
 function Navigation:InterruptAutoPilot()
-	self.av_obj.is_auto_pilot = false
+	self.av_obj.engine_obj:SetAutoPilot(false)
 	self.is_failture_auto_pilot = true
 	-- Event-driven: was consumed by the per-tick CheckFailAutoPilot / CheckAutoModeChange polls.
 	self.av_obj.core_obj.event_obj:NotifyAutoPilotFailed()
