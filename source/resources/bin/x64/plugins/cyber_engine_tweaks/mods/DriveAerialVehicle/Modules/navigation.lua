@@ -95,6 +95,12 @@ function Navigation:New(av_obj)
 	obj.local_avoidance_detect_distance_min = 12.0
 	obj.local_avoidance_detect_distance_scale = 1.2
 	obj.local_avoidance_repulsion_effective_ratio = 0.65
+	-- Stopping-distance braking. autopilot_brake_decel is what the mode 2 velocity write can really
+	-- realize each physics tick (far above autopilot_acceleration, which is the takeoff/landing ramp),
+	-- and the margin is the vehicle envelope plus slack, so the cap reaches zero before contact.
+	obj.autopilot_brake_decel = 6.0
+	obj.autopilot_brake_margin = 3.0
+	obj.autopilot_brake_speed_cap = nil
 	obj.start_local_handoff_distance = 25.0
 	obj.nearest_known_search_soft_limit_cells = 60
 	obj.nearest_traversable_search_soft_limit_cells = 45
@@ -3802,6 +3808,9 @@ function Navigation:AutoPilot()
 		end
 
 		-- A* phase follows waypoints directly; local phases use local avoidance; empty A* route falls back to local.
+		-- Refreshed every tick by the avoidance scan: a stale brake cap would hold the AV slow long after
+		-- the obstacle it was computed for is gone, and the A* phase never runs that scan.
+		self.autopilot_brake_speed_cap = nil
 		local navigation_vector
 		if self.autopilot_phase == "astar" and #self.current_global_route > 0 then
 			-- Pure A* waypoint following
@@ -3890,6 +3899,19 @@ function Navigation:AutoPilot()
 		end
 
 		local autopilot_speed = self.autopilot_speed * self.auto_speed_reduce_rate
+		-- A wall outranks the cruise floor. autopilot_min_speed_rate is a comfort limit (never crawl),
+		-- not a collision limit, so the stopping-distance cap is deliberately allowed under it.
+		local brake_cap = self.autopilot_brake_speed_cap
+		if brake_cap ~= nil and brake_cap < autopilot_speed then
+			if DAV.is_debug_probe_avoid then
+				self.brake_probe_ticks = (self.brake_probe_ticks or 0) + 1
+				if self.brake_probe_ticks % 5 == 0 then
+					print(string.format("[DAV][avoid] brake: cap=%.1f wanted=%.1f fwd_min=%.1fm",
+						brake_cap, autopilot_speed, self.local_avoidance_min_fwd_dist or -1))
+				end
+			end
+			autopilot_speed = brake_cap
+		end
 		local fix_direction_vector = Vector4.new(autopilot_speed * direction_vector.x / direction_vector_norm, autopilot_speed * direction_vector.y / direction_vector_norm, autopilot_speed * direction_vector.z / direction_vector_norm, 1)
 
 		-- yaw control
@@ -5353,6 +5375,18 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 		self.auto_speed_reduce_rate = math.max(0.35, proximity * 0.5 + 0.35)
 	else
 		self.auto_speed_reduce_rate = 0.7
+	end
+
+	-- Stopping-distance braking on top of the percentage reduction. The percentage law alone could
+	-- never drop below autopilot_min_speed_rate (0.4 -> 10 m/s at a 25 m/s cruise) and only started
+	-- slowing inside 0.35 * detect_dist (10.5 m, about 0.4 s at cruise), so an obstacle arrived at
+	-- 10 m/s with nothing left to give. Cap the speed with what can actually be shed before contact:
+	-- v = sqrt(2 a (d - margin)). No cap at all when the forward hemisphere is clear, otherwise the
+	-- AV would never reach cruise speed.
+	if min_fwd_dist < detect_dist then
+		local brake_room = math.max(0.0, min_fwd_dist - self.autopilot_brake_margin)
+		self.autopilot_brake_speed_cap = math.sqrt(2.0 * self.autopilot_brake_decel * brake_room)
+		self.local_avoidance_min_fwd_dist = min_fwd_dist
 	end
 
 	if rep_mag > 0.3 then

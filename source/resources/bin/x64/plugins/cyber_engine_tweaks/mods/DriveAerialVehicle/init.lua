@@ -34,6 +34,9 @@ DAV = {
     -- commanded rate, actual rate, engagement state. That is the only way to tune the heading law
     -- against data instead of by feel; see docs 0.22. Set false when the servo is settled.
     is_debug_probe_yaw = true,
+    -- Developer switch: print when stopping-distance braking actually bites (the speed the avoidance
+    -- wanted, the cap, and the nearest forward distance). Set false once the braking is tuned.
+    is_debug_probe_avoid = true,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
