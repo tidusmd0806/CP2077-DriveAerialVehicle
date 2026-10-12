@@ -803,7 +803,17 @@ function Event:CheckHeight()
     end
     self.next_height_check_time = now + self:PickHeightInterval()
 
-    local height = self.av_obj.navigation_obj:GetHeight()
+    local height = nil
+    -- Phase C: while the AV is waiting it is on or near the surface it last touched, and the DLL
+    -- learns that surface from contact for free, so the height is a published number rather than a
+    -- raycast. A descent onto fresh terrain would be judged against the old ground, so every other
+    -- situation keeps the raycast.
+    if self.current_situation == Def.Situation.Waiting then
+        height = self.av_obj.engine_obj:GetNativeHeight()
+    end
+    if height == nil then
+        height = self.av_obj.navigation_obj:GetHeight()
+    end
     self.last_height = height
     if height < self.projection_max_height_offset + self.av_obj.minimum_distance_to_ground then
         -- Write the VFX offset only when the measured height actually moved.

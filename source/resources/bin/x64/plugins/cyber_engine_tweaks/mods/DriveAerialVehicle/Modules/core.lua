@@ -112,7 +112,11 @@ function Core:New()
     obj.garage_update_interval = 30.0
     obj.last_garage_update_time = nil
     -- Situation-driven loop gate: Waiting's CheckAllEvents runs at this interval instead of every tick.
-    obj.waiting_loop_interval = 0.05
+    -- 0.05 was chosen when the loop also carried the hover controller and the input drain. Both left
+    -- (B-5 put the hover in the DLL, actions now drain from the input callbacks), and what remains is
+    -- a despawn liveness check, the entry-area probe, a cached distance and an adaptive height raycast
+    -- - none of which a walking player can tell apart at 0.15 s. Three times fewer wakeups.
+    obj.waiting_loop_interval = 0.15
     obj.last_waiting_loop_time = 0
     obj.is_control_loop_sleeping = false
     -- custom mappin

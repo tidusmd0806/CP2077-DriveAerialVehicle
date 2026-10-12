@@ -95,6 +95,11 @@ function Engine:Init(entity_id)
     self.native_idle_ok = (DAV.is_enable_native_flight and self.native_control and ok4 and fn4 ~= nil)
         and true or false
     self.native_idle_active = false
+    -- Phase C: the DLL keeps the ground reference on its own game-thread update (contact teaches it),
+    -- so the hover no longer costs Lua a raycast twice a second.
+    local ok5, fn5 = pcall(function() return self.fly_av_system.GetGroundInfo end)
+    self.native_ground_ok = (DAV.is_enable_native_flight and self.native_control and ok5 and fn5 ~= nil)
+        and true or false
     self.native_tick_probe_interval = 0.5
     self.native_tick_stall_limit = 3
     self.native_tick_probe = 0
@@ -318,12 +323,14 @@ function Engine:ProbeHookTickRate(delta)
     self.hook_probe_push_last = pushes
     local tp = (self.target_push_count or 0) - (self.hook_probe_target_pushes_last or 0)
     self.hook_probe_target_pushes_last = self.target_push_count or 0
+    local gz, az, og, gvalid = self:ReadGroundInfo()
     self:ProbeLog(string.format(
-        "hook tick (%s control_type=%s): total=%.0f effective=%.1fHz hold_pushes=%d/s target_pushes=%d/s loop=%s native=%s fm=%s mode=%s auto=%s mass=%.1f physics_state=%s",
+        "hook tick (%s control_type=%s): total=%.0f effective=%.1fHz hold_pushes=%d/s target_pushes=%d/s loop=%s native=%s fm=%s mode=%s auto=%s mass=%.1f physics_state=%s ground_z=%.1f av_z=%.1f h=%.1f on_ground=%s valid=%s",
         boarded and "boarded" or "unboarded", tostring(control_type), ticks, hz, dpush, tp,
         tostring(self.loop_timer ~= nil), tostring(self.native_control), tostring(self.native_flight_model),
         tostring(self.native_last_mode), tostring(self.av_obj.is_auto_pilot),
-        self:ReadNativeCounter("GetMass") or -1, tostring(self:GetPhysicsState())))
+        self:ReadNativeCounter("GetMass") or -1, tostring(self:GetPhysicsState()),
+        gz, az, az - gz, tostring(og), tostring(gvalid)))
     if self.hook_probe_elapsed < self.hook_probe_budget_now then
         return
     end
@@ -390,11 +397,55 @@ function Engine:SetNativeIdle(on)
     self.native_idle_active = effective
     if effective then
         self:PushIdleHoverParams()
+        -- Seed once; after that the DLL learns the ground from contact on its own.
+        self:SeedGroundReference()
         self.native_hold_pushed = false
         self:PushNativeControl(4, self.zero3, self.zero3, self.torque_gain)
         self.log_obj:Record(LogLevel.Info, "mode4 push (native idle hover active)")
     end
     return effective
+end
+
+--- Phase C: read the ground reference the DLL publishes from its game-thread update.
+---@return number ground_z, number av_z, boolean on_ground, boolean valid
+function Engine:ReadGroundInfo()
+    if not self.native_ground_ok then
+        return 0, 0, false, false
+    end
+    local ok, info = pcall(function() return self.fly_av_system:GetGroundInfo() end)
+    if not ok or info == nil then
+        self.native_ground_ok = false
+        return 0, 0, false, false
+    end
+    return info.x, info.y, (info.z > 0.5), (info.w > 0.5)
+end
+
+--- Phase C: height above the DLL's ground reference, or nil when it has nothing to offer yet.
+--- Only safe where the vehicle is on or near the surface it last touched: the reference is learned
+--- from contact, so a descent onto fresh terrain would be judged against the old ground.
+---@return number|nil
+function Engine:GetNativeHeight()
+    if not self.native_ground_ok then
+        return nil
+    end
+    local ground_z, av_z, _, valid = self:ReadGroundInfo()
+    if not valid then
+        return nil
+    end
+    return av_z - ground_z
+end
+
+--- Phase C: hand the DLL a ground reference once, before the first contact teaches it itself.
+function Engine:SeedGroundReference()
+    if not self.native_ground_ok or self.av_obj == nil or self.av_obj.entity_id == nil then
+        return false
+    end
+    local pos = self.av_obj:GetPosition()
+    if pos == nil then
+        return false
+    end
+    self.fly_av_system:SetGroundReference(pos.z - self.av_obj.navigation_obj:GetHeight())
+    return true
 end
 
 --- B-3: push the manual-flight command list; the DLL physics hook runs the flight model per tick.
@@ -722,10 +773,9 @@ function Engine:Heartbeat(delta)
         self:UnsetPhysicsState()
         self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
     end
-    if self.native_idle_active then
-        -- The ground under the AV is the one thing the DLL cannot see from the physics hook. Half a
-        -- second of staleness is invisible on a hovering vehicle, and this is now the only raycast
-        -- Lua pays for the hover instead of one per Cron tick.
+    if self.native_idle_active and not self.native_ground_ok then
+        -- The ground under the AV is the one thing the DLL could not see. With Phase C it can: contact
+        -- teaches it on the game thread, so this fallback only runs on a DLL without GetGroundInfo.
         self:PushIdleHoverParams()
     end
     if self.native_control then
