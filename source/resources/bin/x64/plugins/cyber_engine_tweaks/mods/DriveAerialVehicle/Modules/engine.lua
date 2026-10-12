@@ -819,10 +819,9 @@ end
 --- Set direction velocity
 ---@param direction_velocity Vector3
 function Engine:SetDirectionVelocity(direction_velocity)
-    -- Only a moved target is worth a push; Navigation re-sends the same value every tick.
-    if vec3_equal(self.direction_velocity, direction_velocity, VELOCITY_EPS) then
-        return
-    end
+    -- No change gate here on purpose: the deadband belongs in PushVelocityHold, which compares against
+    -- what the DLL actually holds. Comparing against the previous Lua target instead would silently
+    -- discard slow drift (each step under eps, the sum over eps) and the vehicle would never see it.
     self.direction_velocity = direction_velocity
     self:PushFlightTarget()
 end
@@ -836,9 +835,6 @@ end
 --- Set angular velocity
 ---@param angular_velocity Vector3
 function Engine:SetAngularVelocity(angular_velocity)
-    if vec3_equal(self.angular_velocity, angular_velocity, ANGULAR_EPS) then
-        return
-    end
     self.angular_velocity = angular_velocity
     self:PushFlightTarget()
 end
@@ -1015,19 +1011,13 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
     y = y - horizontal_air_resistance_const * vel_vec.y
     z = z - vertical_air_resistance_const * vel_vec.z
 
-    -- Push only if the target actually moved: the control loop re-runs Run every frame in Waiting,
-    -- and a settled hover must cost nothing.
-    local changed = math.abs(x - self.direction_velocity.x) > VELOCITY_EPS
-            or math.abs(y - self.direction_velocity.y) > VELOCITY_EPS
-            or math.abs(z - self.direction_velocity.z) > VELOCITY_EPS
-            or math.abs(roll - self.angular_velocity.x) > ANGULAR_EPS
-            or math.abs(pitch - self.angular_velocity.y) > ANGULAR_EPS
-            or math.abs(yaw - self.angular_velocity.z) > ANGULAR_EPS
+    -- Always push: PushVelocityHold compares against the value the DLL holds, so a target that has not
+    -- moved is free and a slow drift still accumulates until it crosses the deadband. Gating here on
+    -- the delta from the previous target would drop sub-eps corrections for good -- that is what made
+    -- the autopilot oscillate onto a heading and steer too softly around obstacles.
     self.direction_velocity = Vector3.new(x, y, z)
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
-    if changed then
-        self:PushFlightTarget()
-    end
+    self:PushFlightTarget()
     return true
 end
 
@@ -1094,13 +1084,8 @@ function Engine:OnlyAngularRun(roll, pitch, yaw)
     pitch = pitch + d_pitch
     yaw = yaw + d_yaw
 
-    local changed = math.abs(roll - self.angular_velocity.x) > ANGULAR_EPS
-            or math.abs(pitch - self.angular_velocity.y) > ANGULAR_EPS
-            or math.abs(yaw - self.angular_velocity.z) > ANGULAR_EPS
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
-    if changed then
-        self:PushFlightTarget()
-    end
+    self:PushFlightTarget()
     return true
 end
 
