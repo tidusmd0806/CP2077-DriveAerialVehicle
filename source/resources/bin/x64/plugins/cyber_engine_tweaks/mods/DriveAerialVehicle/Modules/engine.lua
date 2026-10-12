@@ -88,6 +88,13 @@ function Engine:Init(entity_id)
     -- Watchdog source: the DLL counts physics ticks it applies for this vehicle.
     local ok3, fn3 = pcall(function() return self.fly_av_system.GetNativeTickCount end)
     self.native_tick_readable = ok3 and fn3 ~= nil
+    -- B-5: native idle hover (mode 4). The DLL runs the unboarded hover regulator on the physics
+    -- tick, so Lua stops paying a ground raycast plus six game API calls every Cron tick to hold a
+    -- vehicle that is not going anywhere. A DLL without the native keeps the Lua loop.
+    local ok4, fn4 = pcall(function() return self.fly_av_system.SetIdleHoverParams end)
+    self.native_idle_ok = (DAV.is_enable_native_flight and self.native_control and ok4 and fn4 ~= nil)
+        and true or false
+    self.native_idle_active = false
     self.native_tick_probe_interval = 0.5
     self.native_tick_stall_limit = 3
     self.native_tick_probe = 0
@@ -348,6 +355,48 @@ function Engine:PushNativeParams()
         Vector4.new(self.max_roll, self.max_pitch, self.force_restore_angle, self.restore_boundary_deg))
 end
 
+--- B-5: push the idle hover reference and gains (order must match Main.cpp IdleParams).
+--- ground_z is the one input the DLL cannot see from inside the physics hook, and it is the only
+--- thing Lua still has to raycast for; everything else is a constant or a user setting.
+function Engine:PushIdleHoverParams()
+    local s = DAV.user_setting_table
+    local pos = self.av_obj:GetPosition()
+    local height = self.av_obj.navigation_obj:GetHeight()
+    local ground_z = (pos ~= nil and pos.z or 0) - height
+    -- CalculateIdleMode skips its altitude term while the vehicle is touching something, and that is
+    -- what lets a landed AV rest on the ground instead of being pushed up to hover height.
+    local idle_gravity = (s.is_enable_idle_gravity and not self.av_obj.navigation_obj:IsCollision()) and 1 or 0
+    local heli = self.flight_mode == Def.FlightMode.Helicopter
+    local pitch_band = heli and s.h_pitch_restore_amount or s.pitch_restore_amount
+    local roll_band = heli and s.h_roll_restore_amount or s.roll_restore_amount
+    self.fly_av_system:SetIdleHoverParams(
+        -- damping / height_gain are hardcoded in Engine:CalculateIdleMode; mirrored, not retuned.
+        Vector4.new(ground_z, self.av_obj.minimum_distance_to_ground, 0.2, 0.5),
+        Vector4.new(pitch_band, roll_band, self.restore_boundary_deg, DAV.dt_scale or 1),
+        Vector4.new(self.max_roll, self.max_pitch, self.force_restore_angle, s.horizontal_air_resistance_const),
+        Vector4.new(s.vertical_air_resistance_const, idle_gravity, 12, 1))
+end
+
+--- B-5: hand the unboarded hover to the DLL (mode 4). Returns whether the DLL really holds it, so
+--- the caller knows whether it still has to push a mode 2 target of its own.
+function Engine:SetNativeIdle(on)
+    local effective = (on == true and self.native_idle_ok and DAV.is_enable_native_idle
+        and self.is_finished_init and not self.is_menu_blocked
+        and self.av_obj ~= nil and self.av_obj.entity_id ~= nil)
+        and true or false
+    if effective == self.native_idle_active then
+        return effective
+    end
+    self.native_idle_active = effective
+    if effective then
+        self:PushIdleHoverParams()
+        self.native_hold_pushed = false
+        self:PushNativeControl(4, self.zero3, self.zero3, self.torque_gain)
+        self.log_obj:Record(LogLevel.Info, "mode4 push (native idle hover active)")
+    end
+    return effective
+end
+
 --- B-3: push the manual-flight command list; the DLL physics hook runs the flight model per tick.
 ---@param action_command_lists table list of {action, value}
 function Engine:PushNativeCommands(action_command_lists)
@@ -447,6 +496,10 @@ function Engine:ApplyControlMode()
         return
     end
     local control_type = self.engine_control_type
+    -- Every mode decision below re-derives who owns the hover. The flag must not survive into a
+    -- control type that does not run it (AddForce after boarding, FluctuationVelocity ramps), or
+    -- AV:Operate would keep skipping the Lua math and the player's input would go nowhere.
+    self.native_idle_active = false
     if control_type == Def.EngineControlType.AddForce and self.native_flight_model
             and not self.av_obj.is_auto_pilot then
         -- B-3: the DLL physics hook runs the whole flight model from the pushed commands.
@@ -472,6 +525,11 @@ function Engine:ApplyControlMode()
             self:StopLoop()
         else
             self:StartLoop()
+        end
+        -- ChangeVelocity with no autopilot means the unboarded hover: give it to the DLL. The
+        -- autopilot also drives mode 2 and must keep its own targets, so it is excluded here.
+        if self:SetNativeIdle(not self.av_obj.is_auto_pilot) then
+            return
         end
         self:PushFlightTarget()
     elseif control_type == Def.EngineControlType.FluctuationVelocity then
@@ -663,6 +721,12 @@ function Engine:Heartbeat(delta)
     if (not self.native_control or self.native_tick_last == nil) and self:GetPhysicsState() ~= 0 then
         self:UnsetPhysicsState()
         self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
+    end
+    if self.native_idle_active then
+        -- The ground under the AV is the one thing the DLL cannot see from the physics hook. Half a
+        -- second of staleness is invisible on a hovering vehicle, and this is now the only raycast
+        -- Lua pays for the hover instead of one per Cron tick.
+        self:PushIdleHoverParams()
     end
     if self.native_control then
         self:WatchNativeTick(delta)

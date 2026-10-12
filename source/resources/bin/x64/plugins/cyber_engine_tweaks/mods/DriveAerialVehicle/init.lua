@@ -26,6 +26,9 @@ DAV = {
     is_debug_enable_obstacle_scan = false,
     -- Developer switch: drive flight from the DLL physics hook instead of the Lua flight model.
     is_enable_native_flight = true,
+    -- B-5: run the unboarded hover regulator (altitude + attitude restore) inside the DLL physics hook
+    -- instead of a Lua loop. Needs a DLL with SetIdleHoverParams; an older DLL falls back automatically.
+    is_enable_native_idle = true,
     -- Developer switch: log the DLL physics-hook rate per control type (boarded vs unboarded).
     -- Measured on 2026-10-11: the hook fires unboarded at full physics rate, and B-4's hold costs 0/s
     -- once the target settles. Left on for the B-7 run to read `frames=N/s`; set false when done.

@@ -880,6 +880,20 @@ function AV:Operate(action_command_lists)
 		self:ControlSound(action_command_lists)
 		return true
 	end
+	if self.engine_obj.native_idle_active then
+		-- B-5: the DLL physics hook runs the hover regulator, so there is nothing to compute here.
+		-- This is where the per-tick ground raycast and six game API calls used to happen.
+		for _, action_command_list in ipairs(action_command_lists) do
+			if action_command_list[1] >= Def.ActionList.Enter then
+				self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
+				return false
+			end
+			self.engine_obj:SetIdle(action_command_list[1] == Def.ActionList.Idle)
+		end
+		self:MoveThruster(action_command_lists)
+		self:ControlSound(action_command_lists)
+		return true
+	end
 	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
 	-- self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_command_lists)
 	for _, action_command_list in ipairs(action_command_lists) do
