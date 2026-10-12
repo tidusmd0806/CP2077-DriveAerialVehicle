@@ -24,9 +24,8 @@ goes through here.
 
 What must scale, and what must not
 --------------------------------
-The control law used to be applied through `Engine:Update` on every rendered frame; since B-7 the
-native DLL hook applies it every physics tick and Lua only pushes targets when they change. Either
-way it pushes a *rate* target:
+The control law is applied by the native DLL hook every physics tick; Lua only pushes targets when
+they change. Either way it pushes a *rate* target:
 
     force  = direction_velocity * mass          -- direction_velocity is m/s^2
     torque = (cmd_omega - actual_omega) * gain  -- a rate error

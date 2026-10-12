@@ -111,11 +111,8 @@ function Core:New()
     -- Garage polling: refreshed on demand by its consumers; this interval is only a slow safety net.
     obj.garage_update_interval = 30.0
     obj.last_garage_update_time = nil
-    -- Situation-driven loop gate: Waiting's CheckAllEvents runs at this interval instead of every tick.
-    -- 0.05 was chosen when the loop also carried the hover controller and the input drain. Both left
-    -- (B-5 put the hover in the DLL, actions now drain from the input callbacks), and what remains is
-    -- a despawn liveness check, the entry-area probe, a cached distance and an adaptive height raycast
-    -- - none of which a walking player can tell apart at 0.15 s. Three times fewer wakeups.
+    -- Loop gate for Waiting: despawn liveness, the entry-area probe, a cached distance and an
+    -- adaptive height check are all indistinguishable to a walking player at this rate.
     obj.waiting_loop_interval = 0.15
     obj.last_waiting_loop_time = 0
     -- custom mappin
@@ -163,9 +160,8 @@ function Core:Init()
     -- Control loop started via ApplyTimeResolution so the period comes from the user setting.
     self:ApplyTimeResolution(true)
 
-    -- B-7: the Engine no longer runs from onUpdate. These slow checks need a clock but not a frame:
-    -- the body can resolve late and the physics hook can stop. The callback reads the live Engine
-    -- because Core:Reset replaces the AV/Engine objects.
+    -- Slow engine checks need a clock but not a frame: the body can resolve late and the physics
+    -- hook can stop. Reads the live Engine because Core:Reset replaces the AV/Engine objects.
     self.engine_heartbeat_interval = 0.5
     Cron.Every(self.engine_heartbeat_interval, function()
         local engine_obj = nil
@@ -229,9 +225,7 @@ function Core:ControlLoopState()
             self.last_waiting_loop_time = now + self.waiting_loop_interval
             return "run"
         end
-        -- B-5 moved the hover into the DLL and actions now drain from the input callbacks, so Waiting
-        -- has no per-tick work left at all. The loop only wakes at the check interval for the entry
-        -- area, distance and height probes.
+        -- Waiting has no per-tick work left; it only wakes for the entry area, distance, height.
         return "sleep"
     end
 
@@ -1339,10 +1333,8 @@ function Core:GetActions(from_input)
     end
 
     if #move_actions == 0 then
-        -- The old code injected a {Nothing,1} here so the Lua flight model kept holding the vehicle
-        -- every tick. B-5 moved the hover into the DLL and manual flight runs on input edges, so an
-        -- empty queue now genuinely means nothing to do. The legacy path is the exception: it is a
-        -- closed loop and still needs the pump.
+        -- The legacy path is a closed loop and still needs a pump. The native path does not: the DLL
+        -- holds the hover and manual flight runs on input edges, so an empty queue means nothing to do.
         if self.av_obj ~= nil and self.av_obj.engine_obj ~= nil and self.av_obj.engine_obj.native_control then
             self.is_draining_actions = false
             return

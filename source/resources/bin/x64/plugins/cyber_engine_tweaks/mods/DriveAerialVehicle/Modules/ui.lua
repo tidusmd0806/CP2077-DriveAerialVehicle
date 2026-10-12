@@ -823,7 +823,7 @@ end
 
 --- Update setting items.
 function UI:UpdateNativeSettingsPage()
-	-- B-3: every physics slider funnels through here; keep the DLL flight params in sync.
+	-- Every physics slider funnels through here; keep the DLL flight params in sync.
 	local engine = DAV.core_obj.av_obj and DAV.core_obj.av_obj.engine_obj
 	if engine ~= nil and engine.native_flight_model and engine.is_finished_init then
 		engine:PushNativeParams()

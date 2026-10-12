@@ -70,7 +70,7 @@ end
 ---@param entity_id EntityID
 function Engine:Init(entity_id)
     self.entity_id = entity_id
-    -- The menu gate is edge-driven now (B-6); adopt the state that was already in effect.
+    -- The menu gate is edge-driven; adopt the state that was already in effect.
     local event_obj = self.av_obj.core_obj and self.av_obj.core_obj.event_obj
     self.is_menu_blocked = (event_obj ~= nil and event_obj:IsInMenuOrPopupOrPhoto()) and true or false
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
@@ -80,21 +80,19 @@ function Engine:Init(entity_id)
     -- Gated on DAV.is_enable_native_flight; pcall because a missing method on an old DLL may throw.
     local ok, fn = pcall(function() return self.fly_av_system.SetFlightControl end)
     self.native_control = DAV.is_enable_native_flight and ok and fn ~= nil
-    -- B-3: full native flight model (DLL computes Engine:Run math per physics tick).
+    -- Full native flight model: the DLL computes Engine:Run's math per physics tick.
     local ok2, fn2 = pcall(function() return self.fly_av_system.SetFlightModel end)
     self.native_flight_model = DAV.is_enable_native_flight and self.native_control and ok2 and fn2 ~= nil
     -- Watchdog source: the DLL counts physics ticks it applies for this vehicle.
     local ok3, fn3 = pcall(function() return self.fly_av_system.GetNativeTickCount end)
     self.native_tick_readable = ok3 and fn3 ~= nil
-    -- B-5: native idle hover (mode 4). The DLL runs the unboarded hover regulator on the physics
-    -- tick, so Lua stops paying a ground raycast plus six game API calls every Cron tick to hold a
-    -- vehicle that is not going anywhere. A DLL without the native keeps the Lua loop.
+    -- Native idle hover (mode 4): the DLL runs the unboarded hover regulator on the physics tick.
+    -- A DLL without the native keeps the Lua loop.
     local ok4, fn4 = pcall(function() return self.fly_av_system.SetIdleHoverParams end)
     self.native_idle_ok = (DAV.is_enable_native_flight and self.native_control and ok4 and fn4 ~= nil)
         and true or false
     self.native_idle_active = false
-    -- Phase C: the DLL keeps the ground reference on its own game-thread update (contact teaches it),
-    -- so the hover no longer costs Lua a raycast twice a second.
+    -- The DLL publishes the ground reference it learns on its own game-thread update.
     local ok5, fn5 = pcall(function() return self.fly_av_system.GetGroundInfo end)
     self.native_ground_ok = (DAV.is_enable_native_flight and self.native_control and ok5 and fn5 ~= nil)
         and true or false
@@ -107,7 +105,7 @@ function Engine:Init(entity_id)
     self.native_tick_probe = 0
     self.native_tick_stall = 0
     self.native_tick_last = nil
-    -- B-4: velocity hold (mode 2) bookkeeping — what the DLL is currently holding for us.
+    -- Velocity hold (mode 2) bookkeeping: what the DLL is currently holding for us.
     self.native_hold_pushed = false
     self.native_hold_push_count = 0
     self.native_last_mode = 0
@@ -318,8 +316,8 @@ function Engine:ProbeHookTickRate(delta)
         self.hook_probe_max_hz = hz
     end
     -- mass is a second proof of a live hook: GetMass falls back to the value the hook body publishes.
-    -- hold_pushes is the B-4 saving; target_pushes is the B-7 one (pushes driven by state changes,
-    -- not by frames) and loop says whether the ramp timer is running.
+    -- hold_pushes counts velocity-hold pushes; target_pushes counts pushes driven by state changes
+    -- rather than by frames; loop says whether the ramp timer is running.
     local pushes = self.native_hold_push_count or 0
     local dpush = pushes - (self.hook_probe_push_last or 0)
     self.hook_probe_push_last = pushes
@@ -364,7 +362,7 @@ function Engine:PushNativeParams()
         Vector4.new(self.max_roll, self.max_pitch, self.force_restore_angle, self.restore_boundary_deg))
 end
 
---- B-5: push the idle hover reference and gains (order must match Main.cpp IdleParams).
+--- Push the idle hover reference and gains (order must match Main.cpp IdleParams).
 --- ground_z is the one input the DLL cannot see from inside the physics hook, and it is the only
 --- thing Lua still has to raycast for; everything else is a constant or a user setting.
 function Engine:PushIdleHoverParams()
@@ -386,8 +384,8 @@ function Engine:PushIdleHoverParams()
         Vector4.new(s.vertical_air_resistance_const, idle_gravity, 12, 1))
 end
 
---- B-5: hand the unboarded hover to the DLL (mode 4). Returns whether the DLL really holds it, so
---- the caller knows whether it still has to push a mode 2 target of its own.
+--- Hand the unboarded hover to the DLL (mode 4). Returns whether the DLL really holds it, so the
+--- caller knows whether it still has to push a mode 2 target of its own.
 function Engine:SetNativeIdle(on)
     local effective = (on == true and self.native_idle_ok and DAV.is_enable_native_idle
         and self.is_finished_init and not self.is_menu_blocked
@@ -408,7 +406,7 @@ function Engine:SetNativeIdle(on)
     return effective
 end
 
---- Phase C: read the ground reference the DLL publishes from its game-thread update.
+--- Read the ground reference the DLL publishes from its game-thread update.
 ---@return number ground_z, number av_z, boolean on_ground, boolean valid
 function Engine:ReadGroundInfo()
     if not self.native_ground_ok then
@@ -422,7 +420,7 @@ function Engine:ReadGroundInfo()
     return info.x, info.y, (info.z > 0.5), (info.w > 0.5)
 end
 
---- Phase C: height above the DLL's ground reference, or nil when it has nothing to offer yet.
+--- Height above the DLL's ground reference, or nil when it has nothing to offer yet.
 --- Only safe where the vehicle is on or near the surface it last touched: the reference is learned
 --- from contact, so a descent onto fresh terrain would be judged against the old ground.
 ---@return number|nil
@@ -437,7 +435,7 @@ function Engine:GetNativeHeight()
     return av_z - ground_z
 end
 
---- Phase C: hand the DLL what its own ground query needs - the search box and the collision groups.
+--- Hand the DLL what its own ground query needs: the search box and the collision groups.
 function Engine:PushGroundQuery(offset, distance, mask1, mask2)
     if not self.native_ground_query_ok then
         return false
@@ -451,7 +449,7 @@ function Engine:PushGroundQuery(offset, distance, mask1, mask2)
     return ok and true or false
 end
 
---- Phase C: hand the DLL a ground reference once, before the first contact teaches it itself.
+--- Hand the DLL a ground reference once, before the first contact teaches it itself.
 function Engine:SeedGroundReference()
     if not self.native_ground_ok or self.av_obj == nil or self.av_obj.entity_id == nil then
         return false
@@ -464,7 +462,7 @@ function Engine:SeedGroundReference()
     return true
 end
 
---- B-3: push the manual-flight command list; the DLL physics hook runs the flight model per tick.
+--- Push the manual-flight command list; the DLL physics hook runs the flight model per tick.
 ---@param action_command_lists table list of {action, value}
 function Engine:PushNativeCommands(action_command_lists)
     -- Commands now arrive as event edges through Core:PushNative, so the per-tick list is no longer
@@ -544,8 +542,8 @@ function Engine:PushNativeControl(mode, vel, angvel, gain)
 end
 
 --- Apply the native mode implied by the current state.
---- B-7: this replaces the per-frame `Engine:Update`. Every mode decision happens when the state
---- changes (control type, menu, spawn/despawn), never from a frame loop.
+--- Every mode decision happens when the state changes (control type, menu, spawn/despawn),
+--- never from a frame loop.
 function Engine:ApplyControlMode()
     if not self.is_finished_init then
         return
@@ -563,7 +561,7 @@ function Engine:ApplyControlMode()
     self.native_idle_active = false
     if control_type == Def.EngineControlType.AddForce and self.native_flight_model
             and not self.av_obj.is_auto_pilot then
-        -- B-3: the DLL physics hook runs the whole flight model from the pushed commands.
+        -- The DLL physics hook runs the whole flight model from the pushed commands.
         self:StopLoop()
         self.force = self.zero3
         self.torque = self.zero3
@@ -784,8 +782,8 @@ function Engine:Heartbeat(delta)
         self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
     end
     if self.native_idle_active and not self.native_ground_ok then
-        -- The ground under the AV is the one thing the DLL could not see. With Phase C it can: contact
-        -- teaches it on the game thread, so this fallback only runs on a DLL without GetGroundInfo.
+        -- Contact teaches the ground on the game thread, so this fallback only runs on a DLL that
+        -- has no GetGroundInfo at all.
         self:PushIdleHoverParams()
     end
     if self.native_control then
@@ -901,8 +899,8 @@ function Engine:PushNativeOff()
     self.native_hold_pushed = false
 end
 
---- B-6: the menu/popup/photo gate used to be polled every frame. The UI observers now report the
---- edge, so the Engine only keeps a flag and stops/resumes native application when it flips.
+--- The UI observers report the menu/popup/photo edge, so the Engine only keeps a flag and
+--- stops/resumes native application when it flips.
 ---@param blocked boolean
 function Engine:SetMenuBlocked(blocked)
     blocked = blocked and true or false
@@ -1540,8 +1538,8 @@ function Engine:FluctuationVelocity(delta)
     self.direction_velocity.x = self.direction_velocity.x / velocity * (velocity + self.step_width_per_second * delta)
     self.direction_velocity.y = self.direction_velocity.y / velocity * (velocity + self.step_width_per_second * delta)
     self.direction_velocity.z = self.direction_velocity.z / velocity * (velocity + self.step_width_per_second * delta)
-    -- B-4: same hold as ChangeVelocity — the hook re-applies it every physics tick (measured live for
-    -- an unboarded vehicle), so the descent only pushes while the ramped target actually moves.
+    -- Same hold as ChangeVelocity: the hook re-applies it every physics tick, so the descent only
+    -- pushes while the ramped target actually moves.
     self:PushFlightTarget()
 end
 

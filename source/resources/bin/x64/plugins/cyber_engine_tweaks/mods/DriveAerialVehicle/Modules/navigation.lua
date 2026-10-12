@@ -3247,8 +3247,8 @@ end
 ---@return boolean
 function Navigation:AutoPilot()
 	self.log_obj:Record(LogLevel.Info, "AutoPilot Start")
-	-- B-7: mode 3 (the DLL flight model) is manual-only, so the Engine has to re-evaluate the mode the
-	-- moment autopilot takes over. Setting the flag alone used to be enough because Update ran per frame.
+	-- Mode 3 (the DLL flight model) is manual-only, so the Engine has to re-evaluate the mode the
+	-- moment autopilot takes over.
 	self.av_obj.engine_obj:SetAutoPilot(true)
 
 	-- Ensure the inventory is warmed before map resolvers run; normally a no-op, bounded and loud if not.
@@ -4561,7 +4561,7 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 
 	-- Optimized detection with balanced performance and coverage
 	-- Read live velocity: engine_obj.direction_velocity is a Lua-path target and stays stale
-	-- when the DLL native flight model (B-3) drives physics.
+	-- when the DLL native flight model drives physics.
 	local current_speed = self.av_obj:GetCurrentSpeed()
 	local speed_factor = math.min(current_speed / 20.0, 2.0)
 

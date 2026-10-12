@@ -866,7 +866,7 @@ function AV:BlockOperation(on)
 		self.is_blocking_operation = false
 		if self:IsPlayerIn() then
 			self.engine_obj:SetControlType(Def.EngineControlType.AddForce)
-			-- B-3: fresh boarding clears native integrators on the next command push.
+			-- Fresh boarding clears the native integrators on the next command push.
 			self.engine_obj.native_reset_pending = true
 		else
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
@@ -879,7 +879,7 @@ end
 --- Execute action commands.
 ---@param action_command_lists table
 function AV:Operate(action_command_lists)
-	-- B-3: native flight model — hand the raw command list to the DLL and skip all Lua math.
+	-- Native flight model: hand the raw command list to the DLL and skip all Lua math.
 	-- Only for manual AddForce flight; Waiting (Idle) and autopilot keep the Lua path.
 	if self.engine_obj.native_flight_model and not self.is_auto_pilot
 			and self.engine_obj:GetControlType() == Def.EngineControlType.AddForce then
@@ -899,8 +899,7 @@ function AV:Operate(action_command_lists)
 		return true
 	end
 	if self.engine_obj.native_idle_active then
-		-- B-5: the DLL physics hook runs the hover regulator, so there is nothing to compute here.
-		-- This is where the per-tick ground raycast and six game API calls used to happen.
+		-- The DLL physics hook runs the hover regulator, so there is nothing to compute here.
 		for _, action_command_list in ipairs(action_command_lists) do
 			if action_command_list[1] >= Def.ActionList.Enter then
 				self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])

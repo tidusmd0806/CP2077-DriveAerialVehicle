@@ -26,20 +26,14 @@ DAV = {
     is_debug_enable_obstacle_scan = false,
     -- Developer switch: drive flight from the DLL physics hook instead of the Lua flight model.
     is_enable_native_flight = true,
-    -- B-5: run the unboarded hover regulator (altitude + attitude restore) inside the DLL physics hook
-    -- instead of a Lua loop. Needs a DLL with SetIdleHoverParams; an older DLL falls back automatically.
+    -- Unboarded hover runs inside the DLL physics hook. Needs a DLL with SetIdleHoverParams;
+    -- an older DLL falls back to the Lua loop automatically.
     is_enable_native_idle = true,
     -- Developer switch: log the DLL physics-hook rate per control type (boarded vs unboarded).
-    -- Measured on 2026-10-11: the hook fires unboarded at full physics rate, and B-4's hold costs 0/s
-    -- once the target settles. B-5/B-6/B-7 and Phase C are all in and verified; the numbers are in
-    -- docs, so this stays off.
     is_debug_probe_hook_tick = false,
-    -- Developer switch: print the autopilot yaw servo once every ~20 loop ticks -- heading error,
-    -- commanded rate, actual rate, engagement state. That is the only way to tune the heading law
-    -- against data instead of by feel; see docs 0.22. The leaving turn is bounded and settled.
+    -- Developer switch: print the autopilot yaw servo every ~20 loop ticks (error, command, rate).
     is_debug_probe_yaw = false,
-    -- Developer switch: print when stopping-distance braking actually bites (the speed the avoidance
-    -- wanted, the cap, and the nearest forward distance). The braking is tuned and verified.
+    -- Developer switch: print when stopping-distance braking bites (wanted speed, cap, distance).
     is_debug_probe_avoid = false,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
@@ -492,9 +486,8 @@ end)
 registerForEvent('onUpdate', function(delta)
     DAV.frame_seq = (DAV.frame_seq or 0) + 1
     DAV.last_frame_delta = delta
-    -- B-7: nothing flight-related is driven from here any more. Modes are pushed by the state changes
-    -- that need them, targets by the setters, the ramp by its own timer, and the slow checks (mass,
-    -- physics state, hook watchdog) run on Core's heartbeat.
+    -- Nothing flight-related is driven from here: modes are pushed by the state changes that need
+    -- them, and the slow checks run on Core's heartbeat.
     Cron.Update(delta)
 end)
 

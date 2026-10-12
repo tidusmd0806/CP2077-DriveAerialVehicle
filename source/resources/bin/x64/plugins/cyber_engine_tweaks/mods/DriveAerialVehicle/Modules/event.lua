@@ -571,7 +571,7 @@ function Event:OnPlayerMounted()
     self.is_keyboard_input_prev = self.hud_obj.is_keyboard_input
     self.av_obj.engine_obj:EnableOriginalPhysics(false)
     self.av_obj.engine_obj:SetControlType(Def.EngineControlType.AddForce)
-    -- LTBF compatibility only matters while aboard (B-3).
+    -- LTBF compatibility only matters while aboard.
     self:StartLTBFCompatPoll()
     Cron.After(1.5, function()
         self.hud_obj:ForceShowMeter()
@@ -593,7 +593,7 @@ function Event:OnPlayerUnmounted()
         return
     end
     self.log_obj:Record(LogLevel.Info, "Exit AV")
-    -- LTBF compatibility has nothing to watch from outside the AV (B-3).
+    -- LTBF compatibility has nothing to watch from outside the AV.
     self:StopLTBFCompatPoll()
     self.hud_obj:HideLeftBottomHUD()
     self:SetSituation(Def.Situation.Waiting)
@@ -804,10 +804,8 @@ function Event:CheckHeight()
     self.next_height_check_time = now + self:PickHeightInterval()
 
     local height = nil
-    -- Phase C: while the AV is waiting it is on or near the surface it last touched, and the DLL
-    -- learns that surface from contact for free, so the height is a published number rather than a
-    -- raycast. A descent onto fresh terrain would be judged against the old ground, so every other
-    -- situation keeps the raycast.
+    -- Waiting: the DLL already knows the surface under the AV from contact. The other situations
+    -- are moving onto fresh terrain, where a stale reference would judge the descent wrongly.
     if self.current_situation == Def.Situation.Waiting then
         height = self.av_obj.engine_obj:GetNativeHeight()
     end
@@ -972,7 +970,7 @@ function Event:IsInMenuOrPopupOrPhoto()
 end
 
 --- Set one of the menu/popup/photo flags and tell the Engine only when the aggregate flips.
---- B-6: Engine:Update used to poll IsInMenuOrPopupOrPhoto() every frame; the gate is edge-driven now.
+--- The gate is edge-driven: the UI observers report flips instead of the Engine polling for them.
 ---@param flag string field name on self (is_in_menu / is_in_popup / is_in_photo)
 ---@param value boolean
 function Event:SetBlockedFlag(flag, value)
