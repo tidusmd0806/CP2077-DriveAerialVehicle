@@ -207,12 +207,14 @@ function Core:ApplyTimeResolution(force)
     return applied
 end
 
---- Decide what the control loop should do this tick: "run" | "checks_paced" | "sleep".
+--- Decide what the control loop should do this tick: "run" | "sleep".
 --- The Cron timer is never paused: pausing would freeze the measured-dt sampler and break wake sources.
---- "checks_paced" skips the C# heavy CheckAllEvents but keeps GetActions at full rate for input latency.
----@return string "run" | "checks_paced" | "sleep"
+--- "sleep" skips everything but the dt bookkeeping; actions no longer need the loop because they
+--- drain from the input callbacks themselves (Core:EnqueueAction).
+---@return string "run" | "sleep"
 function Core:ControlLoopState()
-    local has_pending_input = self.queue_obj ~= nil and not self.queue_obj:IsEmpty()
+    local has_pending_input = (self.queue_obj ~= nil and not self.queue_obj:IsEmpty())
+        or self.has_pending_operation == true
     local situation = self.event_obj.current_situation
 
     if situation == Def.Situation.Waiting then
@@ -224,7 +226,10 @@ function Core:ControlLoopState()
             self.last_waiting_loop_time = now + self.waiting_loop_interval
             return "run"
         end
-        return "checks_paced"
+        -- B-5 moved the hover into the DLL and actions now drain from the input callbacks, so Waiting
+        -- has no per-tick work left at all. The loop only wakes at the check interval for the entry
+        -- area, distance and height probes.
+        return "sleep"
     end
 
     -- Landing / TalkingOff / InVehicle: descent/ascent thresholds are tick-period dependent. Never skip.
@@ -787,7 +792,7 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
     local cmd_list = self:ConvertActionList(action_name, action_type, action_value)
 
     if cmd_list[1] ~= Def.ActionList.Nothing then
-        self.queue_obj:Enqueue(cmd_list)
+        self:EnqueueAction(cmd_list)
     end
 end
 
@@ -994,7 +999,7 @@ function Core:StartButtonHold(button_name, action_type, max_hold_seconds, on_sta
             Cron.Halt(timer)
         else
             -- Continue holding
-            self.queue_obj:Enqueue(action_type)
+            self:EnqueueAction(action_type)
         end
     end)
     
@@ -1143,11 +1148,11 @@ function Core:ConvertCommonPressAction(keybind_name)
                 if timer.tick >= hold_threshold then
                     -- Long press detected
                     self[counter_flag_name] = false
-                    self.queue_obj:Enqueue(Def.ActionList.ToggleAutopilot)
+                    self:EnqueueAction(Def.ActionList.ToggleAutopilot)
                     Cron.Halt(timer)
                 elseif not self[counter_flag_name] then
                     -- Short press detected
-                    self.queue_obj:Enqueue(Def.ActionList.OpenAutopilotPanel)
+                    self:EnqueueAction(Def.ActionList.OpenAutopilotPanel)
                     Cron.Halt(timer)
                 end
             end)
@@ -1163,26 +1168,26 @@ function Core:ConvertCommonPressAction(keybind_name)
                 if timer.tick >= hold_threshold then
                     -- Long press detected
                     self[counter_flag_name] = false
-                    self.queue_obj:Enqueue(Def.ActionList.OpenRadio)
+                    self:EnqueueAction(Def.ActionList.OpenRadio)
                     Cron.Halt(timer)
                 elseif not self[counter_flag_name] then
                     -- Short press detected
-                    self.queue_obj:Enqueue(Def.ActionList.ToggleRadio)
+                    self:EnqueueAction(Def.ActionList.ToggleRadio)
                     Cron.Halt(timer)
                 end
             end)
         end
     -- Handle single-action buttons
     elseif keybind_name == "toggle_camera" then
-        self.queue_obj:Enqueue(Def.ActionList.ChangeCamera)
+        self:EnqueueAction(Def.ActionList.ChangeCamera)
     elseif keybind_name == "toggle_door" then
-        self.queue_obj:Enqueue(Def.ActionList.ChangeDoor1)
+        self:EnqueueAction(Def.ActionList.ChangeDoor1)
     elseif keybind_name == "toggle_crystal_dome" then
-        self.queue_obj:Enqueue(Def.ActionList.ToggleCrystalDome)
+        self:EnqueueAction(Def.ActionList.ToggleCrystalDome)
     elseif keybind_name == "toggle_appearance" then
-        self.queue_obj:Enqueue(Def.ActionList.ToggleAppearance)
+        self:EnqueueAction(Def.ActionList.ToggleAppearance)
     elseif keybind_name == "open_vehicle_manager" then
-        self.queue_obj:Enqueue(Def.ActionList.OpenVehicleManager)
+        self:EnqueueAction(Def.ActionList.OpenVehicleManager)
     end
 end
 
@@ -1231,7 +1236,7 @@ end
 ---@param action number
 ---@param value number
 function Core:EnqueueAxis(key, action, value)
-    self.queue_obj:Enqueue({action, value})
+    self:EnqueueAction({action, value})
     -- One axis drives two opposite actions (sign picks which). The held state keeps both unless the
     -- previous one is released explicitly, so a sign flip has to clear it first.
     local prev = self.last_axis_action[key]
@@ -1296,24 +1301,64 @@ function Core:ConvertHeliAxisAction(keybind_name, value)
 end 
 
 --- Dequeue and Operate Aerial Vehicle.
-function Core:GetActions()
+function Core:GetActions(from_input)
+    if self.is_draining_actions then
+        return
+    end
+    self.is_draining_actions = true
+    self.has_pending_operation = false
     local move_actions = {}
+    local deferred = nil
 
     while not self.queue_obj:IsEmpty() do
         local action = self.queue_obj:Dequeue()
         local action_list = type(action) == "table" and action or {action, 1}
         if action_list[1] >= Def.ActionList.Enter then
-            self:SetEvent(action_list[1])
+            if from_input then
+                -- Boarding, menus and appearance changes drive the game's own systems, and running
+                -- them from inside the input callback that produced them means re-entering the game
+                -- mid-action. Leave those to the control loop, which runs outside it; the loop wakes
+                -- on this flag. Movement actions are plain physics targets and are safe inline.
+                self.has_pending_operation = true
+                deferred = deferred or {}
+                deferred[#deferred + 1] = action
+            else
+                self:SetEvent(action_list[1])
+            end
         else
             table.insert(move_actions, action_list)
         end
     end
 
+    if deferred ~= nil then
+        -- Put them back after the loop: re-enqueueing inside it would never terminate.
+        for i = 1, #deferred do
+            self.queue_obj:Enqueue(deferred[i])
+        end
+    end
+
     if #move_actions == 0 then
+        -- The old code injected a {Nothing,1} here so the Lua flight model kept holding the vehicle
+        -- every tick. B-5 moved the hover into the DLL and manual flight runs on input edges, so an
+        -- empty queue now genuinely means nothing to do. The legacy path is the exception: it is a
+        -- closed loop and still needs the pump.
+        if self.av_obj ~= nil and self.av_obj.engine_obj ~= nil and self.av_obj.engine_obj.native_control then
+            self.is_draining_actions = false
+            return
+        end
         table.insert(move_actions, {Def.ActionList.Nothing, 1})
     end
 
     self:OperateAerialVehicle(move_actions)
+    self.is_draining_actions = false
+end
+
+--- Enqueue an action and drain it immediately instead of waiting for the Cron loop to notice. That
+--- polling was pure latency - a menu/photo-mode probe plus an Operate call every tick just to find
+--- an empty queue. The Cron drain stays as a backstop for anything enqueued elsewhere.
+function Core:EnqueueAction(action)
+    self.queue_obj:Enqueue(action)
+    self:GetActions(true)
 end
 
 --- Operate Aerial Vehicle.
