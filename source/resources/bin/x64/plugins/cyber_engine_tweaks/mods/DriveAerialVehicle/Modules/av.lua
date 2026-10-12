@@ -166,6 +166,12 @@ function AV:InitializeCollisionQueryFilter()
 		query_filter.mask2 = query_filter.mask2 + QueryFilter.AddGroup(CName.new(group_name)).mask2
 	end
 	self.collision_query_filter = query_filter
+	-- The DLL runs this same query on its own game thread for the hover, which is what lets CET stop
+	-- looping for height. It needs the search box and the groups, and only Lua knows those.
+	if self.engine_obj ~= nil then
+		self.engine_obj:PushGroundQuery(self.search_ground_offset, self.search_ground_distance,
+			query_filter.mask1, query_filter.mask2)
+	end
 end
 
 --- Resolve the vehicle entity handle, caching it for the current frame.

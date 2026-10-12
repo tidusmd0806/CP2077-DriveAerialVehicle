@@ -100,6 +100,10 @@ function Engine:Init(entity_id)
     local ok5, fn5 = pcall(function() return self.fly_av_system.GetGroundInfo end)
     self.native_ground_ok = (DAV.is_enable_native_flight and self.native_control and ok5 and fn5 ~= nil)
         and true or false
+    -- The DLL can run the ground query itself, but the search box and the collision groups are user
+    -- settings, so they have to be handed over. Absent native = Lua keeps raycasting as before.
+    local ok6, fn6 = pcall(function() return self.fly_av_system.SetGroundQuery end)
+    self.native_ground_query_ok = (self.native_ground_ok and ok6 and fn6 ~= nil) and true or false
     self.native_tick_probe_interval = 0.5
     self.native_tick_stall_limit = 3
     self.native_tick_probe = 0
@@ -433,6 +437,20 @@ function Engine:GetNativeHeight()
         return nil
     end
     return av_z - ground_z
+end
+
+--- Phase C: hand the DLL what its own ground query needs - the search box and the collision groups.
+function Engine:PushGroundQuery(offset, distance, mask1, mask2)
+    if not self.native_ground_query_ok then
+        return false
+    end
+    local ok = pcall(function()
+        self.fly_av_system:SetGroundQuery(offset, distance, mask1 or 0, mask2 or 0)
+    end)
+    if not ok then
+        self.native_ground_query_ok = false
+    end
+    return ok and true or false
 end
 
 --- Phase C: hand the DLL a ground reference once, before the first contact teaches it itself.
