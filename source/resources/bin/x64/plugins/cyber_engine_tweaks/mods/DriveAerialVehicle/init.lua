@@ -28,8 +28,8 @@ DAV = {
     is_enable_native_flight = true,
     -- Developer switch: log the DLL physics-hook rate per control type (boarded vs unboarded).
     -- Measured on 2026-10-11: the hook fires unboarded at full physics rate, and B-4's hold costs 0/s
-    -- once the target settles. Set true again to re-measure (see docs 0.17/0.18 and the B-4 section).
-    is_debug_probe_hook_tick = false,
+    -- once the target settles. Left on for the B-7 run to read `frames=N/s`; set false when done.
+    is_debug_probe_hook_tick = true,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
@@ -480,10 +480,10 @@ end)
 
 registerForEvent('onUpdate', function(delta)
     DAV.frame_seq = (DAV.frame_seq or 0) + 1
+    -- B-7: nothing flight-related is driven from here any more. Modes are pushed by the state changes
+    -- that need them, targets by the setters, the ramp by its own timer, and the slow checks (mass,
+    -- physics state, hook watchdog) run on Core's heartbeat.
     Cron.Update(delta)
-    if DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil and DAV.core_obj.av_obj.engine_obj ~= nil then
-        DAV.core_obj.av_obj.engine_obj:Update(delta)
-    end
 end)
 
 registerForEvent('onShutdown', function()

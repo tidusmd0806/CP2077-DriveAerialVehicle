@@ -641,6 +641,28 @@ R 自体は消えないが「Lua を跨がない同期クエリ」になり、�
    `PrintDebugMode`（ImGui の "Print Debug Mode"）がオンのときだけ。診断は `Engine:ProbeLog`
    経由で無条件に `print` するようにした（`scripting.log` と CET コンソールに出る）。
 
+0.19. **B-7 の設計方針：「Update を軽くする」ではなく「Update を消す」（2026-10-11）**
+
+   B-6 のあと `Engine:Update` の中身はほぼゼロになったが、**行数は増えた**。毎フレーム呼ぶ関数に
+   `is_passive` の簿記を足す設計は、目的（`onUpdate` から物理適用の責務を外す）と逆方向だった。
+   そこで B-7 は「ゲートして呼ぶ」ではなく **`Engine:Update` 関数そのものを削除**する。
+
+   以前は「1 つでも wake source を漏らすと推進を失って落下する」ため毎フレーム呼びを残す判断だったが、
+   それは **責務を 1 箇所に寄せていない**ことの言い訳になっていた。`Update` の 12 の責務を
+   それぞれの自然な家に移せば、毎フレームの呼び出し自体が不要になる:
+
+   | 責務 | 移した先 | 駆動 |
+   |---|---|---|
+   | ガード（`is_finished_init` / `entity_id` / メニュー） | 関数ごと消滅 / `ApplyControlMode` | エッジ |
+   | `mass<=0` の再解決 | `Engine:Heartbeat` | Core の 0.5s Cron |
+   | physics state ポーリング | `Engine:Heartbeat` | 同上 |
+   | フック生存ウォッチドッグ | `Engine:Heartbeat` | 同上 |
+   | mode 3 の push / 解除 push | `Engine:ApplyControlMode` | `SetControlType` |
+   | mode 2 の velocity hold | `Engine:PushVelocityHold` ← `PushFlightTarget` | セッター |
+   | AddForce（mode 1 / Lua フォールバック） | `Engine:PushForceTarget` / `ApplyLuaFlightModel` | セッター |
+   | `FluctuationVelocity` のランプ | `Engine:LoopTick`（専用 Cron） | 0.01s Cron |
+   | Blocking / 不明タイプ | `ApplyControlMode` | エッジ |
+
 1. DLL に `DAVFlightController` 相当を追加（C++）。
    入力状態・control_type・物理パラメータは CET から push API で共有。
 2. `Engine:Update` の CET 側呼び出しを撤去。
@@ -775,6 +797,71 @@ md5 `b8e44ea39b61e7f41337b8e3d4f804a2`（Phase C 削除後）
    autopilot 起動停止）。1 つでも漏れると**推進を失って落下する**ため、
    「毎フレーム呼ぶが中身がほぼゼロ」のままにするか、ウォッチドッグを Cron に移して
    呼び出し側を `is_driving` フラグでゲートするかの判断が要る。
+
+### B-7（`Engine:Update` の削除）— 実装済み（2026-10-11）、実機検証待ち
+
+   `onUpdate` からの `Engine:Update` 呼び出しを消し、**関数ごと削除した**。0.19 の方針どおり、
+   「ゲートして呼ぶ」ではなく「呼ばない」。
+
+   **`init.lua` の `onUpdate` は `Cron.Update(delta)` だけになった**（飛行制御の責務ゼロ）。
+
+   #### 新しい責務の置き場所
+
+   | 関数 | 誰が呼ぶ | 何をする |
+   |---|---|---|
+   | `Engine:ApplyControlMode()` | `SetControlType` / `Engine:Init`（再スポーン用） / `SetMenuBlocked` / `AV:Despawn` / `DisableNative` | 現在の状態が要求する native mode を **1 回** push。mode 3 ラッチの張替え、メニュー・デスポーン時の mode 0 |
+   | `Engine:PushFlightTarget()` | `SetDirectionVelocity` / `SetAngularVelocity` / `Run` / `OnlyAngularRun` / `SetFluctuationVelocityParams` / `LoopTick` | 制御タイプに応じた target を DLL へ。**値が変わったときだけ** |
+   | `Engine:PushVelocityHold()` | `PushFlightTarget` | mode 2（change-detect 付き、`native_last_mode==2` も見る） |
+   | `Engine:PushForceTarget()` | `PushFlightTarget` | mode 1（DLL が毎 tick トルク誤差を計算） |
+   | `Engine:ApplyLuaFlightModel()` | `PushFlightTarget`（DLL に `SetFlightControl` が無い／ウォッチドッグ発動時） | 旧 Lua 飛行モデル |
+   | `Engine:StartLoop()` / `StopLoop()` / `LoopTick(delta)` | `ApplyControlMode` | **ランプ積分**（`FluctuationVelocity`）と、native が無い場合の再適用だけの専用 Cron（0.01s） |
+   | `Engine:Heartbeat(delta)` | Core の 0.5s Cron | `mass<=0` 再解決、`ForceEnablePhysics`、フック生存ウォッチドッグ、probe |
+
+   #### 各状態での「毎フレーム Lua」
+
+   | 状態 | onUpdate での `Engine` 呼び出し | Cron |
+   |---|---|---|
+   | 非搭乗アイドル（収束） | **0** | なし |
+   | 非搭乗アイドル（ターゲット変化） | 0（セッターが push） | なし |
+   | 搭乗飛行（mode 3） | 0（`PushNativeCommands` は制御ループ側） | なし |
+   | 降下 / 上昇（`FluctuationVelocity`） | 0 | **1 本（0.01s）** |
+   | native 無効（旧 DLL / `is_enable_native_flight=false`） | 0 | **1 本（0.01s）** |
+   | メニュー開 / 格納済み | **0** | なし |
+
+   #### 削除・変更した呼び出し側
+
+   - `SetControlType`: 変更時 `ApplyControlMode()`。**同一値なら早期 return**（`Engine` は AV より長生きなので、
+     `Engine:Init` が再スポーン時に必ず `ApplyControlMode` を呼んで補う）
+   - `SetDirectionVelocity` / `SetAngularVelocity`: eps 比較して**変わったときだけ** `PushFlightTarget()`
+   - `Run` / `OnlyAngularRun`: 同上（制御ループは毎フレーム同じ値を再送するので、これがゲートの実働部分）
+   - `SetMenuBlocked`: `ApplyControlMode()` に一本化（`native_mode3_pushed`/`native_hold_pushed` の手动リセットを撤去）
+   - `SetIdle`: wake 不要になったので単なる代入
+   - `SetFluctuationVelocityParams`: `engine_control_type` 直書きをやめ `SetControlType` 経由（ランプ開始のトリガ）
+   - `FluctuationVelocity`: タイプ直書きを `SetControlType` に、`ApplyVelocityHold` を `PushFlightTarget` に変更
+   - `AV:Despawn`: `entity_id = nil` 後に `engine_obj:ApplyControlMode()`（もはや誰も entity を毎フレーム見ていない）
+   - `Engine:Init` 末尾: `ApplyControlMode()`
+   - `Engine:DisableNative`: `ApplyControlMode()`（Lua 飛行モデルへ切り替え＝ループ開始）
+   - `Engine:ApplyVelocityHold` → `Engine:PushVelocityHold` に統合、`Engine:Wake` / `is_passive` / `update_call_count` を削除
+
+   #### native が無い経路の扱い（後方互換）
+
+   `native_control == false`（旧 DLL、または `is_enable_native_flight = false`）では DLL が何も再適用しないので、
+   **Lua 側が毎 tick 書き続けないと減速して落ちる**。よって `ApplyControlMode` は native が無いときだけ
+   `StartLoop()` を呼び、`LoopTick` が `PushFlightTarget()` を再適用する。つまり「Cron 1 本で毎フレーム駆動を代替」。
+
+   #### probe の変更
+
+   `frames=N/s`（`Update` 呼び出し数）は意味を失ったため **`target_pushes=N/s`（実 push 数）と `loop=true/false`** に置換。
+
+   #### 検証ポイント
+
+   1. 召喚 → 待機ホバー（上下しない・落ちない）
+   2. 搭乗 → 離陸 → 飛行 → 降車 → 格納
+   3. 降下格納（`FluctuationVelocity` のランプが Cron で回るか）
+   4. メニュー / インベントリ / ポップアップ / フォトモード開閉で固まる→復帰
+   5. ヘリモード、autopilot（mode 3 解除 → mode 1/2 復帰）
+   6. `scripting.log` に `native flight disabled` が出ないこと（ウォッチドッグ誤発動の検知）
+   7. probe ON のとき `target_pushes` が収束時 **約 2/s**、降下中だけ **約 100/s**、`loop` が降下中のみ true
 
 ### Phase C（任意）: 縮減不能ポーリングの native 化（§3.2）
 ### Phase D（任意）: A* ワーカー（純計算のみ C++ ワーカースレッド + lock-free queue）

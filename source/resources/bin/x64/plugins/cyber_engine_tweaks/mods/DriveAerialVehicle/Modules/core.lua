@@ -160,6 +160,20 @@ function Core:Init()
     -- Control loop started via ApplyTimeResolution so the period comes from the user setting.
     self:ApplyTimeResolution(true)
 
+    -- B-7: the Engine no longer runs from onUpdate. These slow checks need a clock but not a frame:
+    -- the body can resolve late and the physics hook can stop. The callback reads the live Engine
+    -- because Core:Reset replaces the AV/Engine objects.
+    self.engine_heartbeat_interval = 0.5
+    self.engine_heartbeat_timer = Cron.Every(self.engine_heartbeat_interval, function()
+        local engine_obj = nil
+        if self.av_obj ~= nil then
+            engine_obj = self.av_obj.engine_obj
+        end
+        if engine_obj ~= nil then
+            engine_obj:Heartbeat(self.engine_heartbeat_interval)
+        end
+    end)
+
     -- set observer
     self:SetInputListener()
     self:SetMappinController()

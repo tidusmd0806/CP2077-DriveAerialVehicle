@@ -514,6 +514,9 @@ function AV:Despawn()
 	self:InvalidateEntityCache()
 	self:InvalidateEntryAreaCache()
 	self.navigation_obj:InvalidateHeightCache()
+	-- Nothing polls the entity any more, so tell the Engine: it stops the ramp timer and drops the
+	-- held native mode so the next body cannot inherit it.
+	self.engine_obj:ApplyControlMode()
 	return true
 end
 

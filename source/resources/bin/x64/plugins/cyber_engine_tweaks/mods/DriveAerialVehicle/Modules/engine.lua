@@ -60,6 +60,8 @@ function Engine:New(av_obj)
     obj.prev_velocity = Vector3.new(0, 0, 0)
     obj.engine_control_type = Def.EngineControlType.None
     obj.is_menu_blocked = false
+    obj.loop_timer = nil
+    obj.loop_interval = 0.01
     obj.is_finished_init = false
     obj.is_idle = false
 
@@ -125,6 +127,9 @@ function Engine:Init(entity_id)
         self.native_mode3_pushed = false
     end
     self.is_finished_init = true
+    -- Re-apply on every spawn: the Engine object outlives the vehicle, so across a respawn the control
+    -- type often does not change and SetControlType would not fire.
+    self:ApplyControlMode()
 end
 
 --- Give up on the native path and hand control back to the Lua flight model.
@@ -147,6 +152,8 @@ function Engine:DisableNative(reason)
     self.native_mode3_pushed = false
     self.native_hold_pushed = false
     self.native_last_mode = 0
+    -- The Lua flight model needs live feedback again, so put the control mode back on the Lua side.
+    self:ApplyControlMode()
 end
 
 --- Fall back to the Lua path when the DLL physics-tick counter stops advancing.
@@ -266,6 +273,7 @@ function Engine:ProbeHookTickRate(delta)
         self.hook_probe_max_hz = 0
         self.hook_probe_last = self:ReadNativeCounter("GetNativeTickCount")
         self.hook_probe_push_last = self.native_hold_push_count or 0
+        self.hook_probe_target_pushes_last = self.target_push_count or 0
         self:ProbeLog(string.format(
             "hook probe armed (%s control_type=%s tick=%.0f mass=%.1f physics_state=%s)",
             boarded and "boarded" or "unboarded", tostring(control_type), self.hook_probe_last or -1,
@@ -293,13 +301,17 @@ function Engine:ProbeHookTickRate(delta)
         self.hook_probe_max_hz = hz
     end
     -- mass is a second proof of a live hook: GetMass falls back to the value the hook body publishes.
-    -- hold_pushes shows the B-4 saving: velocity pushes per second (was one per frame before).
+    -- hold_pushes is the B-4 saving; target_pushes is the B-7 one (pushes driven by state changes,
+    -- not by frames) and loop says whether the ramp timer is running.
     local pushes = self.native_hold_push_count or 0
     local dpush = pushes - (self.hook_probe_push_last or 0)
     self.hook_probe_push_last = pushes
+    local tp = (self.target_push_count or 0) - (self.hook_probe_target_pushes_last or 0)
+    self.hook_probe_target_pushes_last = self.target_push_count or 0
     self:ProbeLog(string.format(
-        "hook tick (%s control_type=%s): total=%.0f effective=%.1fHz hold_pushes=%d/s mass=%.1f physics_state=%s",
-        boarded and "boarded" or "unboarded", tostring(control_type), ticks, hz, dpush,
+        "hook tick (%s control_type=%s): total=%.0f effective=%.1fHz hold_pushes=%d/s target_pushes=%d/s loop=%s mass=%.1f physics_state=%s",
+        boarded and "boarded" or "unboarded", tostring(control_type), ticks, hz, dpush, tp,
+        tostring(self.loop_timer ~= nil),
         self:ReadNativeCounter("GetMass") or -1, tostring(self:GetPhysicsState())))
     if self.hook_probe_elapsed < self.hook_probe_budget_now then
         return
@@ -390,7 +402,11 @@ end
 --- Set control type
 ---@param engine_control_type Def.EngineControlType
 function Engine:SetControlType(engine_control_type)
+    if self.engine_control_type == engine_control_type then
+        return
+    end
     self.engine_control_type = engine_control_type
+    self:ApplyControlMode()
 end
 
 --- Set Idle
@@ -413,21 +429,197 @@ function Engine:PushNativeControl(mode, vel, angvel, gain)
     self.fly_av_system:SetFlightControl(mode, v, a, gain)
 end
 
---- Update
----@param delta number
-function Engine:Update(delta)
+--- Apply the native mode implied by the current state.
+--- B-7: this replaces the per-frame `Engine:Update`. Every mode decision happens when the state
+--- changes (control type, menu, spawn/despawn), never from a frame loop.
+function Engine:ApplyControlMode()
     if not self.is_finished_init then
         return
     end
-    -- The Engine outlives its entity: gate physics calls so they never hit a despawned entity.
-    if self.av_obj == nil or self.av_obj.entity_id == nil then
-        -- No body to drive. Never leave a held velocity in the shared native buffer: the next body the
-        -- hook matches would inherit it.
+    if self.av_obj == nil or self.av_obj.entity_id == nil or self.is_menu_blocked then
+        -- No body to drive, or the menu owns the screen: never leave a held target in the buffer.
+        self:StopLoop()
         self:PushNativeOff()
         return
     end
-    if self.is_menu_blocked then
-        -- SetMenuBlocked already pushed mode 0 at the edge; nothing to apply until the menu closes.
+    local control_type = self.engine_control_type
+    if control_type == Def.EngineControlType.AddForce and self.native_flight_model
+            and not self.av_obj.is_auto_pilot then
+        -- B-3: the DLL physics hook runs the whole flight model from the pushed commands.
+        self:StopLoop()
+        self.force = self.zero3
+        self.torque = self.zero3
+        if not self.native_mode3_pushed then
+            self.log_obj:Record(LogLevel.Info, "mode3 push (native flight model active)")
+            self:PushNativeControl(3, self.zero3, self.zero3, self.torque_gain)
+            self.native_mode3_pushed = true
+        end
+        return
+    end
+    if self.native_mode3_pushed then
+        -- Otherwise the hook keeps flying the AV after the player leaves it.
+        self:PushNativeOff()
+    end
+    if control_type == Def.EngineControlType.ChangeVelocity then
+        self.native_hold_pushed = false
+        -- With the hook installed it re-applies the target every physics tick; without it the Lua
+        -- side is the only thing that can keep the vehicle there.
+        if self.native_control then
+            self:StopLoop()
+        else
+            self:StartLoop()
+        end
+        self:PushFlightTarget()
+    elseif control_type == Def.EngineControlType.FluctuationVelocity then
+        -- The ramp integrates over time, so it is the one thing that always needs a clock.
+        self:StartLoop()
+    elseif control_type == Def.EngineControlType.AddForce then
+        self.native_hold_pushed = false
+        if self.native_control then
+            self:StopLoop()
+        else
+            -- The Lua flight model is a closed loop: it needs live feedback every tick, not just on
+            -- a target change.
+            self:StartLoop()
+        end
+        self:PushFlightTarget()
+    else
+        -- None (nothing has asked for control yet) and Blocking both mean "the DLL applies nothing".
+        self:StopLoop()
+        self:PushNativeOff()
+        if control_type ~= Def.EngineControlType.None and control_type ~= Def.EngineControlType.Blocking then
+            self.log_obj:Record(LogLevel.Error, "Unknown control type",
+                "Engine:ApplyControlMode - control_type: " .. tostring(control_type))
+        end
+    end
+end
+
+--- Push the current flight target for the current control type. This is the only place a flight
+--- target reaches the DLL, and it runs from the setters — never from a frame loop.
+function Engine:PushFlightTarget()
+    if not self.is_finished_init or self.is_menu_blocked then
+        return
+    end
+    if self.av_obj == nil or self.av_obj.entity_id == nil then
+        return
+    end
+    local control_type = self.engine_control_type
+    if control_type == Def.EngineControlType.ChangeVelocity
+            or control_type == Def.EngineControlType.FluctuationVelocity then
+        self.target_push_count = (self.target_push_count or 0) + 1
+        self:PushVelocityHold()
+    elseif control_type == Def.EngineControlType.AddForce then
+        if self.native_flight_model and not self.av_obj.is_auto_pilot then
+            -- The DLL derives force and torque from the pushed commands and the live body.
+            return
+        end
+        if self.native_control then
+            self:PushForceTarget()
+        else
+            self:ApplyLuaFlightModel()
+        end
+    end
+end
+
+--- Hold the vehicle at the current velocity target (ChangeVelocity semantics).
+--- The physics hook re-applies mode 2 every physics tick, so a target that has not moved needs no
+--- push at all. Falls back to the direct write on a DLL without SetFlightControl.
+---@return boolean pushed
+function Engine:PushVelocityHold()
+    if not self.native_control then
+        self:ChangeVelocity(Def.ChangeVelocityType.Both, self.direction_velocity, self.angular_velocity)
+        return true
+    end
+    local vel = self.direction_velocity
+    local ang = self.angular_velocity
+    local held = self.native_hold
+    -- native_last_mode matters: another mode (1/3) may have been pushed since, and the DLL holds
+    -- whatever mode it was last told, so "target unchanged" alone is not enough to skip the push.
+    if self.native_hold_pushed and self.native_last_mode == 2
+            and vec3_equal(held.v, vel, VELOCITY_EPS)
+            and vec3_equal(held.a, ang, ANGULAR_EPS) then
+        return false
+    end
+    self:PushNativeControl(2, vel, ang, 0)
+    self.native_hold_push_count = (self.native_hold_push_count or 0) + 1
+    held.v.x, held.v.y, held.v.z = vel.x, vel.y, vel.z
+    held.a.x, held.a.y, held.a.z = ang.x, ang.y, ang.z
+    self.native_hold_pushed = true
+    return true
+end
+
+--- AddForce semantics without the native flight model: hand the DLL the velocity target and let it
+--- compute the torque error from the live angular velocity every physics tick.
+function Engine:PushForceTarget()
+    local vel = self.direction_velocity
+    local ang = self.angular_velocity
+    local held = self.native_hold
+    if self.native_last_mode == 1 and vec3_equal(held.v, vel, VELOCITY_EPS)
+            and vec3_equal(held.a, ang, ANGULAR_EPS) then
+        return
+    end
+    self:PushNativeControl(1, vel, ang, self.torque_gain)
+    held.v.x, held.v.y, held.v.z = vel.x, vel.y, vel.z
+    held.a.x, held.a.y, held.a.z = ang.x, ang.y, ang.z
+    self.native_hold_pushed = true
+end
+
+--- The pre-native flight model, kept for a DLL without SetFlightControl and for the watchdog
+--- fallback. It needs live feedback, so the control loop drives it through Engine:Run.
+function Engine:ApplyLuaFlightModel()
+    local target = self.direction_velocity
+    local ang = self.angular_velocity
+    local mass = self.mass
+    local _, actual = self:GetDirectionAndAngularVelocity()
+    self.force = Vector3.new(target.x * mass, target.y * mass, target.z * mass)
+    self.torque = Vector3.new(
+        (ang.x - actual.x) * self.torque_gain,
+        (ang.y - actual.y) * self.torque_gain,
+        (ang.z - actual.z) * self.torque_gain)
+    self:AddForce(self.force, self.torque)
+end
+
+--- The one clock the Engine still owns: the descent/ascent ramp integrates over time.
+function Engine:StartLoop()
+    if self.loop_timer ~= nil then
+        return
+    end
+    local engine = self
+    self.loop_timer = Cron.Every(self.loop_interval, function(args)
+        engine:LoopTick(args.interval)
+    end)
+end
+
+function Engine:StopLoop()
+    if self.loop_timer ~= nil then
+        Cron.Halt(self.loop_timer)
+        self.loop_timer = nil
+    end
+end
+
+---@param delta number the timer interval, so the ramp rate is per second whatever the frame rate is
+function Engine:LoopTick(delta)
+    if self.av_obj == nil or self.av_obj.entity_id == nil or self.is_menu_blocked then
+        self:StopLoop()
+        return
+    end
+    local control_type = self.engine_control_type
+    if control_type == Def.EngineControlType.FluctuationVelocity then
+        self:FluctuationVelocity(delta)
+        return
+    end
+    if not self.native_control then
+        -- No DLL hook to re-apply anything, so the Lua path has to keep writing the target.
+        self:PushFlightTarget()
+        return
+    end
+    self:StopLoop()
+end
+
+--- Slow safety net, driven by Core: the physics body can resolve late and the hook can stop.
+---@param delta number
+function Engine:Heartbeat(delta)
+    if not self.is_finished_init or self.av_obj == nil or self.av_obj.entity_id == nil then
         return
     end
     -- While unresolved GetMass() is 0 and every physics call is a silent no-op.
@@ -441,7 +633,6 @@ function Engine:Update(delta)
     -- -1 means "vehicle not resolved yet"; ForceEnablePhysics is what gets a fresh AV simulated.
     -- This has to stay on the game thread: the physics hook only fires while the body is simulated,
     -- and calling ForceEnablePhysics from inside that body's own update reenters the physics engine.
-    -- Once the hook is confirmed live the vehicle is simulated, so stop paying for the poll.
     if (not self.native_control or self.native_tick_last == nil) and self:GetPhysicsState() ~= 0 then
         self:UnsetPhysicsState()
         self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
@@ -450,55 +641,6 @@ function Engine:Update(delta)
         self:WatchNativeTick(delta)
     end
     self:ProbeHookTickRate(delta)
-    if self.native_flight_model and self.engine_control_type == Def.EngineControlType.AddForce
-            and not self.av_obj.is_auto_pilot then
-        -- B-3: the DLL physics hook runs the whole flight model; nothing to compute here.
-        if not self.native_mode3_pushed then
-            self.log_obj:Record(LogLevel.Info, "mode3 push (native flight model active)")
-            self:PushNativeControl(3, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), self.torque_gain)
-            self.native_mode3_pushed = true
-        end
-        self.force = self.zero3
-        self.torque = self.zero3
-        return
-    end
-    if self.native_mode3_pushed then
-        -- Otherwise the hook keeps flying the AV after the player leaves it.
-        self:PushNativeOff()
-    end
-    if self.engine_control_type == Def.EngineControlType.ChangeVelocity then
-        self.force = self.zero3
-        self.torque = self.zero3
-        -- B-4: the hook holds the velocity every physics tick, so only a moved target needs a push.
-        self:ApplyVelocityHold()
-    elseif self.engine_control_type == Def.EngineControlType.AddForce then
-        local direction_velocity = self:GetDirectionVelocity()
-        local angular_velocity = self:GetAngularVelocity()
-        self.force = Vector3.new(direction_velocity.x * self.mass, direction_velocity.y * self.mass, direction_velocity.z * self.mass)
-        if self.native_control then
-            -- Native computes torque from the live angular velocity error each physics tick.
-            self.torque = Vector3.new(0, 0, 0)
-            self:PushNativeControl(1, direction_velocity, angular_velocity, self.torque_gain)
-        else
-            local _, actual_angular_velocity = self:GetDirectionAndAngularVelocity()
-            local angular_velocity_diff = Vector3.new(angular_velocity.x - actual_angular_velocity.x, angular_velocity.y - actual_angular_velocity.y, angular_velocity.z - actual_angular_velocity.z)
-            local mass = self.mass
-            self.force = Vector3.new(direction_velocity.x * mass, direction_velocity.y * mass, direction_velocity.z * mass)
-            self.torque = Vector3.new(angular_velocity_diff.x * self.torque_gain, angular_velocity_diff.y * self.torque_gain, angular_velocity_diff.z * self.torque_gain)
-            self:AddForce(self.force, self.torque)
-        end
-    elseif self.engine_control_type == Def.EngineControlType.FluctuationVelocity then
-        self.force = self.zero3
-        self.torque = self.zero3
-        self:FluctuationVelocity(delta)
-    elseif self.engine_control_type == Def.EngineControlType.Blocking then
-        -- Do nothing, just block the physics
-        self:PushNativeOff()
-        self.log_obj:Record(LogLevel.Trace, "Blocking DAV physics")
-    else
-        self:PushNativeOff()
-        self.log_obj:Record(LogLevel.Error, "Unknown control type", "Engine:Update - control_type: " .. tostring(self.engine_control_type))
-    end
 end
 
 --- Unset physics state
@@ -595,32 +737,6 @@ function Engine:AddVelocity(delta, direction_velocity, angular_velocity)
     self.fly_av_system:AddVelocity(delta_direction_velocity, delta_angular_velocity)
 end
 
---- Hold the vehicle at the current velocity target (ChangeVelocity semantics).
---- B-4: the physics hook re-applies mode 2 every physics tick, so a target that has not moved needs
---- no push at all. The unboarded idle hover recomputes its target at 20Hz while the frame loop runs
---- at 60+, and a settled target costs nothing. Falls back to the direct write on an old DLL.
-function Engine:ApplyVelocityHold()
-    if not self.native_control then
-        self:ChangeVelocity(Def.ChangeVelocityType.Both, self.direction_velocity, self.angular_velocity)
-        return
-    end
-    local vel = self.direction_velocity
-    local ang = self.angular_velocity
-    local held = self.native_hold
-    -- native_last_mode matters: another mode (1/3) may have been pushed since, and the DLL holds
-    -- whatever mode it was last told, so "target unchanged" alone is not enough to skip the push.
-    if self.native_hold_pushed and self.native_last_mode == 2
-            and vec3_equal(held.v, vel, VELOCITY_EPS)
-            and vec3_equal(held.a, ang, ANGULAR_EPS) then
-        return
-    end
-    self:PushNativeControl(2, vel, ang, 0)
-    self.native_hold_push_count = (self.native_hold_push_count or 0) + 1
-    held.v.x, held.v.y, held.v.z = vel.x, vel.y, vel.z
-    held.a.x, held.a.y, held.a.z = ang.x, ang.y, ang.z
-    self.native_hold_pushed = true
-end
-
 --- Stop whatever the hook was applying, once. Shared by every path that leaves a native mode.
 function Engine:PushNativeOff()
     if not self.native_control then
@@ -643,14 +759,8 @@ function Engine:SetMenuBlocked(blocked)
         return
     end
     self.is_menu_blocked = blocked
-    if blocked then
-        self:PushNativeOff()
-        return
-    end
-    -- Resuming: force a re-push of whatever the current control type needs. The mode 3 latch is
-    -- cleared and the velocity hold compares against a mode that is no longer active, so both push.
-    self.native_mode3_pushed = false
-    self.native_hold_pushed = false
+    -- ApplyControlMode pushes mode 0 while blocked and re-asserts the target when the menu clears.
+    self:ApplyControlMode()
 end
 
 --- Change velocity
@@ -682,7 +792,12 @@ end
 --- Set direction velocity
 ---@param direction_velocity Vector3
 function Engine:SetDirectionVelocity(direction_velocity)
+    -- Only a moved target is worth a push; Navigation re-sends the same value every tick.
+    if vec3_equal(self.direction_velocity, direction_velocity, VELOCITY_EPS) then
+        return
+    end
     self.direction_velocity = direction_velocity
+    self:PushFlightTarget()
 end
 
 --- Get angular velocity
@@ -694,7 +809,11 @@ end
 --- Set angular velocity
 ---@param angular_velocity Vector3
 function Engine:SetAngularVelocity(angular_velocity)
+    if vec3_equal(self.angular_velocity, angular_velocity, ANGULAR_EPS) then
+        return
+    end
     self.angular_velocity = angular_velocity
+    self:PushFlightTarget()
 end
 
 --- Calculate linearly velocity.
@@ -869,8 +988,19 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
     y = y - horizontal_air_resistance_const * vel_vec.y
     z = z - vertical_air_resistance_const * vel_vec.z
 
+    -- Push only if the target actually moved: the control loop re-runs Run every frame in Waiting,
+    -- and a settled hover must cost nothing.
+    local changed = math.abs(x - self.direction_velocity.x) > VELOCITY_EPS
+            or math.abs(y - self.direction_velocity.y) > VELOCITY_EPS
+            or math.abs(z - self.direction_velocity.z) > VELOCITY_EPS
+            or math.abs(roll - self.angular_velocity.x) > ANGULAR_EPS
+            or math.abs(pitch - self.angular_velocity.y) > ANGULAR_EPS
+            or math.abs(yaw - self.angular_velocity.z) > ANGULAR_EPS
     self.direction_velocity = Vector3.new(x, y, z)
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
+    if changed then
+        self:PushFlightTarget()
+    end
     return true
 end
 
@@ -937,7 +1067,13 @@ function Engine:OnlyAngularRun(roll, pitch, yaw)
     pitch = pitch + d_pitch
     yaw = yaw + d_yaw
 
+    local changed = math.abs(roll - self.angular_velocity.x) > ANGULAR_EPS
+            or math.abs(pitch - self.angular_velocity.y) > ANGULAR_EPS
+            or math.abs(yaw - self.angular_velocity.z) > ANGULAR_EPS
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
+    if changed then
+        self:PushFlightTarget()
+    end
     return true
 end
 
@@ -1228,7 +1364,7 @@ end
 function Engine:SetFluctuationVelocityParams(step_width_per_second, target_velocity)
     self.step_width_per_second = step_width_per_second
     self.target_velocity = target_velocity
-    self.engine_control_type = Def.EngineControlType.FluctuationVelocity
+    self:SetControlType(Def.EngineControlType.FluctuationVelocity)
 end
 
 --- Fluctuation velocity
@@ -1237,7 +1373,7 @@ function Engine:FluctuationVelocity(delta)
     -- Check if player is in vehicle - if so, switch to AddForce mode
     if self.av_obj.core_obj.event_obj:IsInVehicle() and not self.av_obj.is_auto_pilot then
         self.log_obj:Record(LogLevel.Info, "Player in vehicle detected - switching from FluctuationVelocity to AddForce")
-        self.engine_control_type = Def.EngineControlType.AddForce
+        self:SetControlType(Def.EngineControlType.AddForce)
         return
     end
 
@@ -1248,21 +1384,21 @@ function Engine:FluctuationVelocity(delta)
     end
     if self.step_width_per_second == 0 then
         self.log_obj:Record(LogLevel.Trace, "step_width_per_second is 0")
-        self.engine_control_type = Def.EngineControlType.ChangeVelocity
+        self:SetControlType(Def.EngineControlType.ChangeVelocity)
         return
     elseif self.step_width_per_second > 0 and velocity > self.target_velocity then
         self.log_obj:Record(LogLevel.Trace, "velocity > target_velocity")
         self.direction_velocity.x = self.direction_velocity.x / velocity * self.target_velocity
         self.direction_velocity.y = self.direction_velocity.y / velocity * self.target_velocity
         self.direction_velocity.z = self.direction_velocity.z / velocity * self.target_velocity
-        self.engine_control_type = Def.EngineControlType.ChangeVelocity
+        self:SetControlType(Def.EngineControlType.ChangeVelocity)
         return
     elseif self.step_width_per_second < 0 and velocity < self.target_velocity then
         self.log_obj:Record(LogLevel.Trace, "velocity < target_velocity")
         self.direction_velocity.x = self.direction_velocity.x / velocity * self.target_velocity
         self.direction_velocity.y = self.direction_velocity.y / velocity * self.target_velocity
         self.direction_velocity.z = self.direction_velocity.z / velocity * self.target_velocity
-        self.engine_control_type = Def.EngineControlType.ChangeVelocity
+        self:SetControlType(Def.EngineControlType.ChangeVelocity)
         return
     end
     self.direction_velocity.x = self.direction_velocity.x / velocity * (velocity + self.step_width_per_second * delta)
@@ -1270,7 +1406,7 @@ function Engine:FluctuationVelocity(delta)
     self.direction_velocity.z = self.direction_velocity.z / velocity * (velocity + self.step_width_per_second * delta)
     -- B-4: same hold as ChangeVelocity — the hook re-applies it every physics tick (measured live for
     -- an unboarded vehicle), so the descent only pushes while the ramped target actually moves.
-    self:ApplyVelocityHold()
+    self:PushFlightTarget()
 end
 
 return Engine
