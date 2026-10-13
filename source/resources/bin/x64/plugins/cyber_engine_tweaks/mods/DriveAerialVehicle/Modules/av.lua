@@ -877,71 +877,27 @@ function AV:BlockOperation(on)
 end
 
 --- Execute action commands.
+--- The DLL does all the physics: manual AddForce flight runs the native flight model from the held
+--- command edges, the unboarded hover runs in the native regulator, and the autopilot drives the
+--- engine itself through Navigation. Nothing is computed here.
 ---@param action_command_lists table
 function AV:Operate(action_command_lists)
-	-- Native flight model: hand the raw command list to the DLL and skip all Lua math.
-	-- Only for manual AddForce flight; Waiting (Idle) and autopilot keep the Lua path.
-	if self.engine_obj.native_flight_model and not self.is_auto_pilot
-			and self.engine_obj:GetControlType() == Def.EngineControlType.AddForce then
-		local has_invalid = false
-		for _, action_command_list in ipairs(action_command_lists) do
-			if action_command_list[1] >= Def.ActionList.Enter then
-				self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
-				has_invalid = true
-			end
-		end
-		if has_invalid then
-			return false
-		end
-		self.engine_obj:PushNativeCommands(action_command_lists)
-		self:MoveThruster(action_command_lists)
-		self:ControlSound(action_command_lists)
-		return true
-	end
-	if self.engine_obj.native_idle_active then
-		-- The DLL physics hook runs the hover regulator, so there is nothing to compute here.
-		for _, action_command_list in ipairs(action_command_lists) do
-			if action_command_list[1] >= Def.ActionList.Enter then
-				self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
-				return false
-			end
-		end
-		self:MoveThruster(action_command_lists)
-		self:ControlSound(action_command_lists)
-		return true
-	end
-	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
-	-- self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_command_lists)
 	for _, action_command_list in ipairs(action_command_lists) do
 		if action_command_list[1] >= Def.ActionList.Enter then
 			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
 			return false
 		end
-		if not self.is_auto_pilot then
-			local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateAddVelocity(action_command_list)
-			x = x * action_command_list[2]
-			y = y * action_command_list[2]
-			z = z * action_command_list[2]
-			roll = roll * action_command_list[2]
-			pitch = pitch * action_command_list[2]
-			yaw = yaw * action_command_list[2]
-			x_total = x_total + x
-			y_total = y_total + y
-			z_total = z_total + z
-			roll_total = roll_total + roll
-			pitch_total = pitch_total + pitch
-			yaw_total = yaw_total + yaw
-		end
 	end
-
-	if not self.is_auto_pilot then
-		if not self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total) then
-			self.log_obj:Record(LogLevel.Warning, "Failed to run engine in Operate")
-		end
-		self:MoveThruster(action_command_lists)
-		self:ControlSound(action_command_lists)
+	if self.is_auto_pilot then
+		return true
 	end
-
+	if self.engine_obj:GetControlType() == Def.EngineControlType.AddForce then
+		-- Re-assert mode 3 and pick up a pending integrator reset; the held commands live in the DLL.
+		self.engine_obj:PushNativeCommands()
+	end
+	-- Everything else (idle hover, ramps) is already held by the DLL: nothing to compute here.
+	self:MoveThruster(action_command_lists)
+	self:ControlSound(action_command_lists)
 	return true
 end
 

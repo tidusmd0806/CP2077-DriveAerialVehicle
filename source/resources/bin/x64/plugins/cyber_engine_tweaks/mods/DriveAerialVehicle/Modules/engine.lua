@@ -16,8 +16,8 @@ local VELOCITY_EPS = 0.01
 local ANGULAR_EPS = 0.01
 
 --- Debug-only display values. The native paths apply nothing in Lua, so every "nothing applied"
---- branch points at one shared zero instead of allocating two vectors per frame. Nobody writes
---- components of force/torque (SetForce/SetTorque replace the reference), so sharing is safe.
+--- branch points at one shared zero instead of allocating two vectors per frame. PushNativeControl
+--- copies into its own scratch, so the shared zero is never written and sharing is safe.
 --- Built in New rather than at module scope: Vector3 is a runtime global of the CET sandbox.
 
 --- Constructor
@@ -51,8 +51,6 @@ function Engine:New(av_obj)
     obj.current_speed = 0
     obj.heli_lift_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
     obj.rpm_count = 0
-    obj.force = Vector3.new(0, 0, 0)
-    obj.torque = Vector3.new(0, 0, 0)
     obj.zero3 = Vector3.new(0, 0, 0)
     obj.direction_velocity = Vector3.new(0, 0, 0)
     obj.angular_velocity = Vector3.new(0, 0, 0)
@@ -77,34 +75,12 @@ function Engine:Init(entity_id)
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
     self.mass = self.fly_av_system:GetMass()
-    -- Gated on DAV.is_enable_native_flight; pcall because a missing method on an old DLL may throw.
-    local ok, fn = pcall(function() return self.fly_av_system.SetFlightControl end)
-    self.native_control = DAV.is_enable_native_flight and ok and fn ~= nil
-    -- Full native flight model: the DLL computes Engine:Run's math per physics tick.
-    local ok2, fn2 = pcall(function() return self.fly_av_system.SetFlightModel end)
-    self.native_flight_model = DAV.is_enable_native_flight and self.native_control and ok2 and fn2 ~= nil
-    -- Watchdog source: the DLL counts physics ticks it applies for this vehicle.
-    local ok3, fn3 = pcall(function() return self.fly_av_system.GetNativeTickCount end)
-    self.native_tick_readable = ok3 and fn3 ~= nil
-    -- Native idle hover (mode 4): the DLL runs the unboarded hover regulator on the physics tick.
-    -- A DLL without the native keeps the Lua loop.
-    local ok4, fn4 = pcall(function() return self.fly_av_system.SetIdleHoverParams end)
-    self.native_idle_ok = (DAV.is_enable_native_flight and self.native_control and ok4 and fn4 ~= nil)
-        and true or false
+    -- The DLL is a hard requirement: flight control, the flight model, the idle hover and the ground
+    -- query all run inside it, so there is no capability probing and no Lua driving path.
     self.native_idle_active = false
-    -- The DLL publishes the ground reference it learns on its own game-thread update.
-    local ok5, fn5 = pcall(function() return self.fly_av_system.GetGroundInfo end)
-    self.native_ground_ok = (DAV.is_enable_native_flight and self.native_control and ok5 and fn5 ~= nil)
-        and true or false
-    -- The DLL can run the ground query itself, but the search box and the collision groups are user
-    -- settings, so they have to be handed over. Absent native = Lua keeps raycasting as before.
-    local ok6, fn6 = pcall(function() return self.fly_av_system.SetGroundQuery end)
-    self.native_ground_query_ok = (self.native_ground_ok and ok6 and fn6 ~= nil) and true or false
-    self.native_tick_probe_interval = 0.5
-    self.native_tick_stall_limit = 3
-    self.native_tick_probe = 0
-    self.native_tick_stall = 0
-    self.native_tick_last = nil
+    -- Set once the DLL physics hook has ticked for this body. Until then Heartbeat keeps forcing
+    -- physics on: an unsimulated body can never make the hook fire.
+    self.native_hook_alive = false
     -- Velocity hold (mode 2) bookkeeping: what the DLL is currently holding for us.
     self.native_hold_pushed = false
     self.native_hold_push_count = 0
@@ -126,103 +102,18 @@ function Engine:Init(entity_id)
     self.hook_probe_next = 0
     self.hook_probe_last = nil
     self.hook_probe_max_hz = 0
-    self.log_obj:Record(LogLevel.Info, string.format("native_control=%s native_flight_model=%s mass=%.1f physics_state=%s",
-        tostring(self.native_control), tostring(self.native_flight_model), self.mass, tostring(self.fly_av_system:GetPhysicsState())))
-    if self.native_flight_model then
-        self:PushNativeParams()
-    end
-    if self.native_control then
-        -- The shared native buffer outlives a vehicle: a stale mode 1/2/3 would grab the new body with
-        -- the old target, so every fresh engine starts from "native applies nothing".
-        self:PushNativeControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
-        self.native_hold_pushed = false
-        self.native_mode3_pushed = false
-    end
+    self.log_obj:Record(LogLevel.Info, string.format("mass=%.1f physics_state=%s",
+        self.mass, tostring(self.fly_av_system:GetPhysicsState())))
+    self:PushNativeParams()
+    -- The shared native buffer outlives a vehicle: a stale mode 1/2/3 would grab the new body with
+    -- the old target, so every fresh engine starts from "native applies nothing".
+    self:PushNativeControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
+    self.native_hold_pushed = false
+    self.native_mode3_pushed = false
     self.is_finished_init = true
     -- Re-apply on every spawn: the Engine object outlives the vehicle, so across a respawn the control
     -- type often does not change and SetControlType would not fire.
     self:ApplyControlMode()
-end
-
---- Give up on the native path and hand control back to the Lua flight model.
----@param reason string
-function Engine:DisableNative(reason)
-    if not self.native_control and not self.native_flight_model then
-        return
-    end
-    self.log_obj:Record(LogLevel.Error, "native flight disabled, falling back to Lua path: " .. reason)
-    -- Log:Record only reaches the CET log with PrintDebugMode on; this has to be visible always, because
-    -- silently losing the native path is the single most confusing failure mode the mod can have.
-    self:ProbeLog("NATIVE FLIGHT DISABLED -> Lua fallback: " .. reason)
-    if self.native_control then
-        local ok = pcall(function()
-            self.fly_av_system:SetFlightControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
-        end)
-        if not ok then
-            self.log_obj:Record(LogLevel.Error, "failed to push native stop before fallback")
-        end
-    end
-    self.native_control = false
-    self.native_flight_model = false
-    self.native_mode3_pushed = false
-    self.native_hold_pushed = false
-    self.native_last_mode = 0
-    -- The Lua flight model needs live feedback again, so put the control mode back on the Lua side.
-    self:ApplyControlMode()
-end
-
---- Fall back to the Lua path when the DLL physics-tick counter stops advancing.
----@param delta number
-function Engine:WatchNativeTick(delta)
-    if not self.native_tick_readable then
-        return
-    end
-    local control_type = self.engine_control_type
-    local holds_velocity = control_type == Def.EngineControlType.ChangeVelocity
-            or control_type == Def.EngineControlType.FluctuationVelocity
-    if control_type ~= Def.EngineControlType.AddForce
-            and not (holds_velocity and self.native_hold_pushed) then
-        -- Nothing is being driven through the hook; the watchdog has nothing to watch.
-        self.native_tick_probe = 0
-        self.native_tick_stall = 0
-        self.native_tick_last = nil
-        return
-    end
-    if self.mass <= 0 then
-        -- Entity not resolved yet: wait for the lazy retry instead of tearing the native path down.
-        self.native_tick_probe = 0
-        self.native_tick_stall = 0
-        self.native_tick_last = nil
-        return
-    end
-
-    self.native_tick_probe = self.native_tick_probe + delta
-    if self.native_tick_probe < self.native_tick_probe_interval then
-        return
-    end
-    self.native_tick_probe = 0
-
-    local ok, ticks = pcall(function() return self.fly_av_system:GetNativeTickCount() end)
-    if not ok then
-        self.native_tick_readable = false
-        return
-    end
-    if self.native_tick_last == nil or ticks > self.native_tick_last then
-        self.native_tick_stall = 0
-    else
-        self.native_tick_stall = self.native_tick_stall + 1
-        if self.native_tick_stall == 1 then
-            self.log_obj:Record(LogLevel.Warning, string.format(
-                "native physics tick stalled at %.0f (control_type=%s); fallback in %.1fs",
-                ticks, tostring(control_type), self.native_tick_probe_interval * self.native_tick_stall_limit))
-        end
-    end
-    self.native_tick_last = ticks
-
-    if self.native_tick_stall >= self.native_tick_stall_limit then
-        self:DisableNative(string.format("no physics tick for %.1fs (tick=%.0f)",
-            self.native_tick_probe_interval * self.native_tick_stall_limit, ticks))
-    end
 end
 
 --- Read one native diagnostic counter; nil when the DLL does not expose it.
@@ -254,12 +145,12 @@ end
 --- The hook is a per-vehicle member function (this = one WheeledPhysics), so "the game's physics runs"
 --- and "the hook fires for our body" are different claims. The DLL counts every hit for our vehicle
 --- regardless of who owns the physics, so a counter that stands still outside AddForce proves the game
---- never steps an unmanned vehicle through ApplyAllResistances — which is what keeps that path in Lua.
+--- never steps an unmanned vehicle through ApplyAllResistances.
 --- One episode per control-type change: 6s unboarded, 1s boarded (A/B reference in the same log),
 --- capped per session so the log stays small.
 ---@param delta number
 function Engine:ProbeHookTickRate(delta)
-    if not self.hook_probe_enabled or not self.native_tick_readable then
+    if not self.hook_probe_enabled then
         return
     end
     local control_type = self.engine_control_type
@@ -325,9 +216,9 @@ function Engine:ProbeHookTickRate(delta)
     self.hook_probe_target_pushes_last = self.target_push_count or 0
     local gz, az, og, gvalid = self:ReadGroundInfo()
     self:ProbeLog(string.format(
-        "hook tick (%s control_type=%s): total=%.0f effective=%.1fHz hold_pushes=%d/s target_pushes=%d/s loop=%s native=%s fm=%s mode=%s auto=%s mass=%.1f physics_state=%s ground_z=%.1f av_z=%.1f h=%.1f on_ground=%s valid=%s",
+        "hook tick (%s control_type=%s): total=%.0f effective=%.1fHz hold_pushes=%d/s target_pushes=%d/s loop=%s mode=%s auto=%s mass=%.1f physics_state=%s ground_z=%.1f av_z=%.1f h=%.1f on_ground=%s valid=%s",
         boarded and "boarded" or "unboarded", tostring(control_type), ticks, hz, dpush, tp,
-        tostring(self.loop_timer ~= nil), tostring(self.native_control), tostring(self.native_flight_model),
+        tostring(self.loop_timer ~= nil),
         tostring(self.native_last_mode), tostring(self.av_obj.is_auto_pilot),
         self:ReadNativeCounter("GetMass") or -1, tostring(self:GetPhysicsState()),
         gz, az, az - gz, tostring(og), tostring(gvalid)))
@@ -339,10 +230,10 @@ function Engine:ProbeHookTickRate(delta)
         return
     end
     if self.hook_probe_max_hz <= 0.5 then
-        self:ProbeLog("unboarded hook verdict: hook does NOT fire unboarded -> the Lua path must keep writing physics")
+        self:ProbeLog("unboarded hook verdict: hook does NOT fire unboarded")
     else
         self:ProbeLog(string.format(
-            "unboarded hook verdict: hook DOES fire unboarded (%.1fHz) -> mode 2 can move into the DLL",
+            "unboarded hook verdict: hook DOES fire unboarded (%.1fHz)",
             self.hook_probe_max_hz))
     end
 end
@@ -387,7 +278,7 @@ end
 --- Hand the unboarded hover to the DLL (mode 4). Returns whether the DLL really holds it, so the
 --- caller knows whether it still has to push a mode 2 target of its own.
 function Engine:SetNativeIdle(on)
-    local effective = (on == true and self.native_idle_ok and DAV.is_enable_native_idle
+    local effective = (on == true
         and self.is_finished_init and not self.is_menu_blocked
         and self.av_obj ~= nil and self.av_obj.entity_id ~= nil)
         and true or false
@@ -409,12 +300,8 @@ end
 --- Read the ground reference the DLL publishes from its game-thread update.
 ---@return number ground_z, number av_z, boolean on_ground, boolean valid
 function Engine:ReadGroundInfo()
-    if not self.native_ground_ok then
-        return 0, 0, false, false
-    end
     local ok, info = pcall(function() return self.fly_av_system:GetGroundInfo() end)
     if not ok or info == nil then
-        self.native_ground_ok = false
         return 0, 0, false, false
     end
     return info.x, info.y, (info.z > 0.5), (info.w > 0.5)
@@ -425,9 +312,6 @@ end
 --- from contact, so a descent onto fresh terrain would be judged against the old ground.
 ---@return number|nil
 function Engine:GetNativeHeight()
-    if not self.native_ground_ok then
-        return nil
-    end
     local ground_z, av_z, _, valid = self:ReadGroundInfo()
     if not valid then
         return nil
@@ -436,22 +320,19 @@ function Engine:GetNativeHeight()
 end
 
 --- Hand the DLL what its own ground query needs: the search box and the collision groups.
+--- Called from AV:Init, which runs before Engine:Init creates the fly_av_system handle,
+--- so a missing handle means "nothing to hand over yet" and is a no-op.
 function Engine:PushGroundQuery(offset, distance, mask1, mask2)
-    if not self.native_ground_query_ok then
+    if self.fly_av_system == nil then
         return false
     end
-    local ok = pcall(function()
-        self.fly_av_system:SetGroundQuery(offset, distance, mask1 or 0, mask2 or 0)
-    end)
-    if not ok then
-        self.native_ground_query_ok = false
-    end
-    return ok and true or false
+    self.fly_av_system:SetGroundQuery(offset, distance, mask1 or 0, mask2 or 0)
+    return true
 end
 
 --- Hand the DLL a ground reference once, before the first contact teaches it itself.
 function Engine:SeedGroundReference()
-    if not self.native_ground_ok or self.av_obj == nil or self.av_obj.entity_id == nil then
+    if self.av_obj == nil or self.av_obj.entity_id == nil then
         return false
     end
     local pos = self.av_obj:GetPosition()
@@ -462,33 +343,14 @@ function Engine:SeedGroundReference()
     return true
 end
 
---- Push the manual-flight command list; the DLL physics hook runs the flight model per tick.
----@param action_command_lists table list of {action, value}
-function Engine:PushNativeCommands(action_command_lists)
-    -- Commands now arrive as event edges through Core:PushNative, so the per-tick list is no longer
-    -- sent. A DLL without that native keeps the legacy path, otherwise flight would silently die.
-    if self.native_cmd_ok == nil then
-        local ok, fn = pcall(function()
-            return self.fly_av_system ~= nil and self.fly_av_system.SetNativeCommand ~= nil
-        end)
-        self.native_cmd_ok = (ok and fn == true) and true or false
-    end
-    local n = 0
-    local a = {0, 0, 0, 0, 0, 0}
-    local v = {1, 1, 1, 1, 1, 1}
-    if self.native_cmd_ok ~= true then
-        n = #action_command_lists
-        if n > 6 then n = 6 end
-        for i = 1, n do
-            local c = action_command_lists[i]
-            a[i] = c[1]
-            v[i] = c[2] or 1
-        end
-    end
+--- Re-assert the native flight model (mode 3); the DLL physics hook runs it per tick.
+--- Commands arrive as event edges through Core:PushNative and the DLL holds them, so nothing is
+--- packed here - this call only re-asserts mode 3 and picks up a pending integrator reset.
+function Engine:PushNativeCommands()
     local reset = self.native_reset_pending and 1 or 0
     self.native_reset_pending = false
     -- The DLL derives attitude and axes from the entity quaternion itself (see the axis assignment in
-    -- FmStep), so neither is pushed any more. W = 0 means "use your own extraction".
+    -- FmStep), so neither is pushed. W = 0 means "use your own extraction".
     local att = Vector4.new(0, 0, 0, 0)
     -- Entity world quaternion (real w in W); the DLL validates it by norm.
     local q = self.av_obj:GetQuaternion()
@@ -496,19 +358,17 @@ function Engine:PushNativeCommands(action_command_lists)
     if q ~= nil then
         cq = Vector4.new(q.i, q.j, q.k, q.r)
     end
-    local fwd, right, up = Vector4.new(0, 0, 0, 0), Vector4.new(0, 0, 0, 0), Vector4.new(0, 0, 0, 0)
-    local ax_ok = 0
     self.fly_av_system:SetFlightModel(
-        Vector4.new(self.flight_mode, self:HasGravity() and 1 or 0, DAV.dt_scale or 1, n),
-        Vector4.new(reset, a[1], a[2], a[3]),
-        Vector4.new(a[4], a[5], a[6], v[1]),
-        Vector4.new(v[2], v[3], v[4], v[5]),
-        Vector4.new(v[6], 0, 0, 0),
+        Vector4.new(self.flight_mode, self:HasGravity() and 1 or 0, DAV.dt_scale or 1, 0),
+        Vector4.new(reset, 0, 0, 0),
+        Vector4.new(0, 0, 0, 1),
+        Vector4.new(1, 1, 1, 1),
+        Vector4.new(1, 0, 0, 0),
         att,
         cq,
-        Vector4.new(fwd.x, fwd.y, fwd.z, ax_ok),
-        Vector4.new(right.x, right.y, right.z, 0),
-        Vector4.new(up.x, up.y, up.z, 0))
+        Vector4.new(0, 0, 0, 0),
+        Vector4.new(0, 0, 0, 0),
+        Vector4.new(0, 0, 0, 0))
 end
 
 --- Get Control Type
@@ -557,14 +417,11 @@ function Engine:ApplyControlMode()
     local control_type = self.engine_control_type
     -- Every mode decision below re-derives who owns the hover. The flag must not survive into a
     -- control type that does not run it (AddForce after boarding, FluctuationVelocity ramps), or
-    -- AV:Operate would keep skipping the Lua math and the player's input would go nowhere.
+    -- AV:Operate would keep swallowing manual input while the regulator still holds the vehicle.
     self.native_idle_active = false
-    if control_type == Def.EngineControlType.AddForce and self.native_flight_model
-            and not self.av_obj.is_auto_pilot then
+    if control_type == Def.EngineControlType.AddForce and not self.av_obj.is_auto_pilot then
         -- The DLL physics hook runs the whole flight model from the pushed commands.
         self:StopLoop()
-        self.force = self.zero3
-        self.torque = self.zero3
         if not self.native_mode3_pushed then
             self.log_obj:Record(LogLevel.Info, "mode3 push (native flight model active)")
             self:PushNativeControl(3, self.zero3, self.zero3, self.torque_gain)
@@ -577,14 +434,9 @@ function Engine:ApplyControlMode()
         self:PushNativeOff()
     end
     if control_type == Def.EngineControlType.ChangeVelocity then
+        -- The hook re-applies the target every physics tick, so nothing on the Lua side needs a clock.
         self.native_hold_pushed = false
-        -- With the hook installed it re-applies the target every physics tick; without it the Lua
-        -- side is the only thing that can keep the vehicle there.
-        if self.native_control then
-            self:StopLoop()
-        else
-            self:StartLoop()
-        end
+        self:StopLoop()
         -- ChangeVelocity with no autopilot means the unboarded hover: give it to the DLL. The
         -- autopilot also drives mode 2 and must keep its own targets, so it is excluded here.
         if self:SetNativeIdle(not self.av_obj.is_auto_pilot) then
@@ -595,14 +447,9 @@ function Engine:ApplyControlMode()
         -- The ramp integrates over time, so it is the one thing that always needs a clock.
         self:StartLoop()
     elseif control_type == Def.EngineControlType.AddForce then
+        -- Autopilot AddForce: mode 1 closes the torque error inside the DLL.
         self.native_hold_pushed = false
-        if self.native_control then
-            self:StopLoop()
-        else
-            -- The Lua flight model is a closed loop: it needs live feedback every tick, not just on
-            -- a target change.
-            self:StartLoop()
-        end
+        self:StopLoop()
         self:PushFlightTarget()
     else
         -- None (nothing has asked for control yet) and Blocking both mean "the DLL applies nothing".
@@ -630,27 +477,19 @@ function Engine:PushFlightTarget()
         self.target_push_count = (self.target_push_count or 0) + 1
         self:PushVelocityHold()
     elseif control_type == Def.EngineControlType.AddForce then
-        if self.native_flight_model and not self.av_obj.is_auto_pilot then
+        if not self.av_obj.is_auto_pilot then
             -- The DLL derives force and torque from the pushed commands and the live body.
             return
         end
-        if self.native_control then
-            self:PushForceTarget()
-        else
-            self:ApplyLuaFlightModel()
-        end
+        self:PushForceTarget()
     end
 end
 
 --- Hold the vehicle at the current velocity target (ChangeVelocity semantics).
 --- The physics hook re-applies mode 2 every physics tick, so a target that has not moved needs no
---- push at all. Falls back to the direct write on a DLL without SetFlightControl.
+--- push at all.
 ---@return boolean pushed
 function Engine:PushVelocityHold()
-    if not self.native_control then
-        self:ChangeVelocity(Def.ChangeVelocityType.Both, self.direction_velocity, self.angular_velocity)
-        return true
-    end
     local vel = self.direction_velocity
     local ang = self.angular_velocity
     local held = self.native_hold
@@ -669,8 +508,8 @@ function Engine:PushVelocityHold()
     return true
 end
 
---- AddForce semantics without the native flight model: hand the DLL the velocity target and let it
---- compute the torque error from the live angular velocity every physics tick.
+--- Autopilot AddForce: hand the DLL the velocity target and let it compute the torque error from
+--- the live angular velocity every physics tick.
 function Engine:PushForceTarget()
     local vel = self.direction_velocity
     local ang = self.angular_velocity
@@ -683,21 +522,6 @@ function Engine:PushForceTarget()
     held.v.x, held.v.y, held.v.z = vel.x, vel.y, vel.z
     held.a.x, held.a.y, held.a.z = ang.x, ang.y, ang.z
     self.native_hold_pushed = true
-end
-
---- The pre-native flight model, kept for a DLL without SetFlightControl and for the watchdog
---- fallback. It needs live feedback, so the control loop drives it through Engine:Run.
-function Engine:ApplyLuaFlightModel()
-    local target = self.direction_velocity
-    local ang = self.angular_velocity
-    local mass = self.mass
-    local _, actual = self:GetDirectionAndAngularVelocity()
-    self.force = Vector3.new(target.x * mass, target.y * mass, target.z * mass)
-    self.torque = Vector3.new(
-        (ang.x - actual.x) * self.torque_gain,
-        (ang.y - actual.y) * self.torque_gain,
-        (ang.z - actual.z) * self.torque_gain)
-    self:AddForce(self.force, self.torque)
 end
 
 --- The one clock the Engine still owns: the descent/ascent ramp integrates over time.
@@ -726,14 +550,8 @@ function Engine:LoopTick(delta)
         self:StopLoop()
         return
     end
-    local control_type = self.engine_control_type
-    if control_type == Def.EngineControlType.FluctuationVelocity then
+    if self.engine_control_type == Def.EngineControlType.FluctuationVelocity then
         self:FluctuationVelocity(delta)
-        return
-    end
-    if not self.native_control then
-        -- No DLL hook to re-apply anything, so the Lua path has to keep writing the target.
-        self:PushFlightTarget()
         return
     end
     self:StopLoop()
@@ -751,23 +569,18 @@ function Engine:SetAutoPilot(on)
     self:ApplyControlMode()
 end
 
---- Slow safety net, driven by Core: the physics body can resolve late and the hook can stop.
+--- Slow safety net, driven by Core: the physics body can resolve late.
 ---@param delta number
 function Engine:Heartbeat(delta)
     if not self.is_finished_init or self.av_obj == nil or self.av_obj.entity_id == nil then
         return
     end
     if self.is_menu_blocked then
-        -- Physics is frozen while the menu owns the screen, so the hook legitimately stops ticking.
-        -- The old per-frame Update returned here too; without this the watchdog tears the native path
-        -- down 1.5s after any menu, popup, or photo mode opens.
-        self.native_tick_probe = 0
-        self.native_tick_stall = 0
-        self.native_tick_last = nil
+        -- Physics is frozen while the menu owns the screen; nothing to resolve or force while it is.
         return
     end
     -- While unresolved GetMass() is 0 and every physics call is a silent no-op.
-    if self.native_control and self.mass <= 0 then
+    if self.mass <= 0 then
         local mass = self.fly_av_system:GetMass()
         if mass > 0 then
             self.mass = mass
@@ -777,17 +590,16 @@ function Engine:Heartbeat(delta)
     -- -1 means "vehicle not resolved yet"; ForceEnablePhysics is what gets a fresh AV simulated.
     -- This has to stay on the game thread: the physics hook only fires while the body is simulated,
     -- and calling ForceEnablePhysics from inside that body's own update reenters the physics engine.
-    if (not self.native_control or self.native_tick_last == nil) and self:GetPhysicsState() ~= 0 then
+    -- Once the hook has ticked for this body the physics is provably running, so stop forcing.
+    if not self.native_hook_alive then
+        local ticks = self:ReadNativeCounter("GetNativeTickCount")
+        if ticks ~= nil and ticks > 0 then
+            self.native_hook_alive = true
+        end
+    end
+    if not self.native_hook_alive and self:GetPhysicsState() ~= 0 then
         self:UnsetPhysicsState()
         self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
-    end
-    if self.native_idle_active and not self.native_ground_ok then
-        -- Contact teaches the ground on the game thread, so this fallback only runs on a DLL that
-        -- has no GetGroundInfo at all.
-        self:PushIdleHoverParams()
-    end
-    if self.native_control then
-        self:WatchNativeTick(delta)
     end
     self:ProbeHookTickRate(delta)
 end
@@ -869,28 +681,8 @@ function Engine:GetVelocity()
     return self.fly_av_system:GetVelocity()
 end
 
---- Add force
----@param force Vector3
----@param torque Vector3
-function Engine:AddForce(force, torque)
-    self.fly_av_system:AddForce(force, torque)
-end
-
---- Add velocity
----@param delta number
----@param direction_velocity Vector3
----@param angular_velocity Vector3
-function Engine:AddVelocity(delta, direction_velocity, angular_velocity)
-    local delta_direction_velocity = Vector3.new(direction_velocity.x * delta, direction_velocity.y * delta, direction_velocity.z * delta)
-    local delta_angular_velocity = Vector3.new(angular_velocity.x * delta, angular_velocity.y * delta, angular_velocity.z * delta)
-    self.fly_av_system:AddVelocity(delta_direction_velocity, delta_angular_velocity)
-end
-
 --- Stop whatever the hook was applying, once. Shared by every path that leaves a native mode.
 function Engine:PushNativeOff()
-    if not self.native_control then
-        return
-    end
     if not (self.native_mode3_pushed or self.native_hold_pushed) then
         return
     end
@@ -910,26 +702,6 @@ function Engine:SetMenuBlocked(blocked)
     self.is_menu_blocked = blocked
     -- ApplyControlMode pushes mode 0 while blocked and re-asserts the target when the menu clears.
     self:ApplyControlMode()
-end
-
---- Change velocity
----@param type integer
----@param direction_velocity Vector3
----@param angular_velocity Vector3
-function Engine:ChangeVelocity(type, direction_velocity, angular_velocity)
-    self.fly_av_system:ChangeVelocity(direction_velocity, angular_velocity, type)
-end
-
---- Set force
----@param force Vector3
-function Engine:SetForce(force)
-    self.force = force
-end
-
---- Set torque
----@param torque Vector3
-function Engine:SetTorque(torque)
-    self.torque = torque
 end
 
 --- Get direction velocity
@@ -1486,7 +1258,7 @@ end
 --- Get RPM count
 ---@return integer
 function Engine:GetRPMCount()
-    if self.native_flight_model and self.native_mode3_pushed then
+    if self.native_mode3_pushed then
         return math.floor(self.fly_av_system:GetNativeRPM() / self.rpm_count_scale)
     end
     return math.floor(self.rpm_count / self.rpm_count_scale)

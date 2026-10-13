@@ -24,12 +24,7 @@ DAV = {
     is_debug_mode = false,
     -- Developer switch; user-facing twin: user_setting_table.is_enable_obstacle_recording.
     is_debug_enable_obstacle_scan = false,
-    -- Developer switch: drive flight from the DLL physics hook instead of the Lua flight model.
-    is_enable_native_flight = true,
-    -- Unboarded hover runs inside the DLL physics hook. Needs a DLL with SetIdleHoverParams;
-    -- an older DLL falls back to the Lua loop automatically.
-    is_enable_native_idle = true,
-    -- Developer switch: log the DLL physics-hook rate per control type (boarded vs unboarded).
+    -- Diagnostic: log the DLL physics-hook rate per control type (boarded vs unboarded).
     is_debug_probe_hook_tick = false,
     -- Developer switch: print the autopilot yaw servo every ~20 loop ticks (error, command, rate).
     is_debug_probe_yaw = false,

@@ -1,6 +1,6 @@
 # 飛行制御のネイティブ化 — 現状まとめ
 
-最終更新: 2026-10-11（`2fe21ec` / DLL `08ffd73`）
+最終更新: 2026-10-13（Lua フォールバック削除）
 
 CET の Lua が毎フレームやっていた飛行制御の駆動を、RED4ext の DLL 側へ移した結果の
 現在地をまとめるもの。設計の背景と判断の理由は §1 と §7 に置いてあり、コード中のコメントは
@@ -32,7 +32,7 @@ CET の `onUpdate` / Cron から「毎フレーム物理を押しにいく」ル
 
 | mode | 内容 |
 |---|---|
-| 0 | off。Lua が駆動（ネイティブ無効時のフォールバック） |
+| 0 | off。DLL は何も適用しない（Lua 駆動のフォールバックは削除済み。DLL 必須） |
 | 1 | トルク／フォース加算（搭乗中の従来系） |
 | 2 | 速度・角速度を直接保持。**push-on-change**（値が変わったときだけ Lua が push、以降 DLL が保持） |
 | 3 | 手動飛行の flight model 全体を DLL が演算（`Engine:CalculateAddVelocity` / `Run` の移植） |
@@ -114,6 +114,20 @@ DLL がゲームスレッドで `av_z` / `on_ground` / `ground_z` を公開し�
 
 ---
 
+### 3.11 Lua フォールバックの削除（DLL 必須化）
+移植済みのものをフォールバックとして Lua に残す意味がなくなったので、以下を削除した:
+
+- `is_enable_native_flight` / `is_enable_native_idle`（開発者スイッチ）と capability pcall ゲート
+  （`native_control` / `native_flight_model` / `native_idle_ok` / `native_ground_ok` 等のフラグ群）
+- `Engine:DisableNative` と `Engine:WatchNativeTick`（ウォッチドッグ→Lua への切替機構そのもの）。
+  `Heartbeat` の物理強制は「フックが一度でも tick したか」（`GetNativeTickCount > 0`）でゲート
+- `Engine:ApplyLuaFlightModel` と `PushVelocityHold` の直接 `ChangeVelocity` 書き込み
+- `Engine:Run` / `CalculateAddVelocity` の**手動飛行フォールバックとしての使用**（`AV:Operate` のレガシー経路）。
+  関数自体はオートパイロット（navigation.lua）と `DespawnFromGround` が現役で使うので残す
+- `PushNativeCommands` のレガシーコマンド詰め（`native_cmd_ok`）、`Core:PushNative` の capability ゲート、
+  `LoopTick` の「DLL なしは毎ティック書き続ける」分岐、`AddForce`/`AddVelocity`/`ChangeVelocity`/`SetForce`/`SetTorque` の
+  Lua 駆動用ラッパー
+
 ## 4. DLL が新たに備えたもの
 
 | 機能 | 内容 |
@@ -154,7 +168,7 @@ DLL がゲームスレッドで `av_z` / `on_ground` / `ground_z` を公開し�
 4. Landing / TalkingOff / InVehicle の閾値はティック数依存で、ティックを飛ばすと止まる位置が変わる
 
 ### 6.2 `Engine:Heartbeat`（0.5 s の Cron）
-質量解決・物理有効化・ネイティブ停止ウォッチドッグの担当。
+質量解決・物理有効化の担当（ネイティブ停止ウォッチドッグはフォールバック削除とともに消えた）。
 
 ### 6.3 オートパイロットの障害物回避（次の対象）
 **32 本 × 20 Hz = 640 レイキャスト/秒**が現在最大の出費。

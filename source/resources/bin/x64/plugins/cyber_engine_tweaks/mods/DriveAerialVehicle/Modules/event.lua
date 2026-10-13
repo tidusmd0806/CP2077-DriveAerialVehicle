@@ -421,8 +421,6 @@ function Event:CheckLanded()
         end
         self.sound_obj:PlayGameSound("110_arrive_vehicle")
         self.sound_obj:ChangeSoundResource()
-        self.av_obj.engine_obj:SetForce(Vector3.new(0, 0, 0))
-        self.av_obj.engine_obj:SetTorque(Vector3.new(0, 0, 0))
         self:SetSituation(Def.Situation.Waiting)
     end
 end

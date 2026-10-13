@@ -1215,15 +1215,10 @@ function Core:PushNative(action, value)
     if eng == nil then
         return
     end
-    if eng.native_cmd_ok == nil then
-        local ok, fn = pcall(function() return eng.fly_av_system ~= nil and eng.fly_av_system.SetNativeCommand ~= nil end)
-        eng.native_cmd_ok = (ok and fn == true) and true or false
-    end
-    if eng.native_cmd_ok ~= true then
+    if eng.fly_av_system == nil then
         return
     end
-    local fly = eng.fly_av_system
-    pcall(fly.SetNativeCommand, fly, action, value)
+    eng.fly_av_system:SetNativeCommand(action, value)
 end
 
 --- Axis commands reach the queue (legacy path) and the DLL held state through one place.
@@ -1333,13 +1328,10 @@ function Core:GetActions(from_input)
     end
 
     if #move_actions == 0 then
-        -- The legacy path is a closed loop and still needs a pump. The native path does not: the DLL
-        -- holds the hover and manual flight runs on input edges, so an empty queue means nothing to do.
-        if self.av_obj ~= nil and self.av_obj.engine_obj ~= nil and self.av_obj.engine_obj.native_control then
-            self.is_draining_actions = false
-            return
-        end
-        table.insert(move_actions, {Def.ActionList.Nothing, 1})
+        -- The DLL holds the hover and manual flight runs on input edges, so an empty queue means
+        -- there is nothing to pump - no legacy Nothing-action tick.
+        self.is_draining_actions = false
+        return
     end
 
     self:OperateAerialVehicle(move_actions)
