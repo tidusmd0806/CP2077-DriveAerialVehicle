@@ -872,9 +872,10 @@ function AV:BlockOperation(on)
 	else
 		self.is_blocking_operation = false
 		if self:IsPlayerIn() then
-			self.engine_obj:SetControlType(Def.EngineControlType.AddForce)
-			-- Fresh boarding clears the native integrators on the next command push.
+			-- Arm the integrator reset BEFORE the control type flips: ApplyControlMode consumes the
+			-- pending flag synchronously, and setting it afterwards would miss the pickup entirely.
 			self.engine_obj.native_reset_pending = true
+			self.engine_obj:SetControlType(Def.EngineControlType.AddForce)
 		else
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 		end

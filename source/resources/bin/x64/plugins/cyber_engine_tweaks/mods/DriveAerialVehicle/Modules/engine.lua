@@ -419,6 +419,10 @@ function Engine:SetFlightContext(situation)
     if self.av_obj ~= nil and self.av_obj.is_auto_pilot then
         bits = bits + 2
     end
+    if self.flight_mode == Def.FlightMode.Helicopter then
+        -- bit2: heli manual flight IS mode 2 velocity hold; the DLL must not re-assert mode 3.
+        bits = bits + 4
+    end
     self.fly_av_system:SetFlightFlags(bits)
     local mask = 1 -- height monitor always armed while the AV exists: the DLL only speaks on
     -- threshold crossings, so free flight pays one raycast per frame and gets the landing
@@ -499,10 +503,11 @@ function Engine:ApplyControlMode()
             self:PushNativeControl(3, self.zero3, self.zero3, self.torque_gain)
             self.native_mode3_pushed = true
         end
-        if self.native_reset_pending then
-            -- Pick up the integrator reset that used to ride the per-input Operate shim.
-            self:PushNativeCommands()
-        end
+        -- flight_mode/dt_scale/quaternion must reach the DLL on every boarding, not only when a
+        -- reset happens to be pending: the boarding code sets native_reset_pending AFTER
+        -- SetControlType fires, so a pickup gated on the flag alone misses it entirely and the
+        -- DLL keeps running the default (AV) flight model - which ignores heli commands.
+        self:PushNativeCommands()
         return
     end
     if self.native_mode3_pushed then

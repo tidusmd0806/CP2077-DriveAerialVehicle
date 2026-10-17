@@ -1,6 +1,6 @@
 # 飛行制御のネイティブ化 — 現状まとめ
 
-最終更新: 2026-10-13（Lua フォールバック削除）
+最終更新: 2026-10-17（Phase 5b: DLL サイドの閾値モニタと通知ブリッジ）
 
 CET の Lua が毎フレームやっていた飛行制御の駆動を、RED4ext の DLL 側へ移した結果の
 現在地をまとめるもの。設計の背景と判断の理由は §1 と §7 に置いてあり、コード中のコメントは
@@ -23,6 +23,9 @@ CET の `onUpdate` / Cron から「毎フレーム物理を押しにいく」ル
 | 搭乗中の手動飛行 | Lua が毎フレーム演算 | DLL の flight model（mode 3）。Lua は入力のエッジのみ |
 | 入力アクション | キューを毎ティック poll | 入力コールバックから直接 drain |
 | メニュー／ポップアップ／フォト判定 | 毎フレーム poll | UI のオブザーバからのエッジ通知 |
+| 高度／距離／乗り込みエリア判定 | ControlTick の poll（10 Hz 等） | **DLL の MonitorTick（ゲームスレッド）**。閾値またぎだけを `gameActionEvent` で Lua へ通知 |
+| 着陸 VFX の高さ追従 | Lua が poll して VFX 位置を更新 | DLL が毎フレームレイキャストし、ゾーン内は `dav_evt_height_tick`（**timeToLive に高さ**）を Lua へ。VFX 位置の制御は Lua |
+| 飛行音（加速／スラスター） | ControlTick のエッジ poll | DLL が `SoundEdgeTick` で判定し、puppet に `ActionEvent` を QueueEvent。Lua は Observe するだけ |
 
 ---
 
@@ -90,21 +93,46 @@ DLL がゲームスレッドで `av_z` / `on_ground` / `ground_z` を公開し�
 （退避・エリア・距離・高度は歩きプレイヤーに対して 0.15 s では区別できない）。
 
 ### 3.9 DLL 発の地面レイキャスト
-`GetSpatialQueriesSystem()` ＋ `SyncRaycastByQueryFilter` を DLL から呼ぶ。
-**シグネチャを一切ハードコードしていない**（下表）。
+`IGameInstance::GetSystem(gameISpatialQueriesSystem)` ＋ `SyncRaycastByQueryFilter` を DLL から呼ぶ。
+**シグネチャを一切ハードコードしていない**（下表）。注意: `GetSpatialQueriesSystem` という**グローバル
+関数は存在しない**（nativedb の 802 グローバルに関数が無い）。クラスプレフィックス付き
+`GameInstance.GetSpatialQueriesSystem` 経由も成り立たず、正解は cpPlayerSystem と同じ `GetSystem` 経路。
+戻り値の `Bool` は引数リストの末尾に並ぶ（`staticOnly` / `dynamicOnly` の 2 つは実引数で、
+Lua の元呼び出しと同じ false/false を渡す。マスクが判定を決める）。
 
 | 読むもの | 方法 |
 |---|---|
-| 引数の役割（from / to / filter / bool / out） | 宣言型名と `isOut` / `isReturn` |
+| 引数の役割（from / to / filter / bool / out） | 宣言型名と `isOut`（`Vector4` / `*QueryFilter` / `Bool` / out 構造体）。解析失敗時は全パラメータの `名前:型(ret)(out)` をダンプ |
 | フィルタの `mask1` / `mask2` オフセット | 型名に `QueryFilter` を含むパラメータのプロパティ検索 |
 | ヒット位置の z | out 型の `position` プロパティ + 8 |
 
-読み解けない場合は**レイキャスト自身を無効化**して Lua 側に任せる。レイアウト違いは例外ではなく
-アクセス違反なので呼び出しは例外ガードで覆ってある。実行はゲームステートの OnUpdate、
-**ネイティブホバーが動いている間だけ** 30 フレームに 1 回（約 2 本/秒）。
+読み解けない場合は**レイキャスト自身を無効化**して Lua 側に任せる（「クラス未登録」だけは
+ブート中の正規の状態なので retryable）。レイアウト違いは例外ではなくアクセス違反なので
+呼び出しは例外ガードで覆ってある。実行はゲームステートの OnUpdate。**閾値モニタが毎フレーム**。
 
-衝突グループはユーザー設定なので Lua が `SetGroundQuery` で 1 回渡す。DLL 側にもデフォルト値を
-コンパイルしてあり、渡ってこなくても動く（ただし Lua 側が正しければそちらが優先）。
+衝突グループはユーザー設定なので Lua が `SetGroundQuery` で渡す。**注意**: `AV:Init` は
+`fly_av_system` 生成より前に走るため、そのときの push は破棄される。Engine が引数を保持し、
+ハンドル生成直後に再送する（マスク 0 = 全除外でレイキャストが永遠に空振りしていた原因）。
+
+### 3.12 閾値モニタと DLL→Lua 通知ブリッジ（Phase 5b）
+`CheckHeight` / `CheckDistance` / `CheckInEntryArea` の poll を削除し、DLL の `MonitorTick`
+（ゲームスレッド、`DavGameState_OnUpdate`）に移した。
+
+- Lua は `SetThresholds(height, dist, radius, keepalive, mask, entry offset)` と
+  `SetFlightContext(situation)`（flight flags + モータ mask）を状態変化時にだけ push。
+  **高さビットは AV 存在中は常時 ON**（フリーフライト中の降下でも VFX が出る）。Waiting は 7
+- DLL は閾値またぎ（ヒステリシス ±0.5 m / ±2 m）と、ゾーン内への**毎フレーム tick** だけを
+  `gameActionEvent`（`eventAction = dav_evt_*`）として puppet に QueueEvent。
+  **高さイベントは timeToLive に実測高さを載せる**（unknown action は timeToLive を無視するので副作用なし）
+- 通知経路: DLL QueueEvent → ゲームの ActionEvent 配信 → REDscript の
+  `@addMethod(PlayerPuppet) cb func OnDAVMonitorEvent(event: ref<ActionEvent>)`（空のフックポイント。
+  本体の `n"dav_evt_*"` 比較が**ロード時に CName を登録する**しかけ）→ CET `Observe` →
+  Lua `Event:OnDavThresholdEvent(name, ttl)`
+- CName は REDscript の `n"..."` リテラルでしか登録されない（Lua の `CName.new()` は登録しない。
+  未登録だと `eventAction.value` が空文字列になる）
+- 着陸 VFX: ON/OFF と位置は Lua（`ProjectLandingWarning` / `SetLandingVFXPosition`）。tick が
+  冪等に ON を入れ直すので、Waiting からの離陸のようにエッジが来ないケースでも出る
+- 乗り込みエリアは `dav_evt_entry_in` が keepalive（既定 1 s）で再発火し、HUD の選択肢を出し続ける
 
 ### 3.10 帰還シーケンス
 降車時の「hop → 降下 → 消滅」は着陸用の処理が残っていたもの。降下を削除し、
@@ -137,6 +165,9 @@ DLL がゲームスレッドで `av_z` / `on_ground` / `ground_z` を公開し�
 | `SetGroundReference(z)` | Lua からの初期 seed |
 | `SetGroundQuery(offset, distance, mask1, mask2)` | DLL 発レイキャストのパラメータ引き継ぎ |
 | `SetIdleHoverParams(...)` | mode 4 のゲイン 17 個 |
+| `SetFlightFlags(bits)` | 自動 mode 再確言のゲート: bit0=搭乗 / bit1=オートパイロット / **bit2=ヘリモード**（mode 2 速度保持が正常状態なので再確言してはいけない） |
+| `SetThresholds(...)` / `SetLandingVFX(en, offset)` | 閾値モニタの設定と VFX の有効フラグ |
+| `SetFlightModel(...)` | flight_mode（0=AV / 1=ヘリ）・dt_scale・姿勢クォータニオンの伝達。**搭乗時に必ず呼ぶ**（mode 3 の動作モードが決まる） |
 | 地面学習 | **接地したフレームのみ**地面 Z を覚える（毎フレーム覚えると発振する） |
 
 ---
@@ -148,6 +179,11 @@ DLL がゲームスレッドで `av_z` / `on_ground` / `ground_z` を公開し�
 | 着陸直前に機体が激しく揺れて消える | 接地中に毎フレーム地面を再学習 → 高度が常に 0 と読める → 調整器が押し上げ → 浮いて古い地面基準に戻る → 再接地、の無限ループ。**接地エッジのみ学習**で解消 |
 | 障害物に衝突した姿勢のまま固まる | Lua は `not IsCollision()` のときだけ高度項を使っていた。これをホバー開始時に焼き付けたため、接地していても上へ押し続けて接触体と互いに押し合った。フック内で公開済みの接地フラグを見て高度項を切る |
 | 姿勢が変な方向に復元して固まる | 姿勢を物理クォータニオンから計算していた。flight model が検証済みで優先する**エンティティ上のクォータニオン**を優先するよう統一 |
+| ヘリモードの操作が全滅（AV モードは正常） | 搭乗時に `native_reset_pending` を `SetControlType` の**後**に設定していたため `PushNativeCommands`（→ `SetFlightModel` で `flight_mode` を伝達）が走らず、DLL が既定の AV モードでヘリコマンド（H*）を無視していた。AddForce ブランチで無条件 push + フラグを先に立てる、の両方で修正 |
+| 地面レイキャストが常に空振り | ① `GetSpatialQueriesSystem` はグローバル関数として存在しない（`GetSystem` 経由にする）② `AV:Init` 時点の `SetGroundQuery` は `fly_av_system` 未生成で破棄され、マスク 0 = 全除外だった（Engine が保持してハンドル生成後に再送）③ 戻り値 `Bool` を未知パラメータとして署名解析を中断していた |
+| 通知イベントの `eventAction.value` が空文字列 | CName 未登録。Lua の `CName.new()` はテーブルに登録しない。REDscript の `n"..."` リテラル（ロード時コンパイル）で登録する |
+| `handle<>` 戻り値の受信でスタック破壊 | `Handle<T>` は 0x10 バイト（instance + ref controller）。8 バイト slot に受けると 8 バイト書き溢し。`GetPlayer` / `GetSpatialQueriesSystem` / ground ray の `sys` すべて該当 |
+| DLL から `FindComponentByName` でクラッシュ | DLL からは呼ばない（SEH でも守れない）。Lua 側で解決するか、DLL はエンティティの `+0x70+0x30` の FlatArray を walk して CName ハッシュで比較する |
 | respawn 後のホバーが変な高度へ飛ぶ | 前の車両の地面基準が残っていた。車両差し替え時にリセット |
 | 離陸直後にホバーが上昇を打ち消す | `SetControlType` がホバー所有権を再判定して mode 4 が発火する。スクリプトで駆動する間は明示的に解除する |
 | 未搭乗で鈎が動かない | 物理フックは**未搭乗でもフルレートで発火する**（ドキュメント 0.10 の記述は誤り） |
@@ -206,8 +242,8 @@ red4ext のログに出る行:
 | 行 | 意味 |
 |---|---|
 | `DAV dbg: game state OnUpdate live (tid=..., physics tid=...)` | ゲームスレッド鈎が生きている。tid が物理スレッドと**別**であること |
-| `DAV dbg: ground ray ready (ok) params=5 filter=16 m1=0 m2=8 out=48 hit_z=8` | DLL 発レイキャストの署名解析に成功 |
-| `DAV dbg: ground ray off (<理由>)` | 署名が読み解けずレイキャスト無効。`why` が読み違えた箇所を指す |
+| `DAV dbg: ground ray ready (ok) params=6 filter=16 m1=0 m2=8 out=96 hit_z=8` | DLL 発レイキャストの署名解析に成功 |
+| `DAV dbg: ground ray off (<理由>)` | 署名が読み解けずレイキャスト無効。`why` が読み違えた箇所を指す（未知パラメータは全一覧をダンプする） |
 | `DAV dbg: FindEntityByID params=N ret=...` | エンティティ解決に使っているスクリプト関数の署名 |
 
 診断プローブ（`init.lua`）: `is_debug_probe_hook_tick`（鈎のレート）、`is_debug_probe_yaw`（旋回）、
@@ -235,6 +271,11 @@ red4ext のログに出る行:
 | `fc4a6cb` | 帰還を上昇ランプに変更 |
 | `032b4fe` | DLL の地面クエリに必要な値を渡す |
 | `2fe21ec` | プローブ OFF、死んだコード削除 |
+| `12dff35` | Lua フォールバック削除（DLL 必須化） |
+| `42794e1` | 飛行駆動・スラスター・音を DLL のゲームスレッドへ |
+| `b9ca03b` | `AV:Operate` shim 削除（DLL が自動で mode を再確言） |
+| `e07a2bf` | Phase 5b: DLL 閾値モニタ＋ VFX を timeToLive イベントで |
+| （本コミット） | ヘリモードの flight_mode 伝達修正＋診断ログ除去 |
 
 ### DLL リポジトリ
 | commit | 内容 |
@@ -243,3 +284,7 @@ red4ext のログに出る行:
 | `dda6dd5` | ゲームステートで地面・接地状態を公開 |
 | `85739ec` | ゲーム自前のクエリ系で地面レイキャスト |
 | `08ffd73` | 恒久失敗した署名解析を打ち切り |
+| `0f89b15` | サウンドを DLL 側 QueueEvent へ（poll 廃止） |
+| `263adbf` | Phase 5: `SetFlightFlags` と自動 mode 再確言 |
+| `82a7651` | Phase 5b: 閾値モニタ、実動する地面レイキャスト、クリーンアップ |
+| （本コミット） | ヘリモードの自動再確言スキップ（bit2）＋診断ログ除去 |
