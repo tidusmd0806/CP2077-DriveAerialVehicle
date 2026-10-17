@@ -43,36 +43,16 @@ function Event:New()
     obj.choice_keepalive_interval = 1.0
     -- Door event drivers: last edge seen from the read-path record / entry-area check (nil = unknown).
     obj.last_recorded_door_open = nil
-    obj.last_in_entry_area = nil
 
     -- Checks that change only on a human timescale; they do not need the full loop rate.
-    obj.distance_check_interval = 0.5
-    obj.last_distance_check_time = 0
     obj.locked_save_check_interval = 0.1
     obj.last_locked_save_check_time = 0
-    obj.last_landing_vfx_height = nil
 
     -- Slow-changing checks paced via Event:DueNow instead of the full-rate situation loop.
     -- Mount/unmount/destroy/meters/door are pure event-driven (no polling): see the
     -- observers in SetObserve and the overrides in SetOverride.
     obj.engine_check_interval = 0.2          --  5 Hz: the engine only dies on destruction
     obj.combat_check_interval = 0.2          --  5 Hz: driver-combat state changes rarely
-
-    -- Ground probe cadence: synchronous raycast, so the next interval is predicted from the last measurement.
-    obj.height_check_interval_fast = 0.0
-    obj.height_check_interval_slow = 0.1
-    obj.height_check_interval_still = 0.25
-    obj.height_check_interval_far = 0.5
-    obj.height_slow_threshold = 20.0
-    obj.height_still_speed = 0.5
-    obj.height_skip_distance = 60.0
-    obj.next_height_check_time = 0
-    obj.last_height = nil
-
-    -- Shared cache for the player -> AV distance (CheckDistance and CheckHeight poll the same value).
-    obj.player_distance_cache_time = 0.5
-    obj.last_player_distance_time = 0
-    obj.cached_player_distance = nil
 
     return setmetatable(obj, self)
 
@@ -89,14 +69,8 @@ function Event:Init(av_obj)
 
     self.is_enable_audio = true
 
-    -- A new AV/session resets probe cadence and distance: the first probe runs immediately on fresh data.
-    self.last_height = nil
-    self.next_height_check_time = 0
-    self.cached_player_distance = nil
-    self.last_player_distance_time = 0
     -- Forget door edges from the previous AV so the fresh state is re-synced.
     self.last_recorded_door_open = nil
-    self.last_in_entry_area = nil
 
     -- A fresh AV/session must not inherit an LTBF poll still running against the previous instance.
     self:StopLTBFCompatPoll()
@@ -321,7 +295,7 @@ function Event:SetSituation(situation)
     if ok then
         local eng = self.av_obj and self.av_obj.engine_obj
         if eng ~= nil then
-            eng:SetFlightContext(situation == Def.Situation.InVehicle)
+            eng:SetFlightContext(situation)
         end
     end
     return ok
@@ -343,6 +317,8 @@ function Event:DueNow(field, interval)
 end
 
 --- Check events for current situation.
+--- Height, player distance and the entry area are measured by the DLL monitor now; crossings
+--- arrive as dav_evt_* ActionEvents (see OnDavThresholdEvent and the bridge in init.lua).
 function Event:CheckAllEvents()
     if self:IsInMenuOrPopupOrPhoto() then
         self.log_obj:Record(LogLevel.Debug, "In Menu or Popup or Photo mode. Skip all checks")
@@ -350,24 +326,70 @@ function Event:CheckAllEvents()
         self:CheckGarage()
     elseif self.current_situation == Def.Situation.Landing then
         self:CheckLanded()
-        -- Only check height if vehicle entity exists and is not currently spawning
-        if not self.av_obj:IsSpawning() and not self.av_obj:IsDespawned() then
-            self:CheckHeight()
-        end
     elseif self.current_situation == Def.Situation.Waiting then
         self:CheckDespawn()
-        self:CheckInEntryArea()
-        self:CheckDistance()
-        self:CheckHeight()
     elseif self.current_situation == Def.Situation.InVehicle then
         self:CheckEngine()
         self:CheckInput()
         self:CheckCombat()
-        self:CheckHeight()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
         self:CheckLockedSave()
-        self:CheckHeight()
+    end
+end
+
+--- React to a DLL threshold crossing. These handlers replace the old CheckHeight / CheckDistance
+--- / CheckInEntryArea polls: the DLL owns the measurement, only the game-side action is here.
+--- The height crossings smuggle the measured height in the event's timeToLive float.
+function Event:OnDavThresholdEvent(name, ttl)
+    if name ~= "dav_evt_height_tick" then
+        self.log_obj:Record(LogLevel.Info, "threshold handler: " .. tostring(name) .. " ttl=" .. tostring(ttl), "Event")
+    end
+    if name == "dav_evt_dist_far" then
+        self.sound_obj:StopGameSound(self.av_obj.engine_audio_name)
+        self.is_enable_audio = false
+    elseif name == "dav_evt_dist_near" then
+        if not self.is_enable_audio then
+            self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
+        end
+        self.is_enable_audio = true
+    elseif name == "dav_evt_entry_in" then
+        -- The DLL re-fires this as a keep-alive while the player stays in the area.
+        self:SyncEntryDoor()
+        local shown = (self.hud_obj.interaction_hub ~= nil)
+        local now = os.clock()
+        if not shown
+            or self.shown_seat_index ~= self.selected_seat_index
+            or (self.choice_keepalive_interval > 0
+                and (now - self.choice_last_shown_time) >= self.choice_keepalive_interval) then
+            self.hud_obj:ShowChoice(self.selected_seat_index)
+            self.shown_seat_index = self.selected_seat_index
+            self.choice_last_shown_time = now
+        end
+    elseif name == "dav_evt_entry_out" then
+        self:SyncEntryDoor()
+        if self.hud_obj.interaction_hub ~= nil then
+            self.hud_obj:HideChoice()
+        end
+        self.shown_seat_index = nil
+    elseif name == "dav_evt_height_low" then
+        -- Seed the VFX slot from the height the DLL measured; the ticks keep it tracking from here.
+        if type(ttl) == "number" and ttl > 0.0 and ttl < 100.0 then
+            local po = self.av_obj.projection_offset
+            self.av_obj:SetLandingVFXPosition(Vector4.new(po.x, po.y, -ttl + po.z, 1))
+        end
+        self.av_obj:ProjectLandingWarning(true)
+    elseif name == "dav_evt_height_tick" then
+        -- Throttled re-fire while inside the warning zone; timeToLive carries the fresh height.
+        -- Also re-arms the effect: a takeoff from Waiting never re-crosses the threshold, so no
+        -- low edge arrives, but the tick proves we are inside the zone.
+        if type(ttl) == "number" and ttl > 0.0 and ttl < 100.0 then
+            local po = self.av_obj.projection_offset
+            self.av_obj:SetLandingVFXPosition(Vector4.new(po.x, po.y, -ttl + po.z, 1))
+        end
+        self.av_obj:ProjectLandingWarning(true)
+    elseif name == "dav_evt_height_high" then
+        self.av_obj:ProjectLandingWarning(false)
     end
 end
 
@@ -437,35 +459,6 @@ function Event:CheckLanded()
         self.sound_obj:PlayGameSound("110_arrive_vehicle")
         self.sound_obj:ChangeSoundResource()
         self:SetSituation(Def.Situation.Waiting)
-    end
-end
-
---- Check player is in entry area.
---- Edge-triggered: the hub is pushed when the player enters the area, when the
---- selected seat changes, or when the keep-alive is due -- not every tick.
-function Event:CheckInEntryArea()
-    local in_entry = self.av_obj:IsPlayerInEntryArea()
-    -- Door follows the entry-area edge immediately (human-visible); no separate door poll needed.
-    if in_entry ~= self.last_in_entry_area then
-        self.last_in_entry_area = in_entry
-        self:SyncEntryDoor()
-    end
-    if in_entry then
-        self.log_obj:Record(LogLevel.Trace, "InEntryArea detected")
-        -- interaction_hub is the HUD's own record; nil means nothing is shown, so re-show it.
-        local shown = (self.hud_obj.interaction_hub ~= nil)
-        local now = os.clock()
-        if not shown
-            or self.shown_seat_index ~= self.selected_seat_index
-            or (self.choice_keepalive_interval > 0
-                and (now - self.choice_last_shown_time) >= self.choice_keepalive_interval) then
-            self.hud_obj:ShowChoice(self.selected_seat_index)
-            self.shown_seat_index = self.selected_seat_index
-            self.choice_last_shown_time = now
-        end
-    elseif self.hud_obj.interaction_hub ~= nil then
-        self.hud_obj:HideChoice()
-        self.shown_seat_index = nil
     end
 end
 
@@ -678,7 +671,7 @@ function Event:CheckEngine()
 end
 
 --- Bring the driver door in line with the entry area (idempotent; safe to call from any driver).
---- Drivers: the entry-area edge in CheckInEntryArea and the read-path change record
+--- Drivers: the entry-area edge from the DLL monitor and the read-path change record
 --- in the GetHasAnyDoorOpen override. No polling.
 function Event:SyncEntryDoor()
     local veh_door = EVehicleDoor.seat_front_left
@@ -729,114 +722,6 @@ function Event:CheckDespawn()
         self.sound_obj:Mute()
         self:SetSituation(Def.Situation.Normal)
         DAV.core_obj:Reset()
-    end
-end
-
---- Distance from the player to the AV, cached for `player_distance_cache_time`.
---- Returns nil when the player cannot be resolved; callers must treat nil as "unknown", not "far".
----@return number|nil
-function Event:GetPlayerDistanceToAV()
-    local now = os.clock()
-    if self.cached_player_distance ~= nil
-            and (now - self.last_player_distance_time) < self.player_distance_cache_time then
-        return self.cached_player_distance
-    end
-    local player = Game.GetPlayer()
-    if player == nil then
-        return nil
-    end
-    local distance = Vector4.Distance(player:GetWorldPosition(), self.av_obj:GetPosition())
-    self.cached_player_distance = distance
-    self.last_player_distance_time = now
-    return distance
-end
-
---- Check distance between player and AV (engine sound on/off across a 30 m threshold).
---- Half-second resolution is invisible; uncached this was four C# transitions per tick.
-function Event:CheckDistance()
-    local now = os.clock()
-    if (now - self.last_distance_check_time) < self.distance_check_interval then
-        return
-    end
-    self.last_distance_check_time = now
-    local distance = self:GetPlayerDistanceToAV()
-    if distance == nil then
-        return
-    end
-    if distance > self.engine_audio_limit then
-        self.sound_obj:StopGameSound(self.av_obj.engine_audio_name)
-        self.is_enable_audio = false
-    else
-        if not self.is_enable_audio then
-            self.sound_obj:PlayGameSound(self.av_obj.engine_audio_name)
-        end
-        self.is_enable_audio = true
-    end
-end
-
---- Choose how long the next ground probe may be delayed.
---- The previous probe bounds what the next can miss; cost is per probe, not per tick.
----@return number interval in seconds
-function Event:PickHeightInterval()
-    -- Nobody close enough to see the projection (60 m matches the landing VFX range).
-    local distance = self:GetPlayerDistanceToAV()
-    if distance ~= nil and distance > self.height_skip_distance then
-        return self.height_check_interval_far
-    end
-
-    -- First probe after a reset: no basis to delay anything.
-    local last_height = self.last_height
-    if last_height == nil then
-        return self.height_check_interval_fast
-    end
-
-    -- No vertical motion: 0.5 m/s is above pinned-craft jitter, below real descent.
-    local engine_obj = self.av_obj.engine_obj
-    if engine_obj ~= nil then
-        local velocity = engine_obj:GetVelocity()
-        if velocity ~= nil and math.abs(velocity.z) <= self.height_still_speed then
-            return self.height_check_interval_still
-        end
-    end
-
-    -- High up: 10 Hz cannot step over the ~5 m warning threshold (plenty of margin).
-    if last_height > self.height_slow_threshold then
-        return self.height_check_interval_slow
-    end
-
-    return self.height_check_interval_fast
-end
-
---- Check height between AV and ground. if height is too low, show landing warning.
---- Cadence-adaptive on purpose: the measurement is a synchronous physics query.
-function Event:CheckHeight()
-    local now = os.clock()
-    if now < self.next_height_check_time then
-        return
-    end
-    self.next_height_check_time = now + self:PickHeightInterval()
-
-    local height = nil
-    -- Waiting: the DLL already knows the surface under the AV from contact. The other situations
-    -- are moving onto fresh terrain, where a stale reference would judge the descent wrongly.
-    if self.current_situation == Def.Situation.Waiting then
-        height = self.av_obj.engine_obj:GetNativeHeight()
-    end
-    if height == nil then
-        height = self.av_obj.navigation_obj:GetHeight()
-    end
-    self.last_height = height
-    if height < self.projection_max_height_offset + self.av_obj.minimum_distance_to_ground then
-        -- Write the VFX offset only when the measured height actually moved.
-        if self.last_landing_vfx_height ~= height then
-            self.last_landing_vfx_height = height
-            local height_offset = - height + self.av_obj.projection_offset.z
-            self.av_obj:SetLandingVFXPosition(Vector4.new(self.av_obj.projection_offset.x, self.av_obj.projection_offset.y, height_offset, 1))
-        end
-        self.av_obj:ProjectLandingWarning(true)
-    else
-        self.last_landing_vfx_height = nil
-        self.av_obj:ProjectLandingWarning(false)
     end
 end
 

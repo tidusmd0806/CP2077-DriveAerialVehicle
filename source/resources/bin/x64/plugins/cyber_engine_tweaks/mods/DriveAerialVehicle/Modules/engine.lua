@@ -74,8 +74,19 @@ function Engine:Init(entity_id)
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
-    -- Fresh body: the DLL starts with no driver aboard.
-    self:SetFlightContext(false)
+    -- AV:Init ran before this handle existed, so its ground query push was dropped. Replay it now:
+    -- with zero masks the DLL's ground raycast filters everything out and never hits the terrain.
+    local gq = self.ground_query_pending
+    if gq ~= nil then
+        self.fly_av_system:SetGroundQuery(gq.offset, gq.distance, gq.mask1, gq.mask2)
+    end
+    -- Fresh body: no driver aboard, monitor armed for the Normal situation.
+    self:SetFlightContext(Def.Situation.Normal)
+    -- Landing VFX slot: while the AV is inside the warning zone the DLL writes the slot's local
+    -- position itself (the height tracking lives in the DLL monitor now).
+    local po = self.av_obj.projection_offset
+    local vfx_on = (self.av_obj.is_enable_landing_vfx and DAV.user_setting_table.is_enable_landing_vfx) and 1.0 or 0.0
+    self.fly_av_system:SetLandingVFX(vfx_on, Vector4.new(po.x, po.y, po.z, 0))
     self.mass = self.fly_av_system:GetMass()
     -- The DLL is a hard requirement: flight control, the flight model, the idle hover and the ground
     -- query all run inside it, so there is no capability probing and no Lua driving path.
@@ -337,6 +348,8 @@ end
 --- Called from AV:Init, which runs before Engine:Init creates the fly_av_system handle,
 --- so a missing handle means "nothing to hand over yet" and is a no-op.
 function Engine:PushGroundQuery(offset, distance, mask1, mask2)
+    -- Remember the args: AV:Init runs before fly_av_system exists, and the caller does not retry.
+    self.ground_query_pending = {offset = offset, distance = distance, mask1 = mask1 or 0, mask2 = mask2 or 0}
     if self.fly_av_system == nil then
         return false
     end
@@ -392,18 +405,42 @@ function Engine:PushNativeCommands()    local reset = self.native_reset_pending 
         Vector4.new(0, 0, 0, 0))
 end
 
---- Push the flight context bits (bit0 = player aboard, bit1 = autopilot) that gate the DLL
---- physics hook's auto mode re-assert. The hook must not fly the AV without a driver aboard
---- (the mode 4 idle hover lives outside the vehicle) and must not fight the autopilot.
-function Engine:SetFlightContext(in_vehicle)
-    self.in_vehicle = in_vehicle and true or false
-    if self.fly_av_system ~= nil then
-        local bits = (self.in_vehicle and 1 or 0)
-        if self.av_obj ~= nil and self.av_obj.is_auto_pilot then
-            bits = bits + 2
-        end
-        self.fly_av_system:SetFlightFlags(bits)
+--- Push the DLL flight context: the bits gating the auto mode re-assert (bit0 aboard, bit1
+--- autopilot) plus the threshold-monitor mask for the situation (1=height, 2=player distance,
+--- 4=entry area - mirrors which checks CheckAllEvents used to run). Crossings come back as
+--- dav_evt_* ActionEvents on the puppet (see the bridge in init.lua).
+function Engine:SetFlightContext(situation)
+    self.last_situation = situation
+    self.in_vehicle = (situation == Def.Situation.InVehicle)
+    if self.fly_av_system == nil then
+        return
     end
+    local bits = (self.in_vehicle and 1 or 0)
+    if self.av_obj ~= nil and self.av_obj.is_auto_pilot then
+        bits = bits + 2
+    end
+    self.fly_av_system:SetFlightFlags(bits)
+    local mask = 1 -- height monitor always armed while the AV exists: the DLL only speaks on
+    -- threshold crossings, so free flight pays one raycast per frame and gets the landing
+    -- VFX on descent, not just in Waiting.
+    if situation == Def.Situation.Waiting then
+        mask = 7
+    end
+    self:PushThresholds(mask)
+end
+
+--- Pre-arm the DLL threshold monitor from the current model/event settings.
+function Engine:PushThresholds(mask)
+    if self.fly_av_system == nil then
+        return
+    end
+    local av = self.av_obj
+    local ev = (av ~= nil and av.core_obj ~= nil) and av.core_obj.event_obj or nil
+    local height_thr = (ev ~= nil and av ~= nil) and (ev.projection_max_height_offset + av.minimum_distance_to_ground) or 0.0
+    local dist_thr = (ev ~= nil) and ev.engine_audio_limit or 0.0
+    local radius = (av ~= nil) and av.entry_area_radius or 0.0
+    local ep = (av ~= nil and av.entry_point ~= nil) and av.entry_point or { x = 0, y = 0, z = 0 }
+    self.fly_av_system:SetThresholds(height_thr, dist_thr, radius, 1.0, mask, Vector4.new(ep.x, ep.y, ep.z, 0))
 end
 
 --- Get Control Type
@@ -606,7 +643,7 @@ function Engine:SetAutoPilot(on)
     end
     self.av_obj.is_auto_pilot = on
     -- Refresh the autopilot bit of the DLL flight context.
-    self:SetFlightContext(self.in_vehicle)
+    self:SetFlightContext(self.last_situation)
     self:ApplyControlMode()
 end
 
