@@ -157,17 +157,36 @@ DLL: QueueDavEvent(className, name, ttl)
 - CName は REDscript の `n"..."` でしか登録されない
 - DLL から `FindComponentByName` 禁止（メモリ walk で代替）
 
-### 終了時のお作法（quit-to-desktop クラッシュ対策）
+### 終了時ハング対策（quit-to-desktop）
 
-終了シーケンスは `Running 状態のままワールドが壊れ始める`。物理は先に止まり、
-終了ムービーは数百 fps で回り、車両エンティティは **DLL のハンドルが生きたまま** free される
-（Lua の despawn＝`SetVehicle(0)` は終了時には走らない）。対策は 3 層:
+**確定した犯人: ワールド破棄中にゲームスレッドから発行する同期レイトレース
+（`SyncRaycastByQueryFilter`）**。破棄中の物理シーンへの同期クエリはデッドロックする。
+SEH は例外にしか効かず、待ち（ロック）には無効。機能二分探索で実証:
+
+| ビルド | レイトレース | ForceEnablePhysics | 結果 |
+|---|---|---|---|
+| A | OFF | OFF | 正常終了 |
+| B | ON | OFF | **ハング** |
+
+→ 対策は**物理活性ゲート**（DLL 完結、Lua 不要）:
+
+- `g_phys_alive` = 「物理フックが直近 15 フレーム以内に tick したか」
+- レイトレース（MonitorTick の高度計・ホバー用地面クエリ）は **物理が実際にステッピング中のみ**発行
+- 終了フローは必ず「ポーズ→物理停止」を経由して detach まで約 4 秒あるので、危険窓より十分に早く停止
+- ポーズ中（物理停止）にクエリするのは安全（メニューで分単位で固まらない実証済み）。危険なのは「**破棄中**のシーン」
+
+補助レイヤ（多層防御）:
 
 | 層 | 場所 | やること |
 |---|---|---|
 | 宣言的終了 | `DavGameState_OnExit` | `g_shutting_down` を立て、車両ハンドル・hash・モニタ mask を捨てる。以降 OnUpdate は即 return |
-| 読み取りガード | `VehicleBodyAlive()` | エンティティの `physicsData` を SEH で 1 回読む。**全ネイティブ getter と OnUpdate/MonitorTick はこれを通ってから本体を触る**。 dangling でも同スレッド（ゲームスレッド）なので check-then-read で十分 |
+| ワールド離脱 | `SetWorldGone` ネイティブ ← Lua `Observe(PlayerPuppet, OnDetach/OnAttach)` | `g_world_gone`。OnUpdate 全体を停止（セーブロード・死亡リスポーンも網羅） |
+| 読み取りガード | `VehicleBodyAlive()` | エンティティの `physicsData` を SEH で 1 回読む。**全ネイティブ getter と OnUpdate/MonitorTick はこれを通ってから本体を触る** |
 | レートガード | `MonitorTick` | `dt < 1/240 s`（＝終了ムービーの非スロットルド実行）では何もしない |
+| イベント停止 | `QueueDavEvent` | `g_shutting_down` 以降はイベント投入を停止（遅延ディスパッチでのクラッシュ防止） |
 
-CET 側も `onShutdown` で `SetVehicle(0)` を pcall して返す（CET リロード時の保険）。
-物理スレッド（フック）はエンティティ自身のステップ内で動くのでこの問題なし（hash 不一致で素通り）。
+**落とし穴**: CET v1.37 に `GameObserver`/`RegisterForGameReload` API は**存在しない**
+（旧 API、バイナリ・ソースで消滅確認）。ワールド離脱の Lua 検知は `Observe("PlayerPuppet", "OnDetach")`
+で行う（CET 自身がこのフックを internal hook している）。CET 側 `onShutdown` でも `SetVehicle(0)` を
+pcall して返す（CET リロード時の保険）。物理スレッド（フック）はエンティティ自身のステップ内で
+動くのでこの問題なし（hash 不一致で素通り）。
