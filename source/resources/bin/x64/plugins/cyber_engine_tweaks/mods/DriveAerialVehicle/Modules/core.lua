@@ -628,6 +628,26 @@ function Core:SetInputListener()
             wrapped_method()
         end
     end)
+
+    -- DLL threshold-monitor bridge: the DLL queues dav_evt_* gameActionEvents on the puppet
+    -- (the same proven QueueEvent path the sound layers use). The REDscript cb
+    -- OnDAVMonitorEvent is the hook point - the game dispatches every puppet ActionEvent to it
+    -- by parameter type, and observing it hands the event straight to Lua. The cb body also
+    -- references the dav_evt_* names so REDscript registers them in the CName table - without
+    -- that, eventAction.value reads back as an empty string (CName.new does not register).
+    Observe("PlayerPuppet", "OnDAVMonitorEvent",
+    ---@param this PlayerPuppet
+    ---@param event ActionEvent
+    function(this, event)
+        local name = event.eventAction.value
+        if type(name) ~= "string" then
+            return
+        end
+        if self.event_obj == nil then
+            return
+        end
+        self.event_obj:OnDavThresholdEvent(name, event.timeToLive)
+    end)
 end
 
 --- Get All AV Models.

@@ -332,6 +332,7 @@ function Event:CheckAllEvents()
         self:CheckEngine()
         self:CheckInput()
         self:CheckCombat()
+        self:CheckLeftBottomHUD()
     elseif self.current_situation == Def.Situation.TalkingOff then
         self:CheckDespawn()
         self:CheckLockedSave()
@@ -941,6 +942,19 @@ function Event:ShowVehicleManagerPopup()
     end
 end
 
+--- The game re-shows the bottom-left hotkey cluster (phone icon, consumables) while aboard:
+--- hotkey refreshes, camera changes and incoming calls toggle visibility through paths no
+--- single Override can catch. The old CheckHUD re-hid the cluster every tick; this is that
+--- check, slimmed to just the hiding.
+function Event:CheckLeftBottomHUD()
+    if self.hud_obj:IsVisibleConsumeItemSlot() then
+        self.hud_obj:SetVisibleConsumeItemSlot(false)
+    end
+    if self.hud_obj:IsVisiblePhoneSlot() then
+        self.hud_obj:SetVisiblePhoneSlot(false)
+    end
+end
+
 --- Select choice.
 ---@param direction Def.ActionList
 function Event:SelectChoice(direction)
@@ -962,6 +976,11 @@ function Event:SelectChoice(direction)
             return
         end
         self.av_obj.seat_index = self.selected_seat_index
+        -- Repaint immediately: waiting for the entry keep-alive (1 s) made the highlight lag
+        -- behind the button presses.
+        self.hud_obj:ShowChoice(self.selected_seat_index)
+        self.shown_seat_index = self.selected_seat_index
+        self.choice_last_shown_time = os.clock()
     end
 end
 

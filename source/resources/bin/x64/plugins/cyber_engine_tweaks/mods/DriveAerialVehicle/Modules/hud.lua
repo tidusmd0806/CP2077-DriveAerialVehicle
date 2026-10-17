@@ -152,6 +152,21 @@ function HUD:SetOverride()
             return wrappedMethod(rpmValue)
         end)
 
+        -- Speedometer on non-driver seats: the game only pushes OnSpeedValueChanged for the
+        -- vehicle it considers driven, so every other seat keeps the 999 placeholder forever.
+        -- Feed our own measurement on a slow clock while the AV owns the readout (manual mode;
+        -- autopilot drives the gauge as a progress bar through its own path).
+        Cron.Every(0.1, function()
+            if self.av_obj == nil or self.av_obj.entity_id == nil then
+                return
+            end
+            local ev = DAV.core_obj ~= nil and DAV.core_obj.event_obj or nil
+            if ev == nil or not ev:IsInAVSituation() or ev:IsAutoMode() then
+                return
+            end
+            self:SetSpeedMeterValue(self.av_obj:GetCurrentSpeed())
+        end)
+
         -- The game re-shows the bottom-left consumable/radio slot while aboard (hotkey refresh,
         -- camera change, status effects). The deleted CheckHUD poll re-hid it at 1 Hz; instead
         -- intercept the controller's own show path and force it hidden while we are in the AV.
