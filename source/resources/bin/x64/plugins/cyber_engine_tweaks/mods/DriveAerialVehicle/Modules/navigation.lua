@@ -4086,7 +4086,7 @@ function Navigation:AutoPilot()
 			end
 		end
 
-		self.av_obj:MoveThruster(self:BuildAutopilotThrusterCommands(vehicle_angle, fix_direction_vector))
+		self.av_obj:SetThrusterCommand(self:BuildAutopilotThrusterCommands(vehicle_angle, fix_direction_vector))
 	end)
 	return true
 	end
@@ -4223,7 +4223,7 @@ function Navigation:AutoLeaving(dist_vector, height)
 			self.autopilot_leaving_deceleration_start_flag = true
 			self.av_obj.engine_obj:SetFluctuationVelocityParams(-self.autopilot_acceleration, self.autopilot_speed * 0.2)
 		end
-		self.av_obj:MoveThruster({{Def.ActionList.Nothing, 1}})
+		-- The thruster restore that used to be pumped here (MoveThruster with Nothing) runs in the DLL now.
 	end)
 end
 
@@ -4313,8 +4313,6 @@ function Navigation:AutoLanding(height, target_z)
 			self.autopilot_leaving_deceleration_start_flag = true
 			self.av_obj.engine_obj:SetFluctuationVelocityParams(-self.autopilot_acceleration * deceleration_rate, self.autopilot_speed * 0.2)
 		end
-
-		self.av_obj:MoveThruster({{Def.ActionList.Nothing, 1}})
 
 		timer.tick = timer.tick + 1
 	end)

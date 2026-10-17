@@ -41,6 +41,9 @@ function AV:New(core_obj)
 	-- thruster
 	obj.thruster_angle_step = 0.6
 	obj.thruster_angle_restore = 0.3
+	-- Swing axis in the thruster components' local frame: 0=X+ 1=X- 2=Y+ 3=Y- 4=Z+ 5=Z-.
+	-- The DLL rotates about this axis; tweak this one number if the swing plane/direction is off.
+	obj.thruster_axis = 0
 
 	---dynamic---: common
 	obj.entity_id = nil
@@ -55,8 +58,6 @@ function AV:New(core_obj)
 	-- Entry area follows a walking human: re-resolved at 20 Hz, last value reused between refreshes.
 	obj.entry_area_check_interval = 0.05
 	obj._entry_area_next_time = 0
-	-- Last thruster orientation actually written; skips no-op writes while the angle is parked.
-	obj._thruster_written_angle = nil
 	obj.is_blocking_operation = false
 	-- door
 	obj.combat_door = nil
@@ -90,12 +91,9 @@ function AV:New(core_obj)
 	obj.destroy_app = nil
 	-- audio
 	obj.engine_audio_name = nil
-	obj.is_acceleration_sound = false
-	obj.is_thruster_sound = false
-	-- Grace the accel/thruster sound stays on after commands stop (absorbs one-tick gaps). See AV:ControlSound.
+	-- Grace the accel/thruster sound stays on after commands stop (absorbs one-tick gaps). The DLL
+	-- runs the latch and grace off the held commands and fires an edge per start/stop.
 	obj.sound_stop_grace_seconds = 0.3
-	obj.acceleration_sound_idle_ticks = 0
-	obj.thruster_sound_idle_ticks = 0
 	-- truster
 	obj.is_available_thruster = false
 	obj.engine_component_name_list = {}
@@ -104,7 +102,6 @@ function AV:New(core_obj)
 	obj.thruster_offset_list = {}
 	obj.engine_components = {}
 	obj.thruster_fxs = {}
-	obj.thruster_angle = 0
 	obj.thruster_angle_max = 0
 	-- enter and exit
 	obj.enter_point = {}
@@ -439,6 +436,7 @@ function AV:Spawn(position, angle)
 	entity_spec.persistSpawn = false
 	entity_spec.alwaysSpawned = true
 	self.entity_id = entity_system:CreateEntity(entity_spec)
+	self.log_obj:Record(LogLevel.Info, "CreateEntity returned id=" .. tostring(self.entity_id and self.entity_id.hash))
 	-- Fresh entity: drop any handle cached for the previous one.
 	self:InvalidateEntityCache()
 	-- ...and the ground height measured against it.
@@ -447,6 +445,9 @@ function AV:Spawn(position, angle)
 	-- set entity id to position object
 	Cron.Every(0.1, {tick = 1}, function(timer)
 		local entity = self:GetEntity()
+		if timer.tick % 10 == 1 then
+			self.log_obj:Record(LogLevel.Info, "Spawn wait: entity " .. (entity ~= nil and "found" or "not materialized yet") .. " tick=" .. timer.tick)
+		end
 		if entity ~= nil then
 			self.landing_vfx_component = entity:FindComponentByName("LandingVFXSlot")
 			self.engine_obj:Init(self.entity_id)
@@ -517,6 +518,12 @@ function AV:Despawn()
 		self.log_obj:Record(LogLevel.Warning, "No entity to despawn")
 		return false
 	end
+	-- The DLL writes the thruster components every frame; release it before the entity goes away so
+	-- no cached component handle can outlive its owner.
+	self.engine_obj:SetThrusterSetup(false, 0, 0, 0, 2, "", "")
+	-- Hand the vehicle back to the DLL: it drops its handle, so the frame-clock physics re-enable
+	-- can never touch a deleted entity.
+	self.engine_obj.fly_av_system:SetVehicle(0)
 	local entity_system = Game.GetDynamicEntitySystem()
 	entity_system:DeleteEntity(self.entity_id)
 	self.entity_id = nil
@@ -879,7 +886,8 @@ end
 --- Execute action commands.
 --- The DLL does all the physics: manual AddForce flight runs the native flight model from the held
 --- command edges, the unboarded hover runs in the native regulator, and the autopilot drives the
---- engine itself through Navigation. Nothing is computed here.
+--- engine itself through Navigation. The thruster swing and the sound layers ride the same held
+--- commands inside the DLL. Nothing is computed here.
 ---@param action_command_lists table
 function AV:Operate(action_command_lists)
 	for _, action_command_list in ipairs(action_command_lists) do
@@ -895,83 +903,9 @@ function AV:Operate(action_command_lists)
 		-- Re-assert mode 3 and pick up a pending integrator reset; the held commands live in the DLL.
 		self.engine_obj:PushNativeCommands()
 	end
-	-- Everything else (idle hover, ramps) is already held by the DLL: nothing to compute here.
-	self:MoveThruster(action_command_lists)
-	self:ControlSound(action_command_lists)
 	return true
 end
 
---- Control sound: latch accel/thruster flags on the first command seen and keep the sound on until
---- the no-command condition persists for sound_stop_grace_seconds (grace converted via TimeScale).
----@param action_command_lists table
----@return boolean
-function AV:ControlSound(action_command_lists)
-	local grace_ticks = TimeScale:Ticks(self.sound_stop_grace_seconds)
-	local is_acceleration_sound = false
-	local is_thruster_sound = false
-	for _, action_command_list in ipairs(action_command_lists) do
-		if action_command_list[1] >= Def.ActionList.Enter then
-			self.log_obj:Record(LogLevel.Trace, "Invalid Sound Command:" .. action_command_list[1])
-			return false
-		end
-		for _, acceleration_command in pairs(Def.AccelerationActionList) do
-			if action_command_list[1] == acceleration_command then
-				is_acceleration_sound = true
-				break
-			end
-		end
-		for _, thruster_command in pairs(Def.ThrusterActionList) do
-			if action_command_list[1] == thruster_command then
-				is_thruster_sound = true
-				break
-			end
-		end
-		if is_acceleration_sound or is_thruster_sound then
-			break
-		end
-	end
-
-	-- Acceleration layer.
-	if is_acceleration_sound then
-		self.acceleration_sound_idle_ticks = 0
-		if not self.is_acceleration_sound then
-			self.log_obj:Record(LogLevel.Trace, "Start Acceleration Sound")
-			self.core_obj.event_obj.sound_obj:StartAccelerationSound(self.flight_mode, 1.5)
-			self.is_acceleration_sound = true
-		end
-	elseif self.is_acceleration_sound then
-		self.acceleration_sound_idle_ticks = (self.acceleration_sound_idle_ticks or 0) + 1
-		if self.acceleration_sound_idle_ticks >= grace_ticks then
-			self.log_obj:Record(LogLevel.Trace, string.format(
-				"Stop Acceleration Sound after %d idle ticks", self.acceleration_sound_idle_ticks))
-			self.core_obj.event_obj.sound_obj:StopAccelerationSound(self.flight_mode, 1.5)
-			self.is_acceleration_sound = false
-			self.acceleration_sound_idle_ticks = 0
-		end
-	end
-
-	-- Thruster layer handled independently so acceleration cannot starve it.
-	if is_thruster_sound then
-		self.thruster_sound_idle_ticks = 0
-		if not self.is_thruster_sound then
-			self.log_obj:Record(LogLevel.Trace, "Start Thruster Sound")
-			self.core_obj.event_obj.sound_obj:StartThrusterSound(self.flight_mode, 1.5)
-			self.is_thruster_sound = true
-		end
-	elseif self.is_thruster_sound then
-		self.thruster_sound_idle_ticks = (self.thruster_sound_idle_ticks or 0) + 1
-		if self.thruster_sound_idle_ticks >= grace_ticks then
-			self.log_obj:Record(LogLevel.Trace, string.format(
-				"Stop Thruster Sound after %d idle ticks", self.thruster_sound_idle_ticks))
-			self.core_obj.event_obj.sound_obj:StopThrusterSound(self.flight_mode, 1.5)
-			self.is_thruster_sound = false
-			self.thruster_sound_idle_ticks = 0
-		end
-	end
-
-	return true
-
-end
 
 --- Toggle radio ON or switch to next station.
 function AV:ToggleRadio()
@@ -1045,6 +979,7 @@ end
 ---@return boolean
 function AV:SetThrusterComponent()
 	if self.engine_obj.flight_mode == Def.FlightMode.Helicopter then
+		self.engine_obj:SetThrusterSetup(false, 0, 0, 0, 2, "", "")
 		return false
 	end
 
@@ -1085,73 +1020,52 @@ function AV:SetThrusterComponent()
 	else
 		return false
 	end
-	-- New component handles: drop the written marker so the next MoveThruster() pushes the angle.
-	self._thruster_written_angle = nil
+	-- The per-frame swing lives in the DLL now (game-thread OnUpdate): hand it the gains and the
+	-- component names. Lua keeps only this one-time local-position setup.
+	self._thruster_cmd_fwd = nil
+	self._thruster_cmd_back = nil
+	-- The name lists are keyed by seat (fl/fr/bl/br), not arrays, so join with pairs().
+	local function join_names(list)
+		local parts = {}
+		for _, name in pairs(list or {}) do
+			parts[#parts + 1] = name
+		end
+		return table.concat(parts, ";")
+	end
+	-- Rates cross the boundary as deg/s: the config values are per control tick, so scale by the
+	-- live loop frequency. The DLL resolves the component names itself (memory walk of the
+	-- entity's component storage), so only simple values cross; no handles are passed.
+	local hz = TimeScale:GetHz()
+	self.engine_obj:SetThrusterSetup(true, self.thruster_angle_step * hz, self.thruster_angle_restore * hz,
+		self.thruster_angle_max, self.thruster_axis,
+		join_names(self.engine_component_name_list),
+		join_names(self.thruster_fx_name_list))
+	self.log_obj:Record(LogLevel.Info, string.format("Thruster setup pushed to DLL: step=%.2f deg/s restore=%.2f deg/s max=%.1f axis=%d",
+		self.thruster_angle_step * hz, self.thruster_angle_restore * hz, self.thruster_angle_max, self.thruster_axis))
 	return true
 end
 
---- Change thruster angle by action commands.
+--- Autopilot thruster swing: map the synthesized command list to the two swing axes and push the
+--- pair to the DLL whenever it changes. Manual flight needs nothing here - the DLL reads the held
+--- input commands itself, and the restore toward zero runs in the DLL every frame.
 ---@param action_command_lists table
----@return boolean
-function AV:MoveThruster(action_command_lists)
-	-- Thruster angle accumulates to an absolute orientation; scale swing/restore steps with the loop period.
-	local dt_scale = DAV.dt_scale or 1
-	local restore = self.thruster_angle_restore * dt_scale
-	if self.thruster_angle > restore then
-		self.thruster_angle = self.thruster_angle - restore
-	elseif self.thruster_angle < -restore then
-		self.thruster_angle = self.thruster_angle + restore
-	else
-		self.thruster_angle = 0
-	end
-
-	if not self.is_available_thruster then
-		return false
-	end
-
-	for _, action_command_list in ipairs(action_command_lists) do
-		if action_command_list[1] == Def.ActionList.Forward then
-			self.thruster_angle = self.thruster_angle - self.thruster_angle_step * dt_scale
-		elseif action_command_list[1] == Def.ActionList.Backward then
-			self.thruster_angle = self.thruster_angle + self.thruster_angle_step * dt_scale
+function AV:SetThrusterCommand(action_command_lists)
+	local fwd, back = 0, 0
+	for _, c in ipairs(action_command_lists or {}) do
+		if c[1] == Def.ActionList.Forward then
+			fwd = 1
+		elseif c[1] == Def.ActionList.Backward then
+			back = 1
 		end
 	end
-
-	if self.thruster_angle > self.thruster_angle_max then
-		self.thruster_angle = self.thruster_angle_max
-	elseif self.thruster_angle < -self.thruster_angle_max then
-		self.thruster_angle = -self.thruster_angle_max
+	if fwd == self._thruster_cmd_fwd and back == self._thruster_cmd_back then
+		return
 	end
-
-	-- Skip writes when the angle already matches the components (was 16 C# calls per parked tick).
-	if self.thruster_angle == self._thruster_written_angle then
-		return true
-	end
-
-	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
-		return false
-	end
-
-	local entity = self:GetEntity()
-	if entity == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
-		return false
-	end
-
-	-- One quaternion for all components instead of a ToQuat() per component per loop.
-	local quat = EulerAngles.new(0, self.thruster_angle, 0):ToQuat()
-
-	for _, component in pairs(self.engine_components) do
-		component:SetLocalOrientation(quat)
-	end
-
-	for _, thruster in pairs(self.thruster_fxs) do
-		thruster:SetLocalOrientation(quat)
-	end
-	self._thruster_written_angle = self.thruster_angle
-	return true
+	self._thruster_cmd_fwd = fwd
+	self._thruster_cmd_back = back
+	self.engine_obj.fly_av_system:SetThrusterCommand(fwd, back)
 end
+
 
 --- Toggle thruster ON/OFF.
 ---@param on boolean

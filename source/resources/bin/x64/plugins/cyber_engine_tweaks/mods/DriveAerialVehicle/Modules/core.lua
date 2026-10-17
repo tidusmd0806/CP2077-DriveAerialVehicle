@@ -1,10 +1,8 @@
-local AV = require("Modules/av.lua")
+﻿local AV = require("Modules/av.lua")
 local Event = require("Modules/event.lua")
-local Queue = require("Etc/queue.lua")
-local Utils = require("Etc/utils.lua")
-
 local Core = {}
 Core.__index = Core
+local Utils = require("Etc/utils.lua")
 
 --- Constructor
 ---@return table
@@ -13,7 +11,7 @@ function Core:New()
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Core")
-    obj.queue_obj = Queue:New()
+    obj.pending_operations = {}
     obj.av_obj = nil
     obj.event_obj = nil
     obj.is_obstacle_map_loaded_in_session = false
@@ -208,11 +206,11 @@ end
 
 --- Decide what the control loop should do this tick: "run" | "sleep".
 --- The Cron timer is never paused: pausing would freeze the measured-dt sampler and break wake sources.
---- "sleep" skips everything but the dt bookkeeping; actions no longer need the loop because they
---- drain from the input callbacks themselves (Core:EnqueueAction).
+--- "sleep" skips everything but the dt bookkeeping; movement actions reach the DLL straight from the
+--- input callbacks (Core:EnqueueAction), so the loop only ever waits for deferred game operations.
 ---@return string "run" | "sleep"
 function Core:ControlLoopState()
-    local has_pending_input = (self.queue_obj ~= nil and not self.queue_obj:IsEmpty())
+    local has_pending_input = #self.pending_operations > 0
         or self.has_pending_operation == true
     local situation = self.event_obj.current_situation
 
@@ -276,7 +274,7 @@ function Core:ControlTick()
     end
 
     if state ~= "sleep" then
-        self:GetActions()
+        self:ProcessPendingOperations()
     end
 end
 
@@ -434,6 +432,7 @@ end
 --- Set Summon Trigger.
 function Core:SetSummonTrigger()
     Override("VehicleSystem", "SpawnActivePlayerVehicle", function(this, vehicle_type, wrapped_method)
+        self.log_obj:Record(LogLevel.Info, "Summon override fired (SpawnActivePlayerVehicle)")
         if this:GetActivePlayerVehicle(vehicle_type) == nil then
             self.log_obj:Record(LogLevel.Warning, "No Active Vehicle detected")
             return wrapped_method(vehicle_type)
@@ -446,6 +445,8 @@ function Core:SetSummonTrigger()
         for index, record in ipairs(self.event_obj.ui_obj.av_record_list) do
             if record.hash == new_record_id.hash then
                 self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
+                -- Info-level breadcrumb: the summon override fired and matched an AV record.
+                self.log_obj:Record(LogLevel.Info, "Summon trigger matched AV record")
                 for key, value in ipairs(self.av_obj.all_models) do
                     if value.tweakdb_id == record.value then
                         DAV.model_index = key
@@ -1290,60 +1291,37 @@ function Core:ConvertHeliAxisAction(keybind_name, value)
     end
 end 
 
---- Dequeue and Operate Aerial Vehicle.
-function Core:GetActions(from_input)
-    if self.is_draining_actions then
+--- Run the game operations the input callbacks deferred, once per call.
+--- Boarding, menus and appearance changes drive the game's own systems, and running them from inside
+--- the input callback that produced them means re-entering the game mid-action, so EnqueueAction parks
+--- them here and the control loop - which runs outside the callback - executes them.
+function Core:ProcessPendingOperations()
+    if self.is_processing_operations or not self.has_pending_operation then
         return
     end
-    self.is_draining_actions = true
+    self.is_processing_operations = true
     self.has_pending_operation = false
-    local move_actions = {}
-    local deferred = nil
-
-    while not self.queue_obj:IsEmpty() do
-        local action = self.queue_obj:Dequeue()
-        local action_list = type(action) == "table" and action or {action, 1}
-        if action_list[1] >= Def.ActionList.Enter then
-            if from_input then
-                -- Boarding, menus and appearance changes drive the game's own systems, and running
-                -- them from inside the input callback that produced them means re-entering the game
-                -- mid-action. Leave those to the control loop, which runs outside it; the loop wakes
-                -- on this flag. Movement actions are plain physics targets and are safe inline.
-                self.has_pending_operation = true
-                deferred = deferred or {}
-                deferred[#deferred + 1] = action
-            else
-                self:SetEvent(action_list[1])
-            end
-        else
-            table.insert(move_actions, action_list)
-        end
+    -- Swap the list out first: a SetEvent that queues another operation appends to the fresh list
+    -- and is picked up on the next tick instead of extending this loop while it iterates.
+    local pending = self.pending_operations
+    self.pending_operations = {}
+    for i = 1, #pending do
+        self:SetEvent(pending[i])
     end
-
-    if deferred ~= nil then
-        -- Put them back after the loop: re-enqueueing inside it would never terminate.
-        for i = 1, #deferred do
-            self.queue_obj:Enqueue(deferred[i])
-        end
-    end
-
-    if #move_actions == 0 then
-        -- The DLL holds the hover and manual flight runs on input edges, so an empty queue means
-        -- there is nothing to pump - no legacy Nothing-action tick.
-        self.is_draining_actions = false
-        return
-    end
-
-    self:OperateAerialVehicle(move_actions)
-    self.is_draining_actions = false
+    self.is_processing_operations = false
 end
 
---- Enqueue an action and drain it immediately instead of waiting for the Cron loop to notice. That
---- polling was pure latency - a menu/photo-mode probe plus an Operate call every tick just to find
---- an empty queue. The Cron drain stays as a backstop for anything enqueued elsewhere.
+--- Route one input action. Movement actions are plain physics targets and safe to run from the input
+--- callback: they go straight to the DLL (held command + Operate) with no queue in between. Game
+--- operations (>= Enter) are parked for the control loop, which wakes on the flag.
 function Core:EnqueueAction(action)
-    self.queue_obj:Enqueue(action)
-    self:GetActions(true)
+    local action_list = type(action) == "table" and action or {action, 1}
+    if action_list[1] >= Def.ActionList.Enter then
+        self.pending_operations[#self.pending_operations + 1] = action_list[1]
+        self.has_pending_operation = true
+        return
+    end
+    self:OperateAerialVehicle({action_list})
 end
 
 --- Operate Aerial Vehicle.
@@ -1360,9 +1338,9 @@ function Core:OperateAerialVehicle(actions)
 
     if self.event_obj:IsInVehicle() then
         self.av_obj:Operate(actions)
-    elseif self.event_obj:IsWaiting() then
-        self.av_obj:Operate({{Def.ActionList.Idle, 1}})
     end
+    -- Waiting has nothing left to pump: the hover, the thruster swing and the sound layers all run
+    -- in the DLL now, off the held command state - no Idle action has to reach Lua.
 end
 
 --- Operation for event trigger.

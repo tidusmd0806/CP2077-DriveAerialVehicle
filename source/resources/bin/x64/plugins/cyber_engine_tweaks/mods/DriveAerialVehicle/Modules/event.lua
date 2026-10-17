@@ -387,6 +387,7 @@ end
 
 --- Spawn vehicle.
 function Event:SpawnVehicle()
+    self.log_obj:Record(LogLevel.Info, "SpawnVehicle called")
     self.sound_obj:PlayGameSound("100_call_vehicle")
     if not DAV.is_valid_audioware then
         self.sound_obj:PlayGameSound("210_landing")

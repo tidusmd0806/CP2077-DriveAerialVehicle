@@ -105,6 +105,18 @@ function Engine:Init(entity_id)
     self.log_obj:Record(LogLevel.Info, string.format("mass=%.1f physics_state=%s",
         self.mass, tostring(self.fly_av_system:GetPhysicsState())))
     self:PushNativeParams()
+    -- Sound layers: the DLL watches the held commands and queues an edge event when a layer starts
+    -- or its grace expires; Lua plays the samples (see Core:InitSoundEdgeListeners).
+    local accel_ids = {}
+    for _, id in pairs(Def.AccelerationActionList) do
+        accel_ids[#accel_ids + 1] = id
+    end
+    local thruster_ids = {}
+    for _, id in pairs(Def.ThrusterActionList) do
+        thruster_ids[#thruster_ids + 1] = id
+    end
+    self.fly_av_system:SetSoundParams(self.av_obj.sound_stop_grace_seconds or 0.3,
+        table.concat(accel_ids, ","), table.concat(thruster_ids, ","))
     -- The shared native buffer outlives a vehicle: a stale mode 1/2/3 would grab the new body with
     -- the old target, so every fresh engine starts from "native applies nothing".
     self:PushNativeControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
@@ -328,6 +340,14 @@ function Engine:PushGroundQuery(offset, distance, mask1, mask2)
     end
     self.fly_av_system:SetGroundQuery(offset, distance, mask1 or 0, mask2 or 0)
     return true
+end
+
+--- Hand the DLL the thruster swing setup: step/restore in deg/s, the swing axis code
+--- (0=X+ 1=X- 2=Y+ 3=Y- 4=Z+ 5=Z-) and the component names to swing (';'-separated).
+--- enabled=false releases it (despawn, helicopter).
+function Engine:SetThrusterSetup(enabled, step, restore, max_angle, axis, engine_names, fx_names)
+    self.fly_av_system:SetThrusterSetup(enabled and 1 or 0, step or 0, restore or 0, max_angle or 0,
+        axis or 2, engine_names or "", fx_names or "")
 end
 
 --- Hand the DLL a ground reference once, before the first contact teaches it itself.
