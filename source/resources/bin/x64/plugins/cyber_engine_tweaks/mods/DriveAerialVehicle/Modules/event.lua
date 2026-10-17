@@ -837,16 +837,6 @@ function Event:IsInVehicle()
     end
 end
 
---- Check if player is taking off.
----@return boolean
-function Event:IsTakingOff()
-    if self.current_situation == Def.Situation.TalkingOff then
-        return true
-    else
-        return false
-    end
-end
-
 --- Check if player is in auto mode.
 ---@return boolean
 --- Situation check with no C# round trip. The meter overrides fire on every speed
@@ -947,10 +937,9 @@ function Event:ShowVehicleManagerPopup()
     end
 end
 
---- The game re-shows the bottom-left hotkey cluster (phone icon, consumables) while aboard:
---- hotkey refreshes, camera changes and incoming calls toggle visibility through paths no
---- single Override can catch. The old CheckHUD re-hid the cluster every tick; this is that
---- check, slimmed to just the hiding.
+--- The game re-shows the bottom-left hotkey cluster (phone icon, consumables) while aboard through
+--- paths no single Override can catch. The old CheckHUD re-hid it every tick; this is that check,
+--- slimmed to just the hiding.
 function Event:CheckLeftBottomHUD()
     if self.hud_obj:IsVisibleConsumeItemSlot() then
         self.hud_obj:SetVisibleConsumeItemSlot(false)

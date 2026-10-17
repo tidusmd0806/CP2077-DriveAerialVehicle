@@ -16,9 +16,7 @@ local VELOCITY_EPS = 0.01
 local ANGULAR_EPS = 0.01
 
 --- Debug-only display values. The native paths apply nothing in Lua, so every "nothing applied"
---- branch points at one shared zero instead of allocating two vectors per frame. PushNativeControl
---- copies into its own scratch, so the shared zero is never written and sharing is safe.
---- Built in New rather than at module scope: Vector3 is a runtime global of the CET sandbox.
+--- branch points at one shared zero (built in New: Vector3 is a runtime global of the sandbox).
 
 --- Constructor
 --- @param av_obj any AV instance
@@ -96,25 +94,8 @@ function Engine:Init(entity_id)
     self.native_hook_alive = false
     -- Velocity hold (mode 2) bookkeeping: what the DLL is currently holding for us.
     self.native_hold_pushed = false
-    self.native_hold_push_count = 0
     self.native_last_mode = 0
     self.native_hold = { v = Vector3.new(0, 0, 0), a = Vector3.new(0, 0, 0) }
-    self.hook_probe_enabled = DAV.is_debug_probe_hook_tick == true
-    self.hook_probe_interval = 1.0
-    self.hook_probe_budget = 6.0
-    self.hook_probe_boarded_budget = 1.0
-    self.hook_probe_episode_cap = 40
-    self.hook_probe_episodes = 0
-    self.hook_probe_type = nil
-    self.hook_probe_pending = nil
-    self.hook_probe_settle = 0
-    self.hook_probe_settle_delay = 0.5
-    self.hook_probe_active = false
-    self.hook_probe_budget_now = 0
-    self.hook_probe_elapsed = 0
-    self.hook_probe_next = 0
-    self.hook_probe_last = nil
-    self.hook_probe_max_hz = 0
     self.log_obj:Record(LogLevel.Info, string.format("mass=%.1f physics_state=%s",
         self.mass, tostring(self.fly_av_system:GetPhysicsState())))
     self:PushNativeParams()
@@ -156,111 +137,6 @@ function Engine:ReadNativeCounter(name)
         return nil
     end
     return tonumber(value)
-end
-
---- Probe output: Log:Record only reaches the log when the ImGui "Print Debug Mode" box is ticked,
---- so the diagnostic also prints unconditionally (scripting.log + CET console).
----@param message string
-function Engine:ProbeLog(message)
-    self.log_obj:Record(LogLevel.Info, message)
-    print("[DAV][probe] " .. message)
-end
-
---- Diagnostic: does the DLL physics hook fire while nobody is aboard the AV?
---- The hook is a per-vehicle member function (this = one WheeledPhysics), so "the game's physics runs"
---- and "the hook fires for our body" are different claims. The DLL counts every hit for our vehicle
---- regardless of who owns the physics, so a counter that stands still outside AddForce proves the game
---- never steps an unmanned vehicle through ApplyAllResistances.
---- One episode per control-type change: 6s unboarded, 1s boarded (A/B reference in the same log),
---- capped per session so the log stays small.
----@param delta number
-function Engine:ProbeHookTickRate(delta)
-    if not self.hook_probe_enabled then
-        return
-    end
-    local control_type = self.engine_control_type
-    local boarded = control_type == Def.EngineControlType.AddForce
-    if self.hook_probe_type ~= control_type then
-        -- The spawn descent flips ChangeVelocity/FluctuationVelocity several times a second, which
-        -- used to re-arm (and log) an episode per flip. Require the value to hold steady first.
-        if self.hook_probe_pending ~= control_type then
-            self.hook_probe_pending = control_type
-            self.hook_probe_settle = 0
-        end
-        self.hook_probe_settle = self.hook_probe_settle + delta
-        if self.hook_probe_settle < self.hook_probe_settle_delay then
-            self.hook_probe_active = false
-            return
-        end
-        self.hook_probe_type = control_type
-        self.hook_probe_active = (self.hook_probe_episodes < self.hook_probe_episode_cap)
-        if not self.hook_probe_active then
-            return
-        end
-        self.hook_probe_episodes = self.hook_probe_episodes + 1
-        self.hook_probe_budget_now = (boarded and self.hook_probe_boarded_budget or self.hook_probe_budget)
-        self.hook_probe_elapsed = 0
-        self.hook_probe_next = self.hook_probe_interval
-        self.hook_probe_max_hz = 0
-        self.hook_probe_last = self:ReadNativeCounter("GetNativeTickCount")
-        self.hook_probe_push_last = self.native_hold_push_count or 0
-        self.hook_probe_target_pushes_last = self.target_push_count or 0
-        self:ProbeLog(string.format(
-            "hook probe armed (%s control_type=%s tick=%.0f mass=%.1f physics_state=%s)",
-            boarded and "boarded" or "unboarded", tostring(control_type), self.hook_probe_last or -1,
-            self:ReadNativeCounter("GetMass") or -1, tostring(self:GetPhysicsState())))
-    else
-        self.hook_probe_pending = control_type
-        self.hook_probe_settle = 0
-    end
-    if not self.hook_probe_active or self.hook_probe_last == nil then
-        return
-    end
-    self.hook_probe_elapsed = self.hook_probe_elapsed + delta
-    if self.hook_probe_elapsed < self.hook_probe_next then
-        return
-    end
-    self.hook_probe_next = self.hook_probe_next + self.hook_probe_interval
-    local ticks = self:ReadNativeCounter("GetNativeTickCount")
-    if ticks == nil then
-        self.hook_probe_enabled = false
-        return
-    end
-    local hz = (ticks - self.hook_probe_last) / self.hook_probe_interval
-    self.hook_probe_last = ticks
-    if hz > self.hook_probe_max_hz then
-        self.hook_probe_max_hz = hz
-    end
-    -- mass is a second proof of a live hook: GetMass falls back to the value the hook body publishes.
-    -- hold_pushes counts velocity-hold pushes; target_pushes counts pushes driven by state changes
-    -- rather than by frames; loop says whether the ramp timer is running.
-    local pushes = self.native_hold_push_count or 0
-    local dpush = pushes - (self.hook_probe_push_last or 0)
-    self.hook_probe_push_last = pushes
-    local tp = (self.target_push_count or 0) - (self.hook_probe_target_pushes_last or 0)
-    self.hook_probe_target_pushes_last = self.target_push_count or 0
-    local gz, az, og, gvalid = self:ReadGroundInfo()
-    self:ProbeLog(string.format(
-        "hook tick (%s control_type=%s): total=%.0f effective=%.1fHz hold_pushes=%d/s target_pushes=%d/s loop=%s mode=%s auto=%s mass=%.1f physics_state=%s ground_z=%.1f av_z=%.1f h=%.1f on_ground=%s valid=%s",
-        boarded and "boarded" or "unboarded", tostring(control_type), ticks, hz, dpush, tp,
-        tostring(self.loop_timer ~= nil),
-        tostring(self.native_last_mode), tostring(self.av_obj.is_auto_pilot),
-        self:ReadNativeCounter("GetMass") or -1, tostring(self:GetPhysicsState()),
-        gz, az, az - gz, tostring(og), tostring(gvalid)))
-    if self.hook_probe_elapsed < self.hook_probe_budget_now then
-        return
-    end
-    self.hook_probe_active = false
-    if boarded then
-        return
-    end
-    if self.hook_probe_max_hz <= 0.5 then
-        self:ProbeLog("unboarded hook verdict: hook does NOT fire unboarded")
-    else
-        self:ProbeLog(string.format(
-            "unboarded hook verdict: hook DOES fire unboarded (%.1fHz)",
-            self.hook_probe_max_hz))
-    end
 end
 
 --- Push every flight model tunable to the DLL (packed into Vector4s; order must match Main.cpp).
@@ -332,18 +208,6 @@ function Engine:ReadGroundInfo()
     return info.x, info.y, (info.z > 0.5), (info.w > 0.5)
 end
 
---- Height above the DLL's ground reference, or nil when it has nothing to offer yet.
---- Only safe where the vehicle is on or near the surface it last touched: the reference is learned
---- from contact, so a descent onto fresh terrain would be judged against the old ground.
----@return number|nil
-function Engine:GetNativeHeight()
-    local ground_z, av_z, _, valid = self:ReadGroundInfo()
-    if not valid then
-        return nil
-    end
-    return av_z - ground_z
-end
-
 --- Hand the DLL what its own ground query needs: the search box and the collision groups.
 --- Called from AV:Init, which runs before Engine:Init creates the fly_av_system handle,
 --- so a missing handle means "nothing to hand over yet" and is a no-op.
@@ -405,10 +269,9 @@ function Engine:PushNativeCommands()    local reset = self.native_reset_pending 
         Vector4.new(0, 0, 0, 0))
 end
 
---- Push the DLL flight context: the bits gating the auto mode re-assert (bit0 aboard, bit1
---- autopilot) plus the threshold-monitor mask for the situation (1=height, 2=player distance,
---- 4=entry area - mirrors which checks CheckAllEvents used to run). Crossings come back as
---- dav_evt_* ActionEvents on the puppet (see the bridge in init.lua).
+--- Push the DLL flight context: bits gating the auto mode re-assert (bit0 aboard, bit1 autopilot,
+--- bit2 heli) plus the threshold-monitor mask for the situation (1=height, 2=distance, 4=entry).
+--- Crossings come back as dav_evt_* ActionEvents on the puppet.
 function Engine:SetFlightContext(situation)
     self.last_situation = situation
     self.in_vehicle = (situation == Def.Situation.InVehicle)
@@ -503,10 +366,9 @@ function Engine:ApplyControlMode()
             self:PushNativeControl(3, self.zero3, self.zero3, self.torque_gain)
             self.native_mode3_pushed = true
         end
-        -- flight_mode/dt_scale/quaternion must reach the DLL on every boarding, not only when a
-        -- reset happens to be pending: the boarding code sets native_reset_pending AFTER
-        -- SetControlType fires, so a pickup gated on the flag alone misses it entirely and the
-        -- DLL keeps running the default (AV) flight model - which ignores heli commands.
+        -- flight_mode/dt_scale/quaternion must reach the DLL on every boarding, not only on reset:
+        -- the boarding code sets native_reset_pending AFTER SetControlType fires, so gating on the
+        -- flag alone leaves the DLL on the default (AV) flight model, which ignores heli commands.
         self:PushNativeCommands()
         return
     end
@@ -555,7 +417,6 @@ function Engine:PushFlightTarget()
     local control_type = self.engine_control_type
     if control_type == Def.EngineControlType.ChangeVelocity
             or control_type == Def.EngineControlType.FluctuationVelocity then
-        self.target_push_count = (self.target_push_count or 0) + 1
         self:PushVelocityHold()
     elseif control_type == Def.EngineControlType.AddForce then
         if not self.av_obj.is_auto_pilot then
@@ -582,7 +443,6 @@ function Engine:PushVelocityHold()
         return false
     end
     self:PushNativeControl(2, vel, ang, 0)
-    self.native_hold_push_count = (self.native_hold_push_count or 0) + 1
     held.v.x, held.v.y, held.v.z = vel.x, vel.y, vel.z
     held.a.x, held.a.y, held.a.z = ang.x, ang.y, ang.z
     self.native_hold_pushed = true
@@ -671,9 +531,7 @@ function Engine:Heartbeat(delta)
         end
     end
     -- -1 means "vehicle not resolved yet"; ForceEnablePhysics is what gets a fresh AV simulated.
-    -- This has to stay on the game thread: the physics hook only fires while the body is simulated,
-    -- and calling ForceEnablePhysics from inside that body's own update reenters the physics engine.
-    -- Once the hook has ticked for this body the physics is provably running, so stop forcing.
+    -- It must stay on the game thread, and once the hook has ticked the physics is provably live.
     if not self.native_hook_alive then
         local ticks = self:ReadNativeCounter("GetNativeTickCount")
         if ticks ~= nil and ticks > 0 then
@@ -684,7 +542,6 @@ function Engine:Heartbeat(delta)
         self:UnsetPhysicsState()
         self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
     end
-    self:ProbeHookTickRate(delta)
 end
 
 --- Unset physics state
@@ -988,10 +845,9 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
     y = y - horizontal_air_resistance_const * vel_vec.y
     z = z - vertical_air_resistance_const * vel_vec.z
 
-    -- Always push: PushVelocityHold compares against the value the DLL holds, so a target that has not
-    -- moved is free and a slow drift still accumulates until it crosses the deadband. Gating here on
-    -- the delta from the previous target would drop sub-eps corrections for good -- that is what made
-    -- the autopilot oscillate onto a heading and steer too softly around obstacles.
+    -- Always push: PushVelocityHold compares against the value the DLL holds, so an unchanged target
+    -- is free and slow drift still crosses the deadband. Gating here on the target delta would drop
+    -- sub-eps corrections for good (that made the autopilot oscillate onto a heading).
     self.direction_velocity = Vector3.new(x, y, z)
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
     self:PushFlightTarget()

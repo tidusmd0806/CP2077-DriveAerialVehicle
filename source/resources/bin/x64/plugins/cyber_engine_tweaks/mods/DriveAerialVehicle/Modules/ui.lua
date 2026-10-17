@@ -218,20 +218,6 @@ function UI:UpdateFavoriteLocationList(favorite_list, selected_index)
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
 end
 
---- (UnUsed) Create String History
-function UI:CreateStringHistory()
-	self.history_list = {}
-	for index, history in ipairs(DAV.user_setting_table.mappin_history) do
-		local history_string = tostring(index) .. ": "
-		for _, district in ipairs(history.district) do
-			history_string = history_string .. district .. "/"
-		end
-		history_string = history_string .. history.location
-		history_string = history_string .. " [" .. tostring(math.floor(history.distance)) .. "m]"
-		table.insert(self.history_list, history_string)
-	end
-end
-
 --- Create Native Settings Base Page.
 function UI:CreateNativeSettingsBasePage()
 	if not DAV.is_valid_native_settings then

@@ -25,26 +25,6 @@ function Utils:DeepCopy(orig)
    return copy
 end
 
---- Check if two tables are equal.
----@param table1 table
----@param table2 table
----@return boolean
-function Utils:IsTablesEqual(table1, table2)
-    for key, value in pairs(table1) do
-       if value ~= table2[key] then
-          return false
-       end
-    end
-
-    for key, value in pairs(table2) do
-       if value ~= table1[key] then
-          return false
-       end
-    end
-
-    return true
-end
-
 --- Get the key of the value in the table.
 ---@param table_ table
 ---@param target_value any
@@ -165,16 +145,6 @@ function Utils:ReadJsonCached(fill_path)
       return nil
    end
    return cached
-end
-
---- Drop one cached config (or all of them) so the next read hits the disk.
----@param fill_path string|nil nil drops the whole cache
-function Utils:InvalidateJsonCache(fill_path)
-   if fill_path == nil then
-      JSON_CACHE = {}
-   else
-      JSON_CACHE[fill_path] = nil
-   end
 end
 
 --- Write json file.

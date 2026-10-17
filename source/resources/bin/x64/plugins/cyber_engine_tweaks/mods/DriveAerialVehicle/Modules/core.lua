@@ -205,9 +205,8 @@ function Core:ApplyTimeResolution(force)
 end
 
 --- Decide what the control loop should do this tick: "run" | "sleep".
---- The Cron timer is never paused: pausing would freeze the measured-dt sampler and break wake sources.
---- "sleep" skips everything but the dt bookkeeping; movement actions reach the DLL straight from the
---- input callbacks (Core:EnqueueAction), so the loop only ever waits for deferred game operations.
+--- The Cron timer is never paused (that would freeze the measured-dt sampler); "sleep" skips
+--- everything but dt bookkeeping - movement reaches the DLL straight from the input callbacks.
 ---@return string "run" | "sleep"
 function Core:ControlLoopState()
     local has_pending_input = #self.pending_operations > 0
@@ -291,12 +290,6 @@ function Core:Reset()
     self:RestoreFavoriteDestination()
     -- Reset Custom Mappin
     self.current_custom_mappin_position = Vector4.Zero()
-end
-
-function Core:EnsureObstacleMapSessionLoaded()
-    self.log_obj:Record(LogLevel.Debug,
-        "EnsureObstacleMapSessionLoaded skipped: delayed obstacle-map loading is disabled; startup preload only")
-    return false
 end
 
 function Core:StartObstacleMapSessionPreload()
@@ -629,12 +622,9 @@ function Core:SetInputListener()
         end
     end)
 
-    -- DLL threshold-monitor bridge: the DLL queues dav_evt_* gameActionEvents on the puppet
-    -- (the same proven QueueEvent path the sound layers use). The REDscript cb
-    -- OnDAVMonitorEvent is the hook point - the game dispatches every puppet ActionEvent to it
-    -- by parameter type, and observing it hands the event straight to Lua. The cb body also
-    -- references the dav_evt_* names so REDscript registers them in the CName table - without
-    -- that, eventAction.value reads back as an empty string (CName.new does not register).
+    -- DLL threshold-monitor bridge: the DLL queues dav_evt_* gameActionEvents on the puppet and
+    -- the REDscript cb OnDAVMonitorEvent hands them to Lua. The cb body also references the
+    -- dav_evt_* names so REDscript registers them in the CName table (CName.new does not register).
     Observe("PlayerPuppet", "OnDAVMonitorEvent",
     ---@param this PlayerPuppet
     ---@param event ActionEvent
@@ -1312,9 +1302,8 @@ function Core:ConvertHeliAxisAction(keybind_name, value)
 end 
 
 --- Run the game operations the input callbacks deferred, once per call.
---- Boarding, menus and appearance changes drive the game's own systems, and running them from inside
---- the input callback that produced them means re-entering the game mid-action, so EnqueueAction parks
---- them here and the control loop - which runs outside the callback - executes them.
+--- Boarding/menus/appearance changes must not run inside the input callback that produced them;
+--- EnqueueAction parks them here and the control loop (outside the callback) executes them.
 function Core:ProcessPendingOperations()
     if self.is_processing_operations or not self.has_pending_operation then
         return
@@ -1332,9 +1321,7 @@ function Core:ProcessPendingOperations()
 end
 
 --- Route one input action. Movement actions are fully handled by the DLL held-command state
---- (Core:PushNative / EnqueueAxis) - the Operate shim that re-asserted mode 3 per action is gone,
---- the physics hook re-asserts it itself off the held commands and the flight context bits.
---- Game operations (>= Enter) are parked for the control loop, which wakes on the flag.
+--- (Core:PushNative / EnqueueAxis); game operations (>= Enter) are parked for the control loop.
 function Core:EnqueueAction(action)
     local action_list = type(action) == "table" and action or {action, 1}
     if action_list[1] >= Def.ActionList.Enter then

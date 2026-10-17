@@ -152,10 +152,8 @@ function HUD:SetOverride()
             return wrappedMethod(rpmValue)
         end)
 
-        -- Speedometer on non-driver seats: the game only pushes OnSpeedValueChanged for the
-        -- vehicle it considers driven, so every other seat keeps the 999 placeholder forever.
-        -- Feed our own measurement on a slow clock while the AV owns the readout (manual mode;
-        -- autopilot drives the gauge as a progress bar through its own path).
+        -- Speedometer on non-driver seats: the game only pushes OnSpeedValueChanged for the vehicle
+        -- it considers driven; feed our own measurement on a slow clock while the AV owns the readout.
         Cron.Every(0.1, function()
             if self.av_obj == nil or self.av_obj.entity_id == nil then
                 return
@@ -179,11 +177,9 @@ function HUD:SetOverride()
             end
         end)
 
-        -- FPP meter: the game hides the car HUD when entering FPP (it assumes an interior
-        -- dashboard; our AV has none). Re-show ours *after* the game's own hide runs, riding
-        -- the event ordering. Do NOT gate on the mode value: the game fires this with false on
-        -- the FPP hide path, and ForceShowMeter's own ShowRequest + OnCameraModeChanged(true)
-        -- combo is the proven show mechanism (the latch keeps that call from recursing here).
+        -- FPP meter: the game hides the car HUD when entering FPP (our AV has no interior
+        -- dashboard). Re-show ours after the game's hide, riding the event ordering; the latch
+        -- keeps ForceShowMeter's own show path from recursing here.
         Override("hudCarController", "OnCameraModeChanged", function(this, mode, wrappedMethod)
             wrappedMethod(mode)
             if self.is_force_show_meter_active then

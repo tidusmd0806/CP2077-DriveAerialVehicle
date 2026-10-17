@@ -28,7 +28,6 @@ DAV = {
     -- Developer switch; user-facing twin: user_setting_table.is_enable_obstacle_recording.
     is_debug_enable_obstacle_scan = false,
     -- Diagnostic: log the DLL physics-hook rate per control type (boarded vs unboarded).
-    is_debug_probe_hook_tick = false,
     -- Developer switch: print the autopilot yaw servo every ~20 loop ticks (error, command, rate).
     is_debug_probe_yaw = false,
     -- Developer switch: print when stopping-distance braking bites (wanted speed, cap, distance).
@@ -581,10 +580,6 @@ end
 
 function DAV:Version()
     return DAV.version
-end
-
-function DAV:ToggleDebugMode()
-    DAV.is_debug_mode = not DAV.is_debug_mode
 end
 
 function DAV:Disable()

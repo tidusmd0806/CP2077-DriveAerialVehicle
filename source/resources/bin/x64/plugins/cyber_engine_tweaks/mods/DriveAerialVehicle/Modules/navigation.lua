@@ -327,16 +327,6 @@ function Navigation:ClearObstacleMapLoadState()
 	self:SyncObstacleMapSessionState()
 end
 
-function Navigation:FinalizeObstacleMapLoad(log_message)
-	self.is_obstacle_map_loaded = true
-	self:ClearObstacleMapLoadState()
-	self:SyncRouteNodeSize()
-	if log_message then
-		self.log_obj:Record(LogLevel.Info, log_message)
-	end
-	return true
-end
-
 --- Session-cached view of the chunk files that exist on disk.
 --- Enumerated once by GetAllChunksCached() and kept current by MarkChunkOnDisk(); no filesystem access here.
 ---@return table chunk_list
@@ -423,44 +413,6 @@ function Navigation:FindNearestObstacleMapChunk(origin_pos, direction_vec)
 	end
 
 	return best_chunk, best_dist
-end
-
----@param path string
----@param is_diff boolean
----@param loaded_cells table
----@return number count
----@return number|nil file_cell_size
-function Navigation:LoadChunkCellsForNearestLookup(path, is_diff, loaded_cells)
-	local file = io.open(path, "r")
-	if not file then return 0, nil end
-	local raw = file:read("*all")
-	file:close()
-	if not raw or raw == "" then return 0, nil end
-
-	local file_cell_size = nil
-	if not is_diff then
-		local cs = raw:match("^DAV_OBMAP v3 cell_size=([%d%.]+)")
-		if not cs then return 0, nil end
-		file_cell_size = tonumber(cs) or self.obstacle_cell_size
-	end
-
-	local count = 0
-	for cellx, celly, cellz, val in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-		local key = self:PackCellKey(tonumber(cellx), tonumber(celly), tonumber(cellz))
-		local ival = tonumber(val) or 0
-		local new_val
-		if ival >= 2 then
-			new_val = true
-		elseif ival == 1 then
-			new_val = "danger"
-		else
-			new_val = false
-		end
-		loaded_cells[key] = new_val
-		count = count + 1
-	end
-
-	return count, file_cell_size
 end
 
 ---@param chunk_info table|nil
@@ -670,30 +622,6 @@ function Navigation:GetAllChunksCached(force_refresh)
 	return list
 end
 
---- Record that a packed chunk now exists on disk for this chunk coordinate.
---- Keeps chunks minted after the one-per-session enumeration visible to inventory readers.
----@param chunk_key string
-function Navigation:MarkChunkOnDisk(chunk_key)
-	if not g_all_chunks_by_key then return end
-	local info = g_all_chunks_by_key[chunk_key]
-	if not info then
-		local cx, cy = chunk_key:match("^(-?%d+)_(-?%d+)$")
-		if not cx then return end
-		info = {
-			chunk_key = chunk_key,
-			chunk_x = tonumber(cx),
-			chunk_y = tonumber(cy),
-			bin_path = self.obstacle_map_bin_dir .. "/chunk_" .. chunk_key .. ".bin",
-			has_bin = false,
-		}
-		g_all_chunks_by_key[chunk_key] = info
-		if g_all_chunks_cache then
-			g_all_chunks_cache[#g_all_chunks_cache + 1] = info
-		end
-	end
-	info.has_bin = true
-end
-
 --- Incrementally parse one chunk (base file + diff) into the resident cache, yielding on wall-clock budget.
 --- The cursor lives on the chunk record, so parsing resumes exactly where the previous tick stopped.
 ---@param chunk_info table
@@ -813,45 +741,6 @@ function Navigation:IsChunkResident(chunk_key)
 	if not cx then return false end
 	if self.obstacle_grid:has_chunk(tonumber(cx), tonumber(cy)) then return true end
 	return self.obstacle_map_chunk_index[chunk_key] ~= nil
-end
-
---- Drop one chunk's cells from the resident cache. The chunk stays on disk and can
---- be pulled back in later when a lookup needs it.
----@param chunk_key string
----@return number cells_freed
-function Navigation:UnloadResidentChunk(chunk_key)
-	local cells = self.obstacle_map_chunk_index[chunk_key]
-	local freed = 0
-	if cells then
-		for cell_key in pairs(cells) do
-			if self.obstacle_map[cell_key] ~= nil then freed = freed + 1 end
-			self.obstacle_map[cell_key] = nil
-		end
-	end
-	self.obstacle_map_chunk_index[chunk_key] = nil
-	-- A chunk can drift away while still mid-read; drop the handle so it does not leak.
-	local st = self.obstacle_map_load_states[chunk_key]
-	if st then
-		if st.fh then pcall(function() st.fh:close() end) end
-		self.obstacle_map_load_states[chunk_key] = nil
-	end
-	return freed
-end
-
---- Is this chunk far enough from the player (and not needed by the active route)
---- that it may leave memory?
----@param chunk_key string
----@param pcx number player chunk x
----@param pcy number player chunk y
----@param evict_radius number
----@return boolean
-function Navigation:IsChunkEvictable(chunk_key, pcx, pcy, evict_radius)
-	if self.obstacle_map_route_chunks[chunk_key] then return false end
-	local cx, cy = chunk_key:match("^(-?%d+)_(-?%d+)$")
-	if not cx then return false end
-	local dx = math.abs(tonumber(cx) - pcx)
-	local dy = math.abs(tonumber(cy) - pcy)
-	return math.max(dx, dy) > evict_radius
 end
 
 --- Fold one dirty chunk's learned cells into the packed image and write it back as v4.
@@ -1464,15 +1353,6 @@ function Navigation:StartObstacleMapFill()
 	return true
 end
 
-function Navigation:EnsureObstacleMapLoaded()
-	if self.is_obstacle_map_loaded then
-		self:SyncRouteNodeSize()
-		return
-	end
-	self.log_obj:Record(LogLevel.Debug,
-		"EnsureObstacleMapLoaded skipped: delayed obstacle-map loading is disabled; startup preload only")
-end
-
 function Navigation:ReleaseObstacleMapSessionCache()
 	self.obstacle_map = {}
 	self.obstacle_map_chunk_index = {}
@@ -1700,182 +1580,6 @@ function Navigation:GetSectorMovementCost(from_key, to_key)
 	end
 
 	return base_cost * obstacle_penalty
-end
-
---- Plan global route using A* algorithm
----@param start_pos Vector4 Start position
----@param end_pos Vector4 End position
----@return table Route as list of cell keys
-function Navigation:PlanGlobalRoute(start_pos, end_pos)
-	if not start_pos or not end_pos then
-		return {}
-	end
-
-	-- Per-run caches: sector_penalty_cache (obstacle lookups) and astar_coord_cache (key parsing).
-	self.sector_penalty_cache = {}
-	self.astar_coord_cache    = {}
-
-	local start_key = self:PositionToSectorKey(start_pos)
-	local end_key   = self:PositionToSectorKey(end_pos)
-
-	if not start_key or not end_key then
-		return {}
-	end
-
-	-- Same cell, no need for pathfinding
-	if start_key == end_key then
-		return {start_key}
-	end
-
-	-- A* with a min-heap open set and lazy deletion: stale pops are skipped without costing iteration budget.
-	local heap_keys   = {}
-	local heap_scores = {}
-	local heap_size   = 0
-
-	local function heap_push(key, score)
-		heap_size = heap_size + 1
-		heap_keys[heap_size]   = key
-		heap_scores[heap_size] = score
-		local i = heap_size
-		while i > 1 do
-			local p = math.floor(i / 2)
-			if heap_scores[p] > heap_scores[i] then
-				heap_keys[i],   heap_keys[p]   = heap_keys[p],   heap_keys[i]
-				heap_scores[i], heap_scores[p] = heap_scores[p], heap_scores[i]
-				i = p
-			else break end
-		end
-	end
-
-	local function heap_pop()
-		if heap_size == 0 then return nil, math.huge end
-		local tk, ts = heap_keys[1], heap_scores[1]
-		heap_keys[1]          = heap_keys[heap_size]
-		heap_scores[1]        = heap_scores[heap_size]
-		heap_keys[heap_size]  = nil
-		heap_scores[heap_size]= nil
-		heap_size = heap_size - 1
-		local i = 1
-		while true do
-			local s = i
-			local l, r = 2*i, 2*i+1
-			if l <= heap_size and heap_scores[l] < heap_scores[s] then s = l end
-			if r <= heap_size and heap_scores[r] < heap_scores[s] then s = r end
-			if s == i then break end
-			heap_keys[i], heap_keys[s]     = heap_keys[s],     heap_keys[i]
-			heap_scores[i], heap_scores[s] = heap_scores[s], heap_scores[i]
-			i = s
-		end
-		return tk, ts
-	end
-
-	local closed_set = {}
-	local came_from  = {}
-	local g_score    = {}
-	local f_score    = {}
-
-	-- Track best-explored node inline to avoid a second pass through closed_set on failure
-	local best_partial_node = nil
-	local best_partial_dist = math.huge
-
-	-- Initialize start node
-	g_score[start_key] = 0
-	local start_h = self:CalculateHeuristic(start_key, end_key)
-	f_score[start_key] = start_h
-	heap_push(start_key, start_h)
-
-	local precision = math.max(1, math.min(100, DAV.user_setting_table.astar_calculation_precision or 100))
-	local max_iterations = math.floor(200 + ((precision - 1) / 99) * (100000 - 200) + 0.5)
-	local iterations = 0
-
-	while heap_size > 0 and iterations < max_iterations do
-		local current, popped_f = heap_pop()
-		if not current then break end
-
-		-- Skip stale heap entries: already closed, or superseded by a better f-score after this push.
-		if closed_set[current] or popped_f > (f_score[current] or math.huge) + 0.001 then
-			-- stale: do not count against iteration budget
-		else
-			iterations = iterations + 1
-
-			-- Goal reached
-			if current == end_key then
-				local route = {}
-				local path_node = current
-				while path_node do
-					table.insert(route, 1, path_node)
-					path_node = came_from[path_node]
-				end
-				self.astar_is_partial_route = false
-				self.log_obj:Record(LogLevel.Info, string.format(
-					"A* route planned: %d cells, %d iterations from %s to %s (penalty_cache=%d coord_cache=%d)",
-					#route, iterations, start_key, end_key,
-					(function() local n=0; for _ in pairs(self.sector_penalty_cache) do n=n+1 end; return n end)(),
-					(function() local n=0; for _ in pairs(self.astar_coord_cache) do n=n+1 end; return n end)()))
-				self.sector_penalty_cache = nil
-				self.astar_coord_cache    = nil
-				return route
-			end
-
-			closed_set[current] = true
-
-			-- Update best partial node (closest to goal among explored nodes)
-			local h_cur = self:CalculateHeuristic(current, end_key)
-			if h_cur < best_partial_dist then
-				best_partial_dist = h_cur
-				best_partial_node = current
-			end
-
-			-- Evaluate neighbors
-			local neighbors = self:GetNeighborSectors(current)
-			for _, neighbor in ipairs(neighbors) do
-				if not closed_set[neighbor] then
-					local move_cost = self:GetSectorMovementCost(current, neighbor)
-					-- Skip impassable cells: impassable cost is base*1e7, max legit ~709, so 1e5 is a safe cutoff.
-					if move_cost < 1e5 then
-						local tentative_g = (g_score[current] or math.huge) + move_cost
-						if tentative_g < (g_score[neighbor] or math.huge) then
-							came_from[neighbor] = current
-							g_score[neighbor]   = tentative_g
-							local new_f = tentative_g + self:CalculateHeuristic(neighbor, end_key)
-							f_score[neighbor] = new_f
-							heap_push(neighbor, new_f)
-						end
-					end
-				end
-			end
-		end
-	end
-
-	-- No path found within iteration limit.
-	local open_count   = heap_size
-	local closed_count = 0
-	for _ in pairs(closed_set) do closed_count = closed_count + 1 end
-
-	if best_partial_node and best_partial_node ~= start_key then
-		local partial_route = {}
-		local path_node = best_partial_node
-		while path_node do
-			table.insert(partial_route, 1, path_node)
-			path_node = came_from[path_node]
-		end
-		self.astar_is_partial_route = true
-		self.log_obj:Record(LogLevel.Warning, string.format(
-			"A* incomplete after %d iterations, using partial route to closest explored node: %d cells (distance to goal: %.1f)",
-			iterations, #partial_route, best_partial_dist * self.sector_size))
-		self.sector_penalty_cache = nil
-		self.astar_coord_cache    = nil
-		return partial_route
-	end
-
-	-- No valid path found through known cells.
-	self.astar_is_partial_route = true
-	self.log_obj:Record(LogLevel.Warning, string.format(
-		"A* pathfinding failed after %d iterations - no path through known cells (start=%s, end=%s, open=%d, closed=%d)",
-		iterations, start_key, end_key, open_count, closed_count))
-	self.sector_penalty_cache = nil
-	self.astar_coord_cache    = nil
-	return {}
 end
 
 function Navigation:GetAstarMaxIterations()
@@ -2430,18 +2134,6 @@ function Navigation:ResetLastRouteVisualization(start_pos, end_pos, debug_target
 	end
 end
 
-function Navigation:ClearLastRouteVisualization()
-	local fallback_pos = Vector4.new(0, 0, 0, 1)
-	local current_pos = fallback_pos
-	if self.av_obj ~= nil and self.av_obj.entity ~= nil then
-		local pos = self.av_obj:GetPosition()
-		if pos ~= nil then
-			current_pos = pos
-		end
-	end
-	self:ResetLastRouteVisualization(current_pos, current_pos)
-end
-
 --- Save the last planned A* route to JSON for external visualization.
 ---@param route table List of cell keys ("sx_sy_sz")
 ---@param start_pos Vector4 Actual start world position
@@ -2969,53 +2661,6 @@ function Navigation:EnsureMapDirectory()
 		"Legacy map directory not writable: " .. tostring(self.obstacle_map_dir) ..
 		" (ignored under full residency)")
 	return false
-end
-
---- Migrate legacy single-file obstacle_map.dat to chunked format in Data/map/.
---- Called automatically by LoadObstacleMap on first load.
-function Navigation:MigrateOldObstacleMap()
-	local old_path = self.obstacle_map_path
-	local file = io.open(old_path, "r")
-	if not file then
-		-- Also try .bak
-		file = io.open(old_path .. ".bak", "r")
-		if not file then return false end
-		self.log_obj:Record(LogLevel.Info, "Migrating from backup obstacle_map.dat.bak")
-	end
-
-	self.log_obj:Record(LogLevel.Info, "Migrating legacy obstacle_map.dat to chunked format...")
-	local raw = file:read("*all")
-	file:close()
-	if not raw or raw == "" then return false end
-
-	local cs = raw:match("^DAV_OBMAP v2 cell_size=([%d%.]+)")
-	if not cs then
-		self.log_obj:Record(LogLevel.Warning, "MigrateOldObstacleMap: unrecognized header, skipping")
-		return false
-	end
-	self.obstacle_cell_size = tonumber(cs) or 10.0
-
-	local n = 0
-	for cx, cy, cz, count in raw:gmatch("(-?%d+) (-?%d+) (-?%d+) (-?%d+)") do
-		local key = self:PackCellKey(tonumber(cx), tonumber(cy), tonumber(cz))
-		local cnt = tonumber(count)
-		self.obstacle_map[key] = {count = cnt}
-		-- Build chunk index and mark all chunks dirty for initial save
-		self:MarkCellDirty(key)
-		n = n + 1
-	end
-
-	-- Save all chunks in new format
-	self:SaveObstacleMap()
-
-	-- Rename old files so they won't be re-migrated
-	os.rename(old_path, old_path .. ".migrated")
-	os.rename(old_path .. ".bak", old_path .. ".bak.migrated")
-
-	self.log_obj:Record(LogLevel.Info, string.format(
-		"Migration complete: %d cells -> chunked files in %s. Old file renamed to .migrated",
-		n, self.obstacle_map_dir))
-	return true
 end
 
 --- Save obstacle map using complete differential persistence.
@@ -4181,13 +3826,9 @@ function Navigation:AutoLeaving(dist_vector, height)
 				elseif yaw_diff < -180 then
 					yaw_diff = yaw_diff + 360
 				end
-				-- Turn to the destination bearing before departing. The old code took the same
-				-- proportional rate and then, whenever it fell under 0.1, replaced it with the raw error --
-				-- degrees used as rad/s. That branch is the last 10 deg of the turn, so the nose was handed
-				-- up to 10 rad/s (570 deg/s) through a mode 2 angular velocity write, whipped past the
-				-- target and came back: that is the oscillation, and it only stopped when a sample happened
-				-- to land inside 0.1 deg, which is also why it took so long to settle. The floor belongs on
-				-- the command in the command's own units, and the end test belongs on the angle it names.
+				-- Turn to the destination bearing before departing. The old code replaced a small
+				-- proportional rate with the raw error (degrees used as rad/s: up to 570 deg/s), which
+				-- whipped past the target - the oscillation. The floor belongs on the command itself.
 				local turn_rate = yaw_diff * self.autopilot_turn_speed
 				local aligned = math.abs(yaw_diff) <= self.leaving_yaw_align_deg
 				if aligned then
@@ -4370,14 +4011,6 @@ function Navigation:InterruptAutoPilot()
 	self:ReleaseRouteChunks()
 end
 
---- Set AV.is_failture_auto_pilot and get Failture AutoPilot Flag.
----@return boolean
-function Navigation:IsFailedAutoPilot()
-	local is_failture_auto_pilot = self.is_failture_auto_pilot
-	self.is_failture_auto_pilot = false
-	return is_failture_auto_pilot
-end
-
 --- Apply autopilot parameters derived from user_setting_table.autopilot_speed.
 
 function Navigation:ApplyAutopilotSpeed()
@@ -4412,16 +4045,6 @@ function Navigation:GetPlayerAroundDirection(angle)
 		return Vector4.new(0, 0, 0, 1.0)
 	end
 	return Vector4.RotateAxis(player:GetWorldForward(), Vector4.new(0, 0, 1, 0), angle / 180.0 * Pi())
-end
-
---- Check Player in Exception Area
----@param position Vector4
----@return boolean is_in_area If or not in exception area
----@return string tag Tag
----@return number z max height of exception area
-function Navigation:IsInExceptionArea(position)
-	-- Exception-area system disabled.
-	return false, "None", 0
 end
 
 --- This function returns collision status.
@@ -4574,17 +4197,6 @@ function Navigation:IsWall(dir_vec, distance, angle, swing_direction, is_check_e
 		current_position.x = current_position.x + right_vec.x * offset_right + dir_base_vec.x * offset_forward + up_vec.x * offset_up
 		current_position.y = current_position.y + right_vec.y * offset_right + dir_base_vec.y * offset_forward + up_vec.y * offset_up
 		current_position.z = current_position.z + right_vec.z * offset_right + dir_base_vec.z * offset_forward + up_vec.z * offset_up
-
-		-- Ground proximity protection: Prevent raycast start points from going below ground during upward checks
-		-- if swing_direction == "Vertical" and angle >= 0 then  -- Upward vertical check
-		--     local base_position = self.av_obj:GetPosition()  -- Original vehicle position
-		--     local min_ground_clearance = 1.0  -- Minimum 1m above ground
-		--     if current_position.z < base_position.z - min_ground_clearance then
-		--         -- Raycast start point would be too low, clamp to minimum ground clearance
-		--         current_position.z = base_position.z - min_ground_clearance
-		--         self.log_obj:Record(LogLevel.Trace, "Raycast start point clamped to prevent ground false positive")
-		--     end
-		-- end
 
 		local adaptive_distance = distance * (1 + speed_factor * 0.4)
 		local target_pos = Vector4.new(
@@ -4829,134 +4441,6 @@ function Navigation:FindNearestKnownSectorPosInDirection(origin_pos, direction_v
 			chunk_dist))
 	end
 	return nil, math.huge
-end
-
----@param origin_pos Vector4|nil
----@param direction_vec Vector4|nil
----@param max_dist number|nil
----@return Vector4|nil nearest_pos
----@return number best_dist
----@return boolean found_local
-function Navigation:FindNearestKnownSectorPosByShell(origin_pos, direction_vec, max_dist)
-	if not origin_pos then return nil, math.huge, false end
-	local origin_key = self:PositionToSectorKey(origin_pos)
-	if not origin_key then return nil, math.huge, false end
-	local base_x, base_y, base_z = self:ParseSectorKey(origin_key)
-	if not base_x then return nil, math.huge, false end
-
-	local cs = self.obstacle_cell_size
-	local max_radius = self.nearest_known_search_soft_limit_cells or 60
-	if max_dist ~= nil then
-		max_radius = math.max(0, math.ceil(max_dist / math.max(cs, 0.001)))
-	end
-
-	local dir_x, dir_y, dir_z = 0, 0, 0
-	local use_direction_filter = false
-	if direction_vec then
-		local dir_len = math.sqrt(
-			direction_vec.x * direction_vec.x +
-			direction_vec.y * direction_vec.y +
-			direction_vec.z * direction_vec.z)
-		if dir_len > 0.001 then
-			dir_x = direction_vec.x / dir_len
-			dir_y = direction_vec.y / dir_len
-			dir_z = direction_vec.z / dir_len
-			use_direction_filter = true
-		end
-	end
-
-	for radius = 0, max_radius do
-		local best_pos = nil
-		local best_dist = math.huge
-		for dx = -radius, radius do
-			for dy = -radius, radius do
-				for dz = -radius, radius do
-					if radius == 0 or math.max(math.abs(dx), math.abs(dy), math.abs(dz)) == radius then
-						local cell_key = self:PackCellKey(base_x + dx, base_y + dy, base_z + dz)
-						local cell = self:CellStateAtKey(cell_key)
-						if cell ~= nil and cell ~= true then
-							local cell_pos = Vector4.new((base_x + dx + 0.5) * cs, (base_y + dy + 0.5) * cs, (base_z + dz + 0.5) * cs, 1)
-							local off_x = cell_pos.x - origin_pos.x
-							local off_y = cell_pos.y - origin_pos.y
-							local off_z = cell_pos.z - origin_pos.z
-							local dist = math.sqrt(off_x * off_x + off_y * off_y + off_z * off_z)
-							if (max_dist == nil or dist <= max_dist) and dist < best_dist then
-								local passes_direction = true
-								if use_direction_filter and dist > 0.001 then
-									local forward_dot = (off_x / dist) * dir_x + (off_y / dist) * dir_y + (off_z / dist) * dir_z
-									passes_direction = forward_dot >= 0
-								end
-								if passes_direction then
-									best_dist = dist
-									best_pos = cell_pos
-								end
-							end
-						end
-					end
-				end
-			end
-		end
-		if best_pos then
-			return best_pos, best_dist, true
-		end
-	end
-
-	return nil, math.huge, false
-end
-
----@param origin_pos Vector4|nil
----@param direction_vec Vector4|nil
----@return Vector4|nil nearest_pos
----@return number best_dist
-function Navigation:FindNearestKnownSectorPosByFullScan(origin_pos, direction_vec)
-	if not origin_pos then return nil, math.huge end
-	local cs = self.obstacle_cell_size
-	local best_pos = nil
-	local best_dist = math.huge
-	local dir_x, dir_y, dir_z = 0, 0, 0
-	local use_direction_filter = false
-	if direction_vec then
-		local dir_len = math.sqrt(
-			direction_vec.x * direction_vec.x +
-			direction_vec.y * direction_vec.y +
-			direction_vec.z * direction_vec.z)
-		if dir_len > 0.001 then
-			dir_x = direction_vec.x / dir_len
-			dir_y = direction_vec.y / dir_len
-			dir_z = direction_vec.z / dir_len
-			use_direction_filter = true
-		end
-	end
-
-	self.obstacle_grid:iter_all_known(function(cx, cy, cz, state)
-		local cell
-		if state == ObstacleGrid.CLEAR then cell = false
-		elseif state == ObstacleGrid.DANGER then cell = "danger"
-		else cell = true end
-		-- Learned cells win, same as CellStateAtKey.
-		local learned = self.obstacle_map[self:PackCellKey(cx, cy, cz)]
-		if learned ~= nil then cell = learned end
-		if cell == nil or cell == true then return end
-
-		local cell_pos = Vector4.new((cx + 0.5) * cs, (cy + 0.5) * cs, (cz + 0.5) * cs, 1)
-		local dx = cell_pos.x - origin_pos.x
-		local dy = cell_pos.y - origin_pos.y
-		local dz = cell_pos.z - origin_pos.z
-		local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
-		if dist > 0.001 and dist < best_dist then
-			local passes_direction = true
-			if use_direction_filter then
-				local forward_dot = (dx / dist) * dir_x + (dy / dist) * dir_y + (dz / dist) * dir_z
-				passes_direction = forward_dot >= 0
-			end
-			if passes_direction then
-				best_dist = dist
-				best_pos = cell_pos
-			end
-		end
-	end)
-
-	return best_pos, best_dist
 end
 
 ---@param cell_key string|nil
@@ -5375,12 +4859,9 @@ function Navigation:ComputeLocalAvoidanceDirection(current_pos, dest_dir_vec, cu
 		self.auto_speed_reduce_rate = 0.7
 	end
 
-	-- Stopping-distance braking on top of the percentage reduction. The percentage law alone could
-	-- never drop below autopilot_min_speed_rate (0.4 -> 10 m/s at a 25 m/s cruise) and only started
-	-- slowing inside 0.35 * detect_dist (10.5 m, about 0.4 s at cruise), so an obstacle arrived at
-	-- 10 m/s with nothing left to give. Cap the speed with what can actually be shed before contact:
-	-- v = sqrt(2 a (d - margin)). No cap at all when the forward hemisphere is clear, otherwise the
-	-- AV would never reach cruise speed.
+	-- Stopping-distance braking on top of the percentage reduction: the percentage law alone never
+	-- dropped below autopilot_min_speed_rate inside the last ~0.4 s at cruise. Cap the speed with
+	-- what can actually be shed before contact, v = sqrt(2 a (d - margin)); no cap when clear.
 	if min_fwd_dist < detect_dist then
 		local brake_room = math.max(0.0, min_fwd_dist - self.autopilot_brake_margin)
 		self.autopilot_brake_speed_cap = math.sqrt(2.0 * self.autopilot_brake_decel * brake_room)

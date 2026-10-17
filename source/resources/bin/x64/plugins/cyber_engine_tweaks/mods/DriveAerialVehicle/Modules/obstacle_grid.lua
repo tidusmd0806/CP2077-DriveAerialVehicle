@@ -88,25 +88,6 @@ function ObstacleGrid:load_chunk(path)
 	}
 end
 
---- Load every chunk in a { cx, cy, path } list.
----@param list table
----@return number chunks_loaded
-function ObstacleGrid:load_all(list)
-	local n = 0
-	for _, e in ipairs(list) do
-		local c = self:load_chunk(e.path)
-		if c then
-			c.bx = e.cx * CHUNK_CELLS
-			c.by = e.cy * CHUNK_CELLS
-			self.chunks[ObstacleGrid.chunk_key(e.cx, e.cy)] = c
-			self.chunk_n = self.chunk_n + 1
-			self.cells_known = self.cells_known + (c.known_n or 0)
-			n = n + 1
-		end
-	end
-	return n
-end
-
 -- ---------------------------------------------------------------------------
 -- Reading
 -- ---------------------------------------------------------------------------
@@ -385,10 +366,6 @@ function ObstacleGrid:clear()
 	self.chunk_n = 0
 	self.cells_known = 0
 	self.state_counts = nil
-end
-
-function ObstacleGrid:heap_mb()
-	return collectgarbage("count") / 1024
 end
 
 return ObstacleGrid

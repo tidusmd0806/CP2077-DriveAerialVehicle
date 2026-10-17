@@ -547,9 +547,8 @@ function AV:Despawn()
 end
 
 --- Despawn AV when it is on ground.
---- Recall is a climb and nothing else: it starts slow and builds to the top speed as the timeout
---- approaches, then disappears. The descent this used to switch to after two ticks belonged to a
---- landing, not a recall - the vehicle was already clear of the ground, so it only made it dive.
+--- Recall is a climb and nothing else: it starts slow and builds to top speed as the timeout
+--- approaches. The descent this used to switch to belonged to a landing, not a recall.
 function AV:DespawnFromGround()
 	local up_ticks = TimeScale:Ticks(self.up_timeout)
 	Cron.Every(DAV.time_resolution, { tick = 1 }, function(timer)
@@ -613,32 +612,6 @@ function AV:ToggleCrystalDome()
 		self.is_crystal_dome = false
 	end
 	GameObjectEffectHelper.StartEffectEvent(entity, effect_name, false)
-	return true
-end
-
---- (Unused) Unlock all doors.
----@return boolean
-function AV:UnlockDoor()
-	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
-		return false
-	end
-	local entity = self:GetEntity()
-	local vehicle_ps = entity:GetVehiclePS()
-	vehicle_ps:UnlockAllVehDoors()
-	return true
-end
-
---- (Unused) Lock all doors.
----@return boolean
-function AV:LockDoor()
-	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity id to change door lock")
-		return false
-	end
-	local entity = self:GetEntity()
-	local vehicle_ps = entity:GetVehiclePS()
-	vehicle_ps:QuestLockAllVehDoors()
 	return true
 end
 

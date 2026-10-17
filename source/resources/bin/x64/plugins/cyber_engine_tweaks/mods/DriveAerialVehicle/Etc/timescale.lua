@@ -136,15 +136,6 @@ function TimeScale:GetHz()
     return math.floor((1.0 / resolution) + 0.5)
 end
 
----@param res number|nil
----@return number
-function TimeScale:ResolutionToHz(res)
-    if type(res) ~= "number" or res ~= res or res <= 0 then
-        return 1.0 / self.BASE_RESOLUTION
-    end
-    return 1.0 / res
-end
-
 --- Publish a new resolution. Cheap enough to call on every settings change.
 ---@param value number|nil requested resolution
 ---@param new_mode string|nil MODE_NOMINAL (default) or MODE_MEASURED
@@ -211,21 +202,6 @@ function TimeScale:Ticks(seconds)
         return 1
     end
     return ticks
-end
-
---- Convert a tick count written at the base resolution into seconds.
----@param base_ticks number
----@return number
-function TimeScale:BaseTicksToSeconds(base_ticks)
-    return (base_ticks or 0) * self.BASE_RESOLUTION
-end
-
---- Scale a per-base-tick increment (rpm step, thruster angle step, ...) so the
---- per-second rate is preserved at the current resolution.
----@param base_amount number value tuned at BASE_RESOLUTION
----@return number
-function TimeScale:PerTick(base_amount)
-    return (base_amount or 0) * self:Scale()
 end
 
 --- Distance the craft travels during one control tick (lead compensation for late-sampled thresholds).
