@@ -74,6 +74,8 @@ function Engine:Init(entity_id)
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
+    -- Fresh body: the DLL starts with no driver aboard.
+    self:SetFlightContext(false)
     self.mass = self.fly_av_system:GetMass()
     -- The DLL is a hard requirement: flight control, the flight model, the idle hover and the ground
     -- query all run inside it, so there is no capability probing and no Lua driving path.
@@ -366,8 +368,7 @@ end
 --- Re-assert the native flight model (mode 3); the DLL physics hook runs it per tick.
 --- Commands arrive as event edges through Core:PushNative and the DLL holds them, so nothing is
 --- packed here - this call only re-asserts mode 3 and picks up a pending integrator reset.
-function Engine:PushNativeCommands()
-    local reset = self.native_reset_pending and 1 or 0
+function Engine:PushNativeCommands()    local reset = self.native_reset_pending and 1 or 0
     self.native_reset_pending = false
     -- The DLL derives attitude and axes from the entity quaternion itself (see the axis assignment in
     -- FmStep), so neither is pushed. W = 0 means "use your own extraction".
@@ -389,6 +390,20 @@ function Engine:PushNativeCommands()
         Vector4.new(0, 0, 0, 0),
         Vector4.new(0, 0, 0, 0),
         Vector4.new(0, 0, 0, 0))
+end
+
+--- Push the flight context bits (bit0 = player aboard, bit1 = autopilot) that gate the DLL
+--- physics hook's auto mode re-assert. The hook must not fly the AV without a driver aboard
+--- (the mode 4 idle hover lives outside the vehicle) and must not fight the autopilot.
+function Engine:SetFlightContext(in_vehicle)
+    self.in_vehicle = in_vehicle and true or false
+    if self.fly_av_system ~= nil then
+        local bits = (self.in_vehicle and 1 or 0)
+        if self.av_obj ~= nil and self.av_obj.is_auto_pilot then
+            bits = bits + 2
+        end
+        self.fly_av_system:SetFlightFlags(bits)
+    end
 end
 
 --- Get Control Type
@@ -437,7 +452,7 @@ function Engine:ApplyControlMode()
     local control_type = self.engine_control_type
     -- Every mode decision below re-derives who owns the hover. The flag must not survive into a
     -- control type that does not run it (AddForce after boarding, FluctuationVelocity ramps), or
-    -- AV:Operate would keep swallowing manual input while the regulator still holds the vehicle.
+    -- the regulator would keep holding the vehicle while manual input is expected.
     self.native_idle_active = false
     if control_type == Def.EngineControlType.AddForce and not self.av_obj.is_auto_pilot then
         -- The DLL physics hook runs the whole flight model from the pushed commands.
@@ -446,6 +461,10 @@ function Engine:ApplyControlMode()
             self.log_obj:Record(LogLevel.Info, "mode3 push (native flight model active)")
             self:PushNativeControl(3, self.zero3, self.zero3, self.torque_gain)
             self.native_mode3_pushed = true
+        end
+        if self.native_reset_pending then
+            -- Pick up the integrator reset that used to ride the per-input Operate shim.
+            self:PushNativeCommands()
         end
         return
     end
@@ -586,6 +605,8 @@ function Engine:SetAutoPilot(on)
         return
     end
     self.av_obj.is_auto_pilot = on
+    -- Refresh the autopilot bit of the DLL flight context.
+    self:SetFlightContext(self.in_vehicle)
     self:ApplyControlMode()
 end
 

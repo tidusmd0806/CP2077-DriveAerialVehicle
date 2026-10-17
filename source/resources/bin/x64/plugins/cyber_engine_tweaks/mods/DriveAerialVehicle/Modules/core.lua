@@ -1311,36 +1311,16 @@ function Core:ProcessPendingOperations()
     self.is_processing_operations = false
 end
 
---- Route one input action. Movement actions are plain physics targets and safe to run from the input
---- callback: they go straight to the DLL (held command + Operate) with no queue in between. Game
---- operations (>= Enter) are parked for the control loop, which wakes on the flag.
+--- Route one input action. Movement actions are fully handled by the DLL held-command state
+--- (Core:PushNative / EnqueueAxis) - the Operate shim that re-asserted mode 3 per action is gone,
+--- the physics hook re-asserts it itself off the held commands and the flight context bits.
+--- Game operations (>= Enter) are parked for the control loop, which wakes on the flag.
 function Core:EnqueueAction(action)
     local action_list = type(action) == "table" and action or {action, 1}
     if action_list[1] >= Def.ActionList.Enter then
         self.pending_operations[#self.pending_operations + 1] = action_list[1]
         self.has_pending_operation = true
-        return
     end
-    self:OperateAerialVehicle({action_list})
-end
-
---- Operate Aerial Vehicle.
----@param actions table
-function Core:OperateAerialVehicle(actions)
-    if self.is_locked_operation then
-        return
-    end
-
-    -- No menu, popup or photo mode: with a menu up nothing computed here can reach physics.
-    if self.event_obj:IsInMenuOrPopupOrPhoto() then
-        return
-    end
-
-    if self.event_obj:IsInVehicle() then
-        self.av_obj:Operate(actions)
-    end
-    -- Waiting has nothing left to pump: the hover, the thruster swing and the sound layers all run
-    -- in the DLL now, off the held command state - no Idle action has to reach Lua.
 end
 
 --- Operation for event trigger.

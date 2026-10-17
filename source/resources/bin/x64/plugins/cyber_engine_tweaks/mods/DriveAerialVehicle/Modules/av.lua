@@ -883,29 +883,8 @@ function AV:BlockOperation(on)
 	end
 end
 
---- Execute action commands.
---- The DLL does all the physics: manual AddForce flight runs the native flight model from the held
---- command edges, the unboarded hover runs in the native regulator, and the autopilot drives the
---- engine itself through Navigation. The thruster swing and the sound layers ride the same held
---- commands inside the DLL. Nothing is computed here.
----@param action_command_lists table
-function AV:Operate(action_command_lists)
-	for _, action_command_list in ipairs(action_command_lists) do
-		if action_command_list[1] >= Def.ActionList.Enter then
-			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
-			return false
-		end
-	end
-	if self.is_auto_pilot then
-		return true
-	end
-	if self.engine_obj:GetControlType() == Def.EngineControlType.AddForce then
-		-- Re-assert mode 3 and pick up a pending integrator reset; the held commands live in the DLL.
-		self.engine_obj:PushNativeCommands()
-	end
-	return true
-end
-
+--- AV:Operate is gone: the DLL re-asserts the flight model itself from the held commands and the
+--- flight context bits (SetFlightFlags), so movement input never needs to reach Lua.
 
 --- Toggle radio ON or switch to next station.
 function AV:ToggleRadio()

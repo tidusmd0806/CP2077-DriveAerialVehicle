@@ -313,6 +313,20 @@ function Event:SetSituation(situation)
     end
 end
 
+--- Situation transitions also refresh the DLL flight context (bit0 = aboard): the DLL's auto mode
+--- re-assert (successor of the old per-input AV:Operate shim) must not fire without a driver.
+local try_set_situation = Event.SetSituation
+function Event:SetSituation(situation)
+    local ok = try_set_situation(self, situation)
+    if ok then
+        local eng = self.av_obj and self.av_obj.engine_obj
+        if eng ~= nil then
+            eng:SetFlightContext(situation == Def.Situation.InVehicle)
+        end
+    end
+    return ok
+end
+
 --- Throttle helper: returns true when the caller should run now, and books the next slot.
 --- os.clock() is CPU time, so every cadence backs off when the process is CPU-bound.
 ---@param field string instance field holding the next allowed run time
