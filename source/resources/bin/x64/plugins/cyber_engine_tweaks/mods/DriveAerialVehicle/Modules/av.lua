@@ -615,6 +615,32 @@ function AV:ToggleCrystalDome()
 	return true
 end
 
+--- Unlock all doors.
+---@return boolean
+function AV:UnlockDoor()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
+		return false
+	end
+	local entity = self:GetEntity()
+	local vehicle_ps = entity:GetVehiclePS()
+	vehicle_ps:UnlockAllVehDoors()
+	return true
+end
+
+--- Lock all doors.
+---@return boolean
+function AV:LockDoor()
+	if self.entity_id == nil then
+		self.log_obj:Record(LogLevel.Warning, "No entity id to change door lock")
+		return false
+	end
+	local entity = self:GetEntity()
+	local vehicle_ps = entity:GetVehiclePS()
+	vehicle_ps:QuestLockAllVehDoors()
+	return true
+end
+
 --- Disable all door interactions for preventing unexpected mounting.
 ---@return boolean
 function AV:DisableAllDoorInteractions()

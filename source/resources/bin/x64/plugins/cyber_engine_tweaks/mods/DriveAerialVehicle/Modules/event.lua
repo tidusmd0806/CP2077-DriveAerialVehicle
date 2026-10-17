@@ -837,6 +837,16 @@ function Event:IsInVehicle()
     end
 end
 
+--- Check if player is taking off.
+---@return boolean
+function Event:IsTakingOff()
+    if self.current_situation == Def.Situation.TalkingOff then
+        return true
+    else
+        return false
+    end
+end
+
 --- Check if player is in auto mode.
 ---@return boolean
 --- Situation check with no C# round trip. The meter overrides fire on every speed

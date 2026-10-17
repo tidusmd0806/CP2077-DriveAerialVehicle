@@ -582,6 +582,11 @@ function DAV:Version()
     return DAV.version
 end
 
+--- Runtime toggle for the ImGui debug window (startup default comes from debug.txt).
+function DAV:ToggleDebugMode()
+    DAV.is_debug_mode = not DAV.is_debug_mode
+end
+
 function DAV:Disable()
     if DAV.is_disabled then
         return true

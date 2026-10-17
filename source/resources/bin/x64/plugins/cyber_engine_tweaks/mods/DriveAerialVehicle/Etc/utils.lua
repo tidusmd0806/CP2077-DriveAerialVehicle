@@ -147,6 +147,16 @@ function Utils:ReadJsonCached(fill_path)
    return cached
 end
 
+--- Drop one cached config (or all of them) so the next read hits the disk.
+---@param fill_path string|nil nil drops the whole cache
+function Utils:InvalidateJsonCache(fill_path)
+   if fill_path == nil then
+      JSON_CACHE = {}
+   else
+      JSON_CACHE[fill_path] = nil
+   end
+end
+
 --- Write json file.
 ---@param fill_path string
 ---@param write_data table
