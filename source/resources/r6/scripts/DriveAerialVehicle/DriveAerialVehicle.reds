@@ -336,6 +336,25 @@ private cb func OnDAVSoundEvent(event: ref<ActionEvent>) {
 	}
 }
 
+//*** DLL threshold monitor bridge ***//
+// The DLL monitor queues a plain gameActionEvent (eventAction = dav_evt_*) on the puppet - the
+// same proven path the sound layer uses. This cb is the hook point: the game dispatches every
+// puppet ActionEvent to it by parameter type, and CET observes it to hand the event straight to
+// Lua (Observe("PlayerPuppet", "OnDAVMonitorEvent") in init.lua). The body stays empty; the Lua
+// side owns the dav_evt_* filtering and the game-side actions. Not gated on Audioware - the
+// monitor is independent of the sound layers.
+@addMethod(PlayerPuppet)
+private cb func OnDAVMonitorEvent(event: ref<ActionEvent>) {
+	// Hook point for CET (see the Observe in init.lua); the comparison itself is a no-op.
+	// Referencing the six monitor names here is what registers them in the CName table at script
+	// load: the DLL computes eventAction hashes itself and cannot register names, and an
+	// unregistered CName reads back as an empty string on the Lua side (the failure that made
+	// every threshold event look nameless).
+	if Equals(event.eventAction, n"dav_evt_height_low") || Equals(event.eventAction, n"dav_evt_height_high") || Equals(event.eventAction, n"dav_evt_height_tick") || Equals(event.eventAction, n"dav_evt_dist_near") || Equals(event.eventAction, n"dav_evt_dist_far") || Equals(event.eventAction, n"dav_evt_entry_in") || Equals(event.eventAction, n"dav_evt_entry_out") {
+		return;
+	}
+}
+
 //*** LTBF ***//
 public class DAVFlightSystem {
 	@if(ModuleExists("LetThereBeFlight"))

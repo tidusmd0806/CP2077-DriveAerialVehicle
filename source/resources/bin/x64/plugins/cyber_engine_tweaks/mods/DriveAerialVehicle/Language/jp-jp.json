@@ -173,6 +173,10 @@
   "hud_input_hint_helicopter_left_right_rotation": "左右回転",
   "hud_input_hint_helicopter_acceleration": "加速",
   "hud_input_hint_helicopter_toggle_camera": "カメラ切り替え",
+  "native_settings_advance_time_resolution": "シミュレーションのティックレート",
+  "native_settings_advance_time_resolution_description": "飛行制御ループの実行頻度（ヘルツ、10〜120）。値を下げると CPU 負荷は減りますが、飛行の判断粒度は粗くなります。飛行モデルはこの値に補正されているため、全範囲で離着陸の停止位置はずれません。ループはフレームレートより速く実行できないため、30fps の環境では 30Hz 以上の指定は効果がありません。既定: 20Hz。",
+  "native_settings_advance_time_scale_measured": "実測ティック時間で補正する",
+  "native_settings_advance_time_scale_measured_description": "オフ（既定）: 上の設定値どおりの間隔で飛行モデルを補正します。MOD のチューニングと同じ基準で動作します。オン: 設定値ではなくティック間の実際の経過時間で補正するため、ゲームが処理を追いつかない場合も挙動が一定に保たれますが、チューニング基準（100Hz）以外のレートで動作している場合は体感も変わります。フレームレートが不安定な場合のみ有効にしてください。",
   "native_settings_advance_obstacle_recording": "障害物マップの学習を有効にする",
   "native_settings_advance_obstacle_recording_description": "飛行中に周辺の形状を走査し、新たに発見した障害物をマップへ保存します。主にマップ作成者向けの機能です。同梱マップはすでに市街地をカバーしているため、通常のプレイではオフのままrecommendedです。オフにすると 5Hz の走査と定期保存がスキップされ、負荷が減ります。"
 }

@@ -1,27 +1,6 @@
---------------------------------------------------------
--- Enhanced Logging System with Auto Caller Detection
---------------------------------------------------------
--- Usage Examples:
---   Basic logging (auto caller info for Error/Warning/Critical):
---     log_obj:Record(LogLevel.Error, "Failed to load") 
---     → [Core] [ERROR] [core.lua:123] Failed to load
---   
---   With context:
---     log_obj:Record(LogLevel.Error, "Failed to load model", "Core:Init")
---     → [Core] [ERROR] [Core:Init @ core.lua:123] Failed to load model
---   
---   Skip caller info for performance (high-frequency logs):
---     log_obj:Record(LogLevel.Trace, "Processing", nil, true)
---   
---   Info/Debug/Trace (no auto caller info for performance):
---     log_obj:Record(LogLevel.Info, "Vehicle spawned")
---     → [Core] [INFO] Vehicle spawned
---   
--- Output format:
---   [ModuleName] [LEVEL] [Context @ file.lua:line] Message
---
--- Auto caller info is added for: Critical, Error, Warning (not for Info/Debug/Trace)
---------------------------------------------------------
+-- Enhanced logging with auto caller detection (Critical/Error/Warning only).
+-- Format: [ModuleName] [LEVEL] [Context @ file.lua:line] Message
+-- High-frequency logs: pass skip_caller=true to Record() to skip the caller lookup.
 
 ---@enum LogLevel
 LogLevel = {
@@ -67,18 +46,25 @@ function Log:SetLevel(level, file_name)
     end
 end
 
+--- Whether a record at `level` would actually be emitted.
+--- Gate on this before concatenating hot-path messages; mirrors both of Record()'s guards.
+---@param level LogLevel
+---@return boolean
+function Log:IsEnabled(level)
+    local setting_level = self.setting_level
+    if MasterLogLevel > setting_level then
+        setting_level = MasterLogLevel
+    end
+    return level <= setting_level and level <= LogLevel.Debug
+end
+
 --- Record a message to the log file with automatic caller information
 ---@param level LogLevel
 ---@param message string
 ---@param context string|nil Optional context information (e.g., function name, operation)
 ---@param skip_caller boolean|nil If true, skip automatic caller info (for performance)
 function Log:Record(level, message, context, skip_caller)
-    local setting_level = self.setting_level
-    if MasterLogLevel > setting_level then
-        setting_level = MasterLogLevel
-    end
-
-    if level > setting_level then
+    if not self:IsEnabled(level) then
         return
     end
     

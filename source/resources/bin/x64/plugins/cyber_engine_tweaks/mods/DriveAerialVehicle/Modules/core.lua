@@ -1,10 +1,8 @@
 local AV = require("Modules/av.lua")
 local Event = require("Modules/event.lua")
-local Queue = require("Etc/queue.lua")
-local Utils = require("Etc/utils.lua")
-
 local Core = {}
 Core.__index = Core
+local Utils = require("Etc/utils.lua")
 
 --- Constructor
 ---@return table
@@ -13,7 +11,7 @@ function Core:New()
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "Core")
-    obj.queue_obj = Queue:New()
+    obj.pending_operations = {}
     obj.av_obj = nil
     obj.event_obj = nil
     obj.is_obstacle_map_loaded_in_session = false
@@ -27,8 +25,7 @@ function Core:New()
     obj.session_obstacle_map_loaded_files = 0
     obj.is_obstacle_map_preload_timer_active = false
     obj.has_started_obstacle_map_preload = false
-    -- static --
-    -- lock
+    -- static -- lock
     obj.delay_action_time_in_waiting = 0.05
     obj.delay_action_time_in_vehicle = 0.05
     -- import path
@@ -42,8 +39,7 @@ function Core:New()
     -- custom mappin
     obj.huge_distance = 1000000
     obj.max_mappin_history = 10
-    -- dynamic --
-    -- lock
+    -- dynamic -- lock
     obj.is_locked_action_in_waiting = false
     obj.is_locked_action_in_vehicle = false
     obj.is_locked_action_in_combat = false
@@ -56,11 +52,17 @@ function Core:New()
     obj.radio_hold_complete_time_count = 5
     obj.radio_button_hold_count = 0
     obj.is_radio_button_hold_counter = false
+    -- Control loop bookkeeping (see Etc/timescale.lua)
+    obj.main_loop_timer = nil
+    obj.last_control_time = nil
     -- AV
     obj.move_up_button_hold_count = 0
-    obj.max_move_hold_count = 50000
+    -- Hold caps are durations, not tick counts (500 s = old 50000 ticks at base 0.01).
+    obj.max_move_hold_seconds = 500
     -- Registry of currently armed button holds (safety net for StopAllButtonHolds)
     obj.active_button_holds = {}
+    obj.last_axis_action = {}
+    obj.axis_cleared = {}
     obj.is_move_forward_button_hold_counter = false
     obj.move_forward_button_hold_count = 0
     obj.is_move_backward_button_hold_counter = false
@@ -104,9 +106,13 @@ function Core:New()
     obj.translation_table_list = {}
     -- summon
     obj.current_purchased_vehicle_count = 0
-    -- garage polling (see Core:UpdateGarageInfo)
-    obj.garage_update_interval = 1.0
+    -- Garage polling: refreshed on demand by its consumers; this interval is only a slow safety net.
+    obj.garage_update_interval = 30.0
     obj.last_garage_update_time = nil
+    -- Loop gate for Waiting: despawn liveness, the entry-area probe, a cached distance and an
+    -- adaptive height check are all indistinguishable to a walking player at this rate.
+    obj.waiting_loop_interval = 0.15
+    obj.last_waiting_loop_time = 0
     -- custom mappin
     obj.current_custom_mappin_position = Vector4.Zero()
     obj.fast_travel_position_list = {}
@@ -147,19 +153,128 @@ function Core:Init()
     -- Restore favorite destination from saved settings on startup
     self:RestoreFavoriteDestination()
 
-    -- The obstacle-map resident cache is NOT started here. `onInit` runs before any
-    -- save is loaded, so the player position is unknown and the chunks cannot be
-    -- ordered by distance. It is started from the SessionStart observer instead.
+    -- Resident cache starts from the SessionStart observer, not here (player position unknown in onInit).
 
-    Cron.Every(DAV.time_resolution, function()
-        self.event_obj:CheckAllEvents()
-        self:GetActions()
+    -- Control loop started via ApplyTimeResolution so the period comes from the user setting.
+    self:ApplyTimeResolution(true)
+
+    -- Slow engine checks need a clock but not a frame: the body can resolve late and the physics
+    -- hook can stop. Reads the live Engine because Core:Reset replaces the AV/Engine objects.
+    self.engine_heartbeat_interval = 0.5
+    Cron.Every(self.engine_heartbeat_interval, function()
+        local engine_obj = nil
+        if self.av_obj ~= nil then
+            engine_obj = self.av_obj.engine_obj
+        end
+        if engine_obj ~= nil then
+            engine_obj:Heartbeat(self.engine_heartbeat_interval)
+        end
     end)
 
     -- set observer
     self:SetInputListener()
     self:SetMappinController()
     self:SetSummonTrigger()
+end
+
+--- Publish the configured control-loop resolution and (re)start the loop on it.
+--- Restarting the timer is safe; per-tick accumulators read DAV.dt_scale live.
+---@param force boolean|nil restart the loop even if the resolution is unchanged
+---@return number the applied resolution
+function Core:ApplyTimeResolution(force)
+    local setting = DAV.user_setting_table
+    local previous = DAV.time_resolution
+    local applied = TimeScale:Set(setting.time_resolution, setting.time_scale_mode)
+
+    if not force and applied == previous then
+        return applied
+    end
+
+    self.log_obj:Record(LogLevel.Info,
+        string.format("Control loop resolution %s -> %s", tostring(previous), TimeScale:Describe()))
+
+    if self.main_loop_timer ~= nil then
+        Cron.Halt(self.main_loop_timer)
+        self.main_loop_timer = nil
+    end
+    self.last_control_time = os.clock()
+    self.main_loop_timer = Cron.Every(applied, function()
+        self:ControlTick()
+    end)
+    return applied
+end
+
+--- Decide what the control loop should do this tick: "run" | "sleep".
+--- The Cron timer is never paused (that would freeze the measured-dt sampler); "sleep" skips
+--- everything but dt bookkeeping - movement reaches the DLL straight from the input callbacks.
+---@return string "run" | "sleep"
+function Core:ControlLoopState()
+    local has_pending_input = #self.pending_operations > 0
+        or self.has_pending_operation == true
+    local situation = self.event_obj.current_situation
+
+    if situation == Def.Situation.Waiting then
+        if has_pending_input then
+            return "run"
+        end
+        local now = os.clock()
+        if now >= self.last_waiting_loop_time then
+            self.last_waiting_loop_time = now + self.waiting_loop_interval
+            return "run"
+        end
+        -- Waiting has no per-tick work left; it only wakes for the entry area, distance, height.
+        return "sleep"
+    end
+
+    -- Landing / TalkingOff / InVehicle: descent/ascent thresholds are tick-period dependent. Never skip.
+    if situation == Def.Situation.Landing
+        or situation == Def.Situation.TalkingOff
+        or situation == Def.Situation.InVehicle then
+        return "run"
+    end
+
+    -- Idle / Normal.
+    if has_pending_input then
+        return "run"
+    end
+    local next_garage = (self.last_garage_update_time or 0) + self.garage_update_interval
+    if os.clock() >= next_garage then
+        return "run"
+    end
+    return "sleep"
+end
+
+--- Force the next tick to run the full body. Called after a situation change so
+--- entering Waiting does not sit behind the pacing it just arrived with.
+function Core:WakeControlLoop()
+    self.last_waiting_loop_time = 0
+end
+
+--- One control-loop iteration.
+--- In "measured" mode the real elapsed dt is fed to TimeScale so accumulators integrate actual time.
+function Core:ControlTick()
+    if TimeScale:GetMode() == TimeScale.MODE_MEASURED then
+        local now = os.clock()
+        if self.last_control_time ~= nil then
+            TimeScale:SetMeasuredDt(now - self.last_control_time)
+        end
+        self.last_control_time = now
+    end
+
+    local state = self:ControlLoopState()
+
+    if state == "run" then
+        local situation_before = self.event_obj.current_situation
+        self.event_obj:CheckAllEvents()
+        -- Re-open the gate when the situation moved so transitions are felt on the next tick.
+        if self.event_obj.current_situation ~= situation_before then
+            self:WakeControlLoop()
+        end
+    end
+
+    if state ~= "sleep" then
+        self:ProcessPendingOperations()
+    end
 end
 
 --- Reset AV and Event object.
@@ -175,12 +290,6 @@ function Core:Reset()
     self:RestoreFavoriteDestination()
     -- Reset Custom Mappin
     self.current_custom_mappin_position = Vector4.Zero()
-end
-
-function Core:EnsureObstacleMapSessionLoaded()
-    self.log_obj:Record(LogLevel.Debug,
-        "EnsureObstacleMapSessionLoaded skipped: delayed obstacle-map loading is disabled; startup preload only")
-    return false
 end
 
 function Core:StartObstacleMapSessionPreload()
@@ -206,17 +315,20 @@ function Core:StartObstacleMapSessionPreload()
 end
 
 --- Ensure the resident obstacle-map cache maintenance timer is running.
---- Unlike the old one-shot preload timer, this one is intentionally persistent:
---- the resident window has to follow the player for the whole session. It is
---- stopped by ReleaseObstacleMapSession() on shutdown. A tick with nothing to do
---- costs one pass over the ~96-entry chunk inventory.
+--- The timer parks itself when Navigation:HasPendingMapWork() goes false; this re-arms it.
 function Core:EnsureObstacleMapPreloadTimer(tick_interval)
     if self.is_obstacle_map_preload_timer_active then
         return true
     end
 
+    if tick_interval ~= nil then
+        self.obstacle_map_maintenance_tick = tick_interval
+    end
+    if self.obstacle_map_maintenance_tick == nil then
+        self.obstacle_map_maintenance_tick = 0.05
+    end
     self.is_obstacle_map_preload_timer_active = true
-    Cron.Every(tick_interval, function(timer)
+    self.obstacle_map_maintenance_timer = Cron.Every(self.obstacle_map_maintenance_tick, function(timer)
         local navigation_obj = nil
         if self.av_obj ~= nil then
             navigation_obj = self.av_obj.navigation_obj
@@ -224,6 +336,15 @@ function Core:EnsureObstacleMapPreloadTimer(tick_interval)
 
         if navigation_obj == nil or navigation_obj.MaintainObstacleMapCache == nil then
             self.is_obstacle_map_preload_timer_active = false
+            self.obstacle_map_maintenance_timer = nil
+            Cron.Halt(timer)
+            return
+        end
+
+        -- Park while idle: HasPendingMapWork() is pure Lua, so a parked timer costs nothing.
+        if navigation_obj.HasPendingMapWork ~= nil and navigation_obj:HasPendingMapWork() == false then
+            self.is_obstacle_map_preload_timer_active = false
+            self.obstacle_map_maintenance_timer = nil
             Cron.Halt(timer)
             return
         end
@@ -234,7 +355,30 @@ function Core:EnsureObstacleMapPreloadTimer(tick_interval)
     return true
 end
 
+--- Re-arm the obstacle-map maintenance timer after it parked itself.
+---@return boolean true when the timer was actually restarted
+function Core:WakeObstacleMapMaintenance()
+    if self.is_obstacle_map_preload_timer_active then
+        return false
+    end
+    return self:EnsureObstacleMapPreloadTimer(self.obstacle_map_maintenance_tick)
+end
+
+--- Tear the maintenance timer down. Used on session release only: an idle timer
+--- already parks itself via HasPendingMapWork(), and stopping on AV despawn would
+--- defer flushing learned cells and risk losing them if the player quits.
+function Core:StopObstacleMapMaintenance()
+    if self.obstacle_map_maintenance_timer ~= nil then
+        Cron.Halt(self.obstacle_map_maintenance_timer)
+        self.obstacle_map_maintenance_timer = nil
+    end
+    self.is_obstacle_map_preload_timer_active = false
+    return true
+end
+
 function Core:ReleaseObstacleMapSession()
+    -- Tear the maintenance timer down first so it cannot tick against a cache being released.
+    self:StopObstacleMapMaintenance()
     if self.av_obj ~= nil and self.av_obj.navigation_obj ~= nil then
         self.av_obj.navigation_obj:ReleaseObstacleMapSessionCache()
         return true
@@ -281,6 +425,7 @@ end
 --- Set Summon Trigger.
 function Core:SetSummonTrigger()
     Override("VehicleSystem", "SpawnActivePlayerVehicle", function(this, vehicle_type, wrapped_method)
+        self.log_obj:Record(LogLevel.Info, "Summon override fired (SpawnActivePlayerVehicle)")
         if this:GetActivePlayerVehicle(vehicle_type) == nil then
             self.log_obj:Record(LogLevel.Warning, "No Active Vehicle detected")
             return wrapped_method(vehicle_type)
@@ -293,6 +438,8 @@ function Core:SetSummonTrigger()
         for index, record in ipairs(self.event_obj.ui_obj.av_record_list) do
             if record.hash == new_record_id.hash then
                 self.log_obj:Record(LogLevel.Trace, "Purchased AV call detected")
+                -- Info-level breadcrumb: the summon override fired and matched an AV record.
+                self.log_obj:Record(LogLevel.Info, "Summon trigger matched AV record")
                 for key, value in ipairs(self.av_obj.all_models) do
                     if value.tweakdb_id == record.value then
                         DAV.model_index = key
@@ -395,15 +542,31 @@ function Core:GetTranslationText(text)
     return translated_text
 end
 
+--- Turn a JSON exception array into a lookup set.
+--- The JSON files stay plain arrays (user editable); we only index them once here
+--- so the hot path is a hash lookup instead of a linear scan over up to 17 strings.
+---@param list table|nil
+---@return table
+local function to_exception_set(list)
+    local set = {}
+    if list then
+        for _, name in ipairs(list) do
+            set[name] = true
+        end
+    end
+    return set
+end
+
 --- Set Input Listener.
 function Core:SetInputListener()
-    local exception_in_entry_area_list = Utils:ReadJson("Data/exception_in_entry_area_input.json")
-    local exception_in_veh_list = Utils:ReadJson("Data/exception_in_veh_input.json")
-    local exception_in_popup_list = Utils:ReadJson("Data/exception_in_popup_input.json")
+    local exception_in_entry_area_set = to_exception_set(Utils:ReadJson("Data/exception_in_entry_area_input.json"))
+    local exception_in_veh_set = to_exception_set(Utils:ReadJson("Data/exception_in_veh_input.json"))
+    local exception_in_popup_set = to_exception_set(Utils:ReadJson("Data/exception_in_popup_input.json"))
 
     Observe("PlayerPuppet", "OnAction", function(this, action, consumer)
-
-        if self.event_obj.current_situation ~= Def.Situation.Waiting and self.event_obj.current_situation ~= Def.Situation.InVehicle then
+        -- Read the situation once and reuse it; this hook fires on every input action in the game.
+        local situation = self.event_obj.current_situation
+        if situation ~= Def.Situation.Waiting and situation ~= Def.Situation.InVehicle then
             return
         end
 
@@ -411,50 +574,40 @@ function Core:SetInputListener()
 		local action_type = action:GetType(action).value
         local action_value = action:GetValue(action)
 
-        if self.event_obj:IsInVehicle() then
-            for _, exception in pairs(exception_in_veh_list) do
-                if action_name == exception then
-                    consumer:Consume()
-                    break
-                end
+        -- Equivalent to Event:IsInVehicle(); nothing here can mutate the situation between the reads.
+        if situation == Def.Situation.InVehicle and self.av_obj:IsPlayerIn() then
+            if exception_in_veh_set[action_name] then
+                consumer:Consume()
             end
             local player = Game.GetPlayer()
             if player ~= nil and player:PSIsInDriverCombat() then
-                    -- block exit vehicle when player is in combat
+                -- block exit vehicle when player is in combat
                 if action_name == "Exit" and not self.is_locked_action_in_combat then
                     self.is_locked_action_in_combat = true
                     consumer:Consume()
                 end
-                if not self.av_obj:IsMountedCombatSeat() then
-                    -- block combat seat action
-                    for _, exception in pairs(exception_in_popup_list) do
-                        if action_name == exception then
-                            consumer:Consume()
-                            break
-                        end
-                    end
+                -- Order so the IsMountedCombatSeat() C# call is paid only for actual popup exceptions.
+                if exception_in_popup_set[action_name] and not self.av_obj:IsMountedCombatSeat() then
+                    consumer:Consume()
                 end
             else
                 self.is_locked_action_in_combat = false
             end
-            if self.event_obj:IsInMenuOrPopupOrPhoto() or self.event_obj:IsAutoMode() then
-                for _, exception in pairs(exception_in_popup_list) do
-                    if action_name == exception then
-                        consumer:Consume()
-                        break
-                    end
-                end
+            if exception_in_popup_set[action_name]
+                    and (self.event_obj:IsInMenuOrPopupOrPhoto() or self.event_obj:IsAutoMode()) then
+                consumer:Consume()
             end
-        elseif self.event_obj:IsInEntryArea() then
-            for _, exception in pairs(exception_in_entry_area_list) do
-                if action_name == exception then
-                    consumer:Consume()
-                    break
-                end
+        -- Equivalent to Event:IsInEntryArea(): Waiting and av_obj:IsPlayerInEntryArea().
+        elseif situation == Def.Situation.Waiting and self.av_obj:IsPlayerInEntryArea() then
+            if exception_in_entry_area_set[action_name] then
+                consumer:Consume()
             end
         end
 
-        self.log_obj:Record(LogLevel.Debug, "Action Name: " .. action_name .. " Type: " .. action_type .. " Value: " .. action_value)
+        -- Gate the concatenation: Record() filters only after the caller built the string.
+        if self.log_obj:IsEnabled(LogLevel.Debug) then
+            self.log_obj:Record(LogLevel.Debug, "Action Name: " .. action_name .. " Type: " .. action_type .. " Value: " .. action_value)
+        end
 
         self:StorePlayerAction(action_name, action_type, action_value)
 
@@ -467,6 +620,23 @@ function Core:SetInputListener()
         else
             wrapped_method()
         end
+    end)
+
+    -- DLL threshold-monitor bridge: the DLL queues dav_evt_* gameActionEvents on the puppet and
+    -- the REDscript cb OnDAVMonitorEvent hands them to Lua. The cb body also references the
+    -- dav_evt_* names so REDscript registers them in the CName table (CName.new does not register).
+    Observe("PlayerPuppet", "OnDAVMonitorEvent",
+    ---@param this PlayerPuppet
+    ---@param event ActionEvent
+    function(this, event)
+        local name = event.eventAction.value
+        if type(name) ~= "string" then
+            return
+        end
+        if self.event_obj == nil then
+            return
+        end
+        self.event_obj:OnDavThresholdEvent(name, event.timeToLive)
     end)
 end
 
@@ -522,13 +692,7 @@ end
 
 --- Update Garage Info.
 function Core:UpdateGarageInfo(is_force_update)
-    -- Throttle (docs/PERFORMANCE_FIX_PLAN.md, fix (3)).
-    -- The 100Hz idle loop used to reach this every frame, and the two C# calls below
-    -- run *before* the count-based early return, so a late-game save (~150-200
-    -- unlocked vehicles) produced roughly 10,000 wrapped-object allocations per
-    -- second on top of the resident obstacle map. The garage list changes rarely,
-    -- so polling it once a second is plenty. os.clock() is CPU time, which means
-    -- the poll naturally backs off further when the process is CPU-bound.
+    -- Throttled to ~1 Hz (CPU time): the garage list changes rarely and the C# calls run before the early return.
     if not is_force_update then
         local now = os.clock()
         if self.last_garage_update_time ~= nil
@@ -567,6 +731,15 @@ function Core:UpdateGarageInfo(is_force_update)
     end
 
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+end
+
+--- Refresh the garage list on demand.
+--- Call this right before anything reads purchase state so the consumer never sees
+--- a stale list, instead of paying for a 1 Hz poll all session.
+---@param reason string why the refresh was needed (logged at Trace)
+function Core:RequestGarageRefresh(reason)
+    self.log_obj:Record(LogLevel.Trace, "Garage refresh requested: " .. tostring(reason))
+    self:UpdateGarageInfo(true)
 end
 
 --- Change Garage AV Type.
@@ -621,12 +794,11 @@ function Core:StorePlayerAction(action_name, action_type, action_value)
         end
     end
 
-    local cmd_list = {}
-
-    cmd_list = self:ConvertActionList(action_name, action_type, action_value)
+    -- Was `local cmd_list = {}` immediately overwritten one line later.
+    local cmd_list = self:ConvertActionList(action_name, action_type, action_value)
 
     if cmd_list[1] ~= Def.ActionList.Nothing then
-        self.queue_obj:Enqueue(cmd_list)
+        self:EnqueueAction(cmd_list)
     end
 end
 
@@ -780,13 +952,15 @@ end
 --- Generic button hold handler with counter management
 ---@param button_name string Unique identifier for the button
 ---@param action_type number|table Action to enqueue (from Def.ActionList)
----@param max_count number Maximum hold count before stopping
+---@param max_hold_seconds number|nil Maximum hold duration before stopping
 ---@param on_start_callback function|nil Optional callback when hold starts
 ---@param on_stop_callback function|nil Optional callback when hold stops
 ---@return boolean success
-function Core:StartButtonHold(button_name, action_type, max_count, on_start_callback, on_stop_callback)
+function Core:StartButtonHold(button_name, action_type, max_hold_seconds, on_start_callback, on_stop_callback)
     local counter_flag_name = "is_" .. button_name .. "_button_hold_counter"
     local counter_value_name = button_name .. "_button_hold_count"
+    -- Duration -> tick count via TimeScale (the old raw count assumed a 0.01 loop).
+    local max_ticks = TimeScale:Ticks(max_hold_seconds or 500)
     
     -- Already holding this button
     if self[counter_flag_name] then
@@ -800,7 +974,11 @@ function Core:StartButtonHold(button_name, action_type, max_count, on_start_call
     
     -- Set flag
     self[counter_flag_name] = true
-    self.active_button_holds[button_name] = true
+    -- Store the action id (not just a flag) so release can clear exactly this command in the DLL.
+    self.active_button_holds[button_name] = type(action_type) == "number" and action_type or true
+    if type(action_type) == "number" then
+        self:PushNative(action_type, 1)
+    end
     
     -- Execute start callback
     if on_start_callback then
@@ -812,7 +990,7 @@ function Core:StartButtonHold(button_name, action_type, max_count, on_start_call
         timer.tick = timer.tick + 1
         self[counter_value_name] = timer.tick
         
-        if timer.tick >= max_count then
+        if timer.tick >= max_ticks then
             -- Max count reached
             self[counter_flag_name] = false
             if on_stop_callback then
@@ -827,7 +1005,7 @@ function Core:StartButtonHold(button_name, action_type, max_count, on_start_call
             Cron.Halt(timer)
         else
             -- Continue holding
-            self.queue_obj:Enqueue(action_type)
+            self:EnqueueAction(action_type)
         end
     end)
     
@@ -839,6 +1017,10 @@ end
 function Core:StopButtonHold(button_name)
     local counter_flag_name = "is_" .. button_name .. "_button_hold_counter"
     self[counter_flag_name] = false
+    local held = self.active_button_holds[button_name]
+    if type(held) == "number" then
+        self:PushNative(held, 0)
+    end
     self.active_button_holds[button_name] = nil
 end
 
@@ -849,13 +1031,12 @@ function Core:StopAllButtonHolds()
     for button_name in pairs(self.active_button_holds) do
         self:StopButtonHold(button_name)
     end
+    -- Belt and braces: clear anything the DLL still holds (axis tilts included).
+    self:PushNative(0, 0)
 end
 
 --- Check if the player is ready to receive movement input.
---- A hold must not be armed while the vehicle is spawning or the player
---- is not actually seated (e.g. pressing the pad enter button, which is
---- also bound to move_down/descend, would otherwise arm a phantom hold).
---- Suggested by LordCucumber (boost-down fix report).
+--- A hold must not be armed while spawning or before the player is actually seated.
 ---@return boolean
 function Core:IsReadyForMovementInput()
     if self.av_obj == nil or self.event_obj == nil then return false end
@@ -918,7 +1099,7 @@ function Core:ConvertAVPressAction(keybind_name)
     local action = action_map[keybind_name]
     if action then
         if self:IsReadyForMovementInput() then
-            self:StartButtonHold(keybind_name, action, self.max_move_hold_count)
+            self:StartButtonHold(keybind_name, action, self.max_move_hold_seconds)
         end
     end
 end
@@ -941,7 +1122,7 @@ function Core:ConvertHeliPressAction(keybind_name)
     local action = action_map[keybind_name]
     if action then
         if self:IsReadyForMovementInput() then
-            self:StartButtonHold(keybind_name, action, self.max_move_hold_count)
+            self:StartButtonHold(keybind_name, action, self.max_move_hold_seconds)
         end
     elseif keybind_name == "acceleration" then
         -- Special handling for acceleration with thruster callbacks
@@ -950,7 +1131,7 @@ function Core:ConvertHeliPressAction(keybind_name)
             self:StartButtonHold(
                 keybind_name,
                 Def.ActionList.HAccelerate,
-                self.max_move_hold_count,
+                self.max_move_hold_seconds,
                 function() self_ref.av_obj:ToggleHeliThruster(true) end,
                 function() self_ref.av_obj:ToggleHeliThruster(false) end
             )
@@ -973,11 +1154,11 @@ function Core:ConvertCommonPressAction(keybind_name)
                 if timer.tick >= hold_threshold then
                     -- Long press detected
                     self[counter_flag_name] = false
-                    self.queue_obj:Enqueue(Def.ActionList.ToggleAutopilot)
+                    self:EnqueueAction(Def.ActionList.ToggleAutopilot)
                     Cron.Halt(timer)
                 elseif not self[counter_flag_name] then
                     -- Short press detected
-                    self.queue_obj:Enqueue(Def.ActionList.OpenAutopilotPanel)
+                    self:EnqueueAction(Def.ActionList.OpenAutopilotPanel)
                     Cron.Halt(timer)
                 end
             end)
@@ -993,26 +1174,26 @@ function Core:ConvertCommonPressAction(keybind_name)
                 if timer.tick >= hold_threshold then
                     -- Long press detected
                     self[counter_flag_name] = false
-                    self.queue_obj:Enqueue(Def.ActionList.OpenRadio)
+                    self:EnqueueAction(Def.ActionList.OpenRadio)
                     Cron.Halt(timer)
                 elseif not self[counter_flag_name] then
                     -- Short press detected
-                    self.queue_obj:Enqueue(Def.ActionList.ToggleRadio)
+                    self:EnqueueAction(Def.ActionList.ToggleRadio)
                     Cron.Halt(timer)
                 end
             end)
         end
     -- Handle single-action buttons
     elseif keybind_name == "toggle_camera" then
-        self.queue_obj:Enqueue(Def.ActionList.ChangeCamera)
+        self:EnqueueAction(Def.ActionList.ChangeCamera)
     elseif keybind_name == "toggle_door" then
-        self.queue_obj:Enqueue(Def.ActionList.ChangeDoor1)
+        self:EnqueueAction(Def.ActionList.ChangeDoor1)
     elseif keybind_name == "toggle_crystal_dome" then
-        self.queue_obj:Enqueue(Def.ActionList.ToggleCrystalDome)
+        self:EnqueueAction(Def.ActionList.ToggleCrystalDome)
     elseif keybind_name == "toggle_appearance" then
-        self.queue_obj:Enqueue(Def.ActionList.ToggleAppearance)
+        self:EnqueueAction(Def.ActionList.ToggleAppearance)
     elseif keybind_name == "open_vehicle_manager" then
-        self.queue_obj:Enqueue(Def.ActionList.OpenVehicleManager)
+        self:EnqueueAction(Def.ActionList.OpenVehicleManager)
     end
 end
 
@@ -1020,28 +1201,65 @@ end
 ---@param key string
 ---@param value number
 function Core:ConvertAxisAction(key, value)
+    -- Shared membership set with the input proxy; allocates nothing and reads flight_mode once.
+    if not Def.AxisKeySet[key] then
+        return
+    end
     if self.av_obj.is_blocking_operation then
         self.log_obj:Record(LogLevel.Trace, "Operation is blocked in ConvertAxisAction")
         return
     end
-    local keybind_name = ""
-    local axis_key_list = {"IK_Pad_LeftAxisX", "IK_Pad_LeftAxisY"}
-    if self.av_obj.engine_obj.flight_mode == Def.FlightMode.AV then
-        for _, keybind in ipairs(axis_key_list) do
-            if key == keybind then
-                keybind_name = keybind
-                self:ConvertAVAxisAction(keybind_name, value)
-                return
-            end
-        end
-    elseif self.av_obj.engine_obj.flight_mode == Def.FlightMode.Helicopter then
-        for _, keybind in ipairs(axis_key_list) do
-            if key == keybind then
-                keybind_name = keybind
-                self:ConvertHeliAxisAction(keybind_name, value)
-                return
-            end
-        end
+    local flight_mode = self.av_obj.engine_obj.flight_mode
+    if flight_mode == Def.FlightMode.AV then
+        self:ConvertAVAxisAction(key, value)
+    elseif flight_mode == Def.FlightMode.Helicopter then
+        self:ConvertHeliAxisAction(key, value)
+    end
+end
+
+--- Forward one command edge to the DLL's held command state (event-driven input).
+--- action = 0 (Nothing) clears the whole held state; value = 0 releases a single command.
+---@param action number
+---@param value number
+function Core:PushNative(action, value)
+    local eng = self.av_obj and self.av_obj.engine_obj
+    if eng == nil then
+        return
+    end
+    if eng.fly_av_system == nil then
+        return
+    end
+    eng.fly_av_system:SetNativeCommand(action, value)
+end
+
+--- Axis commands reach the queue (legacy path) and the DLL held state through one place.
+---@param key string
+---@param action number
+---@param value number
+function Core:EnqueueAxis(key, action, value)
+    self:EnqueueAction({action, value})
+    -- One axis drives two opposite actions (sign picks which). The held state keeps both unless the
+    -- previous one is released explicitly, so a sign flip has to clear it first.
+    local prev = self.last_axis_action[key]
+    if prev ~= nil and prev ~= action then
+        self:PushNative(prev, 0)
+    end
+    self.last_axis_action[key] = action
+    self.axis_cleared[key] = nil
+    self:PushNative(action, value)
+end
+
+--- The listener drops values inside the dead zone, but the DLL holds state, so the return-to-center
+--- edge must still clear whatever that axis last pushed. Fires once per centering, not per event.
+---@param key string
+function Core:ClearAxisAction(key)
+    if self.axis_cleared[key] then
+        return
+    end
+    local last = self.last_axis_action[key]
+    if last ~= nil then
+        self.axis_cleared[key] = true
+        self:PushNative(last, 0)
     end
 end
 
@@ -1051,15 +1269,15 @@ end
 function Core:ConvertAVAxisAction(keybind_name, value)
     if keybind_name == "IK_Pad_LeftAxisX" then
         if value > 0 then
-            self.queue_obj:Enqueue({Def.ActionList.RightRotate, value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.RightRotate, value)
         elseif value < 0 then
-            self.queue_obj:Enqueue({Def.ActionList.LeftRotate, -value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.LeftRotate, -value)
         end
     elseif keybind_name == "IK_Pad_LeftAxisY" then
         if value > 0 then
-            self.queue_obj:Enqueue({Def.ActionList.LeanForward, value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.LeanForward, value)
         elseif value < 0 then
-            self.queue_obj:Enqueue({Def.ActionList.LeanBackward, -value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.LeanBackward, -value)
         end
     end
 end
@@ -1070,49 +1288,45 @@ end
 function Core:ConvertHeliAxisAction(keybind_name, value)
     if keybind_name == "IK_Pad_LeftAxisX" then
         if value > 0 then
-            self.queue_obj:Enqueue({Def.ActionList.HLeanRight, value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.HLeanRight, value)
         elseif value < 0 then
-            self.queue_obj:Enqueue({Def.ActionList.HLeanLeft, -value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.HLeanLeft, -value)
         end
     elseif keybind_name == "IK_Pad_LeftAxisY" then
         if value > 0 then
-            self.queue_obj:Enqueue({Def.ActionList.HLeanForward, value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.HLeanForward, value)
         elseif value < 0 then
-            self.queue_obj:Enqueue({Def.ActionList.HLeanBackward, -value})
+            self:EnqueueAxis(keybind_name, Def.ActionList.HLeanBackward, -value)
         end
     end
 end 
 
---- Dequeue and Operate Aerial Vehicle.
-function Core:GetActions()
-    local move_actions = {}
-
-    while not self.queue_obj:IsEmpty() do
-        local action = self.queue_obj:Dequeue()
-        local action_list = type(action) == "table" and action or {action, 1}
-        if action_list[1] >= Def.ActionList.Enter then
-            self:SetEvent(action_list[1])
-        else
-            table.insert(move_actions, action_list)
-        end
+--- Run the game operations the input callbacks deferred, once per call.
+--- Boarding/menus/appearance changes must not run inside the input callback that produced them;
+--- EnqueueAction parks them here and the control loop (outside the callback) executes them.
+function Core:ProcessPendingOperations()
+    if self.is_processing_operations or not self.has_pending_operation then
+        return
     end
-
-    if #move_actions == 0 then
-        table.insert(move_actions, {Def.ActionList.Nothing, 1})
+    self.is_processing_operations = true
+    self.has_pending_operation = false
+    -- Swap the list out first: a SetEvent that queues another operation appends to the fresh list
+    -- and is picked up on the next tick instead of extending this loop while it iterates.
+    local pending = self.pending_operations
+    self.pending_operations = {}
+    for i = 1, #pending do
+        self:SetEvent(pending[i])
     end
-
-    self:OperateAerialVehicle(move_actions)
+    self.is_processing_operations = false
 end
 
---- Operate Aerial Vehicle.
----@param actions table
-function Core:OperateAerialVehicle(actions)
-    if not self.is_locked_operation then
-        if self.event_obj:IsInVehicle() and not self.event_obj:IsInMenuOrPopupOrPhoto() then
-            self.av_obj:Operate(actions)
-        elseif self.event_obj:IsWaiting() then
-            self.av_obj:Operate({{Def.ActionList.Idle, 1}})
-        end
+--- Route one input action. Movement actions are fully handled by the DLL held-command state
+--- (Core:PushNative / EnqueueAxis); game operations (>= Enter) are parked for the control loop.
+function Core:EnqueueAction(action)
+    local action_list = type(action) == "table" and action or {action, 1}
+    if action_list[1] >= Def.ActionList.Enter then
+        self.pending_operations[#self.pending_operations + 1] = action_list[1]
+        self.has_pending_operation = true
     end
 end
 
@@ -1226,6 +1440,8 @@ end
 
 --- Open Vehicle Manager.
 function Core:OpenVehicleManager()
+    -- The manager renders purchase state, so refresh it here instead of relying on the background poll.
+    self:RequestGarageRefresh("OpenVehicleManager")
     self.event_obj:ShowVehicleManagerPopup()
 end
 
@@ -1244,8 +1460,7 @@ end
 
 --- Set custom mappin
 function Core:SetCustomMappin(mappin)
-    -- This check is necessary because sometimes mappin becomes nil.
-    -- Discovered through report by Jamarlie
+    -- Necessary because the minimap sometimes becomes nil (user report).
     if mappin == nil then
         return
     end

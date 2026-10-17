@@ -7,30 +7,37 @@
 Cron = require('External/Cron.lua')
 Def = require("Etc/def.lua")
 Log = require("Etc/log.lua")
+TimeScale = require("Etc/timescale.lua")
 
 local Core = require('Modules/core.lua')
 local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicle",
-	version = "3.3.0",
+	version = "3.4.0",
     -- system
     is_ready = false,
-    time_resolution = 0.01,
+    -- Interop: set by DAV:Disable() so other MODs can take over the DriveAerialVehicle DLL.
+    -- While true every AV summon is blocked (see AV:Spawn).
+    is_disabled = false,
+    -- Control loop period (live value mirrored by TimeScale:Set(); assign only via TimeScale).
+    time_resolution = TimeScale.DEFAULT_RESOLUTION,
+    -- Multiplier applied to every per-tick accumulator (1.0 at the shipped 0.01 resolution).
+    dt_scale = 1.0,
     is_debug_mode = false,
-    -- Developer switch, kept for the debug menu. The user-facing control is
-    -- user_setting_table.is_enable_obstacle_recording; either one enables it.
+    -- Developer switch; user-facing twin: user_setting_table.is_enable_obstacle_recording.
     is_debug_enable_obstacle_scan = false,
-    -- PROBE: temporary autopilot freeze instrumentation (Modules/profprobe.lua).
-    -- Any single call at or above warn_ms logs one line with the autopilot state,
-    -- plus an aggregate table every 15 s. Set is_debug_profile_autopilot to false to
-    -- stop measuring without removing the probe.
-    is_debug_profile_autopilot = false,
-    debug_profile_warn_ms = 8.0,
+    -- Diagnostic: log the DLL physics-hook rate per control type (boarded vs unboarded).
+    -- Developer switch: print the autopilot yaw servo every ~20 loop ticks (error, command, rate).
+    is_debug_probe_yaw = false,
+    -- Developer switch: print when stopping-distance braking bites (wanted speed, cap, distance).
+    is_debug_probe_avoid = false,
     -- common
     user_setting_path = "Data/user_setting_v3.json",
     language_path = "Language",
     import_path = "Import",
+    -- Frame counter bumped per rendered frame; keys the AV entity-handle cache (see AV:GetEntity).
+    frame_seq = 0,
     -- vehicle record
     excalibur_record = "Vehicle.av_rayfield_excalibur_dav",
     manticore_record = "Vehicle.av_militech_manticore_dav",
@@ -119,23 +126,22 @@ DAV.user_setting_table = {
     autopilot_speed = 25,  -- Autopilot speed in m/s (5-50)
     astar_calculation_precision = 100,  -- A* calculation precision 1-100 (maps to 200-100000 iterations)
     is_enable_history = true,
+    --- performance: control loop period in s (default 0.05 = 20 Hz), rate-corrected, clamped 1/120..1/10.
+    time_resolution = TimeScale.DEFAULT_RESOLUTION,
+    -- dt source: "nominal" = configured resolution, "measured" = real elapsed time.
+    time_scale_mode = "nominal",
     --- general
     language_index = 1,
     is_enable_destruction = true,
     is_enable_landing_vfx = true,
     is_enable_idle_gravity = true,
-    --- obstacle map
-    -- Learning new obstacles by raycasting is really a developer/mapping tool:
-    -- the shipped map already covers the city, and general players never need to
-    -- write to it. Off by default so the 5 Hz scan and the periodic diff writes
-    -- never run unless someone is deliberately mapping.
+    --- obstacle map: raycast learning is a mapping tool; off by default so scans/writes never run.
     is_enable_obstacle_recording = false,
     --- input
     keybind_table = DAV.default_keybind_table,
     heli_keybind_table = DAV.default_heli_keybind_table,
     common_keybind_table = DAV.default_common_keybind_table,
-    --- physics
-    -- common
+    --- physics: common
     max_speed = 220, -- Max speed in MPH (Max:100m/s)
     horizontal_air_resistance_const = 0.015,
     vertical_air_resistance_const = 0.025,
@@ -351,16 +357,15 @@ registerForEvent("onHook", function()
             callback = function(event)
                 local key = event:GetKey().value
                 local action = event:GetAction().value
-                if DAV.listening_keybind_widget and key:find("IK_Pad") and action == "IACT_Release" then -- OnKeyBindingEvent has to be called manually for gamepad inputs, while there is a keybind widget listening for input
+                if DAV.listening_keybind_widget and key:find("IK_Pad") and action == "IACT_Release" then -- Gamepad keybinds need a manual OnKeyBindingEvent while a widget is listening
                     DAV.listening_keybind_widget:OnKeyBindingEvent(KeyBindingEvent.new({keyName = key}))
                     DAV.listening_keybind_widget = nil
                 elseif DAV.listening_keybind_widget and action == "IACT_Release" then -- Key was bound, by keyboard
                     DAV.listening_keybind_widget = nil
                 end
-                if action == "IACT_Release" then
-                    -- Always process releases so an armed hold can never leak,
-                    -- even if the situation changed after the press was accepted.
-                    -- Stopping a hold that is not armed is a no-op.
+                if action == "IACT_Release" or action == "IACT_Abort" then
+                    -- Always process releases so an armed hold cannot leak; stopping an unarmed hold is a no-op.
+                    -- Abort (menu, focus loss) carries no release, so it must clear holds the same way.
                     if DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil then
                         DAV.core_obj:ConvertHoldButtonAction(key)
                     end
@@ -386,20 +391,57 @@ registerForEvent("onHook", function()
         OnAxisInput = {
             args = {'handle:AxisInputEvent'},
             callback = function(event)
-                local key = event:GetKey().value
+                -- Cheapest gate first: situation check is pure Lua, reading the event costs C# round trips.
+                local core = DAV.core_obj
+                if core == nil then
+                    return
+                end
+                local event_obj = core.event_obj
+                if event_obj == nil then
+                    return
+                end
+                local situation = event_obj.current_situation
+                if situation ~= Def.Situation.InVehicle
+                        and situation ~= Def.Situation.Waiting
+                        and situation ~= Def.Situation.Normal then
+                    return
+                end
+
+                -- GetValue is cheaper than GetKey (wrapper re-read); screen on magnitude first.
                 local value = event:GetValue()
-                if math.abs(value) > DAV.axis_dead_zone then
-                    if key:find("IK_Pad") then
-                        local current_situation = Def.Situation.Idle
-                        if DAV.core_obj ~= nil then
-                            current_situation = DAV.core_obj.event_obj.current_situation or Def.Situation.Idle
+                local magnitude = value < 0 and -value or value
+                -- Diagnosis for `pass=0` while the stick is clearly moved: is the key not in
+                -- AxisKeySet, or does GetValue report ~0? bigaxis counts the former, bigval the latter.
+                if probe then
+                    if magnitude > probe.bigval then
+                        probe.bigval = magnitude
+                    end
+                    if magnitude > DAV.axis_dead_zone then
+                        local big_key = event:GetKey().value
+                        if not Def.AxisKeySet[big_key] then
+                            probe.bigaxis = probe.bigaxis + 1
+                            probe.bigkey = big_key
                         end
-                        if current_situation == Def.Situation.InVehicle or current_situation == Def.Situation.Waiting or current_situation == Def.Situation.Normal then
-                            DAV.core_obj:ConvertAxisAction(key, value)
-                        end
-                    else
                     end
                 end
+                if magnitude <= DAV.axis_dead_zone then
+                    -- The DLL holds axis state, so the centering edge has to clear it. Reading the key
+                    -- only on this path keeps the hot path free of the extra wrapper round trip.
+                    if probe then probe.center = probe.center + 1 end
+                    local centered_key = event:GetKey().value
+                    if Def.AxisKeySet[centered_key] then
+                        core:ClearAxisAction(centered_key)
+                    end
+                    return
+                end
+
+                -- Only the two left-stick axes can reach an action; drop all others up front.
+                local key = event:GetKey().value
+                if not Def.AxisKeySet[key] then
+                    return
+                end
+
+                core:ConvertAxisAction(key, value)
             end
         }
     })
@@ -439,19 +481,30 @@ registerForEvent("onDraw", function()
 end)
 
 registerForEvent('onUpdate', function(delta)
+    DAV.frame_seq = (DAV.frame_seq or 0) + 1
+    DAV.last_frame_delta = delta
+    -- Nothing flight-related is driven from here: modes are pushed by the state changes that need
+    -- them, and the slow checks run on Core's heartbeat.
     Cron.Update(delta)
-    if DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil and DAV.core_obj.av_obj.engine_obj ~= nil then
-        DAV.core_obj.av_obj.engine_obj:Update(delta)
-    end
 end)
 
 registerForEvent('onShutdown', function()
+    -- Hand the vehicle back to the DLL before anything goes away: on quit the entity is freed
+    -- while the DLL handle would still point at it (the despawn path never runs). The DLL's own
+    -- game-state OnExit is the primary guard; this covers CET reloading.
+    local eng = DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil and DAV.core_obj.av_obj.engine_obj or nil
+    if eng ~= nil and eng.fly_av_system ~= nil then
+        pcall(function() eng.fly_av_system:SetVehicle(0) end)
+    end
     if DAV.core_obj ~= nil then
         DAV.core_obj:ReleaseObstacleMapSession()
     end
     Game.GetCallbackSystem():UnregisterCallback('Input/Key', DAV.input_key_listener:Target(), DAV.input_key_listener:Function("OnKeyInput"))
     Game.GetCallbackSystem():UnregisterCallback('Input/Axis', DAV.input_axis_listener:Target(), DAV.input_axis_listener:Function("OnAxisInput"))
 end)
+
+-- NOTE: CET v1.37 has no GameObserver/RegisterForGameReload API (verified against the binary);
+-- world-detach detection lives in the DLL instead. The SetWorldGone native remains available.
 
 function CheckDependencies()
     -- Check Cyber Engine Tweaks Version
@@ -529,8 +582,46 @@ function DAV:Version()
     return DAV.version
 end
 
+--- Runtime toggle for the ImGui debug window (startup default comes from debug.txt).
 function DAV:ToggleDebugMode()
     DAV.is_debug_mode = not DAV.is_debug_mode
+end
+
+function DAV:Disable()
+    if DAV.is_disabled then
+        return true
+    end
+    if self.core_obj == nil then
+        return false
+    end
+    local ev = self.core_obj.event_obj
+    if ev ~= nil and ev:IsInVehicle() then
+        print('[DAV] Disable refused: player is riding the AV')
+        return false
+    end
+    DAV.is_disabled = true
+    local av = self.core_obj.av_obj
+    if av ~= nil then
+        if av.entity_id ~= nil then
+            -- Immediate reset: despawn releases the vehicle handle and the thruster setup.
+            av:Despawn()
+        end
+        if av.engine_obj ~= nil and av.engine_obj.fly_av_system ~= nil then
+            local fs = av.engine_obj.fly_av_system
+            pcall(function()
+                fs:SetThresholds(0, 0, 0, 1, 0, Vector4.new(0, 0, 0, 0))
+                fs:SetLandingVFX(0, Vector4.new(0, 0, 0, 0))
+            end)
+        end
+    end
+    print('[DAV] Disabled: DLL released, summoning blocked')
+    return true
+end
+
+function DAV:Enable()
+    DAV.is_disabled = false
+    print('[DAV] Enabled: summoning restored')
+    return true
 end
 
 return DAV

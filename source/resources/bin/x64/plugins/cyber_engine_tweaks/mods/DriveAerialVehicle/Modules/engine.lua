@@ -2,6 +2,22 @@ local Utils = require("Etc/utils.lua")
 Engine = {}
 Engine.__index = Engine
 
+--- Component-wise equality within a tolerance; used to skip redundant native pushes.
+---@param a Vector3
+---@param b Vector3
+---@param eps number
+---@return boolean
+local function vec3_equal(a, b, eps)
+    return math.abs(a.x - b.x) <= eps and math.abs(a.y - b.y) <= eps and math.abs(a.z - b.z) <= eps
+end
+
+-- A held velocity target only needs re-pushing when it actually moved (m/s and rad/s).
+local VELOCITY_EPS = 0.01
+local ANGULAR_EPS = 0.01
+
+--- Debug-only display values. The native paths apply nothing in Lua, so every "nothing applied"
+--- branch points at one shared zero (built in New: Vector3 is a runtime global of the sandbox).
+
 --- Constructor
 --- @param av_obj any AV instance
 --- @return table
@@ -16,11 +32,14 @@ function Engine:New(av_obj)
     obj.max_roll = 30
     obj.max_pitch = 30
     obj.force_restore_angle = 70
+    -- RPM ramp increments per base tick (0.01 s); multiply by DAV.dt_scale to keep the rate constant.
     obj.rpm_count_step = 4
     obj.rpm_restore_step = 2
     obj.rpm_count_scale = 80
     obj.rpm_max_count = 10 * obj.rpm_count_scale
     obj.torque_gain = 1000
+    -- Restore boundary layer (deg, base period): rate tapers to zero at the deadband edge, scaled by dt_scale.
+    obj.restore_boundary_deg = 1.0
     obj.ground_check_delay = 3.0
     ---dynamic---
     obj.entity_id = nil
@@ -30,15 +49,15 @@ function Engine:New(av_obj)
     obj.current_speed = 0
     obj.heli_lift_acceleration = DAV.user_setting_table.h_lift_idle_acceleration
     obj.rpm_count = 0
-    obj.force = Vector3.new(0, 0, 0)
-    obj.torque = Vector3.new(0, 0, 0)
+    obj.zero3 = Vector3.new(0, 0, 0)
     obj.direction_velocity = Vector3.new(0, 0, 0)
     obj.angular_velocity = Vector3.new(0, 0, 0)
     obj.acceleration = Vector3.new(0, 0, 0)
-    obj.prev_velocity = Vector3.new(0, 0, 0)
     obj.engine_control_type = Def.EngineControlType.None
+    obj.is_menu_blocked = false
+    obj.loop_timer = nil
+    obj.loop_interval = 0.01
     obj.is_finished_init = false
-    obj.is_idle = false
 
     return setmetatable(obj, self)
 end
@@ -47,11 +66,248 @@ end
 ---@param entity_id EntityID
 function Engine:Init(entity_id)
     self.entity_id = entity_id
+    -- The menu gate is edge-driven; adopt the state that was already in effect.
+    local event_obj = self.av_obj.core_obj and self.av_obj.core_obj.event_obj
+    self.is_menu_blocked = (event_obj ~= nil and event_obj:IsInMenuOrPopupOrPhoto()) and true or false
     self.flight_mode = self.all_models[DAV.model_index].flight_mode
     self.fly_av_system = FlyAVSystem.new()
     self.fly_av_system:SetVehicle(entity_id.hash)
+    -- AV:Init ran before this handle existed, so its ground query push was dropped. Replay it now:
+    -- with zero masks the DLL's ground raycast filters everything out and never hits the terrain.
+    local gq = self.ground_query_pending
+    if gq ~= nil then
+        self.fly_av_system:SetGroundQuery(gq.offset, gq.distance, gq.mask1, gq.mask2)
+    end
+    -- Fresh body: no driver aboard, monitor armed for the Normal situation.
+    self:SetFlightContext(Def.Situation.Normal)
+    -- Landing VFX slot: while the AV is inside the warning zone the DLL writes the slot's local
+    -- position itself (the height tracking lives in the DLL monitor now).
+    local po = self.av_obj.projection_offset
+    local vfx_on = (self.av_obj.is_enable_landing_vfx and DAV.user_setting_table.is_enable_landing_vfx) and 1.0 or 0.0
+    self.fly_av_system:SetLandingVFX(vfx_on, Vector4.new(po.x, po.y, po.z, 0))
     self.mass = self.fly_av_system:GetMass()
+    -- The DLL is a hard requirement: flight control, the flight model, the idle hover and the ground
+    -- query all run inside it, so there is no capability probing and no Lua driving path.
+    self.native_idle_active = false
+    -- Set once the DLL physics hook has ticked for this body. Until then Heartbeat keeps forcing
+    -- physics on: an unsimulated body can never make the hook fire.
+    self.native_hook_alive = false
+    -- Velocity hold (mode 2) bookkeeping: what the DLL is currently holding for us.
+    self.native_hold_pushed = false
+    self.native_last_mode = 0
+    self.native_hold = { v = Vector3.new(0, 0, 0), a = Vector3.new(0, 0, 0) }
+    self.log_obj:Record(LogLevel.Info, string.format("mass=%.1f physics_state=%s",
+        self.mass, tostring(self.fly_av_system:GetPhysicsState())))
+    self:PushNativeParams()
+    -- Sound layers: the DLL watches the held commands and queues an edge event when a layer starts
+    -- or its grace expires; Lua plays the samples (see Core:InitSoundEdgeListeners).
+    local accel_ids = {}
+    for _, id in pairs(Def.AccelerationActionList) do
+        accel_ids[#accel_ids + 1] = id
+    end
+    local thruster_ids = {}
+    for _, id in pairs(Def.ThrusterActionList) do
+        thruster_ids[#thruster_ids + 1] = id
+    end
+    self.fly_av_system:SetSoundParams(self.av_obj.sound_stop_grace_seconds or 0.3,
+        table.concat(accel_ids, ","), table.concat(thruster_ids, ","))
+    -- The shared native buffer outlives a vehicle: a stale mode 1/2/3 would grab the new body with
+    -- the old target, so every fresh engine starts from "native applies nothing".
+    self:PushNativeControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
+    self.native_hold_pushed = false
+    self.native_mode3_pushed = false
     self.is_finished_init = true
+    -- Re-apply on every spawn: the Engine object outlives the vehicle, so across a respawn the control
+    -- type often does not change and SetControlType would not fire.
+    self:ApplyControlMode()
+end
+
+--- Read one native diagnostic counter; nil when the DLL does not expose it.
+---@param name string
+---@return number|nil
+function Engine:ReadNativeCounter(name)
+    local ok, value = pcall(function()
+        local fn = self.fly_av_system[name]
+        if fn == nil then
+            return nil
+        end
+        return fn(self.fly_av_system)
+    end)
+    if not ok or value == nil then
+        return nil
+    end
+    return tonumber(value)
+end
+
+--- Push every flight model tunable to the DLL (packed into Vector4s; order must match Main.cpp).
+function Engine:PushNativeParams()
+    local s = DAV.user_setting_table
+    self.fly_av_system:SetFlightParams(
+        Vector4.new(s.max_speed, s.horizontal_air_resistance_const, s.vertical_air_resistance_const, s.acceleration),
+        Vector4.new(s.vertical_acceleration, s.left_right_acceleration, s.roll_change_amount, s.roll_restore_amount),
+        Vector4.new(s.pitch_change_amount, s.pitch_restore_amount, s.yaw_change_amount, s.rotate_roll_change_amount))
+    self.fly_av_system:SetFlightParams2(
+        Vector4.new(s.h_roll_change_amount, s.h_roll_restore_amount, s.h_pitch_change_amount, s.h_pitch_restore_amount),
+        Vector4.new(s.h_yaw_change_amount, s.h_acceleration, s.h_lift_idle_acceleration, s.h_ascend_acceleration),
+        Vector4.new(s.h_descend_acceleration, self.rpm_count_step, self.rpm_restore_step, self.rpm_count_scale))
+    self.fly_av_system:SetFlightParams3(
+        Vector4.new(self.max_roll, self.max_pitch, self.force_restore_angle, self.restore_boundary_deg))
+end
+
+--- Push the idle hover reference and gains (order must match Main.cpp IdleParams).
+--- ground_z is the one input the DLL cannot see from inside the physics hook, and it is the only
+--- thing Lua still has to raycast for; everything else is a constant or a user setting.
+function Engine:PushIdleHoverParams()
+    local s = DAV.user_setting_table
+    local pos = self.av_obj:GetPosition()
+    local height = self.av_obj.navigation_obj:GetHeight()
+    local ground_z = (pos ~= nil and pos.z or 0) - height
+    -- CalculateIdleMode skips its altitude term while the vehicle is touching something, and that is
+    -- what lets a landed AV rest on the ground instead of being pushed up to hover height.
+    local idle_gravity = (s.is_enable_idle_gravity and not self.av_obj.navigation_obj:IsCollision()) and 1 or 0
+    local heli = self.flight_mode == Def.FlightMode.Helicopter
+    local pitch_band = heli and s.h_pitch_restore_amount or s.pitch_restore_amount
+    local roll_band = heli and s.h_roll_restore_amount or s.roll_restore_amount
+    self.fly_av_system:SetIdleHoverParams(
+        -- damping / height_gain are hardcoded in Engine:CalculateIdleMode; mirrored, not retuned.
+        Vector4.new(ground_z, self.av_obj.minimum_distance_to_ground, 0.2, 0.5),
+        Vector4.new(pitch_band, roll_band, self.restore_boundary_deg, DAV.dt_scale or 1),
+        Vector4.new(self.max_roll, self.max_pitch, self.force_restore_angle, s.horizontal_air_resistance_const),
+        Vector4.new(s.vertical_air_resistance_const, idle_gravity, 12, 1))
+end
+
+--- Hand the unboarded hover to the DLL (mode 4). Returns whether the DLL really holds it, so the
+--- caller knows whether it still has to push a mode 2 target of its own.
+function Engine:SetNativeIdle(on)
+    local effective = (on == true
+        and self.is_finished_init and not self.is_menu_blocked
+        and self.av_obj ~= nil and self.av_obj.entity_id ~= nil)
+        and true or false
+    if effective == self.native_idle_active then
+        return effective
+    end
+    self.native_idle_active = effective
+    if effective then
+        self:PushIdleHoverParams()
+        -- Seed once; after that the DLL learns the ground from contact on its own.
+        self:SeedGroundReference()
+        self.native_hold_pushed = false
+        self:PushNativeControl(4, self.zero3, self.zero3, self.torque_gain)
+        self.log_obj:Record(LogLevel.Info, "mode4 push (native idle hover active)")
+    end
+    return effective
+end
+
+--- Read the ground reference the DLL publishes from its game-thread update.
+---@return number ground_z, number av_z, boolean on_ground, boolean valid
+function Engine:ReadGroundInfo()
+    local ok, info = pcall(function() return self.fly_av_system:GetGroundInfo() end)
+    if not ok or info == nil then
+        return 0, 0, false, false
+    end
+    return info.x, info.y, (info.z > 0.5), (info.w > 0.5)
+end
+
+--- Hand the DLL what its own ground query needs: the search box and the collision groups.
+--- Called from AV:Init, which runs before Engine:Init creates the fly_av_system handle,
+--- so a missing handle means "nothing to hand over yet" and is a no-op.
+function Engine:PushGroundQuery(offset, distance, mask1, mask2)
+    -- Remember the args: AV:Init runs before fly_av_system exists, and the caller does not retry.
+    self.ground_query_pending = {offset = offset, distance = distance, mask1 = mask1 or 0, mask2 = mask2 or 0}
+    if self.fly_av_system == nil then
+        return false
+    end
+    self.fly_av_system:SetGroundQuery(offset, distance, mask1 or 0, mask2 or 0)
+    return true
+end
+
+--- Hand the DLL the thruster swing setup: step/restore in deg/s, the swing axis code
+--- (0=X+ 1=X- 2=Y+ 3=Y- 4=Z+ 5=Z-) and the component names to swing (';'-separated).
+--- enabled=false releases it (despawn, helicopter).
+function Engine:SetThrusterSetup(enabled, step, restore, max_angle, axis, engine_names, fx_names)
+    self.fly_av_system:SetThrusterSetup(enabled and 1 or 0, step or 0, restore or 0, max_angle or 0,
+        axis or 2, engine_names or "", fx_names or "")
+end
+
+--- Hand the DLL a ground reference once, before the first contact teaches it itself.
+function Engine:SeedGroundReference()
+    if self.av_obj == nil or self.av_obj.entity_id == nil then
+        return false
+    end
+    local pos = self.av_obj:GetPosition()
+    if pos == nil then
+        return false
+    end
+    self.fly_av_system:SetGroundReference(pos.z - self.av_obj.navigation_obj:GetHeight())
+    return true
+end
+
+--- Re-assert the native flight model (mode 3); the DLL physics hook runs it per tick.
+--- Commands arrive as event edges through Core:PushNative and the DLL holds them, so nothing is
+--- packed here - this call only re-asserts mode 3 and picks up a pending integrator reset.
+function Engine:PushNativeCommands()    local reset = self.native_reset_pending and 1 or 0
+    self.native_reset_pending = false
+    -- The DLL derives attitude and axes from the entity quaternion itself (see the axis assignment in
+    -- FmStep), so neither is pushed. W = 0 means "use your own extraction".
+    local att = Vector4.new(0, 0, 0, 0)
+    -- Entity world quaternion (real w in W); the DLL validates it by norm.
+    local q = self.av_obj:GetQuaternion()
+    local cq = Vector4.new(0, 0, 0, 0)
+    if q ~= nil then
+        cq = Vector4.new(q.i, q.j, q.k, q.r)
+    end
+    self.fly_av_system:SetFlightModel(
+        Vector4.new(self.flight_mode, self:HasGravity() and 1 or 0, DAV.dt_scale or 1, 0),
+        Vector4.new(reset, 0, 0, 0),
+        Vector4.new(0, 0, 0, 1),
+        Vector4.new(1, 1, 1, 1),
+        Vector4.new(1, 0, 0, 0),
+        att,
+        cq,
+        Vector4.new(0, 0, 0, 0),
+        Vector4.new(0, 0, 0, 0),
+        Vector4.new(0, 0, 0, 0))
+end
+
+--- Push the DLL flight context: bits gating the auto mode re-assert (bit0 aboard, bit1 autopilot,
+--- bit2 heli) plus the threshold-monitor mask for the situation (1=height, 2=distance, 4=entry).
+--- Crossings come back as dav_evt_* ActionEvents on the puppet.
+function Engine:SetFlightContext(situation)
+    self.last_situation = situation
+    self.in_vehicle = (situation == Def.Situation.InVehicle)
+    if self.fly_av_system == nil then
+        return
+    end
+    local bits = (self.in_vehicle and 1 or 0)
+    if self.av_obj ~= nil and self.av_obj.is_auto_pilot then
+        bits = bits + 2
+    end
+    if self.flight_mode == Def.FlightMode.Helicopter then
+        -- bit2: heli manual flight IS mode 2 velocity hold; the DLL must not re-assert mode 3.
+        bits = bits + 4
+    end
+    self.fly_av_system:SetFlightFlags(bits)
+    local mask = 1 -- height monitor always armed while the AV exists: the DLL only speaks on
+    -- threshold crossings, so free flight pays one raycast per frame and gets the landing
+    -- VFX on descent, not just in Waiting.
+    if situation == Def.Situation.Waiting then
+        mask = 7
+    end
+    self:PushThresholds(mask)
+end
+
+--- Pre-arm the DLL threshold monitor from the current model/event settings.
+function Engine:PushThresholds(mask)
+    if self.fly_av_system == nil then
+        return
+    end
+    local av = self.av_obj
+    local ev = (av ~= nil and av.core_obj ~= nil) and av.core_obj.event_obj or nil
+    local height_thr = (ev ~= nil and av ~= nil) and (ev.projection_max_height_offset + av.minimum_distance_to_ground) or 0.0
+    local dist_thr = (ev ~= nil) and ev.engine_audio_limit or 0.0
+    local radius = (av ~= nil) and av.entry_area_radius or 0.0
+    local ep = (av ~= nil and av.entry_point ~= nil) and av.entry_point or { x = 0, y = 0, z = 0 }
+    self.fly_av_system:SetThresholds(height_thr, dist_thr, radius, 1.0, mask, Vector4.new(ep.x, ep.y, ep.z, 0))
 end
 
 --- Get Control Type
@@ -63,50 +319,228 @@ end
 --- Set control type
 ---@param engine_control_type Def.EngineControlType
 function Engine:SetControlType(engine_control_type)
+    if self.engine_control_type == engine_control_type then
+        return
+    end
     self.engine_control_type = engine_control_type
+    self:ApplyControlMode()
 end
 
---- Set Idle
----@param is_idle boolean
-function Engine:SetIdle(is_idle)
-    self.is_idle = is_idle
+--- Push flight control to the DLL reusing scratch Vector3 tables (no per-push allocation).
+---@param mode integer 0=off, 1=add force/torque, 2=write velocity
+---@param vel Vector3
+---@param angvel Vector3
+---@param gain number
+function Engine:PushNativeControl(mode, vel, angvel, gain)
+    self.native_scratch = self.native_scratch or { Vector3.new(0, 0, 0), Vector3.new(0, 0, 0) }
+    local v, a = self.native_scratch[1], self.native_scratch[2]
+    v.x, v.y, v.z = vel.x, vel.y, vel.z
+    a.x, a.y, a.z = angvel.x, angvel.y, angvel.z
+    self.native_last_mode = mode
+    self.fly_av_system:SetFlightControl(mode, v, a, gain)
 end
 
---- Update
----@param delta number
-function Engine:Update(delta)
+--- Apply the native mode implied by the current state.
+--- Every mode decision happens when the state changes (control type, menu, spawn/despawn),
+--- never from a frame loop.
+function Engine:ApplyControlMode()
     if not self.is_finished_init then
         return
     end
-    if self.av_obj.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
+    if self.av_obj == nil or self.av_obj.entity_id == nil or self.is_menu_blocked then
+        -- No body to drive, or the menu owns the screen: never leave a held target in the buffer.
+        self:StopLoop()
+        self:PushNativeOff()
         return
     end
-    if self:GetPhysicsState() ~= 0 then
+    local control_type = self.engine_control_type
+    -- Every mode decision below re-derives who owns the hover. The flag must not survive into a
+    -- control type that does not run it (AddForce after boarding, FluctuationVelocity ramps), or
+    -- the regulator would keep holding the vehicle while manual input is expected.
+    self.native_idle_active = false
+    if control_type == Def.EngineControlType.AddForce and not self.av_obj.is_auto_pilot then
+        -- The DLL physics hook runs the whole flight model from the pushed commands.
+        self:StopLoop()
+        if not self.native_mode3_pushed then
+            self.log_obj:Record(LogLevel.Info, "mode3 push (native flight model active)")
+            self:PushNativeControl(3, self.zero3, self.zero3, self.torque_gain)
+            self.native_mode3_pushed = true
+        end
+        -- flight_mode/dt_scale/quaternion must reach the DLL on every boarding, not only on reset:
+        -- the boarding code sets native_reset_pending AFTER SetControlType fires, so gating on the
+        -- flag alone leaves the DLL on the default (AV) flight model, which ignores heli commands.
+        self:PushNativeCommands()
+        return
+    end
+    if self.native_mode3_pushed then
+        -- Otherwise the hook keeps flying the AV after the player leaves it.
+        self:PushNativeOff()
+    end
+    if control_type == Def.EngineControlType.ChangeVelocity then
+        -- The hook re-applies the target every physics tick, so nothing on the Lua side needs a clock.
+        self.native_hold_pushed = false
+        self:StopLoop()
+        -- ChangeVelocity with no autopilot means the unboarded hover: give it to the DLL. The
+        -- autopilot also drives mode 2 and must keep its own targets, so it is excluded here.
+        if self:SetNativeIdle(not self.av_obj.is_auto_pilot) then
+            return
+        end
+        self:PushFlightTarget()
+    elseif control_type == Def.EngineControlType.FluctuationVelocity then
+        -- The ramp integrates over time, so it is the one thing that always needs a clock.
+        self:StartLoop()
+    elseif control_type == Def.EngineControlType.AddForce then
+        -- Autopilot AddForce: mode 1 closes the torque error inside the DLL.
+        self.native_hold_pushed = false
+        self:StopLoop()
+        self:PushFlightTarget()
+    else
+        -- None (nothing has asked for control yet) and Blocking both mean "the DLL applies nothing".
+        self:StopLoop()
+        self:PushNativeOff()
+        if control_type ~= Def.EngineControlType.None and control_type ~= Def.EngineControlType.Blocking then
+            self.log_obj:Record(LogLevel.Error, "Unknown control type",
+                "Engine:ApplyControlMode - control_type: " .. tostring(control_type))
+        end
+    end
+end
+
+--- Push the current flight target for the current control type. This is the only place a flight
+--- target reaches the DLL, and it runs from the setters — never from a frame loop.
+function Engine:PushFlightTarget()
+    if not self.is_finished_init or self.is_menu_blocked then
+        return
+    end
+    if self.av_obj == nil or self.av_obj.entity_id == nil then
+        return
+    end
+    local control_type = self.engine_control_type
+    if control_type == Def.EngineControlType.ChangeVelocity
+            or control_type == Def.EngineControlType.FluctuationVelocity then
+        self:PushVelocityHold()
+    elseif control_type == Def.EngineControlType.AddForce then
+        if not self.av_obj.is_auto_pilot then
+            -- The DLL derives force and torque from the pushed commands and the live body.
+            return
+        end
+        self:PushForceTarget()
+    end
+end
+
+--- Hold the vehicle at the current velocity target (ChangeVelocity semantics).
+--- The physics hook re-applies mode 2 every physics tick, so a target that has not moved needs no
+--- push at all.
+---@return boolean pushed
+function Engine:PushVelocityHold()
+    local vel = self.direction_velocity
+    local ang = self.angular_velocity
+    local held = self.native_hold
+    -- native_last_mode matters: another mode (1/3) may have been pushed since, and the DLL holds
+    -- whatever mode it was last told, so "target unchanged" alone is not enough to skip the push.
+    if self.native_hold_pushed and self.native_last_mode == 2
+            and vec3_equal(held.v, vel, VELOCITY_EPS)
+            and vec3_equal(held.a, ang, ANGULAR_EPS) then
+        return false
+    end
+    self:PushNativeControl(2, vel, ang, 0)
+    held.v.x, held.v.y, held.v.z = vel.x, vel.y, vel.z
+    held.a.x, held.a.y, held.a.z = ang.x, ang.y, ang.z
+    self.native_hold_pushed = true
+    return true
+end
+
+--- Autopilot AddForce: hand the DLL the velocity target and let it compute the torque error from
+--- the live angular velocity every physics tick.
+function Engine:PushForceTarget()
+    local vel = self.direction_velocity
+    local ang = self.angular_velocity
+    local held = self.native_hold
+    if self.native_last_mode == 1 and vec3_equal(held.v, vel, VELOCITY_EPS)
+            and vec3_equal(held.a, ang, ANGULAR_EPS) then
+        return
+    end
+    self:PushNativeControl(1, vel, ang, self.torque_gain)
+    held.v.x, held.v.y, held.v.z = vel.x, vel.y, vel.z
+    held.a.x, held.a.y, held.a.z = ang.x, ang.y, ang.z
+    self.native_hold_pushed = true
+end
+
+--- The one clock the Engine still owns: the descent/ascent ramp integrates over time.
+function Engine:StartLoop()
+    if self.loop_timer ~= nil then
+        return
+    end
+    local engine = self
+    self.loop_timer = Cron.Every(self.loop_interval, function(args)
+        -- Cron only ever fires a timer once per frame, so the nominal interval would under-count the
+        -- ramp whenever the frame rate is below 1/interval. Use the real frame delta instead.
+        engine:LoopTick(DAV.last_frame_delta or args.interval)
+    end)
+end
+
+function Engine:StopLoop()
+    if self.loop_timer ~= nil then
+        Cron.Halt(self.loop_timer)
+        self.loop_timer = nil
+    end
+end
+
+---@param delta number the timer interval, so the ramp rate is per second whatever the frame rate is
+function Engine:LoopTick(delta)
+    if self.av_obj == nil or self.av_obj.entity_id == nil or self.is_menu_blocked then
+        self:StopLoop()
+        return
+    end
+    if self.engine_control_type == Def.EngineControlType.FluctuationVelocity then
+        self:FluctuationVelocity(delta)
+        return
+    end
+    self:StopLoop()
+end
+
+--- Autopilot is a mode condition, not just a flag: mode 3 is manual-only, so the DLL mode has to be
+--- re-evaluated the moment it flips. Navigation used to set av_obj.is_auto_pilot directly and rely on
+--- the per-frame Update to notice.
+---@param on boolean
+function Engine:SetAutoPilot(on)
+    if self.av_obj == nil or self.av_obj.is_auto_pilot == on then
+        return
+    end
+    self.av_obj.is_auto_pilot = on
+    -- Refresh the autopilot bit of the DLL flight context.
+    self:SetFlightContext(self.last_situation)
+    self:ApplyControlMode()
+end
+
+--- Slow safety net, driven by Core: the physics body can resolve late.
+---@param delta number
+function Engine:Heartbeat(delta)
+    if not self.is_finished_init or self.av_obj == nil or self.av_obj.entity_id == nil then
+        return
+    end
+    if self.is_menu_blocked then
+        -- Physics is frozen while the menu owns the screen; nothing to resolve or force while it is.
+        return
+    end
+    -- While unresolved GetMass() is 0 and every physics call is a silent no-op.
+    if self.mass <= 0 then
+        local mass = self.fly_av_system:GetMass()
+        if mass > 0 then
+            self.mass = mass
+            self.log_obj:Record(LogLevel.Info, string.format("native mass resolved: %.1f", mass))
+        end
+    end
+    -- -1 means "vehicle not resolved yet"; ForceEnablePhysics is what gets a fresh AV simulated.
+    -- It must stay on the game thread, and once the hook has ticked the physics is provably live.
+    if not self.native_hook_alive then
+        local ticks = self:ReadNativeCounter("GetNativeTickCount")
+        if ticks ~= nil and ticks > 0 then
+            self.native_hook_alive = true
+        end
+    end
+    if not self.native_hook_alive and self:GetPhysicsState() ~= 0 then
         self:UnsetPhysicsState()
         self.log_obj:Record(LogLevel.Trace, "Unset DAV physics")
-    end
-    if self.engine_control_type == Def.EngineControlType.ChangeVelocity then
-        self.force = Vector3.new(0, 0, 0)
-        self.torque = Vector3.new(0, 0, 0)
-        self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.direction_velocity, self.angular_velocity)
-    elseif self.engine_control_type == Def.EngineControlType.AddForce then
-        local direction_velocity = self:GetDirectionVelocity()
-        local angular_velocity = self:GetAngularVelocity()
-        local _, actual_angular_velocity = self:GetDirectionAndAngularVelocity()
-        local angular_velocity_diff = Vector3.new(angular_velocity.x - actual_angular_velocity.x, angular_velocity.y - actual_angular_velocity.y, angular_velocity.z - actual_angular_velocity.z)
-        local mass = self.mass
-        self.force = Vector3.new(direction_velocity.x * mass, direction_velocity.y * mass, direction_velocity.z * mass)
-        self.torque = Vector3.new(angular_velocity_diff.x * self.torque_gain, angular_velocity_diff.y * self.torque_gain, angular_velocity_diff.z * self.torque_gain)
-        self:AddForce(self.force, self.torque)
-    elseif self.engine_control_type == Def.EngineControlType.FluctuationVelocity then
-        self.force = Vector3.new(0, 0, 0)
-        self.torque = Vector3.new(0, 0, 0)
-        self:FluctuationVelocity(delta)
-    elseif self.engine_control_type == Def.EngineControlType.Blocking then
-        -- Do nothing, just block the physics
-        self.log_obj:Record(LogLevel.Trace, "Blocking DAV physics")
-    else
-        self.log_obj:Record(LogLevel.Error, "Unknown control type", "Engine:Update - control_type: " .. tostring(self.engine_control_type))
     end
 end
 
@@ -160,7 +594,7 @@ function Engine:IsOnGround()
     if not self.is_finished_init then
         return false
     end
-    -- Ignore ground checks for a short time after initialization (prevent false detections from physics engine initialization)
+    -- Ignore ground checks briefly after spawn: physics init causes false detections
     local elapsed_time = os.clock() - self.av_obj.spawn_time
     if elapsed_time < self.ground_check_delay then
         return false
@@ -178,41 +612,36 @@ function Engine:GetDirectionAndAngularVelocity()
     return self.fly_av_system:GetVelocity(), self.fly_av_system:GetAngularVelocity()
 end
 
---- Add force
----@param force Vector3
----@param torque Vector3
-function Engine:AddForce(force, torque)
-    self.fly_av_system:AddForce(force, torque)
+--- Get the linear velocity only (skips the angular C# transition of GetDirectionAndAngularVelocity).
+---@return Vector3|nil nil when the physics handle is not up yet
+function Engine:GetVelocity()
+    if not self.is_finished_init then
+        return nil
+    end
+    return self.fly_av_system:GetVelocity()
 end
 
---- Add velocity
----@param delta number
----@param direction_velocity Vector3
----@param angular_velocity Vector3
-function Engine:AddVelocity(delta, direction_velocity, angular_velocity)
-    local delta_direction_velocity = Vector3.new(direction_velocity.x * delta, direction_velocity.y * delta, direction_velocity.z * delta)
-    local delta_angular_velocity = Vector3.new(angular_velocity.x * delta, angular_velocity.y * delta, angular_velocity.z * delta)
-    self.fly_av_system:AddVelocity(delta_direction_velocity, delta_angular_velocity)
+--- Stop whatever the hook was applying, once. Shared by every path that leaves a native mode.
+function Engine:PushNativeOff()
+    if not (self.native_mode3_pushed or self.native_hold_pushed) then
+        return
+    end
+    self:PushNativeControl(0, Vector3.new(0, 0, 0), Vector3.new(0, 0, 0), 0)
+    self.native_mode3_pushed = false
+    self.native_hold_pushed = false
 end
 
---- Change velocity
----@param type integer
----@param direction_velocity Vector3
----@param angular_velocity Vector3
-function Engine:ChangeVelocity(type, direction_velocity, angular_velocity)
-    self.fly_av_system:ChangeVelocity(direction_velocity, angular_velocity, type)
-end
-
---- Set force
----@param force Vector3
-function Engine:SetForce(force)
-    self.force = force
-end
-
---- Set torque
----@param torque Vector3
-function Engine:SetTorque(torque)
-    self.torque = torque
+--- The UI observers report the menu/popup/photo edge, so the Engine only keeps a flag and
+--- stops/resumes native application when it flips.
+---@param blocked boolean
+function Engine:SetMenuBlocked(blocked)
+    blocked = blocked and true or false
+    if self.is_menu_blocked == blocked then
+        return
+    end
+    self.is_menu_blocked = blocked
+    -- ApplyControlMode pushes mode 0 while blocked and re-asserts the target when the menu clears.
+    self:ApplyControlMode()
 end
 
 --- Get direction velocity
@@ -224,7 +653,11 @@ end
 --- Set direction velocity
 ---@param direction_velocity Vector3
 function Engine:SetDirectionVelocity(direction_velocity)
+    -- No change gate here on purpose: the deadband belongs in PushVelocityHold, which compares against
+    -- what the DLL actually holds. Comparing against the previous Lua target instead would silently
+    -- discard slow drift (each step under eps, the sum over eps) and the vehicle would never see it.
     self.direction_velocity = direction_velocity
+    self:PushFlightTarget()
 end
 
 --- Get angular velocity
@@ -237,31 +670,35 @@ end
 ---@param angular_velocity Vector3
 function Engine:SetAngularVelocity(angular_velocity)
     self.angular_velocity = angular_velocity
+    self:PushFlightTarget()
 end
 
 --- Calculate linearly velocity.
 ---@param action_command_list table
+---@param skip_linear boolean|nil Idle only: skip the hover/height term for callers that discard x/y/z.
 ---@return number x
 ---@return number y
 ---@return number z
 ---@return number roll
 ---@return number pitch
 ---@return number yaw
-function Engine:CalculateAddVelocity(action_command_list)
+function Engine:CalculateAddVelocity(action_command_list, skip_linear)
+    -- `or 1` keeps pre-timescale behaviour if DAV.dt_scale was never published.
+    local dt_scale = DAV.dt_scale or 1
     if action_command_list[1] == Def.ActionList.Idle then
         self.rpm_count = 0
-        return self:CalculateIdleMode()
+        return self:CalculateIdleMode(skip_linear)
     end
 
     if (action_command_list[1] == Def.ActionList.Forward or action_command_list[1] == Def.ActionList.Up or action_command_list[1] == Def.ActionList.HAccelerate or action_command_list[1] == Def.ActionList.HUp) and self.rpm_count <= self.rpm_max_count then
-        self.rpm_count = self.rpm_count + self.rpm_count_step
+        self.rpm_count = self.rpm_count + self.rpm_count_step * dt_scale
     elseif (action_command_list[1] == Def.ActionList.Backward or action_command_list[1] == Def.ActionList.Down or action_command_list[1] == Def.ActionList.HDown) and self.rpm_count >= -self.rpm_max_count then
-        self.rpm_count = self.rpm_count - self.rpm_count_step
+        self.rpm_count = self.rpm_count - self.rpm_count_step * dt_scale
     end
     if self.rpm_count > 0 then
-        self.rpm_count = self.rpm_count - self.rpm_restore_step
+        self.rpm_count = self.rpm_count - self.rpm_restore_step * dt_scale
     elseif self.rpm_count < 0 then
-        self.rpm_count = self.rpm_count + self.rpm_restore_step
+        self.rpm_count = self.rpm_count + self.rpm_restore_step * dt_scale
     end
 
     if self.flight_mode == Def.FlightMode.AV then
@@ -272,6 +709,22 @@ function Engine:CalculateAddVelocity(action_command_list)
         self.log_obj:Record(LogLevel.Critical, "Unknown flight mode: " .. self.flight_mode)
         return 0,0,0,0,0,0
     end
+end
+
+--- Restore rate with a boundary layer, replacing a bare relay.
+--- See `restore_boundary_deg` in the constructor for why.
+---@param excess number how far past the deadband edge the angle is, in degrees (>= 0)
+---@param full_rate number the untapered restore rate for this axis
+---@return number the rate to command, tapered to zero as excess -> 0
+function Engine:RestoreRate(excess, full_rate)
+    local boundary = self.restore_boundary_deg * (DAV.dt_scale or 1)
+    if boundary <= 0 or excess >= boundary then
+        return full_rate
+    end
+    if excess <= 0 then
+        return 0
+    end
+    return full_rate * (excess / boundary)
 end
 
 --- Run the engine with specified parameters.
@@ -325,16 +778,20 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
 
     if self.flight_mode == Def.FlightMode.Helicopter or self:HasGravity() then
         if current_angle.pitch > pitch_restore_amount then
-            local_pitch = local_pitch - pitch_restore_amount
+            local_pitch = local_pitch - self:RestoreRate(
+                current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
         elseif current_angle.pitch < -pitch_restore_amount then
-            local_pitch = local_pitch + pitch_restore_amount
+            local_pitch = local_pitch + self:RestoreRate(
+                -current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
         end
     end
 
     if current_angle.roll > roll_restore_amount then
-        local_roll = local_roll - roll_restore_amount
+        local_roll = local_roll - self:RestoreRate(
+            current_angle.roll - roll_restore_amount, roll_restore_amount)
     elseif current_angle.roll < -roll_restore_amount then
-        local_roll = local_roll + roll_restore_amount
+        local_roll = local_roll + self:RestoreRate(
+            -current_angle.roll - roll_restore_amount, roll_restore_amount)
     end
 
     -- Smooth roll correction when exceeding max_roll
@@ -388,8 +845,12 @@ function Engine:Run(x, y, z, roll, pitch, yaw)
     y = y - horizontal_air_resistance_const * vel_vec.y
     z = z - vertical_air_resistance_const * vel_vec.z
 
+    -- Always push: PushVelocityHold compares against the value the DLL holds, so an unchanged target
+    -- is free and slow drift still crosses the deadband. Gating here on the target delta would drop
+    -- sub-eps corrections for good (that made the autopilot oscillate onto a heading).
     self.direction_velocity = Vector3.new(x, y, z)
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
+    self:PushFlightTarget()
     return true
 end
 
@@ -419,16 +880,20 @@ function Engine:OnlyAngularRun(roll, pitch, yaw)
 
     if self.flight_mode == Def.FlightMode.Helicopter or self:HasGravity() then
         if current_angle.pitch > pitch_restore_amount then
-            local_pitch = local_pitch - pitch_restore_amount
+            local_pitch = local_pitch - self:RestoreRate(
+                current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
         elseif current_angle.pitch < -pitch_restore_amount then
-            local_pitch = local_pitch + pitch_restore_amount
+            local_pitch = local_pitch + self:RestoreRate(
+                -current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
         end
     end
 
     if current_angle.roll > roll_restore_amount then
-        local_roll = local_roll - roll_restore_amount
+        local_roll = local_roll - self:RestoreRate(
+            current_angle.roll - roll_restore_amount, roll_restore_amount)
     elseif current_angle.roll < -roll_restore_amount then
-        local_roll = local_roll + roll_restore_amount
+        local_roll = local_roll + self:RestoreRate(
+            -current_angle.roll - roll_restore_amount, roll_restore_amount)
     end
 
     -- Smooth roll correction when exceeding max_roll
@@ -453,6 +918,7 @@ function Engine:OnlyAngularRun(roll, pitch, yaw)
     yaw = yaw + d_yaw
 
     self.angular_velocity = Vector3.new(roll, pitch, yaw)
+    self:PushFlightTarget()
     return true
 end
 
@@ -609,6 +1075,7 @@ end
 ---@return number pitch
 ---@return number yaw
 function Engine:CalculateHelicopterMode(action_command_list)
+    local dt_scale = DAV.dt_scale or 1
     local x,y,z,roll,pitch,yaw = 0,0,0,0,0,0
     local current_angle = self.av_obj:GetEulerAngles()
 
@@ -667,10 +1134,11 @@ function Engine:CalculateHelicopterMode(action_command_list)
         z = z + acceleration * forward_vec.z
     elseif action_command_list[1] == Def.ActionList.HUp then
         z = z + ascend_acceleration * up_vec.z
-        self.heli_lift_acceleration = self.heli_lift_acceleration + ascend_acceleration
+        -- Accumulator: the lift increment is per-tick and must scale; the rate target above must not.
+        self.heli_lift_acceleration = self.heli_lift_acceleration + ascend_acceleration * dt_scale
     elseif action_command_list[1] == Def.ActionList.HDown then
         z = z - descend_acceleration * up_vec.z
-        self.heli_lift_acceleration = self.heli_lift_acceleration - descend_acceleration
+        self.heli_lift_acceleration = self.heli_lift_acceleration - descend_acceleration * dt_scale
     end
 
     local d_roll, d_pitch, d_yaw = Utils:CalculateRotationalSpeed(local_roll, local_pitch, 0, current_angle.roll, current_angle.pitch, current_angle.yaw)
@@ -683,16 +1151,17 @@ function Engine:CalculateHelicopterMode(action_command_list)
 end
 
 --- Calculate velocity for idle mode
+---@param skip_linear boolean|nil see Engine:CalculateAddVelocity
 ---@return number x
 ---@return number y
 ---@return number z
 ---@return number roll
 ---@return number pitch
 ---@return number yaw
-function Engine:CalculateIdleMode()
+function Engine:CalculateIdleMode(skip_linear)
     local x,y,z,roll,pitch = 0,0,0,0,0
 
-    if DAV.user_setting_table.is_enable_idle_gravity and not self.av_obj.navigation_obj:IsCollision() then
+    if not skip_linear and DAV.user_setting_table.is_enable_idle_gravity and not self.av_obj.navigation_obj:IsCollision() then
         local vel_vec, _ = self:GetDirectionAndAngularVelocity()
         local height = self.av_obj.navigation_obj:GetHeight()
         local dest_height = self.av_obj.minimum_distance_to_ground
@@ -709,9 +1178,11 @@ function Engine:CalculateIdleMode()
     local current_angle = self.av_obj:GetEulerAngles()
     local pitch_restore_amount = DAV.user_setting_table.pitch_restore_amount
     if current_angle.pitch > pitch_restore_amount then
-        pitch = pitch - pitch_restore_amount
+        pitch = pitch - self:RestoreRate(
+            current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
     elseif current_angle.pitch < -pitch_restore_amount then
-        pitch = pitch + pitch_restore_amount
+        pitch = pitch + self:RestoreRate(
+            -current_angle.pitch - pitch_restore_amount, pitch_restore_amount)
     elseif current_angle.pitch > 0 then
         pitch = pitch - current_angle.pitch
     elseif current_angle.pitch < 0 then
@@ -726,6 +1197,9 @@ end
 --- Get RPM count
 ---@return integer
 function Engine:GetRPMCount()
+    if self.native_mode3_pushed then
+        return math.floor(self.fly_av_system:GetNativeRPM() / self.rpm_count_scale)
+    end
     return math.floor(self.rpm_count / self.rpm_count_scale)
 end
 
@@ -735,7 +1209,7 @@ end
 function Engine:SetFluctuationVelocityParams(step_width_per_second, target_velocity)
     self.step_width_per_second = step_width_per_second
     self.target_velocity = target_velocity
-    self.engine_control_type = Def.EngineControlType.FluctuationVelocity
+    self:SetControlType(Def.EngineControlType.FluctuationVelocity)
 end
 
 --- Fluctuation velocity
@@ -744,7 +1218,7 @@ function Engine:FluctuationVelocity(delta)
     -- Check if player is in vehicle - if so, switch to AddForce mode
     if self.av_obj.core_obj.event_obj:IsInVehicle() and not self.av_obj.is_auto_pilot then
         self.log_obj:Record(LogLevel.Info, "Player in vehicle detected - switching from FluctuationVelocity to AddForce")
-        self.engine_control_type = Def.EngineControlType.AddForce
+        self:SetControlType(Def.EngineControlType.AddForce)
         return
     end
 
@@ -755,27 +1229,29 @@ function Engine:FluctuationVelocity(delta)
     end
     if self.step_width_per_second == 0 then
         self.log_obj:Record(LogLevel.Trace, "step_width_per_second is 0")
-        self.engine_control_type = Def.EngineControlType.ChangeVelocity
+        self:SetControlType(Def.EngineControlType.ChangeVelocity)
         return
     elseif self.step_width_per_second > 0 and velocity > self.target_velocity then
         self.log_obj:Record(LogLevel.Trace, "velocity > target_velocity")
         self.direction_velocity.x = self.direction_velocity.x / velocity * self.target_velocity
         self.direction_velocity.y = self.direction_velocity.y / velocity * self.target_velocity
         self.direction_velocity.z = self.direction_velocity.z / velocity * self.target_velocity
-        self.engine_control_type = Def.EngineControlType.ChangeVelocity
+        self:SetControlType(Def.EngineControlType.ChangeVelocity)
         return
     elseif self.step_width_per_second < 0 and velocity < self.target_velocity then
         self.log_obj:Record(LogLevel.Trace, "velocity < target_velocity")
         self.direction_velocity.x = self.direction_velocity.x / velocity * self.target_velocity
         self.direction_velocity.y = self.direction_velocity.y / velocity * self.target_velocity
         self.direction_velocity.z = self.direction_velocity.z / velocity * self.target_velocity
-        self.engine_control_type = Def.EngineControlType.ChangeVelocity
+        self:SetControlType(Def.EngineControlType.ChangeVelocity)
         return
     end
     self.direction_velocity.x = self.direction_velocity.x / velocity * (velocity + self.step_width_per_second * delta)
     self.direction_velocity.y = self.direction_velocity.y / velocity * (velocity + self.step_width_per_second * delta)
     self.direction_velocity.z = self.direction_velocity.z / velocity * (velocity + self.step_width_per_second * delta)
-    self:ChangeVelocity(Def.ChangeVelocityType.Both ,self.direction_velocity, self.angular_velocity)
+    -- Same hold as ChangeVelocity: the hook re-applies it every physics tick, so the descent only
+    -- pushes while the ramped target actually moves.
+    self:PushFlightTarget()
 end
 
 return Engine

@@ -18,14 +18,20 @@ function AV:New(core_obj)
 	obj.navigation_obj = Navigation:New(obj)
 	obj.log_obj = Log:New()
 	obj.log_obj:SetLevel(LogLevel.Info, "AV")
-	---static---
-	-- door
+	---static---: door
 	obj.duration_zero_wait = 0.5
 	-- summon
 	obj.spawn_distance = 5.5
 	obj.spawn_height = 20
-	obj.down_timeout = 5 -- s
-	obj.up_timeout = 350
+	-- Summon descent timeout: 10 s covers the ~6.8 s full descent profile with ~50% headroom.
+	obj.down_timeout = 10 -- s
+	-- Duration in seconds (converted via TimeScale:Ticks), not a raw tick count.
+	obj.up_timeout = 3.5 -- s
+	-- Recall climb: starts slow and builds to the top speed exactly when the despawn fires, so the
+	-- vehicle reads as taking off instead of lifting away at a crawl.
+	obj.despawn_climb_speed_start = 1.0
+	obj.despawn_climb_speed_max = 5.0
+	obj.unmount_timeout = 3.5 -- s
 	obj.down_speed = -5.0
 	-- autopilot
 	obj.destination_range = 3
@@ -35,10 +41,23 @@ function AV:New(core_obj)
 	-- thruster
 	obj.thruster_angle_step = 0.6
 	obj.thruster_angle_restore = 0.3
+	-- Swing axis in the thruster components' local frame: 0=X+ 1=X- 2=Y+ 3=Y- 4=Z+ 5=Z-.
+	-- The DLL rotates about this axis; tweak this one number if the swing plane/direction is off.
+	obj.thruster_axis = 0
 
-	---dynamic---
-	-- common
+	---dynamic---: common
 	obj.entity_id = nil
+	-- Entity handle cache: one resolution per frame covers every accessor (changes only at Spawn/Despawn).
+	obj._entity = nil          -- cached result of Game.FindEntityByID (nil never cached)
+	obj._entity_frame = -1     -- DAV.frame_seq the cached handle belongs to
+	-- Frame-cached orientation and entry-area reads; neither can change within a rendered frame.
+	obj._euler = nil
+	obj._euler_frame = -1
+	obj._entry_area = nil
+	obj._entry_area_frame = -1
+	-- Entry area follows a walking human: re-resolved at 20 Hz, last value reused between refreshes.
+	obj.entry_area_check_interval = 0.05
+	obj._entry_area_next_time = 0
 	obj.is_blocking_operation = false
 	-- door
 	obj.combat_door = nil
@@ -72,8 +91,9 @@ function AV:New(core_obj)
 	obj.destroy_app = nil
 	-- audio
 	obj.engine_audio_name = nil
-	obj.is_acceleration_sound = false
-	obj.is_thruster_sound = false
+	-- Grace the accel/thruster sound stays on after commands stop (absorbs one-tick gaps). The DLL
+	-- runs the latch and grace off the held commands and fires an edge per start/stop.
+	obj.sound_stop_grace_seconds = 0.3
 	-- truster
 	obj.is_available_thruster = false
 	obj.engine_component_name_list = {}
@@ -82,7 +102,6 @@ function AV:New(core_obj)
 	obj.thruster_offset_list = {}
 	obj.engine_components = {}
 	obj.thruster_fxs = {}
-	obj.thruster_angle = 0
 	obj.thruster_angle_max = 0
 	-- enter and exit
 	obj.enter_point = {}
@@ -144,6 +163,46 @@ function AV:InitializeCollisionQueryFilter()
 		query_filter.mask2 = query_filter.mask2 + QueryFilter.AddGroup(CName.new(group_name)).mask2
 	end
 	self.collision_query_filter = query_filter
+	-- The DLL runs this same query on its own game thread for the hover, which is what lets CET stop
+	-- looping for height. It needs the search box and the groups, and only Lua knows those.
+	if self.engine_obj ~= nil then
+		self.engine_obj:PushGroundQuery(self.search_ground_offset, self.search_ground_distance,
+			query_filter.mask1, query_filter.mask2)
+	end
+end
+
+--- Resolve the vehicle entity handle, caching it for the current frame.
+--- Handle changes only at Spawn/Despawn, so one resolution per frame serves every reader.
+--- nil is never cached: a pending spawn keeps re-resolving until the entity materialises.
+---@return any|nil entity the vehicle entity, or nil if absent
+function AV:GetEntity()
+	if self.entity_id == nil then
+		self._entity = nil
+		return nil
+	end
+	-- No frame counter: resolve every time rather than risk caching a handle forever.
+	local frame = DAV.frame_seq
+	if frame == nil then
+		return Game.FindEntityByID(self.entity_id)
+	end
+	if self._entity ~= nil and self._entity_frame == frame then
+		return self._entity
+	end
+	local entity = Game.FindEntityByID(self.entity_id)
+	self._entity = entity
+	self._entity_frame = frame
+	return entity
+end
+
+--- Drop the cached entity handle.
+--- Called whenever entity_id changes. The next GetEntity() re-resolves.
+function AV:InvalidateEntityCache()
+	self._entity = nil
+	self._entity_frame = -1
+	self._euler = nil
+	self._euler_frame = -1
+	self._entry_area = nil
+	self._entry_area_frame = -1
 end
 
 --- Check if player is mounted.
@@ -152,7 +211,7 @@ function AV:IsPlayerIn()
 	if self.entity_id == nil then
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		return false
 	end
@@ -171,7 +230,7 @@ function AV:IsDestroyed()
 	if self.entity_id == nil then
 		return true
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		return true
 	end
@@ -184,7 +243,7 @@ function AV:IsDespawned()
 	if self.entity_id == nil then
 		return true
 	end
-	if Game.FindEntityByID(self.entity_id) == nil then
+	if self:GetEntity() == nil then
 		return true
 	else
 		return false
@@ -197,7 +256,7 @@ function AV:GetPosition()
 	if self.entity_id == nil then
 		return Vector4.Zero()
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		return Vector4.Zero()
 	end
@@ -210,7 +269,7 @@ function AV:GetForward()
 	if self.entity_id == nil then
 		return Vector4.new(0, 0, 0, 1.0)
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
     if entity == nil then
         return Vector4.new(0, 0, 0, 1.0)
     end
@@ -223,7 +282,7 @@ function AV:GetRight()
 	if self.entity_id == nil then
 		return Vector4.new(0, 0, 0, 1.0)
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
     if entity == nil then
         return Vector4.new(0, 0, 0, 1.0)
     end
@@ -236,7 +295,7 @@ function AV:GetUp()
 	if self.entity_id == nil then
 		return Vector4.new(0, 0, 0, 1.0)
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
     if entity == nil then
         return Vector4.new(0, 0, 0, 1.0)
     end
@@ -250,7 +309,7 @@ function AV:GetQuaternion()
 		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetQuaternion")
 		return Quaternion.new(0, 0, 0, 1.0)
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
     if entity == nil then
         return Quaternion.new(0, 0, 0, 1.0)
     end
@@ -264,41 +323,59 @@ function AV:GetEulerAngles()
 		self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for GetEulerAngles")
 		return EulerAngles.new(0, 0, 0)
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	-- Frame cache: the body cannot rotate within one frame; treat the returned table as read-only.
+	local frame = DAV.frame_seq
+	if frame ~= nil and self._euler ~= nil and self._euler_frame == frame then
+		return self._euler
+	end
+	local entity = self:GetEntity()
     if entity == nil then
         return EulerAngles.new(0, 0, 0)
     end
-    return entity:GetWorldOrientation():ToEulerAngles()
+    local euler = entity:GetWorldOrientation():ToEulerAngles()
+    if frame ~= nil then
+        self._euler = euler
+        self._euler_frame = frame
+    end
+    return euler
 end
 
 --- Get Ground Position
+---@param from_pos Vector4|nil Vehicle position to measure from. Pass the one you
+---        already hold: the raycast needs it and resolving it a second time is a
+---        wasted C# round trip. Defaults to self:GetPosition().
 ---@return number z
-function AV:GetGroundPosition()
-    local current_position = self:GetPosition()
-	if current_position == nil then
+function AV:GetGroundPosition(from_pos)
+    local base = from_pos or self:GetPosition()
+	if base == nil then
 		self.log_obj:Record(LogLevel.Warning, "No position to get ground position")
 		return 0
 	end
 	if self.collision_query_filter == nil then
 		self:InitializeCollisionQueryFilter()
 	end
-    current_position.z = current_position.z + self.search_ground_offset
+	-- Raycast from freshly built vectors; never mutate the caller's position table.
+	local start_z = base.z + self.search_ground_offset
 	local is_success, trace_result = Game.GetSpatialQueriesSystem():SyncRaycastByQueryFilter(
-		current_position,
-		Vector4.new(current_position.x, current_position.y, current_position.z - self.search_ground_distance, 1.0),
+		Vector4.new(base.x, base.y, start_z, 1.0),
+		Vector4.new(base.x, base.y, start_z - self.search_ground_distance, 1.0),
 		self.collision_query_filter,
 		false,
 		false)
 	if is_success then
 		return trace_result.position.z
 	end
-    return current_position.z - self.search_ground_distance - 1
+    return start_z - self.search_ground_distance - 1
 end
 
---- Get Height between ground and vehicle
----@return number height
+--- Speed the speedometer shows, in m/s.
+---@return number speed in m/s (0 before the physics handle is up)
 function AV:GetCurrentSpeed()
-	local vel_vec3, _ = self.engine_obj:GetDirectionAndAngularVelocity()
+	-- Use Engine:GetVelocity(); the angular half was resolved and discarded every call.
+	local vel_vec3 = self.engine_obj:GetVelocity()
+	if vel_vec3 == nil then
+		return 0
+	end
 	local vel_vec4 = Vector4.Vector3To4(vel_vec3)
 	return vel_vec4:Length()
 end
@@ -310,7 +387,7 @@ function AV:IsMountedCombatSeat()
 		self.log_obj:Record(LogLevel.Warning, "No entity id to check combat seat")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		return false
 	end
@@ -330,7 +407,7 @@ function AV:IsEngineOn()
 	if self.entity_id == nil then
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		return false
 	end
@@ -340,6 +417,15 @@ end
 --- Spawn AV.
 ---@return boolean
 function AV:Spawn(position, angle)
+	if DAV.is_disabled then
+		self.log_obj:Record(LogLevel.Info, "Spawn blocked: DAV is disabled (call DAV:Enable())")
+		-- Same HUD notice channel as the autopilot arrival message.
+		local ev = self.core_obj ~= nil and self.core_obj.event_obj or nil
+		if ev ~= nil and ev.hud_obj ~= nil then
+			ev.hud_obj:ShowDisabledDisplay()
+		end
+		return false
+	end
 	if self.entity_id ~= nil then
 		self.log_obj:Record(LogLevel.Info, "Entity already spawned")
 		return false
@@ -357,11 +443,20 @@ function AV:Spawn(position, angle)
 	entity_spec.orientation = angle
 	entity_spec.persistState = false
 	entity_spec.persistSpawn = false
+	entity_spec.alwaysSpawned = true
 	self.entity_id = entity_system:CreateEntity(entity_spec)
+	self.log_obj:Record(LogLevel.Info, "CreateEntity returned id=" .. tostring(self.entity_id and self.entity_id.hash))
+	-- Fresh entity: drop any handle cached for the previous one.
+	self:InvalidateEntityCache()
+	-- ...and the ground height measured against it.
+	self.navigation_obj:InvalidateHeightCache()
 
 	-- set entity id to position object
 	Cron.Every(0.1, {tick = 1}, function(timer)
-		local entity = Game.FindEntityByID(self.entity_id)
+		local entity = self:GetEntity()
+		if timer.tick % 10 == 1 then
+			self.log_obj:Record(LogLevel.Info, "Spawn wait: entity " .. (entity ~= nil and "found" or "not materialized yet") .. " tick=" .. timer.tick)
+		end
 		if entity ~= nil then
 			self.landing_vfx_component = entity:FindComponentByName("LandingVFXSlot")
 			self.engine_obj:Init(self.entity_id)
@@ -384,12 +479,21 @@ function AV:Spawn(position, angle)
 	return true
 end
 
+--- Reaction distance for the spawn descent, capped at the ground clearance
+--- so the stop point stays honest if down_speed or tick length ever changes.
+---@return number
+function AV:SpawnLead()
+	return TimeScale:Lead(math.abs(self.down_speed), self.minimum_distance_to_ground)
+end
+
 --- Spawn AV at sky.
 function AV:SpawnToSky()
 	local position = self:GetSpawnPosition(self.spawn_distance, 0.0)
 	position.z = position.z + self.spawn_height
 	local angle = self:GetSpawnOrientation(90.0)
 	self:Spawn(position, angle)
+	-- Hoisted: the tick budget is fixed when the sequence starts, not re-evaluated per tick.
+	local down_ticks = TimeScale:Ticks(self.down_timeout)
 	Cron.Every(DAV.time_resolution, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() and not self.is_spawning then
 			local height = self.navigation_obj:GetHeight()
@@ -398,13 +502,16 @@ function AV:SpawnToSky()
 				self:DisableAllDoorInteractions()
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, self.down_speed))
 				self.log_obj:Record(LogLevel.Info, "Initial Spawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
-			elseif height < self.minimum_distance_to_ground or timer.tick > (self.down_timeout / DAV.time_resolution) or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
+			-- Lead compensation: stop when the predicted next-tick height reaches the ground, not the sampled one.
+			elseif height - self:SpawnLead() <= self.minimum_distance_to_ground
+				or timer.tick > down_ticks
+				or self.core_obj.event_obj:GetSituation() ~= Def.Situation.Landing then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
 				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 0))
 				self.is_landed = true
 				self.log_obj:Record(LogLevel.Info, "Spawn to sky success")
 				Cron.Halt(timer)
-			elseif height < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
+			elseif height - self:SpawnLead() < 10 and self.engine_obj:GetControlType() ~= Def.EngineControlType.FluctuationVelocity then
 				self.engine_obj:SetFluctuationVelocityParams(-2, 1)
 				self.log_obj:Record(LogLevel.Trace, "Fluctuation Velocity")
 			end
@@ -420,28 +527,55 @@ function AV:Despawn()
 		self.log_obj:Record(LogLevel.Warning, "No entity to despawn")
 		return false
 	end
+	-- The DLL writes the thruster components every frame; release it before the entity goes away so
+	-- no cached component handle can outlive its owner.
+	self.engine_obj:SetThrusterSetup(false, 0, 0, 0, 2, "", "")
+	-- Hand the vehicle back to the DLL: it drops its handle, so the frame-clock physics re-enable
+	-- can never touch a deleted entity.
+	self.engine_obj.fly_av_system:SetVehicle(0)
 	local entity_system = Game.GetDynamicEntitySystem()
 	entity_system:DeleteEntity(self.entity_id)
 	self.entity_id = nil
+	-- The handle is dead now; never let a stale one survive the despawn.
+	self:InvalidateEntityCache()
+	self:InvalidateEntryAreaCache()
+	self.navigation_obj:InvalidateHeightCache()
+	-- Nothing polls the entity any more, so tell the Engine: it stops the ramp timer and drops the
+	-- held native mode so the next body cannot inherit it.
+	self.engine_obj:ApplyControlMode()
 	return true
 end
 
 --- Despawn AV when it is on ground.
+--- Recall is a climb and nothing else: it starts slow and builds to top speed as the timeout
+--- approaches. The descent this used to switch to belonged to a landing, not a recall.
 function AV:DespawnFromGround()
-	Cron.Every(0.01, { tick = 1 }, function(timer)
+	local up_ticks = TimeScale:Ticks(self.up_timeout)
+	Cron.Every(DAV.time_resolution, { tick = 1 }, function(timer)
 		if not self.core_obj.event_obj:IsInMenuOrPopupOrPhoto() then
-			local _, _, _, roll_idle, pitch_idle, yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1})
+			-- Only the angular half is used (OnlyAngularRun); skip the linear idle-hover term entirely.
+			local _, _, _, roll_idle, pitch_idle, yaw_idle = self.engine_obj:CalculateAddVelocity({Def.ActionList.Idle, 1}, true)
 			if not self.engine_obj:OnlyAngularRun(roll_idle, pitch_idle, yaw_idle) then
 				self.log_obj:Record(LogLevel.Warning, "Failed to run angular velocity in DespawnFromGround")
 			end
 			if timer.tick == 1 then
 				self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
-				self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, 1))
+				-- SetControlType re-derived the hover ownership and mode 4 may have engaged. This is a
+				-- scripted climb, not a hover: hand the climb to mode 2 so the regulator cannot hold it.
+				self.engine_obj:SetNativeIdle(false)
+			end
+			-- Progress is measured against the despawn timeout itself, so the ramp always lands on the
+			-- top speed when the vehicle vanishes, and retuning up_timeout needs no second edit.
+			local progress = timer.tick / up_ticks
+			if progress > 1.0 then
+				progress = 1.0
+			end
+			local climb = self.despawn_climb_speed_start
+				+ (self.despawn_climb_speed_max - self.despawn_climb_speed_start) * progress
+			self.engine_obj:SetDirectionVelocity(Vector3.new(0, 0, climb))
+			if timer.tick == 1 then
 				self.log_obj:Record(LogLevel.Info, "Initial Despawn Velocity: " .. self.engine_obj:GetDirectionVelocity().z)
-			elseif timer.tick == 2 then
-				self.engine_obj:SetFluctuationVelocityParams(1, math.abs(self.down_speed))
-				self.log_obj:Record(LogLevel.Trace, "Fluctuation Velocity")
-			elseif timer.tick >= self.up_timeout then
+			elseif timer.tick > up_ticks then
 				self.log_obj:Record(LogLevel.Info, "Despawn Timeout")
 				self.core_obj.event_obj.sound_obj:StopEngineSound(self.flight_mode, 1.5)
 				Cron.After(1.5, function()
@@ -461,7 +595,7 @@ function AV:ToggleCrystalDome()
 		self.log_obj:Record(LogLevel.Warning, "No entity id to change crystal dome")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	local effect_name
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change crystal dome")
@@ -481,27 +615,27 @@ function AV:ToggleCrystalDome()
 	return true
 end
 
---- (Unused) Unlock all doors.
+--- Unlock all doors.
 ---@return boolean
 function AV:UnlockDoor()
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change door lock")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	local vehicle_ps = entity:GetVehiclePS()
 	vehicle_ps:UnlockAllVehDoors()
 	return true
 end
 
---- (Unused) Lock all doors.
+--- Lock all doors.
 ---@return boolean
 function AV:LockDoor()
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity id to change door lock")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	local vehicle_ps = entity:GetVehiclePS()
 	vehicle_ps:QuestLockAllVehDoors()
 	return true
@@ -514,7 +648,7 @@ function AV:DisableAllDoorInteractions()
 		self.log_obj:Record(LogLevel.Warning, "No entity id to change door lock")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	local vehicle_ps = entity:GetVehiclePS()
 	vehicle_ps:DisableAllVehInteractions()
 	return true
@@ -528,7 +662,7 @@ function AV:GetDoorState(e_veh_door)
 		self.log_obj:Record(LogLevel.Trace, "No entity id to get door state")
 		return nil
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Trace, "No entity to get door state")
 		return nil
@@ -554,7 +688,7 @@ function AV:ChangeDoorState(door_state, door_name_list)
 	end
 
 	-- local vehicle_ps = self.position_obj.entity:GetVehiclePS()
-	local vehicle_ps = Game.FindEntityByID(self.entity_id):GetVehiclePS()
+	local vehicle_ps = self:GetEntity():GetVehiclePS()
 
 	if door_name_list == nil then
 		door_name_list = self.active_door
@@ -637,7 +771,7 @@ function AV:Mount()
 		self.log_obj:Record(LogLevel.Warning, "No entity to mount")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	local player = Game.GetPlayer()
 	local ent_id = entity:GetEntityID()
 	local seat = self.active_seat[seat_number]
@@ -667,8 +801,7 @@ function AV:Mount()
 		self.is_crystal_dome = true
 	end
 
-	-- Auto-start obstacle map recording when the user setting or the debug flag
-	-- turns map learning on.
+	-- Auto-start obstacle recording when the user setting or debug flag turns map learning on.
 	if self.navigation_obj:IsObstacleRecordingEnabled() then
 		self.navigation_obj:StartObstacleRecording()
 	end
@@ -706,8 +839,9 @@ function AV:Unmount()
 
 		self.log_obj:Record(LogLevel.Trace, "Unmount Aerial Vehicle : " .. self.seat_index)
 
+		local unmount_ticks = TimeScale:Ticks(self.unmount_timeout)
 		-- set entity id to position object
-		Cron.Every(0.01, {tick = 1}, function(timer)
+		Cron.Every(DAV.time_resolution, {tick = 1}, function(timer)
 			timer.tick = timer.tick + 1
 			if not self:IsPlayerIn() then
 				self.log_obj:Record(LogLevel.Info, "Unmounted")
@@ -716,14 +850,14 @@ function AV:Unmount()
 				self.navigation_obj:StopObstacleRecording()
 				
 				local player = Game.GetPlayer()
-				local entity = Game.FindEntityByID(self.entity_id)
+				local entity = self:GetEntity()
 				local vehicle_angle = entity:GetWorldOrientation():ToEulerAngles()
 				local teleport_angle = EulerAngles.new(vehicle_angle.roll, vehicle_angle.pitch, vehicle_angle.yaw + 90)
 				local position = self:GetExitPosition()
 				Game.GetTeleportationFacility():Teleport(player, Vector4.new(position.x, position.y, position.z, 1.0), teleport_angle)
 				self.is_unmounting = false
 				Cron.Halt(timer)
-			elseif timer.tick > 350 then
+			elseif timer.tick > unmount_ticks then
 				self.log_obj:Record(LogLevel.Error, "Unmount failed")
 				self:ChangeDoorState(Def.DoorOperation.Close)
 				self.is_unmounting = false
@@ -738,8 +872,7 @@ end
 function AV:BlockOperation(on)
 	if on then
 		self.is_blocking_operation = true
-		-- Releases are ignored while blocking, so drop any armed holds now
-		-- to make sure none of them can outlive the blocked operation
+		-- Releases are ignored while blocking; drop armed holds so none outlive the blocked operation.
 		self.core_obj:StopAllButtonHolds()
 		self.engine_obj:SetControlType(Def.EngineControlType.Blocking)
 		self.engine_obj:EnableOriginalPhysics(true)
@@ -747,6 +880,9 @@ function AV:BlockOperation(on)
 	else
 		self.is_blocking_operation = false
 		if self:IsPlayerIn() then
+			-- Arm the integrator reset BEFORE the control type flips: ApplyControlMode consumes the
+			-- pending flag synchronously, and setting it afterwards would miss the pickup entirely.
+			self.engine_obj.native_reset_pending = true
 			self.engine_obj:SetControlType(Def.EngineControlType.AddForce)
 		else
 			self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
@@ -756,101 +892,8 @@ function AV:BlockOperation(on)
 	end
 end
 
---- Execute action commands.
----@param action_command_lists table
-function AV:Operate(action_command_lists)
-	local x_total, y_total, z_total, roll_total, pitch_total, yaw_total = 0, 0, 0, 0, 0, 0
-	-- self.log_obj:Record(LogLevel.Debug, "Operation Count:" .. #action_command_lists)
-	for _, action_command_list in ipairs(action_command_lists) do
-		if action_command_list[1] >= Def.ActionList.Enter then
-			self.log_obj:Record(LogLevel.Critical, "Invalid Event Command:" .. action_command_list[1])
-			return false
-		end
-		if action_command_list[1] == Def.ActionList.Idle then
-			self.engine_obj:SetIdle(true)
-		else
-			self.engine_obj:SetIdle(false)
-		end
-		if not self.is_auto_pilot then
-			local x, y, z, roll, pitch, yaw = self.engine_obj:CalculateAddVelocity(action_command_list)
-			x = x * action_command_list[2]
-			y = y * action_command_list[2]
-			z = z * action_command_list[2]
-			roll = roll * action_command_list[2]
-			pitch = pitch * action_command_list[2]
-			yaw = yaw * action_command_list[2]
-			x_total = x_total + x
-			y_total = y_total + y
-			z_total = z_total + z
-			roll_total = roll_total + roll
-			pitch_total = pitch_total + pitch
-			yaw_total = yaw_total + yaw
-		end
-	end
-
-	if not self.is_auto_pilot then
-		if not self.engine_obj:Run(x_total, y_total, z_total, roll_total, pitch_total, yaw_total) then
-			self.log_obj:Record(LogLevel.Warning, "Failed to run engine in Operate")
-		end
-		self:MoveThruster(action_command_lists)
-		self:ControlSound(action_command_lists)
-	end
-
-	return true
-end
-
---- Control sound.
----@param action_command_lists table
----@return boolean
-function AV:ControlSound(action_command_lists)
-	local is_acceleration_sound = false
-	local is_thruster_sound = false
-	for _, action_command_list in ipairs(action_command_lists) do
-		if action_command_list[1] >= Def.ActionList.Enter then
-			self.log_obj:Record(LogLevel.Trace, "Invalid Sound Command:" .. action_command_list[1])
-			return false
-		end
-		for _, acceleration_command in pairs(Def.AccelerationActionList) do
-			if action_command_list[1] == acceleration_command then
-				is_acceleration_sound = true
-				break
-			end
-		end
-		for _, thruster_command in pairs(Def.ThrusterActionList) do
-			if action_command_list[1] == thruster_command then
-				is_thruster_sound = true
-				break
-			end
-		end
-		if is_acceleration_sound or is_thruster_sound then
-			break
-		end
-	end
-
-	if not self.is_acceleration_sound and is_acceleration_sound then
-		self.log_obj:Record(LogLevel.Trace, "Start Acceleration Sound")
-		self.core_obj.event_obj.sound_obj:StartAccelerationSound(self.flight_mode, 1.5)
-		self.is_acceleration_sound = true
-		return true
-	elseif self.is_acceleration_sound and not is_acceleration_sound then
-		self.log_obj:Record(LogLevel.Trace, "Stop Acceleration Sound")
-		self.core_obj.event_obj.sound_obj:StopAccelerationSound(self.flight_mode, 1.5)
-		self.is_acceleration_sound = false
-		return true
-	elseif not self.is_thruster_sound and is_thruster_sound then
-		self.log_obj:Record(LogLevel.Trace, "Start Thruster Sound")
-		self.core_obj.event_obj.sound_obj:StartThrusterSound(self.flight_mode, 1.5)
-		self.is_thruster_sound = true
-		return true
-	elseif self.is_thruster_sound and not is_thruster_sound then
-		self.log_obj:Record(LogLevel.Trace, "Stop Thruster Sound")
-		self.core_obj.event_obj.sound_obj:StopThrusterSound(self.flight_mode, 1.5)
-		self.is_thruster_sound = false
-		return true
-	end
-	return true
-
-end
+--- AV:Operate is gone: the DLL re-asserts the flight model itself from the held commands and the
+--- flight context bits (SetFlightFlags), so movement input never needs to reach Lua.
 
 --- Toggle radio ON or switch to next station.
 function AV:ToggleRadio()
@@ -858,7 +901,7 @@ function AV:ToggleRadio()
 		self.log_obj:Record(LogLevel.Warning, "No entity to change radio")
 		return
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change radio")
 		return
@@ -877,7 +920,7 @@ function AV:ChangeAppearance(type)
 		self.log_obj:Record(LogLevel.Warning, "No entity to change appearance")
 		return
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change appearance")
 		return
@@ -891,7 +934,10 @@ function AV:SetLandingVFXPosition(position)
 	if self.is_enable_landing_vfx
 		and DAV.user_setting_table.is_enable_landing_vfx
 		and self.landing_vfx_component ~= nil then
-		self.landing_vfx_component:SetLocalPosition(position)
+		-- pcall: the cached component handle outlives its entity on quit/teardown, and the height
+		-- tick keeps arriving until the DLL monitor stops. A dead handle must not throw into the
+		-- event callback.
+		pcall(function() self.landing_vfx_component:SetLocalPosition(position) end)
 	end
 end
 
@@ -902,7 +948,7 @@ function AV:ProjectLandingWarning(on)
 		self.log_obj:Record(LogLevel.Trace, "No entity to project landing warning")
 		return
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Trace, "No entity to project landing warning")
 		return
@@ -924,6 +970,7 @@ end
 ---@return boolean
 function AV:SetThrusterComponent()
 	if self.engine_obj.flight_mode == Def.FlightMode.Helicopter then
+		self.engine_obj:SetThrusterSetup(false, 0, 0, 0, 2, "", "")
 		return false
 	end
 
@@ -935,7 +982,7 @@ function AV:SetThrusterComponent()
 		return false
 	end
 
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
 		return false
@@ -964,61 +1011,52 @@ function AV:SetThrusterComponent()
 	else
 		return false
 	end
+	-- The per-frame swing lives in the DLL now (game-thread OnUpdate): hand it the gains and the
+	-- component names. Lua keeps only this one-time local-position setup.
+	self._thruster_cmd_fwd = nil
+	self._thruster_cmd_back = nil
+	-- The name lists are keyed by seat (fl/fr/bl/br), not arrays, so join with pairs().
+	local function join_names(list)
+		local parts = {}
+		for _, name in pairs(list or {}) do
+			parts[#parts + 1] = name
+		end
+		return table.concat(parts, ";")
+	end
+	-- Rates cross the boundary as deg/s: the config values are per control tick, so scale by the
+	-- live loop frequency. The DLL resolves the component names itself (memory walk of the
+	-- entity's component storage), so only simple values cross; no handles are passed.
+	local hz = TimeScale:GetHz()
+	self.engine_obj:SetThrusterSetup(true, self.thruster_angle_step * hz, self.thruster_angle_restore * hz,
+		self.thruster_angle_max, self.thruster_axis,
+		join_names(self.engine_component_name_list),
+		join_names(self.thruster_fx_name_list))
+	self.log_obj:Record(LogLevel.Info, string.format("Thruster setup pushed to DLL: step=%.2f deg/s restore=%.2f deg/s max=%.1f axis=%d",
+		self.thruster_angle_step * hz, self.thruster_angle_restore * hz, self.thruster_angle_max, self.thruster_axis))
 	return true
 end
 
---- Change thruster angle by action commands.
+--- Autopilot thruster swing: map the synthesized command list to the two swing axes and push the
+--- pair to the DLL whenever it changes. Manual flight needs nothing here - the DLL reads the held
+--- input commands itself, and the restore toward zero runs in the DLL every frame.
 ---@param action_command_lists table
----@return boolean
-function AV:MoveThruster(action_command_lists)
-	if self.thruster_angle > self.thruster_angle_restore then
-		self.thruster_angle = self.thruster_angle - self.thruster_angle_restore
-	elseif self.thruster_angle < -self.thruster_angle_restore then
-		self.thruster_angle = self.thruster_angle + self.thruster_angle_restore
-	else
-		self.thruster_angle = 0
-	end
-
-	if not self.is_available_thruster then
-		return false
-	end
-
-	for _, action_command_list in ipairs(action_command_lists) do
-		if action_command_list[1] == Def.ActionList.Forward then
-			self.thruster_angle = self.thruster_angle - self.thruster_angle_step
-		elseif action_command_list[1] == Def.ActionList.Backward then
-			self.thruster_angle = self.thruster_angle + self.thruster_angle_step
+function AV:SetThrusterCommand(action_command_lists)
+	local fwd, back = 0, 0
+	for _, c in ipairs(action_command_lists or {}) do
+		if c[1] == Def.ActionList.Forward then
+			fwd = 1
+		elseif c[1] == Def.ActionList.Backward then
+			back = 1
 		end
 	end
-
-	if self.thruster_angle > self.thruster_angle_max then
-		self.thruster_angle = self.thruster_angle_max
-	elseif self.thruster_angle < -self.thruster_angle_max then
-		self.thruster_angle = -self.thruster_angle_max
+	if fwd == self._thruster_cmd_fwd and back == self._thruster_cmd_back then
+		return
 	end
-
-	if self.entity_id == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
-		return false
-	end
-
-	local entity = Game.FindEntityByID(self.entity_id)
-	if entity == nil then
-		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
-		return false
-	end
-
-	local angle = EulerAngles.new(0, self.thruster_angle, 0)
-
-	for _, component in pairs(self.engine_components) do
-		component:SetLocalOrientation(angle:ToQuat())
-	end
-
-	for _, thruster in pairs(self.thruster_fxs) do
-		thruster:SetLocalOrientation(angle:ToQuat())
-	end
-	return true
+	self._thruster_cmd_fwd = fwd
+	self._thruster_cmd_back = back
+	self.engine_obj.fly_av_system:SetThrusterCommand(fwd, back)
 end
+
 
 --- Toggle thruster ON/OFF.
 ---@param on boolean
@@ -1028,7 +1066,7 @@ function AV:ToggleThruster(on)
 		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
 		return false
@@ -1053,7 +1091,7 @@ function AV:ToggleHeliThruster(on)
 		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to set thruster")
 		return false
@@ -1077,7 +1115,7 @@ function AV:SetDestroyAppearance()
 		self.log_obj:Record(LogLevel.Warning, "No entity to set destroy appearance")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to set destroy appearance")
 		return false
@@ -1100,7 +1138,7 @@ function AV:TurnEngineOn(on)
 		self.log_obj:Record(LogLevel.Warning, "No entity to change engine status")
 		return false
 	end
-	local entity = Game.FindEntityByID(self.entity_id)
+	local entity = self:GetEntity()
 	if entity == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to change engine status")
 		return false
@@ -1131,9 +1169,39 @@ function AV:GetExitPosition()
     return self:ChangeWorldCordinate(basic_vector, {self.exit_point})[1]
 end
 
---- Check Player in Entry Area
+--- Check Player in Entry Area: frame-cached wrapper.
+--- Both Event checks and the HUD ask in the same tick; the computation costs ~5 C# round trips.
 ---@return boolean
 function AV:IsPlayerInEntryArea()
+    local frame = DAV.frame_seq
+    if frame ~= nil and self._entry_area ~= nil and self._entry_area_frame == frame then
+        return self._entry_area
+    end
+    -- Re-resolve at entry_area_check_interval; 50 ms of staleness is invisible for a walking player.
+    local now = os.clock()
+    if self._entry_area ~= nil and now < self._entry_area_next_time then
+        return self._entry_area
+    end
+    self._entry_area_next_time = now + self.entry_area_check_interval
+    local result = self:ComputePlayerInEntryArea()
+    if frame ~= nil then
+        self._entry_area = result
+        self._entry_area_frame = frame
+    end
+    return result
+end
+
+--- Drop the cached entry-area answer so the next reader recomputes it.
+--- Required after moving the AV or teleporting the player, since the throttle keeps the last value.
+function AV:InvalidateEntryAreaCache()
+    self._entry_area = nil
+    self._entry_area_frame = -1
+    self._entry_area_next_time = 0
+end
+
+--- Uncached entry-area test. Use AV:IsPlayerInEntryArea() instead.
+---@return boolean
+function AV:ComputePlayerInEntryArea()
     local basic_vector = self:GetPosition()
     if basic_vector:IsZero() then
         return false

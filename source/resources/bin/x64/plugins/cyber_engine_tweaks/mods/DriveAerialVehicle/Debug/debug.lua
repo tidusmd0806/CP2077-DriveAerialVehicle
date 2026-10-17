@@ -594,8 +594,7 @@ function Debug:ImGuiObstacleMap()
     ImGui.Text("Data is used by A* route planner to avoid known obstacle areas.")
     ImGui.Separator()
 
-    -- Stats. The base image is resident in the grid; learned cells sit in a
-    -- small overlay table that takes precedence over it.
+    -- Stats: base image resident in the grid; learned cells are a small overlay with precedence.
     local g = nav_obj.obstacle_grid
     local obstacle_count, danger_count, clear_count = g:count_states()
     for _, v in pairs(nav_obj.obstacle_map) do

@@ -9,11 +9,9 @@ function UI:New()
     local obj = {}
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "UI")
-	-- static --
-	-- record name
+	-- static -- record name
 	obj.delay_updating_native_settings = 0.1
-	-- dynamic --
-	-- common
+	-- dynamic -- common
 	obj.av_obj = nil
 	obj.dummy_av_record = nil
 	obj.av_record_list = {}
@@ -146,7 +144,7 @@ function UI:OpenAutopilotPopup()
 				self.log_obj:Record(LogLevel.Warning, "No vehicle entity id for current position")
 				current_position_name = ""
 			end
-			local entity = Game.FindEntityByID(self.av_obj.entity_id)
+			local entity = self.av_obj:GetEntity()
 			if entity ~= nil then
 				local current_nearby_ft_index, current_nearby_ft_distance = DAV.core_obj:FindNearestFastTravelPosition(entity:GetWorldPosition())
 				local current_nearby_ft_name = DAV.core_obj:GetNearbyLocation(current_nearby_ft_index)
@@ -218,20 +216,6 @@ function UI:UpdateFavoriteLocationList(favorite_list, selected_index)
 	end
 	DAV.user_setting_table.favorite_location_list = favorite_location_list
 	Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-end
-
---- (UnUsed) Create String History
-function UI:CreateStringHistory()
-	self.history_list = {}
-	for index, history in ipairs(DAV.user_setting_table.mappin_history) do
-		local history_string = tostring(index) .. ": "
-		for _, district in ipairs(history.district) do
-			history_string = history_string .. district .. "/"
-		end
-		history_string = history_string .. history.location
-		history_string = history_string .. " [" .. tostring(math.floor(history.distance)) .. "m]"
-		table.insert(self.history_list, history_string)
-	end
 end
 
 --- Create Native Settings Base Page.
@@ -550,11 +534,35 @@ function UI:CreateNativeSettingsPage()
 	end)
 	table.insert(self.option_table_list, option_table)
 
+	-- Control loop rate: 10..120 Hz slider stored as a period in s; never faster than the frame rate.
+	option_table = DAV.NativeSettings.addRangeInt("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_time_resolution"), DAV.core_obj:GetTranslationText("native_settings_advance_time_resolution_description"), TimeScale.MIN_HZ, TimeScale.MAX_HZ, 5, TimeScale:GetHz(), TimeScale.DEFAULT_HZ, function(value)
+		DAV.user_setting_table.time_resolution = TimeScale:HzToResolution(value)
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		if DAV.core_obj ~= nil then
+			DAV.core_obj:ApplyTimeResolution()
+		end
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+
+	option_table = DAV.NativeSettings.addSwitch("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_time_scale_measured"), DAV.core_obj:GetTranslationText("native_settings_advance_time_scale_measured_description"), DAV.user_setting_table.time_scale_mode == TimeScale.MODE_MEASURED, false, function(state)
+		DAV.user_setting_table.time_scale_mode = state and TimeScale.MODE_MEASURED or TimeScale.MODE_NOMINAL
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		if DAV.core_obj ~= nil then
+			DAV.core_obj:ApplyTimeResolution(true)
+		end
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end)
+	table.insert(self.option_table_list, option_table)
+
 	option_table = DAV.NativeSettings.addSwitch("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_obstacle_recording"), DAV.core_obj:GetTranslationText("native_settings_advance_obstacle_recording_description"), DAV.user_setting_table.is_enable_obstacle_recording, true, function(state)
 		DAV.user_setting_table.is_enable_obstacle_recording = state
 		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
-		-- Apply immediately so a mapping session can be started or stopped without
-		-- remounting the vehicle.
+		-- Apply immediately so a mapping session can start/stop without remounting.
 		if DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil then
 			if state then
 				if DAV.core_obj.av_obj:IsPlayerIn() then
@@ -801,6 +809,11 @@ end
 
 --- Update setting items.
 function UI:UpdateNativeSettingsPage()
+	-- Every physics slider funnels through here; keep the DLL flight params in sync.
+	local engine = DAV.core_obj.av_obj and DAV.core_obj.av_obj.engine_obj
+	if engine ~= nil and engine.is_finished_init then
+		engine:PushNativeParams()
+	end
 	if DAV.core_obj.event_obj.current_situation == -1 then
 		self.is_activate_vehicle_switch = false
 	end

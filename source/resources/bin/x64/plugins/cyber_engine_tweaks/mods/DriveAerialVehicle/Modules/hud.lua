@@ -4,6 +4,19 @@ local Utils = require("Etc/utils.lua")
 local HUD = {}
 HUD.__index = HUD
 
+-- Widget writers live at module scope so pcall(fn, hud, value) allocates no closure per write.
+local function writeSpeedText(hud, display_value)
+    inkTextRef.SetText(hud.hud_car_controller.SpeedValue, display_value)
+end
+
+local function writeRpmMeter(hud, rpm_value)
+    hud.hud_car_controller:EvaluateRPMMeterWidget(rpm_value)
+end
+
+local function writeHpText(hud, hp_text)
+    hud.ink_hp_text:SetText(hp_text)
+end
+
 --- Constructor
 ---@return table
 function HUD:New()
@@ -12,18 +25,30 @@ function HUD:New()
     obj.log_obj = Log:New()
     obj.log_obj:SetLevel(LogLevel.Info, "HUD")
     obj.av_obj = nil
-    -- static --
-    -- dynamic --
-    -- hud controller
+    -- static -- dynamic -- hud controller
 	obj.hud_car_controller = nil
     obj.hud_consumable_controller = nil
     obj.hud_phone_controller = nil
     obj.is_manually_setting_speed = false
     obj.is_manually_setting_rpm = false
-    -- speedometer unit label (mph_text). Cached because the deep widget path is
-    -- fragile, and remembered so we only write it when it actually changes.
+    -- Re-entrancy latch: ForceShowMeter calls OnCameraModeChanged, which our override must not echo.
+    obj.is_force_show_meter_active = false
+    -- Last value actually written to each meter: skipping unchanged writes avoids C# calls and widget re-renders.
+    obj.last_speed_display_value = nil
+    obj.last_rpm_display_value = nil
+    obj.last_hp_display_value = nil
+    -- Speedometer unit cached and refreshed on a slow cadence (it is a C# lookup).
+    obj.speed_unit_cache = nil
+    obj.speed_unit_refresh_time = 0
+    obj.speed_unit_refresh_interval = 1.0
+    -- mph_text label cached; remembered so it is written only when it changes.
     obj.mph_text_widget = nil
     obj.is_mph_display_on = nil
+    -- Retry pacing for the label: the dash container swaps children during boarding, so misses are paced.
+    obj.mph_retry_interval = 0.1
+    obj.mph_next_lookup_time = 0
+    obj.mph_requested_on = nil
+    obj.mph_miss_logged = false
     -- input hint
     obj.is_keyboard_input = true
     obj.input_hint_mapping_table = {}
@@ -61,7 +86,7 @@ function HUD:Init(av_obj)
         GameHUD.Initialize()
     end
 
-    self.input_hint_mapping_table = Utils:ReadJson("Data/input_hint_mapping.json")
+    self.input_hint_mapping_table = Utils:ReadJsonCached("Data/input_hint_mapping.json")
 end
 
 --- Set Override Functions
@@ -103,24 +128,68 @@ function HUD:SetOverride()
             end
         end)
 
+        -- Event-driven meter: the game's own change events carry the repaint. While we own the
+        -- readout, replace the game's value with ours instead of blocking and re-polling at 20 Hz.
         Override("hudCarController", "OnSpeedValueChanged", function(_, speedValue, wrappedMethod)
-            local result = true
-            -- Gate on the situation, not on IsInVehicle(). IsInVehicle() calls
-            -- IsPlayerMounted() in C#, and a momentary false there lets the game
-            -- paint km/h over our distance readout, which shows up as the number
-            -- flickering between the two during autopilot.
-            if not DAV.core_obj.event_obj:IsInAVSituation() or not self.is_manually_setting_speed then
-                result = wrappedMethod(speedValue)
+            -- Gate on the situation, not IsInVehicle(): a C# false lets the game repaint km/h over our readout.
+            if DAV.core_obj.event_obj:IsInAVSituation() and self.is_manually_setting_speed then
+                self:SetSpeedMeterValue(self.av_obj:GetCurrentSpeed())
+                -- Autopilot drives the RPM gauge as a progress bar; at constant cruise speed the
+                -- game's rpm event may not fire, so the speed event also pushes the progress value.
+                if DAV.core_obj.event_obj:IsAutoMode() and self.is_manually_setting_rpm then
+                    self:SetRPMMeterValue(DAV.core_obj.event_obj:ComputeRPMDisplayValue())
+                end
+                return true
             end
-            return result
+            return wrappedMethod(speedValue)
         end)
 
         Override("hudCarController", "OnRpmValueChanged", function(_, rpmValue, wrappedMethod)
-            local result = true
-            if not DAV.core_obj.event_obj:IsInAVSituation() or not self.is_manually_setting_rpm then
-                result = wrappedMethod(rpmValue)
+            if DAV.core_obj.event_obj:IsInAVSituation() and self.is_manually_setting_rpm then
+                self:SetRPMMeterValue(DAV.core_obj.event_obj:ComputeRPMDisplayValue())
+                return true
             end
-            return result
+            return wrappedMethod(rpmValue)
+        end)
+
+        -- Speedometer on non-driver seats: the game only pushes OnSpeedValueChanged for the vehicle
+        -- it considers driven; feed our own measurement on a slow clock while the AV owns the readout.
+        Cron.Every(0.1, function()
+            if self.av_obj == nil or self.av_obj.entity_id == nil then
+                return
+            end
+            local ev = DAV.core_obj ~= nil and DAV.core_obj.event_obj or nil
+            if ev == nil or not ev:IsInAVSituation() or ev:IsAutoMode() then
+                return
+            end
+            self:SetSpeedMeterValue(self.av_obj:GetCurrentSpeed())
+        end)
+
+        -- The game re-shows the bottom-left consumable/radio slot while aboard (hotkey refresh,
+        -- camera change, status effects). The deleted CheckHUD poll re-hid it at 1 Hz; instead
+        -- intercept the controller's own show path and force it hidden while we are in the AV.
+        Override("HotkeyConsumableWidgetController", "SetContainerVisibility", function(this, visible, instant, wrappedMethod)
+            if DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil
+                    and DAV.core_obj.event_obj:IsInAVSituation() then
+                wrappedMethod(false, instant)
+            else
+                wrappedMethod(visible, instant)
+            end
+        end)
+
+        -- FPP meter: the game hides the car HUD when entering FPP (our AV has no interior
+        -- dashboard). Re-show ours after the game's hide, riding the event ordering; the latch
+        -- keeps ForceShowMeter's own show path from recursing here.
+        Override("hudCarController", "OnCameraModeChanged", function(this, mode, wrappedMethod)
+            wrappedMethod(mode)
+            if self.is_force_show_meter_active then
+                return
+            end
+            if DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil
+                    and DAV.core_obj.event_obj:IsInAVSituation()
+                    and DAV.core_obj.event_obj:IsFPP() then
+                DAV.core_obj.event_obj.hud_obj:ForceShowMeter()
+            end
         end)
     end
 end
@@ -138,16 +207,23 @@ function HUD:SetObserve()
 
         Observe("hudCarController", "OnInitialize", function(this)
             self.hud_car_controller = this
-            -- A fresh HUD means the cached label widget is stale, and the game has
-            -- just written its own unit text, so forget what we last set too.
+            -- Fresh HUD: the cached label widget is stale and the game wrote its own unit text; forget both.
             self.mph_text_widget = nil
             self.is_mph_display_on = nil
+            self.mph_next_lookup_time = 0
+            self.mph_requested_on = nil
+            self.mph_miss_logged = false
+            self:ResetMeterCaches()
         end)
 
         Observe("hudCarController", "OnMountingEvent", function(this)
             self.hud_car_controller = this
             self.mph_text_widget = nil
             self.is_mph_display_on = nil
+            self.mph_next_lookup_time = 0
+            self.mph_requested_on = nil
+            self.mph_miss_logged = false
+            self:ResetMeterCaches()
         end)
 
         -- hide unnecessary input hint
@@ -168,6 +244,7 @@ function HUD:SetObserve()
             self.popup_manager = this
         end)
 
+        -- HP is a change event: drawing here removes the per-tick SetHPDisplay() from the InVehicle loop.
         Observe("VehicleComponent", "ReactToHPChange", function(this, destruction)
             if self.av_obj.entity_id == nil then
                 return
@@ -178,6 +255,7 @@ function HUD:SetObserve()
                 else
                     self.vehicle_hp = destruction
                 end
+                self:SetHPDisplay()
             end
         end)
 
@@ -189,7 +267,7 @@ function HUD:SetObserve()
             self.hud_phone_controller = this
         end)
 
-        local exception_hint_table = Utils:ReadJson("Data/exception_input_hint.json")
+        local exception_hint_table = Utils:ReadJsonCached("Data/exception_input_hint.json")
         ObserveAfter("UISystem", "QueueEvent", function(this, event)
             if DAV.core_obj.event_obj:IsInVehicle() and event:IsA(StringToName("gameuiUpdateInputHintEvent")) then
                 for _, hint in ipairs(exception_hint_table) do
@@ -356,10 +434,13 @@ function HUD:ForceShowMeter()
         return false
     end
 
+    -- Guard: our OnCameraModeChanged override would otherwise re-enter through this call.
+    self.is_force_show_meter_active = true
     local success, error_msg = pcall(function()
         self.hud_car_controller:ShowRequest()
         self.hud_car_controller:OnCameraModeChanged(true)
     end)
+    self.is_force_show_meter_active = false
 
     if not success then
         self.log_obj:Record(LogLevel.Debug, "ForceShowMeter: HUD meter operation failed - " .. tostring(error_msg))
@@ -448,8 +529,14 @@ function HUD:SetHPDisplay()
     if DAV.is_valid_vehicle_durability_display then
         return
     end
-    local hp_value = self.vehicle_hp
-    hp_value = math.floor(hp_value)
+    if self.ink_hp_text == nil then
+        return
+    end
+    -- HP moves on a human timescale; the latch means the string is not even built while the hull is intact.
+    local hp_value = math.floor(self.vehicle_hp or 0)
+    if hp_value == self.last_hp_display_value then
+        return
+    end
     local hp_text
     if hp_value < 100 and hp_value >= 10 then
         hp_text = " " .. tostring(hp_value)
@@ -458,18 +545,55 @@ function HUD:SetHPDisplay()
     else
         hp_text = tostring(hp_value)
     end
-    if self.ink_hp_text == nil then
-        return
+    local success, error_msg = pcall(writeHpText, self, hp_text)
+    if success then
+        self.last_hp_display_value = hp_value
+    else
+        self.log_obj:Record(LogLevel.Debug, "SetHPDisplay: HP text operation failed - " .. tostring(error_msg))
     end
-    self.ink_hp_text:SetText(hp_text)
+end
+
+--- Forget what the meters were last showing.
+--- Required when the game takes the meters back over, so the first write after that is not suppressed.
+function HUD:ResetMeterCaches()
+    self.last_speed_display_value = nil
+    self.last_rpm_display_value = nil
+    self.last_hp_display_value = nil
+    self.speed_unit_cache = nil
+    self.speed_unit_refresh_time = 0
 end
 
 --- Enable Manual Meter
 ---@param is_manual_speed boolean
 ---@param is_manual_rpm boolean
 function HUD:EnableManualMeter(is_manual_speed, is_manual_rpm)
+    -- On the hand-back edge drop our latch, or the next manual takeover skips a value the game changed.
+    if self.is_manually_setting_speed ~= is_manual_speed then
+        self.last_speed_display_value = nil
+    end
+    if self.is_manually_setting_rpm ~= is_manual_rpm then
+        self.last_rpm_display_value = nil
+    end
     self.is_manually_setting_speed = is_manual_speed
     self.is_manually_setting_rpm = is_manual_rpm
+end
+
+--- m/s -> displayed unit multiplier, with the settings lookup cached.
+---@return number
+function HUD:GetSpeedUnitFactor()
+    local now = os.clock()
+    if self.speed_unit_cache == nil
+            or (now - self.speed_unit_refresh_time) >= self.speed_unit_refresh_interval then
+        local success, unit = pcall(GameSettings.Get, "/interface/SpeedometerUnits")
+        if success then
+            self.speed_unit_cache = unit
+            self.speed_unit_refresh_time = now
+        end
+    end
+    if self.speed_unit_cache == "UI-Settings-UnitImperial" then
+        return 2.23694
+    end
+    return 3.6
 end
 
 --- Set Speed Meter Value
@@ -479,18 +603,18 @@ function HUD:SetSpeedMeterValue(speed_value)
         return
     end
 
-    local success, error_msg = pcall(function()
-        if GameSettings.Get("/interface/SpeedometerUnits") == "UI-Settings-UnitImperial" then
-            speed_value = speed_value * 2.23694 -- m/s to mph
-        else
-            speed_value = speed_value * 3.6 -- m/s to km/h
-        end
-        speed_value = math.floor(speed_value)
-        inkTextRef.SetText(self.hud_car_controller.SpeedValue, speed_value)
-    end)
+    -- Resolve unit and floor in plain Lua first; if the visible digits would not change, never touch the widget.
+    local display_value = math.floor(speed_value * self:GetSpeedUnitFactor())
+    if display_value == self.last_speed_display_value then
+        return
+    end
 
-    if not success then
-        self.log_obj:Record(LogLevel.Debug, "SetSpeedMeterValue: Speed meter operation failed - " .. tostring(error_msg))
+    local success, error_msg = pcall(writeSpeedText, self, display_value)
+    if success then
+        self.last_speed_display_value = display_value
+    else
+        self.log_obj:Record(LogLevel.Debug,
+            "SetSpeedMeterValue: Speed meter operation failed - " .. tostring(error_msg))
     end
 end
 
@@ -501,23 +625,23 @@ function HUD:SetRPMMeterValue(rpm_value)
         return
     end
 
-    local success, error_msg = pcall(function()
-        self.hud_car_controller:EvaluateRPMMeterWidget(rpm_value)
-    end)
+    -- Callers pass already-integral values, so equality here is exact.
+    if rpm_value == self.last_rpm_display_value then
+        return
+    end
 
-    if not success then
-        self.log_obj:Record(LogLevel.Debug, "SetRPMMeterValue: RPM meter operation failed - " .. tostring(error_msg))
+    local success, error_msg = pcall(writeRpmMeter, self, rpm_value)
+    if success then
+        self.last_rpm_display_value = rpm_value
+    else
+        self.log_obj:Record(LogLevel.Debug,
+            "SetRPMMeterValue: RPM meter operation failed - " .. tostring(error_msg))
     end
 end
 
 --- Toggle Original MPH Display On/Off
 ---@param on boolean
---- Resolve the speedometer unit label once and cache it.
---- The `dynamic` container swaps children as the HUD state changes, so walking
---- the whole path on every call both costs four C# calls per tick and
---- intermittently misses the widget. That miss used to be logged at Debug, which
---- MasterLogLevel filters out, so it was invisible: the label simply flipped back
---- to km/h mid-autopilot.
+--- Resolve the speedometer unit label once and cache it (the dynamic container swaps children per HUD state).
 function HUD:GetMPHTextWidget()
     if self.mph_text_widget ~= nil then
         return self.mph_text_widget
@@ -540,12 +664,8 @@ function HUD:GetMPHTextWidget()
     return nil
 end
 
---- Switch the speedometer unit label between the autopilot distance unit and the
---- normal mph / km/h unit.
---- Edge triggered: we only write when the wanted state differs from what we last
---- set, and we keep trying each call until the widget resolves. That removes the
---- 100 Hz writes and makes a transient lookup miss self-healing instead of
---- leaving the wrong unit on screen.
+--- Switch the speedometer unit label between the autopilot distance unit and mph / km/h.
+--- Edge triggered; lookup misses self-heal with paced retries and one logged warning per episode.
 function HUD:ToggleOriginalMPHDisplay(on)
     if self.hud_car_controller == nil then
         self.log_obj:Record(LogLevel.Warning, "ToggleOriginalMPHDisplay: hud_car_controller is nil, skipping operation")
@@ -557,11 +677,30 @@ function HUD:ToggleOriginalMPHDisplay(on)
         return
     end
 
+    -- A different target is a new episode: retry now, and allow one more Warning if unresolvable.
+    if self.mph_requested_on ~= on then
+        self.mph_requested_on = on
+        self.mph_next_lookup_time = 0
+        self.mph_miss_logged = false
+    end
+
+    local now = os.clock()
+    -- Cached handle costs nothing, so only the unresolved case is throttled.
+    if self.mph_text_widget == nil and now < self.mph_next_lookup_time then
+        return
+    end
+
     local mph_text = self:GetMPHTextWidget()
     if mph_text == nil then
-        -- Do not latch the state; the next call retries until it lands.
-        self.log_obj:Record(LogLevel.Warning,
-            "ToggleOriginalMPHDisplay: mph_text widget not resolvable yet, will retry")
+        self.mph_next_lookup_time = now + self.mph_retry_interval
+        if self.mph_miss_logged then
+            self.log_obj:Record(LogLevel.Debug,
+                "ToggleOriginalMPHDisplay: mph_text widget still not resolvable, retrying")
+        else
+            self.mph_miss_logged = true
+            self.log_obj:Record(LogLevel.Warning,
+                "ToggleOriginalMPHDisplay: mph_text widget not resolvable yet, will retry (further misses logged at Debug)")
+        end
         return
     end
 
@@ -581,10 +720,19 @@ function HUD:ToggleOriginalMPHDisplay(on)
     if success then
         -- Only remember it once the write actually landed.
         self.is_mph_display_on = on
+        self.mph_next_lookup_time = 0
+        self.mph_miss_logged = false
     else
         self.mph_text_widget = nil   -- the cached handle is bad, re-resolve next time
-        self.log_obj:Record(LogLevel.Warning,
-            "ToggleOriginalMPHDisplay: SetText failed, will retry - " .. tostring(error_msg))
+        self.mph_next_lookup_time = now + self.mph_retry_interval
+        if not self.mph_miss_logged then
+            self.mph_miss_logged = true
+            self.log_obj:Record(LogLevel.Warning,
+                "ToggleOriginalMPHDisplay: SetText failed, will retry - " .. tostring(error_msg))
+        else
+            self.log_obj:Record(LogLevel.Debug,
+                "ToggleOriginalMPHDisplay: SetText still failing - " .. tostring(error_msg))
+        end
     end
 end
 
@@ -694,9 +842,14 @@ function HUD:HideChoice()
     end
 end
 
---- Set Input Hint Controller
+--- Set Input Hint Controller: resolved once and kept; re-resolving walks every game controller in C#.
+--- A stale handle is cleared by whoever hits it, so the next call re-resolves instead of staying broken.
 ---@return boolean
 function HUD:SetInputHintController()
+    if self.input_hint_controller ~= nil then
+        return true
+    end
+
     local ink_system = Game.GetInkSystem()
     if not ink_system then
         self.log_obj:Record(LogLevel.Error, "ink_system is nil")
@@ -738,6 +891,7 @@ function HUD:ReconstructInputHint()
 
     if not success then
         self.log_obj:Record(LogLevel.Debug, "ReconstructInputHint: GetRootCompoundWidget operation failed - " .. tostring(error_msg))
+        self.input_hint_controller = nil   -- stale handle; force a re-resolve next time
         return
     end
 
@@ -747,7 +901,7 @@ function HUD:ReconstructInputHint()
     end
 
     -- Load input hint override configuration
-    local input_hint_override = Utils:ReadJson("Data/input_hint_override.json")
+    local input_hint_override = Utils:ReadJsonCached("Data/input_hint_override.json")
     if not input_hint_override then
         self.log_obj:Record(LogLevel.Error, "Failed to load input_hint_override.json")
         return
@@ -1142,17 +1296,42 @@ function HUD:CreateOrUpdateHintWidget(num, text, texture_parts, enable)
     end
 end
 
---- Set Custom Hint
-function HUD:SetCustomHint()
+--- Key for everything derived from the input state.
+--- include_combat_seat: true only for things that filter by seat; the C# combat-seat query is not free.
+---@param include_combat_seat boolean|nil
+---@return string
+function HUD:HintStateKey(include_combat_seat)
+    local keyboard = self.is_keyboard_input and 1 or 0
+    if include_combat_seat then
+        local combat_seat = self.av_obj:IsMountedCombatSeat() and 1 or 0
+        return tostring(self.av_obj.engine_obj.flight_mode) .. "|" .. keyboard .. "|" .. combat_seat
+    end
+    return tostring(self.av_obj.engine_obj.flight_mode) .. "|" .. keyboard .. "|0"
+end
+
+--- Filter the shipped hint list and resolve its labels, cached per (mode, device, seat) state key.
+--- Localisation and shipped config do not move at runtime, so the answer is computed once and reused.
+---@return table array of plain descriptors (read-only)
+function HUD:GetPreparedCustomHints()
+    if self.prepared_custom_hints == nil then
+        self.prepared_custom_hints = {}
+    end
+    local key = self:HintStateKey(true)
+    local cached = self.prepared_custom_hints[key]
+    if cached ~= nil then
+        return cached
+    end
+
     local flight_mode = self.av_obj.engine_obj.flight_mode
     local is_keyboard_input = self.is_keyboard_input
+    local source = Utils:ReadJsonCached("Data/input_hint.json") or {}
+    -- Shallow copy: the filter must not remove entries from the shared cached table.
     local hint_table = {}
-    hint_table = Utils:ReadJson("Data/input_hint.json")
-    self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()
-    self.key_input_hide_hint_event = UpdateInputHintMultipleEvent.new()
-    self.key_input_show_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
-    self.key_input_hide_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
-    -- delete unnecessary hint
+    for index = 1, #source do
+        hint_table[index] = source[index]
+    end
+
+    -- delete unnecessary hint (filter logic and order unchanged)
     for index = #hint_table, 1, -1 do
         local hint = hint_table[index]
         if hint.mode ~= flight_mode and hint.mode ~= -1 then
@@ -1172,6 +1351,36 @@ function HUD:SetCustomHint()
             end
         end
     end
+
+    local prepared = {}
+    for _, hint in ipairs(hint_table) do
+        local keys = string.gmatch(hint.localizedLabel, "LocKey#(%d+)")
+        local localizedLabels = {}
+        for key_token in keys do
+            table.insert(localizedLabels, GetLocalizedText("LocKey#" .. key_token))
+        end
+        prepared[#prepared + 1] = {
+            source = hint.source,
+            action = hint.action,
+            holdIndicationType = hint.holdIndicationType,
+            sortingPriority = hint.sortingPriority,
+            enableHoldAnimation = hint.enableHoldAnimation,
+            localizedLabel = table.concat(localizedLabels, "-"),
+        }
+    end
+
+    self.prepared_custom_hints[key] = prepared
+    return prepared
+end
+
+--- Set Custom Hint
+function HUD:SetCustomHint()
+    self.key_input_show_hint_event = UpdateInputHintMultipleEvent.new()
+    self.key_input_hide_hint_event = UpdateInputHintMultipleEvent.new()
+    self.key_input_show_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
+    self.key_input_hide_hint_event.targetHintContainer = CName.new("GameplayInputHelper")
+
+    local hint_table = self:GetPreparedCustomHints()
     self.current_input_hint_count = #hint_table
     for _, hint in ipairs(hint_table) do
         local input_hint_data = InputHintData.new()
@@ -1188,12 +1397,7 @@ function HUD:SetCustomHint()
         end
         input_hint_data.sortingPriority = hint.sortingPriority
         input_hint_data.enableHoldAnimation = hint.enableHoldAnimation
-        local keys = string.gmatch(hint.localizedLabel, "LocKey#(%d+)")
-        local localizedLabels = {}
-        for key in keys do
-            table.insert(localizedLabels, GetLocalizedText("LocKey#" .. key))
-        end
-        input_hint_data.localizedLabel = table.concat(localizedLabels, "-")
+        input_hint_data.localizedLabel = hint.localizedLabel
         self.key_input_show_hint_event:AddInputHint(input_hint_data, true)
         self.key_input_hide_hint_event:AddInputHint(input_hint_data, false)
     end
@@ -1244,13 +1448,23 @@ function HUD:DeleteInputHint(name)
     Game.GetUISystem():QueueEvent(delete_hint_event)
 end
 
---- Get expected hint texts from configuration files
+--- Get expected hint texts from configuration files.
+--- Cached per (flight mode, input device, combat seat) -- see HintStateKey(); no disk reads per call.
 ---@return table
 function HUD:GetExpectedHintTexts()
+    if self.expected_hint_texts == nil then
+        self.expected_hint_texts = {}
+    end
+    local key = self:HintStateKey()
+    local cached = self.expected_hint_texts[key]
+    if cached ~= nil then
+        return cached
+    end
+
     local expected_texts = {}
 
     -- Get texts from input_hint.json
-    local hint_table = Utils:ReadJson("Data/input_hint.json")
+    local hint_table = Utils:ReadJsonCached("Data/input_hint.json")
     if hint_table then
         local flight_mode = self.av_obj.engine_obj.flight_mode
         local is_keyboard_input = self.is_keyboard_input
@@ -1292,7 +1506,7 @@ function HUD:GetExpectedHintTexts()
     end
 
     -- Get texts from input_hint_override.json
-    local input_hint_override = Utils:ReadJson("Data/input_hint_override.json")
+    local input_hint_override = Utils:ReadJsonCached("Data/input_hint_override.json")
     if input_hint_override then
         local flight_mode = self.av_obj.engine_obj.flight_mode
         local mode_name = (flight_mode == Def.FlightMode.AV) and "AV" or "Helicopter"
@@ -1308,6 +1522,7 @@ function HUD:GetExpectedHintTexts()
         end
     end
 
+    self.expected_hint_texts[key] = expected_texts
     return expected_texts
 end
 
@@ -1381,6 +1596,7 @@ function HUD:IsVisibleCustomInputHints()
 
     if not success then
         self.log_obj:Record(LogLevel.Debug, "IsVisibleCustomInputHints: GetRootCompoundWidget operation failed - " .. tostring(result))
+        self.input_hint_controller = nil   -- stale handle; force a re-resolve next time
         return false
     end
 
@@ -1407,6 +1623,13 @@ end
 --- Show Message when vehicle is arrived.
 function HUD:ShowArrivalDisplay()
     local text = GetLocalizedText("LocKey#77994")
+    GameHUD.ShowMessage(text)
+end
+
+--- Show Message when summoning is blocked because DAV was disabled (DAV:Disable interop).
+--- Same GameHUD.ShowMessage path as the autopilot arrival notice.
+function HUD:ShowDisabledDisplay()
+    local text = GetLocalizedText("LocKey#1315")
     GameHUD.ShowMessage(text)
 end
 

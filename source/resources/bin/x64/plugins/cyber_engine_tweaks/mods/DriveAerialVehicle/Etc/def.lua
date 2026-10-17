@@ -127,4 +127,10 @@ Def.EngineControlType = {
     Blocking = 3
 }
 
+--- Gamepad axes the mod consumes; the proxy and ConvertAxisAction drop non-members up front.
+Def.AxisKeySet = {
+    IK_Pad_LeftAxisX = true,
+    IK_Pad_LeftAxisY = true,
+}
+
 return Def
