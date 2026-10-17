@@ -417,6 +417,15 @@ end
 --- Spawn AV.
 ---@return boolean
 function AV:Spawn(position, angle)
+	if DAV.is_disabled then
+		self.log_obj:Record(LogLevel.Info, "Spawn blocked: DAV is disabled (call DAV:Enable())")
+		-- Same HUD notice channel as the autopilot arrival message.
+		local ev = self.core_obj ~= nil and self.core_obj.event_obj or nil
+		if ev ~= nil and ev.hud_obj ~= nil then
+			ev.hud_obj:ShowDisabledDisplay()
+		end
+		return false
+	end
 	if self.entity_id ~= nil then
 		self.log_obj:Record(LogLevel.Info, "Entity already spawned")
 		return false

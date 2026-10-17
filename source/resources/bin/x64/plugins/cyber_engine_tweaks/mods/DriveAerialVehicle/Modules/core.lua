@@ -1,4 +1,4 @@
-﻿local AV = require("Modules/av.lua")
+local AV = require("Modules/av.lua")
 local Event = require("Modules/event.lua")
 local Core = {}
 Core.__index = Core
@@ -647,24 +647,6 @@ function Core:SetInputListener()
             return
         end
         self.event_obj:OnDavThresholdEvent(name, event.timeToLive)
-    end)
-
-    -- Early world-teardown detection: the DLL's synchronous ground raycast deadlocks the physics
-    -- scene while the world is being destroyed (exit hang with the AV summoned - confirmed by
-    -- feature bisection). PlayerPuppet.OnDetach fires before the physics scene goes away, so it
-    -- tells the DLL to stop all world queries; OnDetach/OnAttach also cover save loads and
-    -- death respawns. CET keeps a hook on PlayerPuppet.OnDetach internally, so it is observable.
-    Observe("PlayerPuppet", "OnDetach", function(this)
-        local eng = self.av_obj ~= nil and self.av_obj.engine_obj or nil
-        if eng ~= nil and eng.fly_av_system ~= nil then
-            pcall(function() eng.fly_av_system:SetWorldGone(1) end)
-        end
-    end)
-    Observe("PlayerPuppet", "OnAttach", function(this)
-        local eng = self.av_obj ~= nil and self.av_obj.engine_obj or nil
-        if eng ~= nil and eng.fly_av_system ~= nil then
-            pcall(function() eng.fly_av_system:SetWorldGone(0) end)
-        end
     end)
 end
 

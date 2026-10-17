@@ -180,7 +180,7 @@ SEH は例外にしか効かず、待ち（ロック）には無効。機能二�
 | 層 | 場所 | やること |
 |---|---|---|
 | 宣言的終了 | `DavGameState_OnExit` | `g_shutting_down` を立て、車両ハンドル・hash・モニタ mask を捨てる。以降 OnUpdate は即 return |
-| ワールド離脱 | `SetWorldGone` ネイティブ ← Lua `Observe(PlayerPuppet, OnDetach/OnAttach)` | `g_world_gone`。OnUpdate 全体を停止（セーブロード・死亡リスポーンも網羅） |
+| ワールド離脱 | `SetWorldGone` ネイティブ（手動/デバッグ用） | `g_world_gone`。OnUpdate 全体を停止。※自動配線は無し（Lua Observe ブリッジは真因判明に伴い撤去。`PlayerPuppet.OnAttach` は存在せず、`OnDetach` のみの再武装はセーブロードで再武装不能になるため不採用) |
 | 読み取りガード | `VehicleBodyAlive()` | エンティティの `physicsData` を SEH で 1 回読む。**全ネイティブ getter と OnUpdate/MonitorTick はこれを通ってから本体を触る** |
 | レートガード | `MonitorTick` | `dt < 1/240 s`（＝終了ムービーの非スロットルド実行）では何もしない |
 | イベント停止 | `QueueDavEvent` | `g_shutting_down` 以降はイベント投入を停止（遅延ディスパッチでのクラッシュ防止） |

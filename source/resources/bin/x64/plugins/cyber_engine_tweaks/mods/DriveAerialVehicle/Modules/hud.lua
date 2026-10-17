@@ -1630,6 +1630,13 @@ function HUD:ShowArrivalDisplay()
     GameHUD.ShowMessage(text)
 end
 
+--- Show Message when summoning is blocked because DAV was disabled (DAV:Disable interop).
+--- Same GameHUD.ShowMessage path as the autopilot arrival notice.
+function HUD:ShowDisabledDisplay()
+    local text = GetLocalizedText("LocKey#1315")
+    GameHUD.ShowMessage(text)
+end
+
 --- Show Message when autopilot is interrupted.
 function HUD:ShowInterruptAutoPilotDisplay()
     local text = GetLocalizedText("LocKey#15321")

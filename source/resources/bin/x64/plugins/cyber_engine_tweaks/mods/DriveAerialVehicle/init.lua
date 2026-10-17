@@ -14,9 +14,12 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicle",
-	version = "3.3.1",
+	version = "3.4.0",
     -- system
     is_ready = false,
+    -- Interop: set by DAV:Disable() so other MODs can take over the DriveAerialVehicle DLL.
+    -- While true every AV summon is blocked (see AV:Spawn).
+    is_disabled = false,
     -- Control loop period (live value mirrored by TimeScale:Set(); assign only via TimeScale).
     time_resolution = TimeScale.DEFAULT_RESOLUTION,
     -- Multiplier applied to every per-tick accumulator (1.0 at the shipped 0.01 resolution).
@@ -582,6 +585,43 @@ end
 
 function DAV:ToggleDebugMode()
     DAV.is_debug_mode = not DAV.is_debug_mode
+end
+
+function DAV:Disable()
+    if DAV.is_disabled then
+        return true
+    end
+    if self.core_obj == nil then
+        return false
+    end
+    local ev = self.core_obj.event_obj
+    if ev ~= nil and ev:IsInVehicle() then
+        print('[DAV] Disable refused: player is riding the AV')
+        return false
+    end
+    DAV.is_disabled = true
+    local av = self.core_obj.av_obj
+    if av ~= nil then
+        if av.entity_id ~= nil then
+            -- Immediate reset: despawn releases the vehicle handle and the thruster setup.
+            av:Despawn()
+        end
+        if av.engine_obj ~= nil and av.engine_obj.fly_av_system ~= nil then
+            local fs = av.engine_obj.fly_av_system
+            pcall(function()
+                fs:SetThresholds(0, 0, 0, 1, 0, Vector4.new(0, 0, 0, 0))
+                fs:SetLandingVFX(0, Vector4.new(0, 0, 0, 0))
+            end)
+        end
+    end
+    print('[DAV] Disabled: DLL released, summoning blocked')
+    return true
+end
+
+function DAV:Enable()
+    DAV.is_disabled = false
+    print('[DAV] Enabled: summoning restored')
+    return true
 end
 
 return DAV
