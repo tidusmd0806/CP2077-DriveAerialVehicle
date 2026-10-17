@@ -156,3 +156,18 @@ DLL: QueueDavEvent(className, name, ttl)
 - **`Handle<T>` は 0x10 バイト**。戻り値・引数とも実体で受ける
 - CName は REDscript の `n"..."` でしか登録されない
 - DLL から `FindComponentByName` 禁止（メモリ walk で代替）
+
+### 終了時のお作法（quit-to-desktop クラッシュ対策）
+
+終了シーケンスは `Running 状態のままワールドが壊れ始める`。物理は先に止まり、
+終了ムービーは数百 fps で回り、車両エンティティは **DLL のハンドルが生きたまま** free される
+（Lua の despawn＝`SetVehicle(0)` は終了時には走らない）。対策は 3 層:
+
+| 層 | 場所 | やること |
+|---|---|---|
+| 宣言的終了 | `DavGameState_OnExit` | `g_shutting_down` を立て、車両ハンドル・hash・モニタ mask を捨てる。以降 OnUpdate は即 return |
+| 読み取りガード | `VehicleBodyAlive()` | エンティティの `physicsData` を SEH で 1 回読む。**全ネイティブ getter と OnUpdate/MonitorTick はこれを通ってから本体を触る**。 dangling でも同スレッド（ゲームスレッド）なので check-then-read で十分 |
+| レートガード | `MonitorTick` | `dt < 1/240 s`（＝終了ムービーの非スロットルド実行）では何もしない |
+
+CET 側も `onShutdown` で `SetVehicle(0)` を pcall して返す（CET リロード時の保険）。
+物理スレッド（フック）はエンティティ自身のステップ内で動くのでこの問題なし（hash 不一致で素通り）。

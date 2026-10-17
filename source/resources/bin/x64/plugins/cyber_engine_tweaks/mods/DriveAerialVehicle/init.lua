@@ -487,6 +487,13 @@ registerForEvent('onUpdate', function(delta)
 end)
 
 registerForEvent('onShutdown', function()
+    -- Hand the vehicle back to the DLL before anything goes away: on quit the entity is freed
+    -- while the DLL handle would still point at it (the despawn path never runs). The DLL's own
+    -- game-state OnExit is the primary guard; this covers CET reloading.
+    local eng = DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil and DAV.core_obj.av_obj.engine_obj or nil
+    if eng ~= nil and eng.fly_av_system ~= nil then
+        pcall(function() eng.fly_av_system:SetVehicle(0) end)
+    end
     if DAV.core_obj ~= nil then
         DAV.core_obj:ReleaseObstacleMapSession()
     end
