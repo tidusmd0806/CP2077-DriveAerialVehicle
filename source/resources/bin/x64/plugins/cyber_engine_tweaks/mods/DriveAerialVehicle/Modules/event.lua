@@ -343,6 +343,11 @@ end
 --- / CheckInEntryArea polls: the DLL owns the measurement, only the game-side action is here.
 --- The height crossings smuggle the measured height in the event's timeToLive float.
 function Event:OnDavThresholdEvent(name, ttl)
+    -- Teardown guard: the DLL can still announce edges while the AV is despawned or the world is
+    -- going away; every handler below touches game objects.
+    if self.av_obj == nil or self.av_obj.entity_id == nil then
+        return
+    end
     if name ~= "dav_evt_height_tick" then
         self.log_obj:Record(LogLevel.Info, "threshold handler: " .. tostring(name) .. " ttl=" .. tostring(ttl), "Event")
     end

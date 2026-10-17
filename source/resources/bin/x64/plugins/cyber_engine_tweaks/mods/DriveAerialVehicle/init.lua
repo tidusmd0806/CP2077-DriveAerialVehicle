@@ -501,6 +501,24 @@ registerForEvent('onShutdown', function()
     Game.GetCallbackSystem():UnregisterCallback('Input/Axis', DAV.input_axis_listener:Target(), DAV.input_axis_listener:Function("OnAxisInput"))
 end)
 
+-- World detach/attach bridge: when the world detaches (exit movie or save teardown) the game
+-- despawns entities and disables their physics; the DLL must stop re-enabling physics on a
+-- vehicle that is being torn down (that fight was the exit hang). OnAttach re-arms after a load.
+function dav_set_world_gone(gone)
+    local eng = DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil and DAV.core_obj.av_obj.engine_obj or nil
+    if eng ~= nil and eng.fly_av_system ~= nil then
+        pcall(function() eng.fly_av_system:SetWorldGone(gone) end)
+    end
+end
+
+GameObserver = GameObserver or {}
+function GameObserver.OnDetach()
+    dav_set_world_gone(1)
+end
+function GameObserver.OnAttach()
+    dav_set_world_gone(0)
+end
+
 function CheckDependencies()
     -- Check Cyber Engine Tweaks Version
     local cet_version_str = GetVersion()

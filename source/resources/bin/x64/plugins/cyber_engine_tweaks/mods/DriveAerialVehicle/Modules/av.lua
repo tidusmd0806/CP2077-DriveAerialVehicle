@@ -926,7 +926,10 @@ function AV:SetLandingVFXPosition(position)
 	if self.is_enable_landing_vfx
 		and DAV.user_setting_table.is_enable_landing_vfx
 		and self.landing_vfx_component ~= nil then
-		self.landing_vfx_component:SetLocalPosition(position)
+		-- pcall: the cached component handle outlives its entity on quit/teardown, and the height
+		-- tick keeps arriving until the DLL monitor stops. A dead handle must not throw into the
+		-- event callback.
+		pcall(function() self.landing_vfx_component:SetLocalPosition(position) end)
 	end
 end
 
