@@ -3872,6 +3872,10 @@ end
 --- @param height number height to start landing
 --- @param target_z number|nil target altitude (destination Z); if provided, stop descending at this Z
 function Navigation:AutoLanding(height, target_z)
+	-- Release the thruster swing right before the straight descent: the AV lands with the thrusters level.
+	self.av_obj.engine_obj.fly_av_system:SetThrusterCommand(0, 0)
+	self.av_obj._thruster_cmd_fwd = nil
+	self.av_obj._thruster_cmd_back = nil
 	-- Fixed safety net, not a timing target: real landings end via ground/target_z/collision branches.
 	local down_timeout_seconds = self.landing_timeout_seconds
 	local down_time_count = TimeScale:Ticks(down_timeout_seconds)

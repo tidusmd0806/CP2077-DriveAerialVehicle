@@ -507,6 +507,13 @@ function Engine:SetAutoPilot(on)
         return
     end
     self.av_obj.is_auto_pilot = on
+    -- Autopilot ended: release the DLL's swing input so the thruster restores to zero.
+    if not on then
+        self.fly_av_system:SetThrusterCommand(0, 0)
+        -- Drop the AV's edge-detect cache so the next autopilot's first (1,0)/(0,1) still passes.
+        self.av_obj._thruster_cmd_fwd = nil
+        self.av_obj._thruster_cmd_back = nil
+    end
     -- Refresh the autopilot bit of the DLL flight context.
     self:SetFlightContext(self.last_situation)
     self:ApplyControlMode()
