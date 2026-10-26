@@ -14,7 +14,7 @@ local Debug = require('Debug/debug.lua')
 
 DAV = {
 	description = "Drive an Aerial Vehicle",
-	version = "3.4.0",
+	version = "3.5.0",
     -- system
     is_ready = false,
     -- Interop: set by DAV:Disable() so other MODs can take over the DriveAerialVehicle DLL.
