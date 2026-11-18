@@ -63,6 +63,12 @@ function Core:New()
     obj.active_button_holds = {}
     obj.last_axis_action = {}
     obj.axis_cleared = {}
+    -- Analog triggers (adopt patch): set once Input/Axis has delivered that trigger at least once.
+    obj.trigger_axis_seen = {}
+    -- Last analog amount pushed to the DLL per hold name (nil = flat 1 from StartButtonHold).
+    obj.trigger_pushed = {}
+    -- Measured hull extents per vehicle record hash (adopt patch); session-only cache.
+    obj.adopt_extent_cache = {}
     obj.is_move_forward_button_hold_counter = false
     obj.move_forward_button_hold_count = 0
     obj.is_move_backward_button_hold_counter = false
@@ -141,6 +147,8 @@ function Core:Init()
     self:StoreTranslationtableList()
 
     self:InitGarageInfo()
+    self:BuildAdoptableIndex()
+    self.adopt_generic_model = Utils:ReadJson("Data/adopt_generic_model.json")
 
     self.input_key_table = self:GetInputTable(self.input_key_path)
 
@@ -420,6 +428,151 @@ function Core:LoadSetting()
         Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
     end
     self:SetDestructibility(DAV.user_setting_table.is_enable_destruction)
+    -- Same-version settings files predate adopt_toggle (or parts of it): fill in what is missing.
+    local adopt_defaults = {key1 = "IK_None", key2 = "IK_None", pad1 = "IK_None", pad2 = "IK_None", hold = 0.0, ap_key = "IK_None", ap_pad = "IK_None"}
+    if type(DAV.user_setting_table.adopt_toggle) ~= "table" then
+        DAV.user_setting_table.adopt_toggle = {}
+    end
+    local adopt_cfg, adopt_filled = DAV.user_setting_table.adopt_toggle, false
+    for k, v in pairs(adopt_defaults) do
+        if adopt_cfg[k] == nil then
+            adopt_cfg[k] = v
+            adopt_filled = true
+        end
+    end
+    if type(DAV.user_setting_table.adopt_flyable) ~= "table" then
+        DAV.user_setting_table.adopt_flyable = {}
+        adopt_filled = true
+    end
+    if adopt_filled then
+        Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+    end
+end
+
+--- Resolve the drive/fly combo and the autopilot tap key for one device.
+---@param is_pad boolean
+---@return table combo (0-2 keys), string|nil ap_key, number hold
+function Core:GetAdoptBindings(is_pad)
+    local cfg = DAV.user_setting_table.adopt_toggle or {}
+    local k1, k2, ap = cfg.key1, cfg.key2, cfg.ap_key
+    if is_pad then
+        k1, k2, ap = cfg.pad1, cfg.pad2, cfg.ap_pad
+    end
+    local combo = {}
+    if k1 ~= nil and k1 ~= "IK_None" then combo[#combo + 1] = k1 end
+    if k2 ~= nil and k2 ~= "IK_None" and k2 ~= k1 then combo[#combo + 1] = k2 end
+    if ap == "IK_None" then ap = nil end
+    return combo, ap, tonumber(cfg.hold) or 0
+end
+
+--- Is the autopilot tap sharing the single drive/fly button (tap = autopilot, hold = drive/fly)?
+---@return boolean shared, boolean conflict (shared but hold 0: tap and hold indistinguishable)
+function Core:IsAdoptAutopilotShared(is_pad)
+    local combo, ap, hold = self:GetAdoptBindings(is_pad)
+    if ap == nil or #combo ~= 1 or combo[1] ~= ap then
+        return false, false
+    end
+    return hold > 0, hold <= 0
+end
+
+--- Keys this patch owns, so DAV's own common bindings (autopilot/radio/camera...) skip them:
+--- the autopilot tap keys and single-key drive/fly binds. Combo keys are not claimed.
+---@param key string
+---@return boolean
+function Core:IsAdoptClaimedKey(key)
+    if key == nil or key == "IK_None" then
+        return false
+    end
+    local combo, ap = self:GetAdoptBindings(key:find("IK_Pad") ~= nil)
+    return key == ap or (#combo == 1 and key == combo[1])
+end
+
+--- Autopilot tap: only meaningful while flying.
+function Core:AdoptAutopilotTap()
+    if self.event_obj ~= nil and self.event_obj.current_situation == Def.Situation.InVehicle then
+        self.log_obj:Record(LogLevel.Info, "Autopilot tap")
+        self:ToggleAutopilot()
+    end
+end
+
+--- Bindings for ToggleAdoptedFlight (a one- or two-key combo per device, on press or after the
+--- shared hold time) and the autopilot tap. When the tap key is the single drive/fly key and hold > 0,
+--- releasing before the hold fires toggles autopilot; reaching the hold toggles drive/fly.
+--- Raw Input/Key events: the keys keep their game actions.
+---@param key string IK_* key name
+---@param action string IACT_Press / IACT_Release / IACT_Abort
+function Core:HandleAdoptToggleInput(key, action)
+    if DAV.user_setting_table.adopt_toggle == nil then
+        return
+    end
+    local is_pad = key:find("IK_Pad") ~= nil
+    local combo, ap, hold = self:GetAdoptBindings(is_pad)
+    local shared, conflict = self:IsAdoptAutopilotShared(is_pad)
+    self.adopt_state = self.adopt_state or {pad = {down = {}, token = 0}, kb = {down = {}, token = 0}}
+    local st = is_pad and self.adopt_state.pad or self.adopt_state.kb
+    st.ap_down = st.ap_down or {}
+
+    -- Standalone autopilot tap key (not shared with drive/fly): fire on press.
+    if ap ~= nil and key == ap and not shared and not conflict then
+        if action == "IACT_Press" then
+            if not st.ap_down[key] then
+                st.ap_down[key] = true
+                self:AdoptAutopilotTap()
+            end
+        elseif action == "IACT_Release" or action == "IACT_Abort" then
+            st.ap_down[key] = nil
+        end
+        if key ~= combo[1] and key ~= combo[2] then
+            return
+        end
+    end
+
+    if #combo == 0 or (key ~= combo[1] and key ~= combo[2]) then
+        return
+    end
+    if action == "IACT_Press" then
+        if st.down[key] then
+            return -- auto-repeat
+        end
+        st.down[key] = true
+    elseif action == "IACT_Release" or action == "IACT_Abort" then
+        local was_down = st.down[key]
+        local was_fired = st.fired
+        st.down[key] = nil
+        st.token = st.token + 1 -- cancel a pending hold
+        st.fired = false
+        if shared and action == "IACT_Release" and was_down and not was_fired then
+            self:AdoptAutopilotTap()
+        end
+        return
+    else
+        return
+    end
+    local function all_down()
+        for _, k in ipairs(combo) do
+            if not st.down[k] then
+                return false
+            end
+        end
+        return true
+    end
+    if st.fired or not all_down() then
+        return
+    end
+    if hold <= 0 then
+        st.fired = true
+        self:ToggleAdoptedFlight()
+        return
+    end
+    st.token = st.token + 1
+    local token = st.token
+    Cron.After(hold, function()
+        if token ~= st.token or st.fired or not all_down() then
+            return
+        end
+        st.fired = true
+        self:ToggleAdoptedFlight()
+    end)
 end
 
 --- Set Summon Trigger.
@@ -670,6 +823,320 @@ function Core:GetAllModel()
     return models
 end
 
+--- Map vehicle record hashes to the model whose flight settings they adopt.
+--- A model opts in with "adoptable_records": ["Vehicle.some_car", ...] in its JSON.
+function Core:BuildAdoptableIndex()
+    self.adoptable_index = {}
+    for index, model in ipairs(self.all_models) do
+        if type(model.adoptable_records) == "table" then
+            for _, name in ipairs(model.adoptable_records) do
+                local id = TweakDBID.new(name)
+                if self.adoptable_index[id.hash] ~= nil then
+                    self.log_obj:Record(LogLevel.Warning, "Adoptable record listed twice, keeping first: " .. name)
+                else
+                    self.adoptable_index[id.hash] = index
+                end
+            end
+        end
+    end
+end
+
+--- Toggle between driving and DAV flight in the vehicle the player is driving.
+--- Only vehicles listed in some model's adoptable_records are eligible.
+---@return boolean
+function Core:ToggleAdoptedFlight()
+    local av = self.av_obj
+    local ev = self.event_obj
+    if av == nil or ev == nil then
+        return false
+    end
+    if av.is_adopted then
+        return ev:EndAdoptedFlight()
+    end
+    if DAV.is_disabled then
+        ev.hud_obj:ShowDisabledDisplay()
+        return false
+    end
+    if ev:IsInMenuOrPopupOrPhoto() then
+        return false
+    end
+    if not ev:IsNotSpawned() then
+        self.log_obj:Record(LogLevel.Info, "Adopt refused: a summoned AV is active")
+        return false
+    end
+    local player = Game.GetPlayer()
+    local vehicle = player ~= nil and Game.GetMountedVehicle(player) or nil
+    if vehicle == nil then
+        return false
+    end
+    local ok, is_driver = pcall(function() return vehicle:IsPlayerDriver() end)
+    if ok and not is_driver then
+        self.log_obj:Record(LogLevel.Info, "Adopt refused: player is not the driver")
+        return false
+    end
+    local record_id = vehicle:GetRecordID()
+    local bike_ok, is_bike_obj = pcall(function() return vehicle:IsA("vehicleBikeBaseObject") end)
+    if (bike_ok and is_bike_obj) or self:IsBikeRecordName(record_id.value) then
+        self.log_obj:Record(LogLevel.Info, "Adopt refused: " .. tostring(record_id.value) .. " is a motorcycle (not supported)")
+        return false
+    end
+    if not self:IsAdoptFlyable(record_id) then
+        self.log_obj:Record(LogLevel.Info, "Adopt refused: " .. tostring(record_id.value) .. " is not enabled as flyable")
+        return false
+    end
+    self.adopt_prev_model_index = DAV.model_index
+    self.adopt_prev_model_type_index = DAV.model_type_index
+    local model_index = self.adoptable_index ~= nil and self.adoptable_index[record_id.hash] or nil
+    if model_index ~= nil then
+        DAV.model_index = model_index
+        local garage_info = DAV.user_setting_table.garage_info_list[model_index]
+        DAV.model_type_index = garage_info ~= nil and garage_info.type_index or 1
+    else
+        -- No model JSON for this car: fly it on the generic profile, appended only for this flight.
+        if self.adopt_generic_model == nil then
+            self.log_obj:Record(LogLevel.Error, "Adopt refused: Data/adopt_generic_model.json missing")
+            return false
+        end
+        local generic = Utils:DeepCopy(self.adopt_generic_model)
+        self:ApplyAdoptExtents(generic, vehicle, record_id)
+        table.insert(self.all_models, generic)
+        self.adopt_generic_index = #self.all_models
+        DAV.model_index = self.adopt_generic_index
+        DAV.model_type_index = 1
+    end
+    av:Init()
+    av.seat_index = 1
+    if not av:Adopt(vehicle) then
+        self:CleanupAdoptModel()
+        av:Init()
+        return false
+    end
+    return ev:BeginAdoptedFlight()
+end
+
+--- Hull sizing for the generic profile (adopt patch) ---------------------------------------
+-- There is no script-side bounding box for a vehicle, so measure it: cast rays from ~8 m out back
+-- toward the car on the Vehicle collision group and keep the farthest hull hit per direction.
+local ADOPT_PROBE_START = 8.0
+local ADOPT_PROBE_HEIGHTS = { -0.3, 0.1, 0.5, 0.9, 1.3 }
+local ADOPT_EXTENT_LIMITS = { front = { 1.5, 6.0 }, rear = { 1.5, 6.0 }, side = { 0.8, 2.5 } }
+
+--- Farthest hull extent along `axis` (unit Vector4) from the vehicle origin, or nil when no ray hit.
+---@return number|nil
+function Core:ProbeAdoptExtent(sqs, origin, axis, lateral, up, lateral_offsets)
+    local best = nil
+    for _, h in ipairs(ADOPT_PROBE_HEIGHTS) do
+        for _, l in ipairs(lateral_offsets) do
+            local bx = origin.x + up.x * h + lateral.x * l
+            local by = origin.y + up.y * h + lateral.y * l
+            local bz = origin.z + up.z * h + lateral.z * l
+            local from = Vector4.new(bx + axis.x * ADOPT_PROBE_START, by + axis.y * ADOPT_PROBE_START,
+                bz + axis.z * ADOPT_PROBE_START, 1.0)
+            local to = Vector4.new(bx, by, bz, 1.0)
+            local ok, hit, result = pcall(function()
+                return sqs:SyncRaycastByCollisionGroup(from, to, "Vehicle", false, false)
+            end)
+            if ok and hit and result ~= nil and result.position ~= nil then
+                local p = result.position
+                local extent = (p.x - origin.x) * axis.x + (p.y - origin.y) * axis.y + (p.z - origin.z) * axis.z
+                if extent > 0.3 and extent < ADOPT_PROBE_START - 0.1 and (best == nil or extent > best) then
+                    best = extent
+                end
+            end
+        end
+    end
+    return best
+end
+
+--- Measure the mounted vehicle's hull: {front, rear, side} in metres, or nil when nothing was hit.
+---@return table|nil
+function Core:MeasureAdoptExtents(vehicle)
+    local sqs = Game.GetSpatialQueriesSystem()
+    if sqs == nil then
+        return nil
+    end
+    local ok, origin, fwd, right, up = pcall(function()
+        return vehicle:GetWorldPosition(), vehicle:GetWorldForward(), vehicle:GetWorldRight(), vehicle:GetWorldUp()
+    end)
+    if not ok or origin == nil or fwd == nil or right == nil or up == nil then
+        return nil
+    end
+    local function neg(v) return Vector4.new(-v.x, -v.y, -v.z, 0) end
+    local along_width = { -0.6, 0.0, 0.6 }
+    local along_length = { -1.0, 0.0, 1.0 }
+    local front = self:ProbeAdoptExtent(sqs, origin, fwd, right, up, along_width)
+    local rear = self:ProbeAdoptExtent(sqs, origin, neg(fwd), right, up, along_width)
+    local right_side = self:ProbeAdoptExtent(sqs, origin, right, fwd, up, along_length)
+    local left_side = self:ProbeAdoptExtent(sqs, origin, neg(right), fwd, up, along_length)
+    local side = nil
+    if right_side ~= nil or left_side ~= nil then
+        side = math.max(right_side or 0, left_side or 0)
+    end
+    if front == nil and rear == nil and side == nil then
+        return nil
+    end
+    return { front = front, rear = rear, side = side }
+end
+
+--- Overwrite the generic profile copy's collision probe distances with this car's measured hull.
+--- Directions with no hit keep the generic value; results are clamped and cached per record.
+function Core:ApplyAdoptExtents(model, vehicle, record_id)
+    local key = record_id.hash
+    local ext = self.adopt_extent_cache[key]
+    if ext == nil then
+        local ok, measured = pcall(function() return self:MeasureAdoptExtents(vehicle) end)
+        if not ok then
+            self.log_obj:Record(LogLevel.Warning, "Adopt sizing failed: " .. tostring(measured))
+            measured = nil
+        end
+        if measured == nil then
+            self.log_obj:Record(LogLevel.Info, "Adopt sizing: no hull hits for " .. tostring(record_id.value) .. ", keeping generic collision probes")
+            return
+        end
+        ext = measured
+        self.adopt_extent_cache[key] = ext
+    end
+    local function clamp(v, lim)
+        if v < lim[1] then return lim[1] end
+        if v > lim[2] then return lim[2] end
+        return v
+    end
+    if ext.front ~= nil then model.collision_check_front_distance = clamp(ext.front, ADOPT_EXTENT_LIMITS.front) end
+    if ext.rear ~= nil then model.collision_check_rear_distance = clamp(ext.rear, ADOPT_EXTENT_LIMITS.rear) end
+    if ext.side ~= nil then model.collision_check_side_distance = clamp(ext.side, ADOPT_EXTENT_LIMITS.side) end
+    self.log_obj:Record(LogLevel.Info, string.format(
+        "Adopt sizing %s: measured front=%s rear=%s side=%s -> probes front=%.2f rear=%.2f side=%.2f",
+        tostring(record_id.value), tostring(ext.front), tostring(ext.rear), tostring(ext.side),
+        model.collision_check_front_distance, model.collision_check_rear_distance, model.collision_check_side_distance))
+end
+
+--- Assign the next pressed key to the slot armed by the overlay's Bind button.
+--- Esc cancels; a key of the wrong device type is ignored and capture keeps waiting.
+---@param key string
+function Core:CaptureAdoptBinding(key)
+    local slot = DAV.adopt_capture_slot
+    local cfg = DAV.user_setting_table.adopt_toggle
+    if slot == nil or cfg == nil then
+        DAV.adopt_capture_slot = nil
+        return
+    end
+    if key == "IK_Escape" then
+        DAV.adopt_capture_slot = nil
+        return
+    end
+    local want_pad = slot:find("pad") ~= nil
+    if (key:find("IK_Pad") ~= nil) ~= want_pad or key:find("Axis") ~= nil then
+        return
+    end
+    cfg[slot] = key
+    DAV.adopt_capture_slot = nil
+    Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+    self.log_obj:Record(LogLevel.Info, "Adopt toggle " .. slot .. " bound to " .. key)
+end
+
+--- Whether a vehicle record may switch into DAV flight: the Mod Settings choice wins, otherwise
+--- the model JSON opt-in (adoptable_records).
+---@param record_id TweakDBID
+---@return boolean
+function Core:IsAdoptFlyable(record_id)
+    if self:IsBikeRecordName(record_id.value) then
+        return false -- motorcycles are not supported (the game ejects the rider once flight banks the bike)
+    end
+    local choice = DAV.user_setting_table.adopt_flyable and DAV.user_setting_table.adopt_flyable[record_id.value]
+    if choice ~= nil then
+        return choice
+    end
+    return self.adoptable_index ~= nil and self.adoptable_index[record_id.hash] ~= nil
+end
+
+--- Motorcycle check by record: TweakDB type Vehicle.Bike, falling back to the record name.
+---@param name string|nil vehicle record name
+---@return boolean
+function Core:IsBikeRecordName(name)
+    if name == nil or name == "" then
+        return false
+    end
+    local ok, vtype = pcall(function() return TweakDB:GetFlat(name .. ".type") end)
+    if ok and vtype ~= nil and vtype.value == "Vehicle.Bike" then
+        return true
+    end
+    return string.find(string.lower(name), "bike", 1, true) ~= nil
+end
+
+--- Undo the per-flight model selection: drop the generic profile and restore the summon model.
+function Core:CleanupAdoptModel()
+    if self.adopt_generic_index ~= nil then
+        if self.all_models[self.adopt_generic_index] ~= nil and #self.all_models == self.adopt_generic_index then
+            table.remove(self.all_models, self.adopt_generic_index)
+        end
+        self.adopt_generic_index = nil
+    end
+    if self.adopt_prev_model_index ~= nil then
+        DAV.model_index = self.adopt_prev_model_index
+        DAV.model_type_index = self.adopt_prev_model_type_index or 1
+        self.adopt_prev_model_index = nil
+        self.adopt_prev_model_type_index = nil
+    end
+end
+
+--- Owned vehicles for the Flyable Vehicles settings list. DAV's own AVs / helicopters (owned *_dummy
+--- records of a model) and vehicles of type AV are flagged is_av: always flyable, shown locked on.
+---@return table list of {name, label, is_av}
+function Core:GetOwnedVehicleList()
+    local result = {}
+    local ok, list = pcall(function()
+        local vs = Game.GetVehicleSystem()
+        if vs == nil or Game.GetPlayer() == nil then
+            return {}
+        end
+        return vs:GetPlayerUnlockedVehicles()
+    end)
+    if not ok or list == nil then
+        return result
+    end
+    local model_records = {}
+    for _, model in ipairs(self.all_models) do
+        if model.tweakdb_id ~= nil and model.tweakdb_id ~= "" then
+            model_records[model.tweakdb_id] = true
+        end
+    end
+    for _, pv in ipairs(list) do
+        local name = pv.recordID and pv.recordID.value or nil
+        if name ~= nil and name ~= "" then
+            local is_av = model_records[(string.gsub(name, "_dummy$", ""))] == true
+            if not is_av then
+                local tok, vtype = pcall(function() return TweakDB:GetFlat(name .. ".type") end)
+                is_av = tok and vtype ~= nil and vtype.value == "Vehicle.AV"
+            end
+            local label = name
+            pcall(function()
+                local rec = TweakDBInterface.GetVehicleRecord(pv.recordID)
+                local dn = rec ~= nil and rec:DisplayName() or nil
+                if dn ~= nil and dn ~= "" then
+                    if string.find(dn, "^LocKey#") then
+                        dn = GetLocalizedText(dn)
+                    end
+                    if dn ~= nil and dn ~= "" then
+                        label = dn
+                    end
+                end
+            end)
+            local is_bike = not is_av and self:IsBikeRecordName(name)
+            table.insert(result, {name = name, label = label, is_av = is_av, is_bike = is_bike})
+        end
+    end
+    table.sort(result, function(a, b)
+        if a.is_av ~= b.is_av then
+            return a.is_av
+        end
+        if a.is_bike ~= b.is_bike then
+            return not a.is_bike
+        end
+        return a.label < b.label
+    end)
+    return result
+end
+
 --- Initialize Garage Info.
 function Core:InitGarageInfo()
     local garage_info_list = Utils:DeepCopy(DAV.user_setting_table.garage_info_list)
@@ -711,6 +1178,12 @@ function Core:UpdateGarageInfo(is_force_update)
     if (self.current_purchased_vehicle_count == #list or #list == 0) and not is_force_update then
         return
     else
+        if self.current_purchased_vehicle_count ~= #list and self.event_obj ~= nil and self.event_obj.ui_obj ~= nil then
+            -- The Flyable Vehicles settings list mirrors the garage.
+            Cron.After(0.5, function()
+                self.event_obj.ui_obj:UpdateNativeSettingsPage()
+            end)
+        end
         self.current_purchased_vehicle_count = #list
     end
 
@@ -1022,6 +1495,7 @@ function Core:StopButtonHold(button_name)
         self:PushNative(held, 0)
     end
     self.active_button_holds[button_name] = nil
+    self.trigger_pushed[button_name] = nil
 end
 
 --- Stop all armed button holds.
@@ -1033,6 +1507,95 @@ function Core:StopAllButtonHolds()
     end
     -- Belt and braces: clear anything the DLL still holds (axis tilts included).
     self:PushNative(0, 0)
+end
+
+--- Analog triggers (adopt patch) -----------------------------------------------------------
+-- The pad triggers are bound as hold buttons, so any pull past the press threshold pushed a flat 1
+-- (full thrust). Input/Axis also reports them as 0..1; once it has, the axis owns that trigger: it
+-- starts/stops the same hold and pushes the pulled amount, and Input/Key press/release is ignored.
+local ANALOG_TRIGGER_KEYS = { IK_Pad_LeftTrigger = true, IK_Pad_RightTrigger = true }
+
+---@param key string
+---@return boolean
+function Core:IsAnalogTriggerKey(key)
+    return ANALOG_TRIGGER_KEYS[key] == true
+end
+
+--- Movement keybind name bound to this pad key in the current flight mode, or nil.
+---@param key string
+---@return string|nil
+function Core:FindMovementKeybindName(key)
+    local engine = self.av_obj and self.av_obj.engine_obj
+    if engine == nil then
+        return nil
+    end
+    local list = nil
+    if engine.flight_mode == Def.FlightMode.AV then
+        list = DAV.user_setting_table.keybind_table
+    elseif engine.flight_mode == Def.FlightMode.Helicopter then
+        list = DAV.user_setting_table.heli_keybind_table
+    end
+    if list == nil then
+        return nil
+    end
+    for _, keybind in ipairs(list) do
+        if keybind.pad == key then
+            return keybind.name
+        end
+    end
+    return nil
+end
+
+--- True when Input/Key events for this trigger must be ignored because the axis drives it.
+---@param key string
+---@return boolean
+function Core:IsAxisOwnedTrigger(key)
+    if not ANALOG_TRIGGER_KEYS[key] or not self.trigger_axis_seen[key] then
+        return false
+    end
+    return self:FindMovementKeybindName(key) ~= nil
+end
+
+--- One Input/Axis sample for a trigger.
+---@param key string
+---@param value number
+function Core:HandleTriggerAxis(key, value)
+    if value < 0 then value = -value end
+    if value > 1 then value = 1 end
+    if not self.trigger_axis_seen[key] then
+        self.trigger_axis_seen[key] = true
+        self.log_obj:Record(LogLevel.Info, "Analog trigger axis active: " .. key)
+    end
+    if self.av_obj == nil or self.av_obj.engine_obj == nil then
+        return
+    end
+    local name = self:FindMovementKeybindName(key)
+    if name == nil then
+        return
+    end
+    local holding = self.active_button_holds[name]
+    if value <= DAV.axis_dead_zone then
+        if holding ~= nil then
+            self:ConvertHoldButtonAction(key)
+        end
+        return
+    end
+    if holding == nil then
+        self:ConvertPressButtonAction(key)
+        holding = self.active_button_holds[name]
+        if type(holding) == "number" then
+            self.trigger_pushed[name] = value
+            self:PushNative(holding, value)
+        end
+        return
+    end
+    if type(holding) == "number" then
+        local last = self.trigger_pushed[name] or 1
+        if value - last >= 0.01 or last - value >= 0.01 then
+            self.trigger_pushed[name] = value
+            self:PushNative(holding, value)
+        end
+    end
 end
 
 --- Check if the player is ready to receive movement input.
@@ -1068,6 +1631,9 @@ function Core:ConvertPressButtonAction(key)
                 return
             end
         end
+    end
+    if self:IsAdoptClaimedKey(key) then
+        return -- adopt patch owns this key (autopilot tap / drive-fly); DAV's common action stays out
     end
         for _, keybind in ipairs(DAV.user_setting_table.common_keybind_table) do
             if key == keybind.key or key == keybind.pad then
@@ -1424,6 +1990,9 @@ end
 
 --- Toggle Appearance.
 function Core:ToggleAppearance()
+    if self.av_obj ~= nil and self.av_obj.is_adopted then
+        return
+    end
     local type_list = self.all_models[DAV.model_index].type
     local type_count = #type_list
     local type_index = DAV.user_setting_table.garage_info_list[DAV.model_index].type_index

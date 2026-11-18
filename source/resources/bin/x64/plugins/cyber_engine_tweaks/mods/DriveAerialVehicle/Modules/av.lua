@@ -47,6 +47,8 @@ function AV:New(core_obj)
 
 	---dynamic---: common
 	obj.entity_id = nil
+	-- true while DAV flies a vehicle it did not spawn (see AV:Adopt); such a vehicle is never deleted.
+	obj.is_adopted = false
 	-- Entity handle cache: one resolution per frame covers every accessor (changes only at Spawn/Despawn).
 	obj._entity = nil          -- cached result of Game.FindEntityByID (nil never cached)
 	obj._entity_frame = -1     -- DAV.frame_seq the cached handle belongs to
@@ -520,12 +522,203 @@ function AV:SpawnToSky()
 	end)
 end
 
+--- Take over a vehicle the player is already driving, using the current model's flight settings.
+--- Mirrors the post-materialise half of AV:Spawn; the entity is owned by the game, not by DAV.
+---@param entity any vehicle entity
+---@return boolean
+function AV:Adopt(entity)
+	if DAV.is_disabled then
+		self.log_obj:Record(LogLevel.Info, "Adopt blocked: DAV is disabled (call DAV:Enable())")
+		return false
+	end
+	if self.entity_id ~= nil or entity == nil then
+		self.log_obj:Record(LogLevel.Info, "Adopt refused: an entity is already bound or no entity given")
+		return false
+	end
+	self.entity_id = entity:GetEntityID()
+	self.is_adopted = true
+	self.is_spawning = false
+	self.is_landed = false
+	self:InvalidateEntityCache()
+	self.navigation_obj:InvalidateHeightCache()
+	self.landing_vfx_component = entity:FindComponentByName("LandingVFXSlot")
+	self.engine_obj:Init(self.entity_id)
+	self.engine_obj:UnsetPhysicsState()
+	self.engine_obj:SetControlType(Def.EngineControlType.ChangeVelocity)
+	self.engine_obj:EnableGravity(false)
+	self.log_obj:Record(LogLevel.Info, "Adopted vehicle id=" .. tostring(self.entity_id.hash))
+	Cron.After(0.5, function()
+		if not self.is_adopted then
+			return
+		end
+		self:AttachAdoptAudio()
+		self.core_obj.event_obj.sound_obj:StartEngineSound(self.flight_mode, 1.5)
+		self.is_available_thruster = self:SetThrusterComponent() and true or false
+	end)
+	return true
+end
+
+--- Adopted flight audio: attach DAV's Audioware emitters to the adopted car (they are otherwise
+--- registered only on spawn of DAV's own AVs) and silence the car's ground engine the way DAV does
+--- for its own AVs: swap the audio metadata's mechanicalData (engine/throttle/speed loops) for an
+--- empty one while flying. Both are best effort and logged.
+function AV:AttachAdoptAudio()
+	local entity = self:GetEntity()
+	if entity == nil then
+		return
+	end
+	local id = entity:GetEntityID()
+	local is_heli = self.flight_mode == Def.FlightMode.Helicopter
+	local ok, registered = pcall(function() return Game.GetPlayer():DAVAdoptRegisterAudio(id, is_heli) end)
+	self.adopt_audio_id = id
+	self.log_obj:Record(LogLevel.Info, "Adopt audio emitters: ok=" .. tostring(ok) .. " registered=" .. tostring(registered))
+	self:MuteAdoptCarEngine(entity)
+end
+
+--- Swap the adopted car's engine audio (mechanicalData) for an empty set; restored on release.
+--- The metadata entry is shared by every car using that audio resource, so it is restored promptly.
+function AV:MuteAdoptCarEngine(entity)
+	if self.adopt_audio_meta ~= nil then
+		return
+	end
+	local ok, err = pcall(function()
+		local record_name = entity:GetRecordID().value
+		local flat = TweakDB:GetFlat(record_name .. ".player_audio_resource")
+		local res_name = type(flat) == "userdata" and flat.value or tostring(flat)
+		if res_name == nil or res_name == "" or res_name == "None" then
+			self.log_obj:Record(LogLevel.Info, "Adopt engine mute: no player_audio_resource on " .. tostring(record_name))
+			return
+		end
+		local token = Game.GetResourceDepot():LoadResource("base\\sound\\metadata\\cooked_metadata.audio_metadata")
+		local list = token and token:GetResource() or nil
+		if list == nil then
+			self.log_obj:Record(LogLevel.Warning, "Adopt engine mute: audio metadata not loaded")
+			return
+		end
+		for _, metadata in pairs(list.entries) do
+			if metadata.name.value == res_name then
+				self.adopt_audio_token = token
+				self.adopt_audio_meta = metadata
+				self.adopt_audio_mech = metadata.mechanicalData
+				-- The swap only affects sounds started from now on; an engine loop already running
+				-- (switching while driving) must be stopped with the car's own stop event first.
+				self.adopt_audio_entity_id = entity:GetEntityID()
+				local stop_name = self:PostAdoptEngineEvent(entity, "engineStopEvent")
+				metadata.mechanicalData = audioVehicleMechanicalData.new()
+				self.log_obj:Record(LogLevel.Info, "Adopt engine mute: " .. res_name .. " mechanicalData swapped, stop event=" .. tostring(stop_name))
+				return
+			end
+		end
+		self.log_obj:Record(LogLevel.Info, "Adopt engine mute: metadata " .. res_name .. " not found")
+	end)
+	if not ok then
+		self.log_obj:Record(LogLevel.Warning, "Adopt engine mute failed: " .. tostring(err))
+	end
+end
+
+--- Post one of the saved (original) mechanicalData events on the car; returns the event name or nil.
+---@param entity any
+---@param field string "engineStopEvent" / "engineStartEvent"
+---@return string|nil
+function AV:PostAdoptEngineEvent(entity, field)
+	local mech = self.adopt_audio_mech
+	if entity == nil or mech == nil then
+		return nil
+	end
+	local ok, name = pcall(function()
+		local ev = mech[field]
+		if ev == nil or ev.value == nil or ev.value == "" or ev.value == "None" then
+			return nil
+		end
+		entity:PlaySoundEvent(ev)
+		return ev.value
+	end)
+	if not ok then
+		self.log_obj:Record(LogLevel.Warning, "Adopt engine " .. field .. " failed: " .. tostring(name))
+		return nil
+	end
+	return name
+end
+
+--- Put the car's engine audio back and restart its engine loop for driving.
+function AV:RestoreAdoptCarEngine()
+	if self.adopt_audio_meta == nil then
+		return
+	end
+	local ok, err = pcall(function()
+		self.adopt_audio_meta.mechanicalData = self.adopt_audio_mech
+	end)
+	local start_name = nil
+	if ok and self.adopt_audio_entity_id ~= nil then
+		local entity = Game.FindEntityByID(self.adopt_audio_entity_id)
+		start_name = self:PostAdoptEngineEvent(entity, "engineStartEvent")
+	end
+	self.log_obj:Record(LogLevel.Info, "Adopt engine audio restored: ok=" .. tostring(ok) .. " start event=" .. tostring(start_name) .. (ok and "" or (" err=" .. tostring(err))))
+	self.adopt_audio_meta = nil
+	self.adopt_audio_mech = nil
+	self.adopt_audio_token = nil
+	self.adopt_audio_entity_id = nil
+end
+
+--- Undo AttachAdoptAudio: fade the flight layers out, restore the engine, and drop the emitters
+--- once the fade has run (skipped if the same car was re-adopted in the meantime).
+function AV:DetachAdoptAudio()
+	local sound_obj = self.core_obj and self.core_obj.event_obj and self.core_obj.event_obj.sound_obj
+	if sound_obj ~= nil then
+		pcall(function()
+			sound_obj:StopEngineSound(self.flight_mode, 0.5)
+			sound_obj:StopAccelerationSound(self.flight_mode, 0.5)
+			if self.flight_mode == Def.FlightMode.Helicopter then
+				sound_obj:StopThrusterSound(self.flight_mode, 0.5)
+			end
+		end)
+	end
+	self:RestoreAdoptCarEngine()
+	local id = self.adopt_audio_id
+	self.adopt_audio_id = nil
+	if id == nil then
+		return
+	end
+	Cron.After(0.8, function()
+		if self.is_adopted and self.entity_id ~= nil and self.entity_id.hash == id.hash then
+			return
+		end
+		pcall(function() Game.GetPlayer():DAVAdoptUnregisterAudio(id) end)
+	end)
+end
+
+--- Hand an adopted vehicle back to the game: original physics and gravity on, DLL released,
+--- entity left alive. Mirrors AV:Despawn without the DeleteEntity.
+---@return boolean
+function AV:Release()
+	if not self.is_adopted or self.entity_id == nil then
+		return false
+	end
+	self:DetachAdoptAudio()
+	self.engine_obj:SetThrusterSetup(false, 0, 0, 0, 2, "", "")
+	self.engine_obj:EnableOriginalPhysics(true)
+	self.engine_obj:EnableGravity(true)
+	self.engine_obj.fly_av_system:SetVehicle(0)
+	self.log_obj:Record(LogLevel.Info, "Released adopted vehicle id=" .. tostring(self.entity_id.hash))
+	self.entity_id = nil
+	self.is_adopted = false
+	self:InvalidateEntityCache()
+	self:InvalidateEntryAreaCache()
+	self.navigation_obj:InvalidateHeightCache()
+	self.engine_obj:ApplyControlMode()
+	return true
+end
+
 --- Despawn AV.
 ---@return boolean
 function AV:Despawn()
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to despawn")
 		return false
+	end
+	-- Never delete a vehicle DAV did not spawn: release it instead.
+	if self.is_adopted then
+		return self:Release()
 	end
 	-- The DLL writes the thruster components every frame; release it before the entity goes away so
 	-- no cached component handle can outlive its owner.
@@ -813,6 +1006,10 @@ end
 ---@return boolean
 function AV:Unmount()
 	if self.is_unmounting then
+		return false
+	end
+	-- Adopted vehicles use the game's own exit; Event:OnPlayerUnmounted releases them.
+	if self.is_adopted then
 		return false
 	end
 
@@ -1111,6 +1308,10 @@ end
 --- Set destroy appearance.
 ---@return boolean
 function AV:SetDestroyAppearance()
+	-- The destroy appearance belongs to DAV's own model; an adopted vehicle keeps its own wreck.
+	if self.is_adopted then
+		return false
+	end
 	if self.entity_id == nil then
 		self.log_obj:Record(LogLevel.Warning, "No entity to set destroy appearance")
 		return false

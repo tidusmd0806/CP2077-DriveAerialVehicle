@@ -141,6 +141,10 @@ DAV.user_setting_table = {
     keybind_table = DAV.default_keybind_table,
     heli_keybind_table = DAV.default_heli_keybind_table,
     common_keybind_table = DAV.default_common_keybind_table,
+    -- drive <-> fly toggle for adoptable vehicles: keyboard and controller, up to two keys each, optional hold (s)
+    adopt_toggle = {key1 = "IK_None", key2 = "IK_None", pad1 = "IK_None", pad2 = "IK_None", hold = 0.0, ap_key = "IK_None", ap_pad = "IK_None"},
+    -- per-record drive <-> fly opt-in chosen in Mod Settings: ["Vehicle.x"] = true/false (overrides adoptable_records)
+    adopt_flyable = {},
     --- physics: common
     max_speed = 220, -- Max speed in MPH (Max:100m/s)
     horizontal_air_resistance_const = 0.015,
@@ -363,6 +367,19 @@ registerForEvent("onHook", function()
                 elseif DAV.listening_keybind_widget and action == "IACT_Release" then -- Key was bound, by keyboard
                     DAV.listening_keybind_widget = nil
                 end
+                if DAV.adopt_capture_slot ~= nil and DAV.core_obj ~= nil and action == "IACT_Press" then
+                    -- Overlay "Bind" armed: this press becomes the binding, nothing else sees it.
+                    DAV.core_obj:CaptureAdoptBinding(key)
+                    return
+                end
+                if DAV.core_obj ~= nil and DAV.listening_keybind_widget == nil then
+                    DAV.core_obj:HandleAdoptToggleInput(key, action)
+                end
+                if action ~= "IACT_Abort" and DAV.core_obj ~= nil and DAV.core_obj.av_obj ~= nil
+                        and DAV.core_obj:IsAxisOwnedTrigger(key) then
+                    -- Analog trigger (adopt patch): Input/Axis drives this hold with the pulled amount.
+                    return
+                end
                 if action == "IACT_Release" or action == "IACT_Abort" then
                     -- Always process releases so an armed hold cannot leak; stopping an unarmed hold is a no-op.
                     -- Abort (menu, focus loss) carries no release, so it must clear holds the same way.
@@ -429,6 +446,10 @@ registerForEvent("onHook", function()
                     -- only on this path keeps the hot path free of the extra wrapper round trip.
                     if probe then probe.center = probe.center + 1 end
                     local centered_key = event:GetKey().value
+                    if core:IsAnalogTriggerKey(centered_key) then
+                        core:HandleTriggerAxis(centered_key, value)
+                        return
+                    end
                     if Def.AxisKeySet[centered_key] then
                         core:ClearAxisAction(centered_key)
                     end
@@ -437,6 +458,10 @@ registerForEvent("onHook", function()
 
                 -- Only the two left-stick axes can reach an action; drop all others up front.
                 local key = event:GetKey().value
+                if core:IsAnalogTriggerKey(key) then
+                    core:HandleTriggerAxis(key, value)
+                    return
+                end
                 if not Def.AxisKeySet[key] then
                     return
                 end
@@ -477,6 +502,24 @@ end)
 registerForEvent("onDraw", function()
     if DAV.is_debug_mode then
         DAV.debug_obj:ImGuiMain()
+    end
+    if DAV.is_overlay_open and DAV.is_ready and DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil then
+        DAV.core_obj.event_obj.ui_obj:DrawAdoptOverlay()
+    end
+end)
+
+-- Drive / Fly settings window in the CET overlay (works without Native Settings).
+registerForEvent("onOverlayOpen", function()
+    DAV.is_overlay_open = true
+    if DAV.is_ready and DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil then
+        DAV.core_obj.event_obj.ui_obj:RefreshAdoptOverlayList()
+    end
+end)
+
+registerForEvent("onOverlayClose", function()
+    DAV.is_overlay_open = false
+    if DAV.is_ready and DAV.core_obj ~= nil and DAV.core_obj.event_obj ~= nil then
+        DAV.core_obj.event_obj.ui_obj:SaveAdoptOverlayIfDirty()
     end
 end)
 
@@ -616,6 +659,14 @@ function DAV:Disable()
     end
     print('[DAV] Disabled: DLL released, summoning blocked')
     return true
+end
+
+--- Interop: toggle driving <-> flight in the vehicle the player is driving (adoptable_records).
+function DAV:ToggleAdoptedFlight()
+    if not DAV.is_ready or self.core_obj == nil then
+        return false
+    end
+    return self.core_obj:ToggleAdoptedFlight()
 end
 
 function DAV:Enable()

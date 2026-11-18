@@ -1,0 +1,58 @@
+{
+    "name": "Adopted Vehicle (generic)",
+    "tweakdb_id": "",
+    "display_name_lockey": "",
+    "type": [
+        ""
+    ],
+    "flight_mode": 0,
+    "actual_allocated_door": [
+        "seat_front_left"
+    ],
+    "active_seat": [
+        "Front Left Seat"
+    ],
+    "actual_allocated_seat": [
+        "seat_front_left"
+    ],
+    "fpp_camera": true,
+    "camera_distance_ratio": [
+        1.0
+    ],
+    "camera_center_offset": [
+        {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.8
+        }
+    ],
+    "entry_point": {
+        "x": -1.0,
+        "y": 0.0,
+        "z": -0.5
+    },
+    "entry_area_radius": 2.5,
+    "exit_point": {
+        "x": -2.2,
+        "y": 0,
+        "z": 0
+    },
+    "exit_duration": 1.5,
+    "minimum_distance_to_ground": 0.6,
+    "combat_door": [
+        "None"
+    ],
+    "crystal_dome": false,
+    "landing_vfx": false,
+    "projection_offset": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+    },
+    "engine_audio_name": "310_av_engine_idle",
+    "manual_rpm_meter": true,
+    "collision_check_side_distance": 1.2,
+    "collision_check_front_distance": 2.7,
+    "collision_check_rear_distance": 2.6,
+    "armed": false
+}

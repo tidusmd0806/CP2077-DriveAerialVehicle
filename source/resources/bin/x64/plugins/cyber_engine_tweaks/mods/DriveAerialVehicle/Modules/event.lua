@@ -128,6 +128,13 @@ function Event:SetObserve()
 
     GameUI.Observe("SessionEnd", function()
         self.log_obj:Record(LogLevel.Info, "Session end detected")
+        -- An adopted vehicle outlives the session's AV object; never leave it bound to the DLL.
+        if self.av_obj ~= nil and self.av_obj.is_adopted then
+            pcall(function() self.av_obj:Release() end)
+        end
+        if DAV.core_obj ~= nil then
+            DAV.core_obj:CleanupAdoptModel()
+        end
         self.current_situation = Def.Situation.Idle
         -- Drop any armed movement holds so they cannot survive the session change
         if DAV.core_obj ~= nil then
@@ -208,7 +215,7 @@ function Event:SetOverride()
     end)
     -- Prevent the driver-seat swap animation on unmount; situation check first, player lookup after.
     Override("VehicleTransition", "IsUnmountDirectionClosest", function(this, state_context, unmount_direction, wrapped_method)
-        if self.current_situation ~= Def.Situation.InVehicle then
+        if self.current_situation ~= Def.Situation.InVehicle or (self.av_obj ~= nil and self.av_obj.is_adopted) then
             return wrapped_method(state_context, unmount_direction)
         end
         local player = Game.GetPlayer()
@@ -226,7 +233,7 @@ function Event:SetOverride()
 
     -- Prevents the driver-swap-to-opposite-door animation of normal cars
     Override("VehicleTransition", "IsUnmountDirectionOpposite", function(this, state_context, unmount_direction, wrapped_method)
-        if self.current_situation ~= Def.Situation.InVehicle then
+        if self.current_situation ~= Def.Situation.InVehicle or (self.av_obj ~= nil and self.av_obj.is_adopted) then
             return wrapped_method(state_context, unmount_direction)
         end
         local player = Game.GetPlayer()
@@ -623,6 +630,52 @@ function Event:OnPlayerUnmounted()
         self.av_obj.navigation_obj:InterruptAutoPilot()
     end
     SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
+    -- Leaving an adopted vehicle ends the flight: hand it back to the game.
+    if self.av_obj.is_adopted then
+        self:FinishAdoptedFlight()
+    end
+end
+
+--- Enter flight in a vehicle AV:Adopt just bound. Walks the normal situation chain so every
+--- InVehicle side effect (HUD, save lock, physics, LTBF poll) runs exactly as for a summoned AV.
+---@return boolean
+function Event:BeginAdoptedFlight()
+    if self.current_situation ~= Def.Situation.Normal or not self.av_obj.is_adopted then
+        return false
+    end
+    self:SetSituation(Def.Situation.Landing)
+    self:SetSituation(Def.Situation.Waiting)
+    self:OnPlayerMounted()
+    if self.current_situation ~= Def.Situation.InVehicle then
+        self.log_obj:Record(LogLevel.Warning, "Adopted flight did not reach InVehicle; releasing")
+        self:FinishAdoptedFlight()
+        return false
+    end
+    return true
+end
+
+--- Return to driving while still seated: run the exit cleanup, then release.
+---@return boolean
+function Event:EndAdoptedFlight()
+    if not self.av_obj.is_adopted then
+        return false
+    end
+    if self.current_situation == Def.Situation.InVehicle then
+        self:OnPlayerUnmounted() -- calls FinishAdoptedFlight
+    else
+        self:FinishAdoptedFlight()
+    end
+    return true
+end
+
+--- Release the adopted vehicle and reset DAV to its idle state.
+function Event:FinishAdoptedFlight()
+    self.sound_obj:Mute()
+    self.av_obj:ProjectLandingWarning(false)
+    self.av_obj:Release()
+    self:SetSituation(Def.Situation.Normal)
+    DAV.core_obj:CleanupAdoptModel()
+    DAV.core_obj:Reset()
 end
 
 --- Event handler: the AV entity was destroyed (fired by VehicleComponent.OnDeath, hash-matched).
@@ -632,6 +685,15 @@ function Event:OnAVDestroyed()
         return
     end
     self.log_obj:Record(LogLevel.Info, "Destroyed detected")
+    if self.av_obj.is_adopted then
+        self:StopLTBFCompatPoll()
+        self.hud_obj:HideCustomHint()
+        self.hud_obj:HideLeftBottomHUD()
+        self.hud_obj:EnableManualMeter(false, false)
+        SaveLocksManager.RequestSaveLockRemove(CName.new("DAV_IN_AV"))
+        self:FinishAdoptedFlight()
+        return
+    end
     if self.current_situation == Def.Situation.InVehicle then
         self.hud_obj:HideCustomHint()
         self.av_obj:Unmount()

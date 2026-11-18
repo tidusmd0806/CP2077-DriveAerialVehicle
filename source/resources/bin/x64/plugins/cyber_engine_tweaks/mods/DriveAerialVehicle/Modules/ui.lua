@@ -246,6 +246,8 @@ function UI:CreateNativeSettingsSubCategory()
 	end
 	DAV.NativeSettings.addSubcategory("/DAV/keybinds", DAV.core_obj:GetTranslationText("native_settings_keybinds_subtitle"))
 	DAV.NativeSettings.addSubcategory("/DAV/controller", DAV.core_obj:GetTranslationText("native_settings_controller_subtitle"))
+	DAV.NativeSettings.addSubcategory("/DAV/adopt", DAV.core_obj:GetTranslationText("native_settings_adopt_subtitle"))
+	DAV.NativeSettings.addSubcategory("/DAV/flyable", DAV.core_obj:GetTranslationText("native_settings_flyable_subtitle"))
 	DAV.NativeSettings.addSubcategory("/DAV/advance", DAV.core_obj:GetTranslationText("native_settings_advance_subtitle"))
 end
 
@@ -258,7 +260,215 @@ function UI:ClearAllNativeSettingsSubCategory()
 	DAV.NativeSettings.removeSubcategory("/DAV/activation")
 	DAV.NativeSettings.removeSubcategory("/DAV/keybinds")
 	DAV.NativeSettings.removeSubcategory("/DAV/controller")
+	DAV.NativeSettings.removeSubcategory("/DAV/adopt")
+	DAV.NativeSettings.removeSubcategory("/DAV/flyable")
 	DAV.NativeSettings.removeSubcategory("/DAV/advance")
+end
+
+--- Drive <-> fly toggle (adoptable vehicles): keyboard and controller combos, shared hold time.
+function UI:CreateAdoptToggleSettings()
+	local cfg = DAV.user_setting_table.adopt_toggle
+	if cfg == nil then
+		return
+	end
+	local function T(k) return DAV.core_obj:GetTranslationText(k) end
+	local function save_and_refresh()
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+		Cron.After(self.delay_updating_native_settings, function()
+			self:UpdateNativeSettingsPage()
+		end)
+	end
+	for _, slot in ipairs({"key1", "key2", "pad1", "pad2"}) do
+		local want_pad = slot:sub(1, 3) == "pad"
+		local option_table = DAV.NativeSettings.addKeyBinding("/DAV/adopt", T("native_settings_adopt_" .. slot), T("native_settings_adopt_" .. slot .. "_description"), cfg[slot] or "IK_None", "IK_None", cfg.hold ~= nil and cfg.hold > 0, function(key)
+			if (string.find(key, "IK_Pad") ~= nil) ~= want_pad then
+				self.log_obj:Record(LogLevel.Warning, "Invalid adopt toggle bind for " .. slot .. ": " .. key)
+			else
+				cfg[slot] = key
+			end
+			save_and_refresh()
+		end)
+		table.insert(self.option_table_list, option_table)
+	end
+	local option_table = DAV.NativeSettings.addRangeFloat("/DAV/adopt", T("native_settings_adopt_hold"), T("native_settings_adopt_hold_description"), 0.0, 3.0, 0.1, "%.1f", tonumber(cfg.hold) or 0.0, 0.0, function(value)
+		cfg.hold = math.floor(value * 10 + 0.5) / 10
+		save_and_refresh()
+	end)
+	table.insert(self.option_table_list, option_table)
+	option_table = DAV.NativeSettings.addButton("/DAV/adopt", T("native_settings_adopt_clear"), T("native_settings_adopt_clear_description"), T("native_settings_adopt_clear_button"), 45, function()
+		cfg.key1 = "IK_None"
+		cfg.key2 = "IK_None"
+		cfg.pad1 = "IK_None"
+		cfg.pad2 = "IK_None"
+		save_and_refresh()
+	end)
+	table.insert(self.option_table_list, option_table)
+end
+
+--- Flyable Vehicles: every owned vehicle with a switch. DAV AVs / helicopters stay locked on.
+function UI:CreateFlyableVehicleSettings()
+	local core = DAV.core_obj
+	local flyable = DAV.user_setting_table.adopt_flyable
+	if flyable == nil then
+		return
+	end
+	local list = core:GetOwnedVehicleList()
+	if #list == 0 then
+		local option_table = DAV.NativeSettings.addButton("/DAV/flyable", core:GetTranslationText("native_settings_flyable_empty"), core:GetTranslationText("native_settings_flyable_empty_description"), core:GetTranslationText("native_settings_flyable_empty_button"), 45, function()
+			Cron.After(self.delay_updating_native_settings, function()
+				self:UpdateNativeSettingsPage()
+			end)
+		end)
+		table.insert(self.option_table_list, option_table)
+		return
+	end
+	for _, v in ipairs(list) do
+		if not v.is_bike then -- motorcycles are not supported
+		local description = v.is_av and core:GetTranslationText("native_settings_flyable_av_description") or core:GetTranslationText("native_settings_flyable_description")
+		local current = v.is_av or core:IsAdoptFlyable(TweakDBID.new(v.name))
+		local option_table = DAV.NativeSettings.addSwitch("/DAV/flyable", v.label, description .. " (" .. v.name .. ")", current, v.is_av, function(state)
+			if not v.is_av then
+				flyable[v.name] = state
+				Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+			end
+			if v.is_av and not state then
+				-- Locked on: flip the switch straight back.
+				Cron.After(self.delay_updating_native_settings, function()
+					self:UpdateNativeSettingsPage()
+				end)
+			end
+		end)
+		table.insert(self.option_table_list, option_table)
+		end
+	end
+end
+
+--- Rebuild the overlay's owned-vehicle list (called when the CET overlay opens).
+function UI:RefreshAdoptOverlayList()
+	local core = DAV.core_obj
+	self.adopt_overlay_list = core:GetOwnedVehicleList()
+	for _, v in ipairs(self.adopt_overlay_list) do
+		v.state = v.is_av or core:IsAdoptFlyable(TweakDBID.new(v.name))
+	end
+end
+
+function UI:SaveAdoptOverlayIfDirty()
+	if self.adopt_overlay_dirty then
+		self.adopt_overlay_dirty = false
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	end
+end
+
+--- CET overlay window: Drive / Fly Toggle bindings + Flyable Vehicles. Mirrors the Native Settings
+--- sections so the feature stays usable when Native Settings cannot draw its pages.
+function UI:DrawAdoptOverlay()
+	local cfg = DAV.user_setting_table.adopt_toggle
+	local flyable = DAV.user_setting_table.adopt_flyable
+	if cfg == nil or flyable == nil then
+		return
+	end
+	local core = DAV.core_obj
+	local function save()
+		Utils:WriteJson(DAV.user_setting_path, DAV.user_setting_table)
+	end
+	ImGui.SetNextWindowSize(460, 520, ImGuiCond.FirstUseEver)
+	if ImGui.Begin("DAV - Drive / Fly") then
+		ImGui.Text("Drive / Fly Toggle")
+		ImGui.Separator()
+		local labels = {key1 = "Keyboard key 1", key2 = "Keyboard key 2 (opt.)", pad1 = "Controller button 1", pad2 = "Controller button 2 (opt.)"}
+		for _, slot in ipairs({"key1", "key2", "pad1", "pad2"}) do
+			ImGui.PushID(slot)
+			local val = cfg[slot] or "IK_None"
+			local shown = val == "IK_None" and "-" or string.gsub(val, "^IK_", "")
+			if DAV.adopt_capture_slot == slot then
+				shown = "close overlay, press it (Esc cancels)"
+			end
+			if ImGui.Button("Bind") then
+				DAV.adopt_capture_slot = slot
+			end
+			ImGui.SameLine()
+			if ImGui.Button("Clear") then
+				cfg[slot] = "IK_None"
+				if DAV.adopt_capture_slot == slot then
+					DAV.adopt_capture_slot = nil
+				end
+				save()
+			end
+			ImGui.SameLine()
+			ImGui.Text(labels[slot] .. ": " .. shown)
+			ImGui.PopID()
+		end
+		local hold, used = ImGui.SliderFloat("Hold time (s)", tonumber(cfg.hold) or 0.0, 0.0, 3.0, "%.1f")
+		if used then
+			cfg.hold = math.floor(hold * 10 + 0.5) / 10
+			self.adopt_overlay_dirty = true
+		end
+		ImGui.TextDisabled("0 = toggle on press. Two keys = hold both together.")
+		ImGui.Spacing()
+		ImGui.Text("Autopilot (tap)")
+		ImGui.Separator()
+		local ap_labels = {ap_key = "Keyboard key", ap_pad = "Controller button"}
+		for _, slot in ipairs({"ap_key", "ap_pad"}) do
+			ImGui.PushID(slot)
+			local val = cfg[slot] or "IK_None"
+			local shown = val == "IK_None" and "-" or string.gsub(val, "^IK_", "")
+			if DAV.adopt_capture_slot == slot then
+				shown = "close overlay, press it (Esc cancels)"
+			end
+			if ImGui.Button("Bind") then
+				DAV.adopt_capture_slot = slot
+			end
+			ImGui.SameLine()
+			if ImGui.Button("Clear") then
+				cfg[slot] = "IK_None"
+				if DAV.adopt_capture_slot == slot then
+					DAV.adopt_capture_slot = nil
+				end
+				save()
+			end
+			ImGui.SameLine()
+			ImGui.Text(ap_labels[slot] .. ": " .. shown)
+			ImGui.PopID()
+		end
+		ImGui.TextDisabled("Same button as Drive / Fly with hold > 0: tap = autopilot, hold = take off / land.")
+		if core ~= nil then
+			local _, conflict_kb = core:IsAdoptAutopilotShared(false)
+			local _, conflict_pad = core:IsAdoptAutopilotShared(true)
+			if conflict_kb or conflict_pad then
+				ImGui.TextColored(1.0, 0.6, 0.2, 1.0, "Shared button needs Hold time > 0 - autopilot tap is ignored until then.")
+			end
+		end
+		ImGui.Spacing()
+		ImGui.Text("Flyable Vehicles")
+		ImGui.Separator()
+		if ImGui.Button("Refresh list") then
+			self:RefreshAdoptOverlayList()
+		end
+		local list = self.adopt_overlay_list or {}
+		if #list == 0 then
+			ImGui.TextDisabled("No owned vehicles found - load a save, then Refresh.")
+		end
+		for _, v in ipairs(list) do
+			ImGui.PushID(v.name)
+			if v.is_av then
+				ImGui.Checkbox(v.label .. "  (DAV aircraft - always on)", true)
+			elseif v.is_bike then
+				ImGui.TextDisabled("      " .. v.label .. "  (motorcycle - not supported)")
+			else
+				local new_state, pressed = ImGui.Checkbox(v.label, v.state)
+				if pressed then
+					v.state = new_state
+					flyable[v.name] = new_state
+					save()
+				end
+			end
+			if ImGui.IsItemHovered() then
+				ImGui.SetTooltip(v.name)
+			end
+			ImGui.PopID()
+		end
+	end
+	ImGui.End()
 end
 
 --- Create Setting items.
@@ -268,6 +478,9 @@ function UI:CreateNativeSettingsPage()
 	end
 	self.option_table_list = {}
 	local option_table
+
+	self:CreateAdoptToggleSettings()
+	self:CreateFlyableVehicleSettings()
 
 	-- general
     option_table = DAV.NativeSettings.addSelectorString("/DAV/general", DAV.core_obj:GetTranslationText("native_settings_general_language"), DAV.core_obj:GetTranslationText("native_settings_general_language_description"), DAV.core_obj.language_name_list, DAV.user_setting_table.language_index, 1, function(index)
